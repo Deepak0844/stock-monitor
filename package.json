@@ -1,0 +1,26 @@
+{
+  "name": "stock-monitor",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.18.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "test:unit": "vitest run --exclude '**/*.int.test.ts' --exclude '**/node_modules/**' --exclude '.claude/**'",
+    "test:integration": "vitest run --passWithNoTests --exclude '.claude/**' .int.test.ts",
+    "check": "pnpm typecheck && pnpm lint && pnpm test:unit && pnpm test:integration"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.6",
+    "eslint": "^10.14.0",
+    "prettier": "^3.9.10",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.72.1",
+    "vitest": "^5.1.0"
+  }
+}

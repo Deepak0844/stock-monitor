@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'REQUIRED: Before responding, invoke the project skills per CLAUDE.md: using-superpowers, caveman, ponytail, karpathy-guidelines, using-agent-skills, graphify (code exploration), and ui-ux-pro-max + design-taste-frontend for any UI work.'"
+          }
+        ]
+      }
+    ]
+  }
+}
