@@ -62,13 +62,15 @@ Every task is test-first (red, green, refactor). Run `pnpm check` before marking
 ## Task 5: Audit writer with restricted database role
 **Description:** `audit.record()` with a detail redactor, and a database role for the app that can INSERT and SELECT but not UPDATE or DELETE on `audit_events`.
 **Acceptance criteria:**
-- [ ] An event is stored with actor, action, entity and request id
-- [ ] Secret-like keys in `details` are stripped
-- [ ] An UPDATE or DELETE on `audit_events` by the app role fails (integration test)
+- [x] An event is stored with actor, action, entity and request id
+- [x] Secret-like keys in `details` are stripped
+- [x] An UPDATE or DELETE on `audit_events` by the app role fails (integration test)
 **Verification:** `pnpm test:integration`
 **Dependencies:** 3
 **Files:** `packages/audit/src/*`, role migration, tests
 **Scope:** Medium
+
+**Status:** done 2026-11-08. App connects as a login role inside `app_user`; production setup must create that login role and `GRANT app_user` to it.
 
 ## Task 6: API skeleton with route protection
 **Description:** Fastify app with `/health`, a stable error format, request ids and a hook that rejects unauthenticated requests outside an allow-list.

@@ -17,5 +17,9 @@
     "drizzle-kit": "^0.31.11",
     "testcontainers": "^12.2.1",
     "tsx": "^4.23.15"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./test-harness": "./test/harness.ts"
   }
 }

@@ -10,6 +10,9 @@ export type TestDb = {
   url: string;
   pool: pg.Pool;
   db: ReturnType<typeof drizzle>;
+  /** Connected as the restricted app role, the way the real API and worker connect. */
+  appPool: pg.Pool;
+  appDb: ReturnType<typeof drizzle>;
   stop: () => Promise<void>;
 };
 
@@ -27,11 +30,19 @@ export async function startTestDb(): Promise<TestDb> {
   await migrate(db, {
     migrationsFolder: fileURLToPath(new URL("../drizzle", import.meta.url)),
   });
+  await pool.query("create role app_login login password 'app_login_pw' in role app_user");
+  const appUrl = new URL(url);
+  appUrl.username = "app_login";
+  appUrl.password = "app_login_pw";
+  const appPool = new pg.Pool({ connectionString: appUrl.toString() });
   return {
     url,
     pool,
     db,
+    appPool,
+    appDb: drizzle(appPool),
     stop: async () => {
+      await appPool.end();
       await pool.end();
       await container.stop();
     },
