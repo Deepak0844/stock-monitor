@@ -49,24 +49,28 @@ Every task is test-first (red, green, refactor). Run `pnpm check` before marking
 ## Task 4: Crypto package
 **Description:** AES-256-GCM `encrypt` and `decrypt` with `keyId`, plus a key loader that reads `APP_ENCRYPTION_KEY`.
 **Acceptance criteria:**
-- [ ] Round trip returns the original text
-- [ ] A changed ciphertext, tag or wrong key makes `decrypt` throw
-- [ ] A key of the wrong length is rejected at load
+- [x] Round trip returns the original text
+- [x] A changed ciphertext, tag or wrong key makes `decrypt` throw
+- [x] A key of the wrong length is rejected at load
 **Verification:** `pnpm test:unit`
 **Dependencies:** 1
 **Files:** `packages/crypto/src/{encrypt,decrypt,key}.ts`, tests
 **Scope:** Small
 
+**Status:** done 2026-11-08.
+
 ## Task 5: Audit writer with restricted database role
 **Description:** `audit.record()` with a detail redactor, and a database role for the app that can INSERT and SELECT but not UPDATE or DELETE on `audit_events`.
 **Acceptance criteria:**
-- [ ] An event is stored with actor, action, entity and request id
-- [ ] Secret-like keys in `details` are stripped
-- [ ] An UPDATE or DELETE on `audit_events` by the app role fails (integration test)
+- [x] An event is stored with actor, action, entity and request id
+- [x] Secret-like keys in `details` are stripped
+- [x] An UPDATE or DELETE on `audit_events` by the app role fails (integration test)
 **Verification:** `pnpm test:integration`
 **Dependencies:** 3
 **Files:** `packages/audit/src/*`, role migration, tests
 **Scope:** Medium
+
+**Status:** done 2026-11-08. App connects as a login role inside `app_user`; production setup must create that login role and `GRANT app_user` to it.
 
 ## Task 6: API skeleton with route protection
 **Description:** Fastify app with `/health`, a stable error format, request ids and a hook that rejects unauthenticated requests outside an allow-list.

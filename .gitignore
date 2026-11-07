@@ -6,3 +6,17 @@ dist
 *.log
 .DS_Store
 graphify-out
+
+# Build and test output
+coverage
+playwright-report
+test-results
+*.tsbuildinfo
+
+# Editor and local tooling
+.vscode
+.idea
+.claude/settings.local.json
+
+# Claude Code skills and settings (restore skills from skills-lock.json)
+.claude
