@@ -17,3 +17,6 @@ test-results
 .vscode
 .idea
 .claude/settings.local.json
+
+# Claude Code skills and settings (restore skills from skills-lock.json)
+.claude
