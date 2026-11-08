@@ -13,7 +13,8 @@
     "@stock-monitor/shopify": "*",
     "drizzle-orm": "^0.45.4",
     "pg": "^8.23.1",
-    "tsx": "^4.23.15"
+    "tsx": "^4.23.15",
+    "@stock-monitor/supplier-session": "*"
   },
   "devDependencies": {
     "@testcontainers/postgresql": "^12.2.1",

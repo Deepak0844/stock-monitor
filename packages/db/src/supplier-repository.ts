@@ -1,4 +1,4 @@
-import { asc, eq, sql } from "drizzle-orm";
+import { asc, eq, sql, type SQL } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { suppliers } from "./schema.js";
 
@@ -36,7 +36,7 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
     return (row as SupplierRecord | undefined) ?? null;
   };
 
-  const set = async (id: string, values: Partial<typeof suppliers.$inferInsert>): Promise<SupplierRecord | null> => {
+  const set = async (id: string, values: Partial<{ [K in keyof typeof suppliers.$inferInsert]: (typeof suppliers.$inferInsert)[K] | SQL }>): Promise<SupplierRecord | null> => {
     if (!UUID.test(id)) return null;
     const [row] = await db.update(suppliers).set({ ...values, updatedAt: new Date() }).where(eq(suppliers.id, id)).returning();
     return (row as SupplierRecord | undefined) ?? null;
@@ -74,6 +74,18 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
       const rows = await db.delete(suppliers).where(eq(suppliers.id, id)).returning({ id: suppliers.id });
       return rows.length > 0;
     },
+
+    /**
+     * A login has just been saved. The supplier is connected, and a pause the app made because the
+     * session needed attention is lifted. A pause the owner made is not.
+     */
+    markConnected: (id: string) =>
+      set(id, {
+        sessionStatus: "connected",
+        enabled: sql`case when ${suppliers.pausedReason} = 'session' then true else ${suppliers.enabled} end`,
+        pausedReason: sql`case when ${suppliers.pausedReason} = 'session' then null else ${suppliers.pausedReason} end`,
+      }),
+    markNotConnected: (id: string) => set(id, { sessionStatus: "not_connected" }),
 
     pause: (id: string) => set(id, { enabled: false, pausedReason: "owner" }),
     resume: (id: string) => set(id, { enabled: true, pausedReason: null }),

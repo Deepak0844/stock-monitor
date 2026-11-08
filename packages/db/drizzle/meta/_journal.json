@@ -36,6 +36,13 @@
       "when": 1794150146229,
       "tag": "0004_suppliers",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794154546404,
+      "tag": "0005_login_sessions",
+      "breakpoints": true
     }
   ]
 }
