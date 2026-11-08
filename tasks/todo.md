@@ -5,13 +5,15 @@ Every task is test-first (red, green, refactor). Run `npm run check` before mark
 ## Task 1: Shopify domain check and error vocabulary
 **Description:** In a new `packages/shopify`, a validator that accepts only `*.myshopify.com` shop domains, and a small set of typed Shopify errors with plain-English messages (rejected credentials, no access, throttled, cannot reach Shopify, unexpected reply).
 **Acceptance criteria:**
-- [ ] Accepts `my-store.myshopify.com`. Rejects `evil.com`, `x.myshopify.com.evil.com`, `https://x.myshopify.com`, paths, ports, uppercase tricks, empty and very long input
-- [ ] Each error type carries a code and a message safe to show the owner, with no raw upstream text
-- [ ] `packages/shopify` exists in the workspace and is imported by tests
+- [x] Accepts `my-store.myshopify.com`. Rejects `evil.com`, `x.myshopify.com.evil.com`, `https://x.myshopify.com`, paths, ports, uppercase tricks, empty and very long input
+- [x] Each error type carries a code and a message safe to show the owner, with no raw upstream text
+- [x] `packages/shopify` exists in the workspace and is imported by tests
 **Verification:** `npm run test:unit`
 **Dependencies:** None
 **Files:** `packages/shopify/package.json`, `src/domain.ts`, `src/errors.ts`, two test files
 **Scope:** Small
+
+**Status:** done 2026-11-08. The domain check runs on the original text and lower-cases afterwards, because a Kelvin sign (U+212A) lower-cases to a plain `k`. Surrounding spaces and capital letters are accepted and normalised, since the owner may paste either.
 
 ## Task 2: Token provider and the fake Shopify server
 **Description:** A provider that returns a valid access token. For `client_credentials` it requests one from the shop's `/admin/oauth/access_token`, caches it in memory, refreshes about 10 minutes before expiry, and shares one in-flight refresh between concurrent callers. For `static_token` it returns the stored token. Also builds the test-only fake Shopify server (token endpoint first).
