@@ -46,4 +46,29 @@ describe("loadConfig", () => {
   it("rejects a malformed DATABASE_URL", () => {
     expect(() => loadConfig({ ...valid, DATABASE_URL: "not a url" })).toThrow(/DATABASE_URL/);
   });
+
+  it("listens on 127.0.0.1 unless told otherwise", () => {
+    expect(loadConfig(valid).host).toBe("127.0.0.1");
+    expect(loadConfig({ ...valid, HOST: "0.0.0.0" }).host).toBe("0.0.0.0");
+  });
+
+  it("uses secure cookies by default only in production", () => {
+    expect(loadConfig({ ...valid, NODE_ENV: "production" }).cookieSecure).toBe(true);
+    expect(loadConfig({ ...valid, NODE_ENV: "development" }).cookieSecure).toBe(false);
+  });
+
+  it("lets COOKIE_SECURE override the default, for plain-http local runs", () => {
+    expect(loadConfig({ ...valid, NODE_ENV: "production", COOKIE_SECURE: "false" }).cookieSecure).toBe(false);
+    expect(loadConfig({ ...valid, NODE_ENV: "development", COOKIE_SECURE: "true" }).cookieSecure).toBe(true);
+  });
+
+  it("does not trust proxy headers unless TRUST_PROXY is true", () => {
+    expect(loadConfig(valid).trustProxy).toBe(false);
+    expect(loadConfig({ ...valid, TRUST_PROXY: "true" }).trustProxy).toBe(true);
+  });
+
+  it("rejects a boolean setting that is not true or false", () => {
+    expect(() => loadConfig({ ...valid, COOKIE_SECURE: "yes" })).toThrow(/COOKIE_SECURE/);
+    expect(() => loadConfig({ ...valid, TRUST_PROXY: "1" })).toThrow(/TRUST_PROXY/);
+  });
 });

@@ -8,6 +8,9 @@ const schema = z.object({
     .refine((v) => Buffer.from(v, "base64").length === 32, "must be 32 bytes, base64 encoded"),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
+  HOST: z.string().min(1).default("127.0.0.1"),
+  COOKIE_SECURE: z.enum(["true", "false"]).optional(),
+  TRUST_PROXY: z.enum(["true", "false"]).default("false"),
 });
 
 export type Config = {
@@ -16,6 +19,11 @@ export type Config = {
   encryptionKey: Buffer;
   port: number;
   logLevel: "fatal" | "error" | "warn" | "info" | "debug" | "trace";
+  host: string;
+  /** Send the session cookie only over HTTPS. Defaults to on in production. */
+  cookieSecure: boolean;
+  /** Believe X-Forwarded-For. Only turn on behind a proxy that overwrites that header. */
+  trustProxy: boolean;
 };
 
 export function loadConfig(env: Record<string, string | undefined>): Config {
@@ -34,5 +42,8 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     encryptionKey: Buffer.from(c.APP_ENCRYPTION_KEY, "base64"),
     port: c.PORT,
     logLevel: c.LOG_LEVEL,
+    host: c.HOST,
+    cookieSecure: c.COOKIE_SECURE ? c.COOKIE_SECURE === "true" : c.NODE_ENV === "production",
+    trustProxy: c.TRUST_PROXY === "true",
   };
 }

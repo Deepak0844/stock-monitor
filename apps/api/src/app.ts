@@ -36,6 +36,8 @@ export type AppDeps = {
   secureCookies?: boolean;
   /** Folder holding the built web app. When set, the API serves it from the same origin. */
   webRoot?: string;
+  /** Believe X-Forwarded-For for the client address. Off unless a trusted proxy sits in front. */
+  trustProxy?: boolean;
 };
 
 const SECURITY_HEADERS = {
@@ -50,11 +52,12 @@ const isApiPath = (path: string) => path === "/api" || path.startsWith("/api/");
 
 const loginBody = z.object({ email: z.string().min(1), password: z.string().min(1) });
 
-export function buildApp({ db, logger, secureCookies = false, webRoot }: AppDeps) {
+export function buildApp({ db, logger, secureCookies = false, webRoot, trustProxy = false }: AppDeps) {
   const app = Fastify({
     loggerInstance: logger,
     genReqId: () => randomUUID(),
     requestIdHeader: false,
+    trustProxy,
   });
 
   app.register(cookie);
