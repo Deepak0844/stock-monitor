@@ -48,10 +48,11 @@ describe("ShopifyError", () => {
   });
 
   it("keeps internal detail out of the message and out of the serialised form", () => {
-    const error = new ShopifyError("unreachable", { detail: "connect ECONNREFUSED token=shpat_secret123" });
-    expect(error.message).not.toContain("shpat_secret123");
-    expect(JSON.stringify(error)).not.toContain("shpat_secret123");
-    expect(String(error)).not.toContain("shpat_secret123");
+    const marker = "UPSTREAM-DETAIL-MARKER";
+    const error = new ShopifyError("unreachable", { detail: `connect ECONNREFUSED ${marker}` });
+    expect(error.message).not.toContain(marker);
+    expect(JSON.stringify(error)).not.toContain(marker);
+    expect(String(error)).not.toContain(marker);
   });
 
   it("keeps the detail available for developers only, outside the message", () => {
