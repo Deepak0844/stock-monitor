@@ -1,18 +1,24 @@
 // The browser service's entry point. Everything it needs comes from the environment, and it has no
 // database and no encryption key.
+import { loadConfig } from "./config.js";
 import { startBrowserService } from "./service.js";
 
-const token = process.env.CONTROL_TOKEN ?? "";
-if (token.length < 32) {
-  console.error("CONTROL_TOKEN must be set to at least 32 characters.");
+let config;
+try {
+  config = loadConfig(process.env);
+} catch (error) {
+  console.error(error instanceof Error ? error.message : "The browser service is not set up correctly.");
   process.exit(1);
 }
 
 const service = await startBrowserService({
-  token,
-  port: Number(process.env.PORT ?? 8080),
-  host: process.env.HOST ?? "0.0.0.0",
-  sandbox: process.env.NO_SANDBOX !== "1",
+  token: config.token,
+  port: config.port,
+  host: config.host,
+  sandbox: config.sandbox,
+  headedWindows: config.headed,
+  sessionTimeoutMs: config.sessionTimeoutMs,
+  guard: config.allowHosts ? { allowHosts: config.allowHosts } : undefined,
   log: (line) => console.log(line),
 });
 console.log(`browser service listening at ${service.url}`);

@@ -3,6 +3,9 @@ import type { AddressInfo } from "node:net";
 import { createControlServer } from "./server.js";
 import { createGuard, type GuardOptions } from "./guard.js";
 import { startGuardProxy } from "./proxy.js";
+import { createSessions } from "./sessions.js";
+import { createWindowOpener, type OpenedWindow } from "./window.js";
+import type { Page } from "playwright";
 import { verifyPage } from "./verify.js";
 
 export type BrowserServiceOptions = {
@@ -13,9 +16,18 @@ export type BrowserServiceOptions = {
   /** Chromium's own sandbox. On unless a host cannot allow it. */
   sandbox?: boolean;
   guard?: GuardOptions;
+  /** How long a login window may stay open. */
+  sessionTimeoutMs?: number;
+  /** false opens login windows with no display, for a machine that has none (tests). The container shows them on its virtual screen. */
+  headedWindows?: boolean;
   log?: (line: string) => void;
 };
-export type BrowserService = { url: string; close(): Promise<void> };
+export type BrowserService = {
+  url: string;
+  /** For tests only: the page in the open login window, so a test can type into it. Not reachable from outside the process. */
+  loginPage(): Page | null;
+  close(): Promise<void>;
+};
 
 const MIN_TOKEN = 32;
 
@@ -40,9 +52,22 @@ export async function startBrowserService(options: BrowserServiceOptions): Promi
   };
   await getBrowser();
 
+  let open: OpenedWindow | null = null;
+  const openWindow = createWindowOpener({ proxy, sandbox: options.sandbox ?? true, headless: !(options.headedWindows ?? true) });
+  const sessions = createSessions({
+    timeoutMs: options.sessionTimeoutMs,
+    openWindow: async (url) => {
+      const window = await openWindow(url);
+      open = window;
+      window.onClosed(() => void (open = open === window ? null : open));
+      return window;
+    },
+  });
+
   const server = createControlServer({
     token: options.token,
     log: options.log,
+    sessions,
     verify: async (request) =>
       verifyPage(await getBrowser(), request, { navigationTimeoutMs: options.navigationTimeoutMs, proxy }),
   });
@@ -54,7 +79,9 @@ export async function startBrowserService(options: BrowserServiceOptions): Promi
 
   return {
     url: `http://${options.host}:${port}`,
+    loginPage: () => open?.page ?? null,
     async close() {
+      await sessions.closeAll();
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await (await launching?.catch(() => null))?.close();
