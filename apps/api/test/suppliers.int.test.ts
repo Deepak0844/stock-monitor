@@ -36,7 +36,7 @@ afterAll(async () => {
   await t?.stop();
 });
 beforeEach(async () => {
-  await t.pool.query("truncate suppliers, audit_events");
+  await t.pool.query("truncate suppliers, audit_events cascade");
   lookedUp.length = 0;
   for (const k of Object.keys(dns)) delete dns[k];
 });

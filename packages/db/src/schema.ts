@@ -146,3 +146,53 @@ export const suppliers = pgTable(
     uniqueIndex("suppliers_name_unique").on(sql`lower(${t.name})`),
   ],
 );
+
+// One interactive login. Only one can be open at a time, because there is one shared screen, and the
+// database enforces it. The one-time token is stored only as a hash. `failure_reason` is a fixed code, never free text.
+export const loginSessions = pgTable(
+  "login_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    supplierId: uuid("supplier_id")
+      .notNull()
+      .references(() => suppliers.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    status: text("status").notNull().default("starting"),
+    startedBy: uuid("started_by").references(() => users.id, { onDelete: "set null" }),
+    /** The browser service's own id for the window. Not secret. */
+    browserSessionId: text("browser_session_id"),
+    failureReason: text("failure_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }).notNull(),
+    /** When the browser closes the window by itself. */
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    tokenUsedAt: timestamp("token_used_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+  },
+  (t) => [
+    check("login_sessions_status", sql`${t.status} in ('starting', 'ready', 'connected', 'saving', 'finished', 'cancelled', 'expired', 'failed')`),
+    check(
+      "login_sessions_failure_reason",
+      sql`${t.failureReason} is null or ${t.failureReason} in ('browser_unavailable', 'window_failed', 'window_already_open', 'read_failed', 'save_failed')`,
+    ),
+    // At most one open attempt anywhere: every open row has the same constant key.
+    uniqueIndex("login_sessions_one_open").on(sql`(true)`).where(sql`${t.status} in ('starting', 'ready', 'connected', 'saving')`),
+  ],
+);
+
+// The saved login, sealed (AES-256-GCM). The screens never read this table. Beside it are plain facts that
+// say nothing secret: which sites it covers and how big it is.
+export const supplierSessions = pgTable("supplier_sessions", {
+  supplierId: uuid("supplier_id")
+    .primaryKey()
+    .references(() => suppliers.id, { onDelete: "cascade" }),
+  stateCiphertext: text("state_ciphertext").notNull(),
+  stateIv: text("state_iv").notNull(),
+  stateTag: text("state_tag").notNull(),
+  stateKeyId: text("state_key_id").notNull(),
+  cookieCount: integer("cookie_count").notNull(),
+  domains: text("domains").array().notNull().default(sql`'{}'::text[]`),
+  sizeBytes: integer("size_bytes").notNull(),
+  savedAt: timestamp("saved_at", { withTimezone: true }).notNull().defaultNow(),
+  lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }),
+});
