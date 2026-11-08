@@ -81,7 +81,7 @@ const control = createServer(async (req, res) => {
       return reply(200);
     }
     if (req.method === "POST" && req.url === "/control/reset-suppliers") {
-      await db.pool.query("truncate suppliers");
+      await db.pool.query("truncate suppliers cascade");
       return reply(200);
     }
     if (req.method === "POST" && req.url === "/control/rotate-secret") {

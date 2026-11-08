@@ -13,7 +13,7 @@ afterAll(async () => {
   await t?.stop();
 });
 beforeEach(async () => {
-  await t.pool.query("truncate suppliers");
+  await t.pool.query("truncate suppliers cascade");
 });
 
 const acme: SupplierInput = { name: "Acme Supply", websiteUrl: "https://acme.example/", loginUrl: null, checkIntervalMinutes: 60 };
