@@ -18,6 +18,8 @@ export type BrowserServiceOptions = {
   guard?: GuardOptions;
   /** How long a login window may stay open. */
   sessionTimeoutMs?: number;
+  /** The VNC password to give callers who open a window. */
+  vncPassword?: string;
   /** false opens login windows with no display, for a machine that has none (tests). The container shows them on its virtual screen. */
   headedWindows?: boolean;
   log?: (line: string) => void;
@@ -68,6 +70,7 @@ export async function startBrowserService(options: BrowserServiceOptions): Promi
     token: options.token,
     log: options.log,
     sessions,
+    vncPassword: options.vncPassword,
     verify: async (request) =>
       verifyPage(await getBrowser(), request, { navigationTimeoutMs: options.navigationTimeoutMs, proxy }),
   });

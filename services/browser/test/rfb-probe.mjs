@@ -1,10 +1,13 @@
-// A stand-in VNC client, run inside the container (its port is not published). It connects, asks
-// for one full picture of the screen, and prints what it found as JSON.
+// A stand-in VNC client, run inside the container (its port is not published). It connects, logs in
+// with the password in PROBE_PASSWORD (or tries with none), asks for one full picture of the screen,
+// and prints what it found as JSON. Run with --openssl-legacy-provider: VNC's password check uses DES.
 import { Buffer } from "node:buffer";
+import { createCipheriv } from "node:crypto";
 import net from "node:net";
 import process from "node:process";
 
 const print = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
+const password = process.env.PROBE_PASSWORD;
 
 const socket = net.connect(5900, "127.0.0.1");
 let buffer = Buffer.alloc(0);
@@ -23,14 +26,39 @@ const read = async (n) => {
   buffer = buffer.subarray(n);
   return out;
 };
+const finish = (result) => {
+  print(result);
+  socket.destroy();
+  process.exit(0);
+};
 
-const banner = (await read(12)).toString("latin1");
+const banner = (await read(12)).toString("latin1").trim();
 socket.write("RFB 003.008\n");
 const [count] = await read(1);
-const types = [...(await read(count))];
-if (!types.includes(1)) throw new Error("no 'none' security type");
-socket.write(Buffer.from([1]));
-if ((await read(4)).readUInt32BE(0) !== 0) throw new Error("security refused");
+const securityTypes = [...(await read(count))];
+
+if (password === undefined) {
+  // With no password, the only way in would be the "none" type. It must not be offered.
+  if (!securityTypes.includes(1)) finish({ banner, securityTypes, offeredNone: false });
+  socket.write(Buffer.from([1]));
+} else {
+  if (!securityTypes.includes(2)) throw new Error("no password login offered");
+  socket.write(Buffer.from([2]));
+  const challenge = await read(16);
+  // VNC takes the first 8 characters of the password as a DES key, with the bits of each byte reversed.
+  const key = Buffer.alloc(8);
+  for (let i = 0; i < 8; i++) {
+    const byte = password.charCodeAt(i) || 0;
+    let flipped = 0;
+    for (let bit = 0; bit < 8; bit++) flipped |= ((byte >> bit) & 1) << (7 - bit);
+    key[i] = flipped;
+  }
+  const cipher = createCipheriv("des-ecb", key, null);
+  cipher.setAutoPadding(false);
+  socket.write(Buffer.concat([cipher.update(challenge), cipher.final()]));
+}
+if ((await read(4)).readUInt32BE(0) !== 0) finish({ banner, securityTypes, authFailed: true });
+
 socket.write(Buffer.from([1])); // shared
 const init = await read(24);
 const width = init.readUInt16BE(0);
@@ -54,6 +82,4 @@ for (let i = 0; i < head.readUInt16BE(2); i++) {
   const pixels = await read(rect.readUInt16BE(4) * rect.readUInt16BE(6) * bytesPerPixel);
   for (let p = 0; p + bytesPerPixel <= pixels.length; p += bytesPerPixel) colours.add(pixels.readUInt32LE(p) & 0xffffff);
 }
-print({ banner: banner.trim(), width, height, colours: colours.size });
-socket.destroy();
-process.exit(0);
+finish({ banner, securityTypes, width, height, colours: colours.size });

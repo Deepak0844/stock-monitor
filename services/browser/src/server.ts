@@ -16,6 +16,8 @@ export type ControlServerOptions = {
   verify: VerifyFn;
   /** The live login window. Left out, the service has no /sessions routes. */
   sessions?: SessionsApi;
+  /** Handed to the caller with each new window, so it can log in to the shared screen. */
+  vncPassword?: string;
   log?: (line: string) => void;
   maxBodyBytes?: number;
 };
@@ -65,7 +67,7 @@ const SESSION_PATH = /^\/sessions(?:\/([^/]+?)(\/finish)?)?$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The service's only door. Plain HTTP on the private network: the caller proves itself with the control token. */
-export function createControlServer({ token, verify, sessions, log = () => {}, maxBodyBytes = 5_000_000 }: ControlServerOptions): Server {
+export function createControlServer({ token, verify, sessions, vncPassword, log = () => {}, maxBodyBytes = 5_000_000 }: ControlServerOptions): Server {
   const tokenDigest = digest(token);
   const authorised = (header: string | undefined) => {
     const given = /^Bearer (.+)$/.exec(header ?? "")?.[1];
@@ -93,7 +95,7 @@ export function createControlServer({ token, verify, sessions, log = () => {}, m
         const url = keys.length === 1 && keys[0] === "url" ? (body as { url: unknown }).url : undefined;
         if (!isWebUrl(url)) return reply(res, 400, { error: "invalid_request" });
         const opened = await api.open(url);
-        if (opened.ok) return reply(res, 201, { id: opened.id, expiresAt: opened.expiresAt });
+        if (opened.ok) return reply(res, 201, { id: opened.id, expiresAt: opened.expiresAt, ...(vncPassword ? { vncPassword } : {}) });
         if (opened.reason === "busy") {
           return reply(res, 409, { error: "session_open", message: "A login window is already open. Finish or cancel it first." });
         }
