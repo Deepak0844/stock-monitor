@@ -61,6 +61,13 @@ describe("App", () => {
       expect(document.title).toBe("Shopify settings · Stock Monitor");
     });
 
+    it("opens the products page at its own address", async () => {
+      window.history.replaceState(null, "", "/products");
+      render(<App api={signedIn()} />);
+      expect(await screen.findByRole("heading", { level: 1, name: "Products" })).toBeInTheDocument();
+      expect(document.title).toBe("Products · Stock Monitor");
+    });
+
     it("treats /settings as the Shopify settings page", async () => {
       window.history.replaceState(null, "", "/settings");
       render(<App api={signedIn()} />);

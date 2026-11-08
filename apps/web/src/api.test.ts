@@ -130,4 +130,22 @@ describe("shopify calls", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(respond(409, { error: { code: "not_connected", message: "Connect Shopify first." } })));
     await expect(api.shopify.startSync()).rejects.toMatchObject({ code: "not_connected", message: "Connect Shopify first." });
   });
+
+  it("asks for a page of variants, leaving out a search and filter that are not set", async () => {
+    const page = { items: [], total: 0, page: 1, pageSize: 25 };
+    const fetchMock = vi.fn().mockImplementation(async () => respond(200, page));
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await api.shopify.variants({ page: 1, pageSize: 25 })).toEqual(page);
+    expect(fetchMock.mock.calls[0]![0]).toBe("/api/shopify/variants?page=1&pageSize=25");
+  });
+
+  it("sends the search and the attention filter when they are set, safely encoded", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => respond(200, { items: [], total: 0, page: 2, pageSize: 25 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await api.shopify.variants({ page: 2, pageSize: 25, search: "50% off & more", warningsOnly: true });
+    const url = new URL(fetchMock.mock.calls[0]![0] as string, "http://x");
+    expect(url.searchParams.get("search")).toBe("50% off & more");
+    expect(url.searchParams.get("warningsOnly")).toBe("true");
+    expect(url.searchParams.get("page")).toBe("2");
+  });
 });

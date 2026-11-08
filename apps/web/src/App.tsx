@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api as realApi, type Api } from "./api.js";
 import { DashboardPage } from "./pages/DashboardPage.js";
 import { NotFoundPage } from "./pages/NotFoundPage.js";
+import { ProductsPage } from "./pages/ProductsPage.js";
 import { SettingsShopifyPage } from "./pages/SettingsShopifyPage.js";
 import { LoginPage } from "./pages/LoginPage.js";
 import { AppShell } from "./shell/AppShell.js";
@@ -76,6 +77,8 @@ export function App({ api = realApi }: { api?: Api }) {
     >
       {path === "/" ? (
         <DashboardPage />
+      ) : path === "/products" ? (
+        <ProductsPage api={api} />
       ) : path === "/settings" || path === "/settings/shopify" ? (
         <SettingsShopifyPage api={api} />
       ) : (

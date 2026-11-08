@@ -129,10 +129,11 @@ test("the navigation links to Settings and marks unbuilt sections as coming soon
   if (await menu.isVisible()) await menu.click(); // on a phone the navigation opens from the Menu button
   const nav = page.getByRole("navigation", { name: "Main" });
   await expect(nav.getByRole("link", { name: "Dashboard" })).toHaveAttribute("aria-current", "page");
-  for (const name of ["Suppliers", "Products", "Approvals", "History"]) {
+  for (const name of ["Suppliers", "Approvals", "History"]) {
     await expect(nav.getByText(name)).toBeVisible();
     await expect(nav.getByRole("link", { name })).toHaveCount(0);
   }
+  await expect(nav.getByRole("link", { name: "Products" })).toHaveAttribute("href", "/products");
   await expect(nav.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings/shopify");
 });
 

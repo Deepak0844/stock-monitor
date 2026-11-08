@@ -14,12 +14,16 @@ import {
 
 type Props = { email: string; onSignOut: () => void; children: ReactNode };
 
-// Pages that do not exist yet are shown as "Soon", never as links that go nowhere.
-const COMING = [
+type NavItem = { label: string; icon: ReactNode; to?: string; current?: (path: string) => boolean };
+
+// Pages that do not exist yet have no address and show "Soon", never a link that goes nowhere.
+const NAV: NavItem[] = [
+  { label: "Dashboard", icon: <IconDashboard />, to: "/", current: (p) => p === "/" },
   { label: "Suppliers", icon: <IconSuppliers /> },
-  { label: "Products", icon: <IconProducts /> },
+  { label: "Products", icon: <IconProducts />, to: "/products", current: (p) => p.startsWith("/products") },
   { label: "Approvals", icon: <IconApprovals /> },
   { label: "History", icon: <IconHistory /> },
+  { label: "Settings", icon: <IconSettings />, to: "/settings/shopify", current: (p) => p.startsWith("/settings") },
 ];
 
 export function AppShell({ email, onSignOut, children }: Props) {
@@ -66,31 +70,29 @@ export function AppShell({ email, onSignOut, children }: Props) {
         </div>
         <nav id="main-nav" aria-label="Main">
           <ul className="nav-list">
-            <li>
-              <Link to="/" className={path === "/" ? "nav-item is-current" : "nav-item"} aria-current={path === "/" ? "page" : undefined}>
-                <IconDashboard />
-                Dashboard
-              </Link>
-            </li>
-            {COMING.map((item) => (
-              <li key={item.label}>
-                <span className="nav-item is-disabled" aria-disabled="true">
-                  {item.icon}
-                  <span>{item.label}</span>
-                  <span className="badge">Soon</span>
-                </span>
-              </li>
-            ))}
-            <li>
-              <Link
-                to="/settings/shopify"
-                className={path.startsWith("/settings") ? "nav-item is-current" : "nav-item"}
-                aria-current={path.startsWith("/settings") ? "page" : undefined}
-              >
-                <IconSettings />
-                Settings
-              </Link>
-            </li>
+            {NAV.map((item) => {
+              const isCurrent = item.current?.(path) ?? false;
+              return (
+                <li key={item.label}>
+                  {item.to ? (
+                    <Link
+                      to={item.to}
+                      className={isCurrent ? "nav-item is-current" : "nav-item"}
+                      aria-current={isCurrent ? "page" : undefined}
+                    >
+                      {item.icon}
+                      {item.label}
+                    </Link>
+                  ) : (
+                    <span className="nav-item is-disabled" aria-disabled="true">
+                      {item.icon}
+                      <span>{item.label}</span>
+                      <span className="badge">Soon</span>
+                    </span>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </nav>
       </div>
