@@ -11,7 +11,9 @@ export default defineConfig({
   use: { baseURL: BASE_URL, trace: "retain-on-failure" },
   projects: [
     { name: "desktop", use: { ...devices["Desktop Chrome"] } },
-    { name: "phone", use: { ...devices["Pixel 7"] } },
+    // The phone run starts after the desktop run has finished. The Shopify tests share one connection
+    // and one fake store, so the two sizes must not run at the same time.
+    { name: "phone", use: { ...devices["Pixel 7"] }, dependencies: ["desktop"] },
   ],
   webServer: {
     command: "npx tsx e2e/stack.ts",

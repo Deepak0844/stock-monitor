@@ -101,6 +101,15 @@ describe("AppShell", () => {
     expect(menu).toHaveAttribute("aria-expanded", "false");
   });
 
+  it("closes the menu once a link has taken the owner to another page", async () => {
+    const { user } = setup();
+    const menu = screen.getByRole("button", { name: "Menu" });
+    await user.click(menu);
+    expect(menu).toHaveAttribute("aria-expanded", "true");
+    await user.click(within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: "Settings" }));
+    expect(menu).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("closes the menu when Escape is pressed", async () => {
     const { user } = setup();
     const menu = screen.getByRole("button", { name: "Menu" });
