@@ -19,7 +19,7 @@ type NavItem = { label: string; icon: ReactNode; to?: string; current?: (path: s
 // Pages that do not exist yet have no address and show "Soon", never a link that goes nowhere.
 const NAV: NavItem[] = [
   { label: "Dashboard", icon: <IconDashboard />, to: "/", current: (p) => p === "/" },
-  { label: "Suppliers", icon: <IconSuppliers /> },
+  { label: "Suppliers", icon: <IconSuppliers />, to: "/suppliers", current: (p) => p.startsWith("/suppliers") },
   { label: "Products", icon: <IconProducts />, to: "/products", current: (p) => p.startsWith("/products") },
   { label: "Approvals", icon: <IconApprovals /> },
   { label: "History", icon: <IconHistory /> },

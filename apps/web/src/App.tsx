@@ -3,6 +3,8 @@ import { api as realApi, type Api } from "./api.js";
 import { DashboardPage } from "./pages/DashboardPage.js";
 import { NotFoundPage } from "./pages/NotFoundPage.js";
 import { ProductsPage } from "./pages/ProductsPage.js";
+import { SupplierFormPage } from "./pages/SupplierFormPage.js";
+import { SuppliersPage } from "./pages/SuppliersPage.js";
 import { SettingsShopifyPage } from "./pages/SettingsShopifyPage.js";
 import { LoginPage } from "./pages/LoginPage.js";
 import { AppShell } from "./shell/AppShell.js";
@@ -20,6 +22,7 @@ const messageOf = (e: unknown) =>
 export function App({ api = realApi }: { api?: Api }) {
   const [state, setState] = useState<State>({ kind: "loading" });
   const path = usePath();
+  const editId = /^\/suppliers\/([^/]+)\/edit$/.exec(path)?.[1];
 
   const checkSession = useCallback(() => {
     setState({ kind: "loading" });
@@ -79,6 +82,12 @@ export function App({ api = realApi }: { api?: Api }) {
         <DashboardPage />
       ) : path === "/products" ? (
         <ProductsPage api={api} />
+      ) : path === "/suppliers" ? (
+        <SuppliersPage api={api} />
+      ) : path === "/suppliers/new" ? (
+        <SupplierFormPage api={api} />
+      ) : editId ? (
+        <SupplierFormPage key={editId} api={api} id={editId} />
       ) : path === "/settings" || path === "/settings/shopify" ? (
         <SettingsShopifyPage api={api} />
       ) : (

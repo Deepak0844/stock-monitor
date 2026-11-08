@@ -1,0 +1,164 @@
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { userEvent } from "@testing-library/user-event";
+import { ApiError, type Supplier } from "../api.js";
+import { aSupplier, fakeApi } from "../test/fake-api.js";
+import { SuppliersPage } from "./SuppliersPage.js";
+
+beforeEach(() => window.history.replaceState(null, "", "/suppliers"));
+afterEach(cleanup);
+
+const acme = aSupplier();
+const globex = aSupplier({ id: "22222222-2222-4222-8222-222222222222", name: "Globex", websiteUrl: "https://globex.example/login" });
+
+const setup = (suppliers: Supplier[], over: Parameters<typeof fakeApi>[0] = {}) => {
+  const api = fakeApi({ ...over, suppliers: { list: vi.fn().mockResolvedValue(suppliers), ...over.suppliers } });
+  render(<SuppliersPage api={api} />);
+  return { api, user: userEvent.setup() };
+};
+
+const rowOf = (name: string) => screen.getByRole("row", { name: new RegExp(name) });
+
+describe("empty and loading", () => {
+  it("shows a loading message first", () => {
+    const api = fakeApi({ suppliers: { list: vi.fn().mockReturnValue(new Promise(() => {})) } });
+    render(<SuppliersPage api={api} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Loading…");
+  });
+
+  it("says plainly there are no suppliers and offers to add one", async () => {
+    setup([]);
+    expect(await screen.findByText("No suppliers yet. Add your first supplier.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Add supplier" })).toHaveAttribute("href", "/suppliers/new");
+    expect(screen.queryByRole("table")).toBeNull();
+  });
+
+  it("shows a plain error and tries again when the list cannot load", async () => {
+    const list = vi.fn().mockRejectedValueOnce(new ApiError("Can't reach the server. Check your connection and try again.", 0)).mockResolvedValue([acme]);
+    const { user } = setup([], { suppliers: { list } });
+    expect(await screen.findByRole("alert")).toHaveTextContent("Can't reach the server");
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("Acme Supply")).toBeInTheDocument();
+  });
+});
+
+describe("the table", () => {
+  it("lists each supplier with its name, website and last-checked time, and one Add supplier link", async () => {
+    setup([acme, globex]);
+    const table = await screen.findByRole("table", { name: "Suppliers" });
+    expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Name", "Website", "Status", "Last checked", "Actions"]);
+    expect(within(rowOf("Acme Supply")).getByText("shop.acme.example")).toBeInTheDocument();
+    expect(within(rowOf("Globex")).getByText("globex.example")).toBeInTheDocument();
+    expect(within(rowOf("Acme Supply")).getByText("Never")).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "Add supplier" })).toHaveLength(1);
+  });
+
+  it("shows when a supplier was last checked", async () => {
+    setup([aSupplier({ lastSessionCheckAt: "2026-11-08T10:30:00.000Z" })]);
+    const row = await screen.findByRole("row", { name: /Acme Supply/ });
+    expect(within(row).queryByText("Never")).toBeNull();
+    expect(within(row).getByText(/2026|Nov/)).toBeInTheDocument();
+  });
+
+  it.each([
+    ["not_connected", "Not connected"],
+    ["connected", "Connected"],
+    ["needs_reconnect", "Needs reconnecting"],
+    ["blocked", "Blocked"],
+  ] as const)("writes the %s status in words: %s", async (sessionStatus, words) => {
+    setup([aSupplier({ sessionStatus })]);
+    expect(within(await screen.findByRole("row", { name: /Acme Supply/ })).getByText(words)).toBeInTheDocument();
+  });
+
+  it("shows Paused, in words, for a paused supplier whatever its session status", async () => {
+    setup([aSupplier({ enabled: false, pausedReason: "owner", sessionStatus: "connected" })]);
+    const row = await screen.findByRole("row", { name: /Acme Supply/ });
+    expect(within(row).getByText("Paused")).toBeInTheDocument();
+    expect(within(row).queryByText("Connected")).toBeNull();
+  });
+
+  it("gives each action a name that includes the supplier, so a screen reader can tell them apart", async () => {
+    setup([acme, globex]);
+    await screen.findByRole("table");
+    expect(screen.getByRole("link", { name: "Edit Acme Supply" })).toHaveAttribute("href", `/suppliers/${acme.id}/edit`);
+    expect(screen.getByRole("button", { name: "Pause Globex" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete Globex" })).toBeInTheDocument();
+  });
+});
+
+describe("pause and resume", () => {
+  it("pauses one supplier and leaves the others alone", async () => {
+    const { api, user } = setup([acme, globex]);
+    await user.click(await screen.findByRole("button", { name: "Pause Acme Supply" }));
+    expect(api.suppliers.pause).toHaveBeenCalledWith(acme.id);
+    expect(await within(rowOf("Acme Supply")).findByText("Paused")).toBeInTheDocument();
+    expect(within(rowOf("Acme Supply")).getByRole("button", { name: "Resume Acme Supply" })).toBeInTheDocument();
+    expect(within(rowOf("Globex")).getByRole("button", { name: "Pause Globex" })).toBeInTheDocument();
+  });
+
+  it("resumes a paused supplier", async () => {
+    const paused = aSupplier({ enabled: false, pausedReason: "owner" });
+    const { api, user } = setup([paused]);
+    await user.click(await screen.findByRole("button", { name: "Resume Acme Supply" }));
+    expect(api.suppliers.resume).toHaveBeenCalledWith(paused.id);
+    expect(await screen.findByRole("button", { name: "Pause Acme Supply" })).toBeInTheDocument();
+    expect(screen.getByText("Not connected")).toBeInTheDocument();
+  });
+
+  it("shows the server's plain message when pausing fails, and keeps the row as it was", async () => {
+    const pause = vi.fn().mockRejectedValue(new ApiError("That supplier does not exist.", 404, "supplier_not_found"));
+    const { user } = setup([acme], { suppliers: { pause } });
+    await user.click(await screen.findByRole("button", { name: "Pause Acme Supply" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("That supplier does not exist.");
+    expect(screen.getByRole("button", { name: "Pause Acme Supply" })).toBeEnabled();
+  });
+});
+
+describe("delete", () => {
+  it("asks first, names the supplier, and does nothing until confirmed", async () => {
+    const { api, user } = setup([acme, globex]);
+    await user.click(await screen.findByRole("button", { name: "Delete Acme Supply" }));
+    const confirm = screen.getByRole("group", { name: "Confirm delete" });
+    expect(confirm).toHaveTextContent("Delete Acme Supply?");
+    expect(confirm).toHaveTextContent("cannot be undone");
+    expect(api.suppliers.remove).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
+  });
+
+  it("cancelling changes nothing", async () => {
+    const { api, user } = setup([acme]);
+    await user.click(await screen.findByRole("button", { name: "Delete Acme Supply" }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("group", { name: "Confirm delete" })).toBeNull();
+    expect(api.suppliers.remove).not.toHaveBeenCalled();
+    expect(screen.getByText("Acme Supply")).toBeInTheDocument();
+  });
+
+  it("deletes after confirming, removes the row and says so", async () => {
+    const { api, user } = setup([acme, globex]);
+    await user.click(await screen.findByRole("button", { name: "Delete Acme Supply" }));
+    await user.click(screen.getByRole("button", { name: "Yes, delete" }));
+    expect(api.suppliers.remove).toHaveBeenCalledWith(acme.id);
+    await waitFor(() => expect(screen.queryByText("Acme Supply", { selector: "td" })).toBeNull());
+    expect(screen.getByRole("status")).toHaveTextContent("Deleted Acme Supply.");
+    expect(screen.getByText("Globex")).toBeInTheDocument();
+  });
+
+  it("shows the empty state after the last supplier is deleted", async () => {
+    const { user } = setup([acme]);
+    await user.click(await screen.findByRole("button", { name: "Delete Acme Supply" }));
+    await user.click(screen.getByRole("button", { name: "Yes, delete" }));
+    expect(await screen.findByText("No suppliers yet. Add your first supplier.")).toBeInTheDocument();
+  });
+
+  it("keeps the supplier and shows the message when deleting fails", async () => {
+    const remove = vi.fn().mockRejectedValue(new ApiError("Something went wrong. Please try again.", 500));
+    const { user } = setup([acme], { suppliers: { remove } });
+    await user.click(await screen.findByRole("button", { name: "Delete Acme Supply" }));
+    await user.click(screen.getByRole("button", { name: "Yes, delete" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong");
+    expect(screen.getByText("Acme Supply")).toBeInTheDocument();
+  });
+});

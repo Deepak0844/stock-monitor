@@ -12,6 +12,8 @@ async function post(path: string, body?: unknown): Promise<void> {
 export const control = {
   /** Forget the Shopify connection, its variants and sync runs, and restore the fake store's defaults. */
   reset: () => post("/control/reset"),
+  /** Remove every supplier. Separate from reset so the supplier and Shopify journeys do not disturb each other. */
+  resetSuppliers: () => post("/control/reset-suppliers"),
   /** The store's owner rotates the client secret: the saved one stops working. */
   rotateSecret: (newSecret: string) => post("/control/rotate-secret", { clientSecret: newSecret }),
   /** Change which permissions the fake store reports for the app. */

@@ -37,10 +37,10 @@ Every task is test-first (red, green, refactor), except the spike, which is thro
 ## Task 3: Suppliers screens
 **Description:** The Suppliers page (table with plain-word status badges, empty state, actions), an add and edit form, pause and resume, delete with confirmation, and the sidebar item going live. UI work: use `ui-ux-pro-max` and `design-taste-frontend`, the design system, screenshots and the accessibility scan.
 **Acceptance criteria:**
-- [ ] "No suppliers yet. Add your first supplier." empty state
-- [ ] Validation messages beside each field, in plain English
-- [ ] Status badges use words (Not connected, Connected, Needs reconnecting, Blocked, Paused), never colour alone
-- [ ] Looks right at desktop and phone sizes, in light and dark, with no accessibility violations
+- [x] "No suppliers yet. Add your first supplier." empty state
+- [x] Validation messages beside each field, in plain English
+- [x] Status badges use words (Not connected, Connected, Needs reconnecting, Blocked, Paused), never colour alone
+- [x] Looks right at desktop and phone sizes, in light and dark, with no accessibility violations
 **Verification:** `npm run check`, screenshots reviewed
 **Dependencies:** 2
 **Files:** `apps/web/src/pages/SuppliersPage.tsx`, `SupplierForm.tsx`, `api.ts`, `shell/AppShell.tsx`, tests

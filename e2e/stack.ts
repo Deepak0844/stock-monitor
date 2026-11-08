@@ -6,7 +6,7 @@ import { createServer } from "node:http";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { startTestDb } from "../packages/db/test/harness.js";
-import { createShopifyRepository } from "../packages/db/src/index.js";
+import { createShopifyRepository, createSupplierRepository } from "../packages/db/src/index.js";
 import { createQueue } from "../packages/queue/src/index.js";
 import { createLogger } from "../packages/shared/src/index.js";
 import { createFakeCatalog, createFakeShopify, withFakeShop } from "../packages/shopify/test/testing.js";
@@ -49,7 +49,17 @@ const queue = createQueue({ connectionString: db.appUrl, onError: (e) => logger.
 await queue.start();
 await registerHandlers(queue, logger, { shopify: { repo, baseUrl, clientOptions: { sleep: async () => {} } } });
 
-const app = buildApp({ db: db.appDb, logger, webRoot, shopify: { repo, queue, baseUrl, clientOptions: { sleep: async () => {} } } });
+// No real DNS in browser tests. Every supplier name resolves to a public address, except one that
+// stands for a name pointing at the owner's own network.
+const lookup = async (host: string) => (host === "internal.example" ? ["10.0.0.5"] : ["93.184.216.34"]);
+
+const app = buildApp({
+  db: db.appDb,
+  logger,
+  webRoot,
+  suppliers: { repo: createSupplierRepository(db.appDb), lookup },
+  shopify: { repo, queue, baseUrl, clientOptions: { sleep: async () => {} } },
+});
 
 // Control channel for the tests. Listens on this machine only.
 const control = createServer(async (req, res) => {
@@ -68,6 +78,10 @@ const control = createServer(async (req, res) => {
       fake.setCredentials({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET });
       fake.setMode("ok");
       serve(DEFAULT_SCOPES);
+      return reply(200);
+    }
+    if (req.method === "POST" && req.url === "/control/reset-suppliers") {
+      await db.pool.query("truncate suppliers");
       return reply(200);
     }
     if (req.method === "POST" && req.url === "/control/rotate-secret") {
