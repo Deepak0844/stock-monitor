@@ -118,3 +118,31 @@ export const shopifySyncRuns = pgTable(
     uniqueIndex("shopify_sync_one_running").on(t.status).where(sql`${t.status} = 'running'`),
   ],
 );
+
+// `enabled` false means paused. `paused_reason` says who paused it: the owner (never lifted
+// automatically) or the app because the session needs attention. The two always agree.
+export const suppliers = pgTable(
+  "suppliers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    websiteUrl: text("website_url").notNull(),
+    loginUrl: text("login_url"),
+    checkIntervalMinutes: integer("check_interval_minutes").notNull().default(60),
+    enabled: boolean("enabled").notNull().default(true),
+    sessionStatus: text("session_status").notNull().default("not_connected"),
+    pausedReason: text("paused_reason"),
+    lastSessionCheckAt: timestamp("last_session_check_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("suppliers_session_status", sql`${t.sessionStatus} in ('not_connected', 'connected', 'needs_reconnect', 'blocked')`),
+    check("suppliers_check_interval", sql`${t.checkIntervalMinutes} between 15 and 1440`),
+    check(
+      "suppliers_pause_reason",
+      sql`(${t.enabled} and ${t.pausedReason} is null) or (not ${t.enabled} and ${t.pausedReason} is not null and ${t.pausedReason} in ('owner', 'session'))`,
+    ),
+    uniqueIndex("suppliers_name_unique").on(sql`lower(${t.name})`),
+  ],
+);

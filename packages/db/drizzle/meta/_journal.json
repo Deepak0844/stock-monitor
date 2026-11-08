@@ -29,6 +29,13 @@
       "when": 1794139284032,
       "tag": "0003_stiff_red_wolf",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794150146229,
+      "tag": "0004_suppliers",
+      "breakpoints": true
     }
   ]
 }
