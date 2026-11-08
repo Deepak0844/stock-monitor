@@ -99,6 +99,29 @@ export type SuppliersApi = {
   resume(id: string): Promise<Supplier>;
 };
 
+export type LoginStatus = "starting" | "ready" | "connected" | "saving" | "finished" | "cancelled" | "expired" | "failed";
+export type LoginSession = {
+  id: string;
+  supplierId: string;
+  status: LoginStatus;
+  failureReason: string | null;
+  createdAt: string;
+  tokenExpiresAt: string;
+  /** When the login window closes by itself. */
+  expiresAt: string | null;
+};
+/** Plain facts about a saved login. None of it can be used to log in. */
+export type SavedSession = { savedAt: string; lastVerifiedAt: string | null; cookieCount: number; domains: string[]; sizeBytes: number };
+
+export type LoginSessionsApi = {
+  /** Opens a login window. The token is the one-time key to its screen: it is returned here and nowhere else. */
+  start(supplierId: string): Promise<{ loginSession: LoginSession; token: string }>;
+  finish(id: string): Promise<{ loginSession: LoginSession; session: SavedSession | null }>;
+  cancel(id: string): Promise<LoginSession>;
+  /** For a page that is closing: asks the server to cancel, and does not wait for the answer. */
+  cancelOnLeave(id: string): void;
+};
+
 export type Api = {
   /** The signed-in owner, or null when nobody is signed in. */
   getMe(): Promise<Owner | null>;
@@ -106,6 +129,7 @@ export type Api = {
   logout(): Promise<void>;
   shopify: ShopifyApi;
   suppliers: SuppliersApi;
+  loginSessions: LoginSessionsApi;
 };
 
 /** A failed request. The message is plain English from the server. The code says which kind of problem. */
@@ -203,6 +227,18 @@ const suppliers: SuppliersApi = {
   resume: (id) => supplier(`/api/suppliers/${encodeURIComponent(id)}/resume`, { method: "POST" }),
 };
 
+const loginSessions: LoginSessionsApi = {
+  start: (supplierId) => request(`/api/suppliers/${encodeURIComponent(supplierId)}/login-session`, { method: "POST" }),
+  finish: (id) => request(`/api/login-sessions/${encodeURIComponent(id)}/finish`, { method: "POST" }),
+  async cancel(id) {
+    return (await request<{ loginSession: LoginSession }>(`/api/login-sessions/${encodeURIComponent(id)}/cancel`, { method: "POST" })).loginSession;
+  },
+  cancelOnLeave(id) {
+    // keepalive lets the request finish after the page has gone. Nothing waits for it, and a failure is ignored.
+    void fetch(`/api/login-sessions/${encodeURIComponent(id)}/cancel`, { method: "POST", credentials: "same-origin", keepalive: true }).catch(() => {});
+  },
+};
+
 export const api: Api = {
   async getMe() {
     const res = await send("/api/me", { method: "GET" });
@@ -216,4 +252,5 @@ export const api: Api = {
   },
   shopify,
   suppliers,
+  loginSessions,
 };

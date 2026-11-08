@@ -174,3 +174,148 @@ test("the supplier screens pass the accessibility scan in light and dark, and ne
     }
   }
 });
+
+// ---------------------------------------------------------------------------------------------------------
+// Connecting a supplier. The real page, noVNC, the WebSocket proxy, the API and the database run for real. The
+// browser service is a stand-in, and its screen is a stand-in VNC server that draws a login page.
+
+const E2E_SESSION = { cookies: [{ name: "session", value: "e2e-session-value", domain: "shop.acme.example", path: "/" }], origins: [] };
+
+/** Adds a supplier through the API, as the signed-in owner, and returns where its connect screen is. */
+async function addViaApi(page: Page, name = "Acme Supply") {
+  const res = await page.request.post("/api/suppliers", { data: { name, websiteUrl: "https://shop.acme.example/account", loginUrl: "https://shop.acme.example/login" } });
+  expect(res.status()).toBe(201);
+  const supplier = (await res.json()) as { supplier: { id: string } };
+  return { id: supplier.supplier.id, url: `/suppliers/${supplier.supplier.id}/connect` };
+}
+const liveCanvas = (page: Page) => page.locator(".screen canvas");
+
+test("the owner connects a supplier: the login window appears, they press I'm logged in, and the supplier is connected", async ({ page }, info) => {
+  const problems: string[] = [];
+  page.on("console", (m) => /content security policy|refused to/i.test(m.text()) && problems.push(m.text()));
+  const frames: string[] = [];
+  const socketUrls: string[] = [];
+  page.on("websocket", (ws) => {
+    socketUrls.push(ws.url());
+    ws.on("framesent", (f) => frames.push(typeof f.payload === "string" ? f.payload : "(binary)"));
+  });
+
+  await signIn(page);
+  const supplier = await addViaApi(page);
+  await page.goto(supplier.url);
+  await expect(page.getByRole("heading", { level: 1, name: "Connect Acme Supply" })).toBeVisible();
+  await expect(liveCanvas(page)).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("timer")).toContainText("Time left:");
+  const done = page.getByRole("button", { name: "I'm logged in" });
+  await expect(done).toBeEnabled();
+  await shot(page, "connect-live", info.project.name);
+
+  // The token goes as the first message, and is never in the address. The viewer's password login follows.
+  expect(socketUrls).toHaveLength(1);
+  expect(socketUrls[0]).toMatch(/\/api\/login-sessions\/[0-9a-f-]{36}\/screen$/);
+  expect(frames[0]).toMatch(/^[0-9a-f]{64}$/);
+  expect(await page.content()).not.toContain(frames[0]);
+
+  await done.click();
+  await expect(page.getByText("Acme Supply is connected.")).toBeVisible();
+  await shot(page, "connect-done", info.project.name);
+  await page.getByRole("link", { name: "Back to suppliers" }).click();
+  await expect(page.getByRole("row", { name: /Acme Supply/ })).toContainText("Connected");
+  expect(problems).toEqual([]); // the viewer and its WebSocket fit the page's security policy
+});
+
+test("Cancel closes the window and saves nothing, and a new login can start straight away", async ({ page }) => {
+  await signIn(page);
+  const supplier = await addViaApi(page);
+  await page.goto(supplier.url);
+  await expect(liveCanvas(page)).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(page).toHaveURL(/\/suppliers$/);
+  await expect(page.getByRole("row", { name: /Acme Supply/ })).toContainText("Not connected");
+  await page.goto(supplier.url);
+  await expect(liveCanvas(page)).toBeVisible({ timeout: 20_000 }); // not refused as a second window
+});
+
+test("leaving the connect page, by the menu or by closing the page, cancels the login", async ({ page }) => {
+  await signIn(page);
+  const supplier = await addViaApi(page);
+  await page.goto(supplier.url);
+  await expect(liveCanvas(page)).toBeVisible({ timeout: 20_000 });
+  await page.goto("/"); // a full page load: the page is closing
+  await page.goto(supplier.url);
+  await expect(liveCanvas(page)).toBeVisible({ timeout: 20_000 });
+  const menu = page.getByRole("button", { name: "Menu" });
+  if (await menu.isVisible()) await menu.click();
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Dashboard" }).click(); // moving within the app
+  await page.goto(supplier.url);
+  await expect(liveCanvas(page)).toBeVisible({ timeout: 20_000 });
+});
+
+test("a window that cannot open says so plainly, and Try again works once it can", async ({ page }, info) => {
+  await signIn(page);
+  const supplier = await addViaApi(page);
+  await control.browser({ open: "fail" });
+  await page.goto(supplier.url);
+  await expect(page.getByRole("alert")).toContainText("The login window could not be opened. Please try again.");
+  await expect(liveCanvas(page)).toHaveCount(0);
+  await shot(page, "connect-error", info.project.name);
+  await control.browser({ open: "ok" });
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(liveCanvas(page)).toBeVisible({ timeout: 20_000 });
+});
+
+test("pressing I'm logged in with nothing to save says so, and Try again opens a fresh window", async ({ page }) => {
+  await signIn(page);
+  const supplier = await addViaApi(page);
+  await control.browser({ state: { cookies: [], origins: [] } });
+  await page.goto(supplier.url);
+  await expect(liveCanvas(page)).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: "I'm logged in" }).click();
+  await expect(page.getByRole("alert")).toContainText("No login was found in the window.");
+  await control.browser({ state: E2E_SESSION });
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(liveCanvas(page)).toBeVisible({ timeout: 20_000 });
+});
+
+test("text can be sent to the window, and is cleared from the box afterwards", async ({ page }) => {
+  await signIn(page);
+  const supplier = await addViaApi(page);
+  await page.goto(supplier.url);
+  await expect(liveCanvas(page)).toBeVisible({ timeout: 20_000 });
+  await page.getByLabel("Paste text").fill("pasted-from-manager");
+  await page.getByRole("button", { name: "Send to the window" }).click();
+  await expect(page.getByText(/Sent\. Now click the field in the window and press Ctrl\+V\./)).toBeVisible();
+  await expect(page.getByLabel("Paste text")).toHaveValue("");
+});
+
+test("the connect screen passes the accessibility scan in light and dark, and never scrolls sideways", async ({ page }) => {
+  await signIn(page);
+  let supplier = await addViaApi(page);
+  for (const scheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await control.browser({ open: "ok" });
+    await page.goto(supplier.url);
+    await expect(liveCanvas(page)).toBeVisible({ timeout: 20_000 });
+    await scan(page, `${scheme} connect, live window`);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(overflow, `${scheme} connect must not scroll sideways`).toBeLessThanOrEqual(0);
+
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(page).toHaveURL(/\/suppliers$/);
+    await control.browser({ open: "fail" });
+    await page.goto(supplier.url);
+    await expect(page.getByRole("alert")).toBeVisible();
+    await scan(page, `${scheme} connect, error`);
+
+    await control.browser({ open: "ok" });
+    await page.getByRole("button", { name: "Try again" }).click();
+    await expect(liveCanvas(page)).toBeVisible({ timeout: 20_000 });
+    await page.getByRole("button", { name: "I'm logged in" }).click();
+    await expect(page.getByText("Acme Supply is connected.")).toBeVisible();
+    await scan(page, `${scheme} connect, done`);
+    await page.goto("/suppliers");
+    await page.getByRole("button", { name: "Delete Acme Supply" }).click();
+    await page.getByRole("button", { name: "Yes, delete" }).click();
+    supplier = await addViaApi(page);
+  }
+});

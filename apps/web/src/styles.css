@@ -1026,6 +1026,52 @@ a.button {
   }
 }
 
+/* ---------- Connect supplier ---------- */
+.desktop-hint {
+  margin-bottom: 1rem;
+}
+@media (min-width: 56.0625rem) {
+  .desktop-hint {
+    display: none;
+  }
+}
+.live-window {
+  margin-top: 1.25rem;
+}
+.live-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.75rem 2rem;
+  margin-bottom: 0.75rem;
+}
+.timer {
+  margin: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.paste-box {
+  flex: 1 1 24rem;
+  max-width: 36rem;
+}
+.paste-box .field {
+  margin-bottom: 0;
+}
+/* The remote screen is 1280 by 800. The viewer scales it to fit this box, so it is never scrolled, and the box is
+   kept short enough that the buttons above it and the window can be seen together on a laptop. */
+.screen {
+  width: 100%;
+  height: clamp(20rem, calc(100vh - 20rem), 50rem);
+  overflow: hidden;
+  background: #000;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius);
+}
+.screen.is-pending {
+  display: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;

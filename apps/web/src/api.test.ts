@@ -206,3 +206,47 @@ describe("suppliers api", () => {
     });
   });
 });
+
+describe("login sessions api", () => {
+  const view = { id: "l1", supplierId: "s1", status: "ready", failureReason: null, createdAt: "2026-11-08T10:00:00.000Z", tokenExpiresAt: "2026-11-08T10:10:00.000Z", expiresAt: "2026-11-08T10:15:00.000Z" };
+  const stub = (status: number, body?: unknown) => {
+    const fetchMock = vi.fn().mockImplementation(async () => respond(status, body));
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  };
+
+  it("starts a login for a supplier, with no body, and returns the attempt and the one-time token", async () => {
+    const f = stub(201, { loginSession: view, token: "t".repeat(64) });
+    expect(await api.loginSessions.start("s1")).toEqual({ loginSession: view, token: "t".repeat(64) });
+    const [url, init] = f.mock.calls[0]!;
+    expect([url, init.method, init.body]).toEqual(["/api/suppliers/s1/login-session", "POST", undefined]);
+  });
+
+  it("finishes a login and returns what was saved", async () => {
+    const session = { savedAt: "2026-11-08T10:05:00.000Z", lastVerifiedAt: null, cookieCount: 2, domains: ["acme.example"], sizeBytes: 100 };
+    const f = stub(200, { loginSession: { ...view, status: "finished" }, session });
+    expect(await api.loginSessions.finish("l1")).toEqual({ loginSession: { ...view, status: "finished" }, session });
+    expect(f.mock.calls[0]![0]).toBe("/api/login-sessions/l1/finish");
+  });
+
+  it("cancels a login", async () => {
+    const f = stub(200, { loginSession: { ...view, status: "cancelled" } });
+    expect((await api.loginSessions.cancel("l1")).status).toBe("cancelled");
+    expect([f.mock.calls[0]![0], f.mock.calls[0]![1].method]).toEqual(["/api/login-sessions/l1/cancel", "POST"]);
+  });
+
+  it("keeps the server's plain message and code when a login cannot start", async () => {
+    stub(409, { error: { code: "login_open", message: "A login window is already open. Finish or cancel it first." } });
+    await expect(api.loginSessions.start("s1")).rejects.toMatchObject({ status: 409, code: "login_open", message: "A login window is already open. Finish or cancel it first." });
+  });
+
+  it("asks the server to cancel when the page is closing, so the request outlives the page, and never throws", async () => {
+    const f = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
+    vi.stubGlobal("fetch", f);
+    expect(() => api.loginSessions.cancelOnLeave("l1")).not.toThrow();
+    const [url, init] = f.mock.calls[0]!;
+    expect(url).toBe("/api/login-sessions/l1/cancel");
+    expect(init).toMatchObject({ method: "POST", keepalive: true, credentials: "same-origin" });
+    await Promise.resolve();
+  });
+});

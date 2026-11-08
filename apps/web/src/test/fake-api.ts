@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { Api, ConnectionCheck, ShopifyApi, ShopifyConnection, Supplier, SuppliersApi, VariantItem, VariantPage } from "../api.js";
+import type { Api, ConnectionCheck, ShopifyApi, ShopifyConnection, Supplier, SuppliersApi, LoginSession, LoginSessionsApi, VariantItem, VariantPage } from "../api.js";
 
 export const aCheck = (over: Partial<ConnectionCheck> = {}): ConnectionCheck => ({
   shopName: "Acme Supplies",
@@ -59,16 +59,38 @@ export const aSupplier = (over: Partial<Supplier> = {}): Supplier => ({
   ...over,
 });
 
+export const aLoginSession = (over: Partial<LoginSession> = {}): LoginSession => ({
+  id: "22222222-2222-4222-8222-222222222222",
+  supplierId: "11111111-1111-4111-8111-111111111111",
+  status: "ready",
+  failureReason: null,
+  createdAt: "2026-11-08T10:00:00.000Z",
+  tokenExpiresAt: "2026-11-08T10:10:00.000Z",
+  expiresAt: "2026-11-08T10:15:00.000Z",
+  ...over,
+});
+
 /** A fake API for screen tests. Every method is a spy with a sensible default. */
 export function fakeApi(
-  over: Partial<Omit<Api, "shopify" | "suppliers">> & { shopify?: Partial<ShopifyApi>; suppliers?: Partial<SuppliersApi> } = {},
+  over: Partial<Omit<Api, "shopify" | "suppliers" | "loginSessions">> & {
+    shopify?: Partial<ShopifyApi>;
+    suppliers?: Partial<SuppliersApi>;
+    loginSessions?: Partial<LoginSessionsApi>;
+  } = {},
 ): Api {
-  const { shopify, suppliers, ...rest } = over;
+  const { shopify, suppliers, loginSessions, ...rest } = over;
   return {
     getMe: vi.fn().mockResolvedValue(null),
     login: vi.fn().mockResolvedValue({ email: "owner@example.com" }),
     logout: vi.fn().mockResolvedValue(undefined),
     ...rest,
+    loginSessions: {
+      start: vi.fn().mockResolvedValue({ loginSession: aLoginSession(), token: "t".repeat(64) }),
+      finish: vi.fn().mockResolvedValue({ loginSession: aLoginSession({ status: "finished" }), session: null }),
+      cancel: vi.fn().mockResolvedValue(aLoginSession({ status: "cancelled" })),
+      cancelOnLeave: vi.fn(),
+      ...loginSessions,
+    },
     suppliers: {
       list: vi.fn().mockResolvedValue([]),
       get: vi.fn().mockResolvedValue(aSupplier()),
