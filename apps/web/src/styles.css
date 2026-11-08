@@ -1,0 +1,199 @@
+/* Tokens follow design-system/stock-monitor/MASTER.md: slate neutrals, one green action colour.
+   Text contrast is at least 4.5:1 and input borders at least 3:1 in both themes. */
+:root {
+  --bg: #f8fafc;
+  --card: #ffffff;
+  --fg: #0f172a;
+  --muted: #475569;
+  --border: #64748b;
+  --divider: #e2e8f0;
+  --action: #047857;
+  --action-hover: #065f46;
+  --on-action: #ffffff;
+  --error: #b91c1c;
+  --ring: #1e40af;
+  --radius: 10px;
+  --font: "Inter Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1220;
+    --card: #111a2e;
+    --fg: #e2e8f0;
+    --muted: #a3b1c6;
+    --border: #7d8ca3;
+    --divider: #1e293b;
+    --action: #34d399;
+    --action-hover: #6ee7b7;
+    --on-action: #022c22;
+    --error: #fca5a5;
+    --ring: #93c5fd;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+h1,
+h2 {
+  line-height: 1.25;
+  margin: 0 0 0.5rem;
+}
+h1 {
+  font-size: 1.5rem;
+}
+h2 {
+  font-size: 1.25rem;
+}
+p {
+  margin: 0 0 1rem;
+}
+.muted {
+  color: var(--muted);
+}
+
+:focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.status {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: var(--muted);
+}
+
+/* Sign-in and error screens */
+.auth {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+.card {
+  width: 100%;
+  max-width: 26rem;
+  background: var(--card);
+  border: 1px solid var(--divider);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+}
+
+.field {
+  margin-bottom: 1rem;
+}
+label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.375rem;
+}
+input {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.75rem;
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+input[aria-invalid="true"] {
+  border-color: var(--error);
+  border-width: 2px;
+}
+.password-row {
+  display: flex;
+  gap: 0.5rem;
+}
+.password-row .button {
+  flex: none;
+}
+
+.field-error,
+.form-error {
+  color: var(--error);
+  font-weight: 500;
+  margin: 0.375rem 0 0;
+}
+.form-error {
+  margin: 0 0 1rem;
+}
+
+/* Buttons: at least 44px tall for touch */
+.button {
+  min-height: 2.75rem;
+  padding: 0.5rem 1rem;
+  font: inherit;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+.button.primary {
+  width: 100%;
+  background: var(--action);
+  color: var(--on-action);
+}
+.button.primary:hover:not(:disabled) {
+  background: var(--action-hover);
+}
+.button.secondary {
+  background: transparent;
+  color: var(--fg);
+  border-color: var(--border);
+}
+.button.secondary:hover {
+  background: var(--divider);
+}
+.button:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}
+
+/* Signed-in layout */
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--card);
+  border-bottom: 1px solid var(--divider);
+}
+.topbar h1 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+.topbar-user {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--muted);
+}
+.page {
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}

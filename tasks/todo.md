@@ -120,14 +120,16 @@ Every task is test-first (red, green, refactor). Run `npm run check` before mark
 ## Task 9: Web shell with login and protected page, plus e2e
 **Description:** Minimal React app with a login form, a protected placeholder page, logout and plain-English errors, plus the Playwright journey.
 **Acceptance criteria:**
-- [ ] The owner logs in, sees the protected page, logs out
-- [ ] After logout the protected page is blocked
-- [ ] Wrong password shows a clear message, and the form is keyboard and screen-reader friendly
+- [x] The owner logs in, sees the protected page, logs out
+- [x] After logout the protected page is blocked
+- [x] Wrong password shows a clear message, and the form is keyboard and screen-reader friendly
 **Verification:** `npm run test:e2e`
 **Dependencies:** 7
 **Files:** `apps/web/src/*`, `e2e/login.spec.ts`
 **Scope:** Medium
 **Note:** UI work, so `ui-ux-pro-max` and `design-taste-frontend` apply here.
+
+**Status:** done 2026-11-08. The API now serves the built web app from the same origin (`webRoot`), with security headers. Playwright runs on desktop and phone sizes, including an axe accessibility scan, and has its own `e2e` job in CI. `npm run test:e2e` builds first. jsx-a11y lint is not used because it does not support ESLint 10 yet. The `e2e` CI job is not a required check yet.
 
 ## Task 10: Docker Compose
 **Description:** Compose file for PostgreSQL, API, worker and web, with environment variables from `.env`.
