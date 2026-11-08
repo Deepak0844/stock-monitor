@@ -5,7 +5,8 @@ export type ShopifyErrorCode =
   | "unreachable"
   | "unexpected_reply"
   | "invalid_shop"
-  | "wrong_organization";
+  | "wrong_organization"
+  | "store_unavailable";
 
 // Written for the store owner. No technical words, and never any text that came from Shopify.
 const MESSAGES: Record<ShopifyErrorCode, string> = {
@@ -17,6 +18,8 @@ const MESSAGES: Record<ShopifyErrorCode, string> = {
   invalid_shop: "Enter your store address, like my-store.myshopify.com.",
   wrong_organization:
     "Shopify says this app and your store belong to different organizations. Create the app in the same organization as your store.",
+  store_unavailable:
+    "Shopify says your store is not available right now. It may be frozen or locked. Check your Shopify account.",
 };
 
 export class ShopifyError extends Error {

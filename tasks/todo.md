@@ -33,15 +33,17 @@ Every task is test-first (red, green, refactor). Run `npm run check` before mark
 ## Task 3: GraphQL client with version pinning and throttle handling
 **Description:** A client that posts GraphQL to the pinned API version (`2026-10`, one constant) with the access token header, reads `extensions.cost.throttleStatus`, waits before the next call when the bucket is low, retries throttled replies with backoff, and validates every response with Zod.
 **Acceptance criteria:**
-- [ ] Every request names the pinned version and sends the token header
-- [ ] A low bucket delays the next request by the computed wait. A throttled reply is retried with backoff up to a limit, then raises the "throttled" error
-- [ ] 401 or 403 raises "rejected credentials" or "no access". GraphQL `errors` and network failures map to typed errors
-- [ ] A response that does not match its schema raises "unexpected reply" and never returns partial data
-- [ ] Waits and backoff use an injectable clock, so tests are fast
+- [x] Every request names the pinned version and sends the token header
+- [x] A low bucket delays the next request by the computed wait. A throttled reply is retried with backoff up to a limit, then raises the "throttled" error
+- [x] 401 or 403 raises "rejected credentials" or "no access". GraphQL `errors` and network failures map to typed errors
+- [x] A response that does not match its schema raises "unexpected reply" and never returns partial data
+- [x] Waits and backoff use an injectable clock, so tests are fast
 **Verification:** `npm run test:unit`
 **Dependencies:** 2
 **Files:** `src/client.ts`, `src/throttle.ts`, `src/version.ts`, tests, fake server additions
 **Scope:** Medium
+
+**Status:** done 2026-11-08. Shapes come from Shopify's GraphQL endpoint, rate-limit and response-code pages. **The wait calculation is our own inference** (points missing divided by the refill rate), because Shopify gives no formula, only a recommended one-second backoff. Not stated by Shopify, so unverified until Task 11: whether error replies carry cost data, the exact HTTP status for an invalid GraphQL token (401 is assumed), and whether `variables` is accepted (standard GraphQL, but the pages show only `query`). One error code added: `store_unavailable` (frozen, locked or inactive store).
 
 ## Task 4: Locations, catalog queries and sync logic
 **Description:** Queries for locations and for products with variants and `available` quantity at one location, paged by cursor. A `syncCatalog` function that takes a client, a location and a storage interface, and reports added, updated and removed counts.

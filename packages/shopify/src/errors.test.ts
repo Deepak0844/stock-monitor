@@ -9,6 +9,7 @@ const codes: ShopifyErrorCode[] = [
   "unexpected_reply",
   "invalid_shop",
   "wrong_organization",
+  "store_unavailable",
 ];
 
 describe("ShopifyError", () => {
@@ -45,6 +46,12 @@ describe("ShopifyError", () => {
   it("explains the different-organization problem in plain words", () => {
     expect(new ShopifyError("wrong_organization").message).toBe(
       "Shopify says this app and your store belong to different organizations. Create the app in the same organization as your store.",
+    );
+  });
+
+  it("says when the store itself is unavailable", () => {
+    expect(new ShopifyError("store_unavailable").message).toBe(
+      "Shopify says your store is not available right now. It may be frozen or locked. Check your Shopify account.",
     );
   });
 
