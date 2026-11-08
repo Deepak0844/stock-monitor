@@ -13,6 +13,7 @@ export type TestDb = {
   /** Connected as the restricted app role, the way the real API and worker connect. */
   appPool: pg.Pool;
   appDb: ReturnType<typeof drizzle>;
+  appUrl: string;
   stop: () => Promise<void>;
 };
 
@@ -41,6 +42,7 @@ export async function startTestDb(): Promise<TestDb> {
     db,
     appPool,
     appDb: drizzle(appPool),
+    appUrl: appUrl.toString(),
     stop: async () => {
       await appPool.end();
       await pool.end();

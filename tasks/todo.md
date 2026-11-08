@@ -108,12 +108,14 @@ Every task is test-first (red, green, refactor). Run `pnpm check` before marking
 ## Task 8: Queue and worker
 **Description:** pg-boss setup with typed `enqueue`, a worker that registers handlers, and the `health.ping` job.
 **Acceptance criteria:**
-- [ ] A `health.ping` job is enqueued and processed by the worker in a test
-- [ ] Payloads are validated with Zod
+- [x] A `health.ping` job is enqueued and processed by the worker in a test
+- [x] Payloads are validated with Zod
 **Verification:** `pnpm test:integration`
 **Dependencies:** 3
 **Files:** `packages/queue/src/*`, `apps/worker/src/index.ts`, tests
 **Scope:** Medium
+
+**Status:** done 2026-11-08. pg-boss 12 creates its own `pgboss` schema, so migration 0002 grants CREATE on the database to `app_user`. This gives no rights on the audit table. Worker entry point (`index.ts`) is startup glue and is not unit tested; handler registration is.
 
 ## Task 9: Web shell with login and protected page, plus e2e
 **Description:** Minimal React app with a login form, a protected placeholder page, logout and plain-English errors, plus the Playwright journey.

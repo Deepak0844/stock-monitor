@@ -1,0 +1,18 @@
+{
+  "name": "@stock-monitor/worker",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@stock-monitor/queue": "workspace:*",
+    "@stock-monitor/shared": "workspace:*",
+    "pino": "^10.4.0"
+  },
+  "devDependencies": {
+    "@stock-monitor/db": "workspace:*",
+    "tsx": "^4.23.15"
+  }
+}
