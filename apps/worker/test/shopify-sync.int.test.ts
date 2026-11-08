@@ -112,15 +112,46 @@ describe("shopify sync handler", () => {
     expect(seen).toEqual([50, 100, 120]);
   });
 
-  it("does not run twice at the same time", async () => {
+  it("does not start a second sync while one is still running", async () => {
+    await fresh();
+    const catalog = withCatalog(3);
+    await connect();
+
+    // Hold the first sync open inside Shopify's reply, so the others really do arrive while it is running.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    fake.setGraphQL(async (request, count) => {
+      await gate;
+      return catalog.handler(request, count);
+    });
+
+    const first = handler()({});
+    await vi.waitFor(async () => {
+      const { rows } = await t.pool.query("select count(*)::int as n from shopify_sync_runs where status = 'running'");
+      expect(rows[0].n).toBe(1);
+    });
+
+    await Promise.all([handler()({}), handler()({})]); // both must return without starting a run
+    const during = await t.pool.query("select count(*)::int as n from shopify_sync_runs");
+    expect(during.rows[0].n).toBe(1);
+    expect(logLines.join("").match(/already running/g)).toHaveLength(2);
+
+    release();
+    await first;
+    expect(await repo().lastSyncRun()).toMatchObject({ status: "succeeded", added: 3 });
+    const after = await t.pool.query("select count(*)::int as n from shopify_sync_runs");
+    expect(after.rows[0].n).toBe(1);
+    expect(fake.graphqlRequests()).toHaveLength(1); // one page of one sync
+  });
+
+  it("starts a new sync once the previous one has finished", async () => {
     await fresh();
     withCatalog(3);
     await connect();
-    await Promise.all([handler()({}), handler()({}), handler()({})]);
+    await handler()({});
+    await handler()({});
     const { rows } = await t.pool.query("select count(*)::int as n from shopify_sync_runs");
-    expect(rows[0].n).toBe(1);
-    expect(fake.graphqlRequests()).toHaveLength(1); // one page of one sync
-    expect(logLines.join("")).toContain("already running");
+    expect(rows[0].n).toBe(2);
   });
 
   it("fails clearly when Shopify has not been connected", async () => {
