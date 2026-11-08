@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { AppShell } from "./AppShell.js";
+import { navigate } from "../router.js";
 
+beforeEach(() => window.history.replaceState(null, "", "/"));
 afterEach(cleanup);
 
 const setup = (onSignOut = vi.fn()) => {
@@ -30,7 +32,7 @@ describe("AppShell", () => {
     expect(within(nav).getByRole("link", { name: "Dashboard" })).toHaveAttribute("aria-current", "page");
   });
 
-  it.each(["Suppliers", "Products", "Approvals", "History", "Settings"])(
+  it.each(["Suppliers", "Products", "Approvals", "History"])(
     "shows %s as not available yet instead of a dead link",
     (label) => {
       setup();
@@ -41,6 +43,27 @@ describe("AppShell", () => {
       expect(item).toHaveTextContent("Soon");
     },
   );
+
+  it("makes Settings a real link to the Shopify settings page", () => {
+    setup();
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    expect(within(nav).getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings/shopify");
+  });
+
+  it("marks Settings, not Dashboard, as current on a settings page", () => {
+    window.history.replaceState(null, "", "/settings/shopify");
+    setup();
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    expect(within(nav).getByRole("link", { name: "Settings" })).toHaveAttribute("aria-current", "page");
+    expect(within(nav).getByRole("link", { name: "Dashboard" })).not.toHaveAttribute("aria-current");
+  });
+
+  it("moves keyboard focus to the page content after moving to another page", async () => {
+    setup();
+    expect(screen.getByRole("main")).not.toHaveFocus();
+    act(() => navigate("/settings/shopify"));
+    expect(screen.getByRole("main")).toHaveFocus();
+  });
 
   it("shows who is signed in and signs out on request", async () => {
     const { onSignOut, user } = setup();

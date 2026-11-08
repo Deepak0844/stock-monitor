@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { api as realApi, type Api } from "./api.js";
 import { DashboardPage } from "./pages/DashboardPage.js";
+import { NotFoundPage } from "./pages/NotFoundPage.js";
+import { SettingsShopifyPage } from "./pages/SettingsShopifyPage.js";
 import { LoginPage } from "./pages/LoginPage.js";
 import { AppShell } from "./shell/AppShell.js";
+import { usePath } from "./router.js";
 
 type State =
   | { kind: "loading" }
@@ -15,6 +18,7 @@ const messageOf = (e: unknown) =>
 
 export function App({ api = realApi }: { api?: Api }) {
   const [state, setState] = useState<State>({ kind: "loading" });
+  const path = usePath();
 
   const checkSession = useCallback(() => {
     setState({ kind: "loading" });
@@ -70,7 +74,13 @@ export function App({ api = realApi }: { api?: Api }) {
           .catch((e: unknown) => setState({ kind: "error", message: messageOf(e) }))
       }
     >
-      <DashboardPage />
+      {path === "/" ? (
+        <DashboardPage />
+      ) : path === "/settings" || path === "/settings/shopify" ? (
+        <SettingsShopifyPage api={api} />
+      ) : (
+        <NotFoundPage />
+      )}
     </AppShell>
   );
 }

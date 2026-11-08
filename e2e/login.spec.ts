@@ -123,16 +123,17 @@ test("the pages also pass the accessibility scan in dark mode", async ({ page })
   expect(signedIn.violations).toEqual([]);
 });
 
-test("the navigation shows the current page and marks unfinished sections as coming soon", async ({ page }) => {
+test("the navigation links to Settings and marks unbuilt sections as coming soon", async ({ page }) => {
   await signIn(page);
   const menu = page.getByRole("button", { name: "Menu" });
   if (await menu.isVisible()) await menu.click(); // on a phone the navigation opens from the Menu button
   const nav = page.getByRole("navigation", { name: "Main" });
   await expect(nav.getByRole("link", { name: "Dashboard" })).toHaveAttribute("aria-current", "page");
-  for (const name of ["Suppliers", "Products", "Approvals", "History", "Settings"]) {
+  for (const name of ["Suppliers", "Products", "Approvals", "History"]) {
     await expect(nav.getByText(name)).toBeVisible();
     await expect(nav.getByRole("link", { name })).toHaveCount(0);
   }
+  await expect(nav.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings/shopify");
 });
 
 test("Tab reaches the skip link first and it jumps to the main content", async ({ page, isMobile }) => {
