@@ -92,7 +92,7 @@ Every task is test-first (red, green, refactor). Run `npm run check` before mark
 **Files:** `packages/queue/src/jobs.ts`, `apps/worker/src/shopify-sync.ts`, `apps/worker/src/worker.ts`, tests
 **Scope:** Medium
 
-**Status:** done 2026-11-08. The `SHOPIFY_BASE_URL_OVERRIDE` test seam and its refusal to start in production were built here (the worker is the first user), so Task 7 only has to reuse `config.shopifyBaseUrlOverride`. The `shopify.sync` job payload is strictly empty. Unexpected errors are recorded and logged but not thrown, so the queue does not retry them. Progress is stored in the run's `total` while it runs. The Dockerfile now copies `packages/shopify/package.json` (it had been missing since Shopify Task 1; nothing in CI builds the image). ESLint now allows unused parameters that start with an underscore.
+**Status:** done 2026-11-08. The `SHOPIFY_BASE_URL_OVERRIDE` test seam and its refusal to start in production were built here (the worker is the first user), so Task 7 only has to reuse `config.shopifyBaseUrlOverride`. The `shopify.sync` job payload is strictly empty. Unexpected errors are recorded and logged but not thrown, so the queue does not retry them. Progress is stored in the run's `total` while it runs. The Dockerfile now copies `packages/shopify/package.json` (this only helps layer caching; the image built and loaded without it, so it was not a deployment bug). ESLint now allows unused parameters that start with an underscore.
 
 ## Task 7: API routes
 **Description:** The `/api/shopify/*` routes from the spec: save and read the connection, test it, list locations, choose a location, start a sync, read sync status, and list variants with search and paging.
