@@ -6,14 +6,16 @@ Approved by the owner on 2026-11-08. Intent: `docs/intent/stock-monitor.md`.
 |---|---|---|
 | `foundation` | Monorepo, database schema, encrypted secrets, app login, audit log, queue | none |
 | `shopify` | Admin API client, location setting, reads, approved writes, conflict check, idempotent retries | foundation |
-| `mapping` | Shopify product import, mappings, metafield sync, CSV import, test button | foundation, shopify (read) |
-| `supplier-session` | Supplier records, noVNC login, encrypted session storage, expiry and CAPTCHA detection, reconnect | foundation |
+| `supplier-session` | Supplier records, isolated browser service, noVNC login, encrypted session storage, expiry and CAPTCHA detection, reconnect | foundation |
+| `mapping` | Mappings from Shopify variants to supplier pages, metafield sync, CSV import, broken-link checks | foundation, shopify (read), supplier-session (supplier records) |
 | `extraction` | Recipe step list and editor, page capture, check runner, observations (quantity, text, page state) | foundation, supplier-session |
 | `scheduling` | Intervals, "Check now", per-supplier concurrency, retries and backoff, progress | extraction, mapping |
 | `proposals` | Proposal rules, approval inbox, approve/reject/edit, expiry, conflict handling, history | extraction, mapping, shopify |
 | `ui-shell` | Dashboard, notifications, settings, responsive layout | all, built progressively |
 
-Build order: foundation, shopify (read), mapping, supplier-session, extraction, scheduling, proposals + shopify (write), ui-shell polish.
+Build order: foundation, shopify (read), **supplier-session**, mapping, extraction, scheduling, proposals + shopify (write), ui-shell polish.
+
+Changed 2026-11-08: `supplier-session` now comes before `mapping`. Every mapping points at a supplier, and the supplier records belong to `supplier-session`. It is also the riskiest module (real supplier sites, logins and CAPTCHAs), so it is better learned about early. The mapping screen's "Test" button needs `extraction`, so it comes later either way.
 
 Pilot scope: one supplier, one mapping per variant. Bulk approval, multi-supplier rules and the React Flow view come after the pilot.
 
