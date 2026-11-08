@@ -430,3 +430,108 @@ test("the dashboard and the supplier actions pass the accessibility scan in ligh
     }
   }
 });
+
+// ---------------------------------------------------------------------------------------------------------
+// The last journeys: an owner's pause, a refused screen, and no secret anywhere the page can see.
+
+test("a pause the owner made stays in place through a problem and a reconnect, until the owner resumes", async ({ page }) => {
+  await signIn(page);
+  const supplier = await addViaApi(page);
+  await connectThroughTheWindow(page, supplier.url);
+  await page.goto("/suppliers");
+  await page.getByRole("button", { name: "Pause Acme Supply" }).click();
+  await expect(rowOf(page)).toContainText("Paused");
+
+  // The login stops working while the supplier is paused. The problem is reported, and the owner's pause is not replaced.
+  await control.browser({ verifyResult: "login_required" });
+  await page.getByRole("button", { name: "Check connection Acme Supply" }).click();
+  await page.goto("/");
+  const card = page.getByRole("region", { name: "Needs attention" });
+  await eventually(page, () => expect(card).toContainText("Acme Supply needs you to log in again.", { timeout: 1_000 }));
+  await page.goto("/suppliers");
+  await expect(rowOf(page)).toContainText("Paused"); // still the owner's pause, not "Needs reconnecting"
+
+  // Reconnecting fixes the login but does not undo the owner's pause.
+  await control.browser({ verifyResult: "ok" });
+  await page.goto("/");
+  await page.getByRole("region", { name: "Needs attention" }).getByRole("link", { name: "Reconnect supplier Acme Supply" }).click();
+  await expect(liveCanvas(page)).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: "I'm logged in" }).click();
+  await expect(page.getByText("Acme Supply is connected.")).toBeVisible();
+  await page.goto("/");
+  await expect(page.getByText("Nothing needs your attention.")).toBeVisible();
+  await page.goto("/suppliers");
+  await expect(rowOf(page)).toContainText("Paused");
+  await expect(page.getByRole("button", { name: "Resume Acme Supply" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Resume Acme Supply" }).click();
+  await expect(rowOf(page)).toContainText("Connected");
+});
+
+test("a screen connection the server refuses is explained plainly, and Try again works", async ({ page }) => {
+  await signIn(page);
+  const supplier = await addViaApi(page);
+  // The one-time token is good, but the proxy cannot reach the screen behind it, so it closes the connection.
+  await control.vnc(false);
+  await page.goto(supplier.url);
+  await expect(page.getByRole("alert")).toContainText("The login window could not be opened. Please try again.", { timeout: 20_000 });
+  await expect(liveCanvas(page)).toHaveCount(0); // no window appears
+  await expect(page.getByRole("button", { name: "I'm logged in" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
+  await control.vnc(true);
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(liveCanvas(page)).toBeVisible({ timeout: 20_000 });
+});
+
+test("no session, token or screen password is in any page, response, console message or browser storage", async ({ page, context }) => {
+  const SESSION_VALUE = "e2e-session-value"; // what the supplier's cookie holds, as the stand-in browser service returns it
+  const VNC_PASSWORD = "Ab3dE6gH";
+  const consoleText: string[] = [];
+  const responses: { url: string; body: string }[] = [];
+  const pages: string[] = [];
+  const frames: string[] = [];
+  page.on("console", (m) => consoleText.push(m.text()));
+  page.on("pageerror", (e) => consoleText.push(e.message));
+  page.on("websocket", (ws) => ws.on("framesent", (f) => typeof f.payload === "string" && frames.push(f.payload)));
+  page.on("response", async (r) => {
+    const type = r.headers()["content-type"] ?? "";
+    if (/json|text|javascript|html/.test(type)) responses.push({ url: r.url(), body: await r.text().catch(() => "") });
+  });
+  const snapshot = async () => pages.push(await page.content());
+
+  await signIn(page);
+  const supplier = await addViaApi(page);
+  await page.goto(supplier.url);
+  await expect(liveCanvas(page)).toBeVisible({ timeout: 20_000 });
+  await snapshot();
+  const token = frames[0] ?? "";
+  expect(token).toMatch(/^[0-9a-f]{64}$/);
+  await page.getByLabel("Paste text").fill("typed-secret-1234");
+  await page.getByRole("button", { name: "Send to the window" }).click();
+  await snapshot();
+  await page.getByRole("button", { name: "I'm logged in" }).click();
+  await expect(page.getByText("Acme Supply is connected.")).toBeVisible();
+  await snapshot();
+  for (const path of ["/suppliers", "/", `/suppliers/${supplier.id}/connect`]) {
+    await page.goto(path);
+    await page.waitForLoadState("networkidle");
+    await snapshot();
+  }
+  await page.getByRole("button", { name: "Cancel" }).click({ trial: false }).catch(() => {});
+
+  const storage = await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }));
+  // The one-time token is handed over once, in the answer that starts a login, and then as the screen's first message.
+  // The VNC password is handed to the viewer in the screen's first answer. Neither may be anywhere else.
+  const elsewhere = [...pages, consoleText.join("\n"), storage, ...responses.filter((r) => !/\/login-session$/.test(r.url)).map((r) => r.body)].join("\n");
+  const everything = [...pages, consoleText.join("\n"), storage, ...responses.map((r) => r.body)].join("\n");
+  expect(everything, "the supplier's session").not.toContain(SESSION_VALUE);
+  expect(everything, "the screen password").not.toContain(VNC_PASSWORD);
+  expect(everything, "text sent to the window").not.toContain("typed-secret-1234");
+  expect(elsewhere, "the one-time token").not.toContain(token);
+  expect(responses.find((r) => /\/login-session$/.test(r.url))?.body).toContain(token); // and the start answer does hold it, which is the point
+
+  // The only cookie is the sign-in, and the page's scripts cannot read it.
+  const cookies = await context.cookies();
+  expect(cookies.length).toBeGreaterThan(0);
+  expect(cookies.every((c) => c.httpOnly)).toBe(true);
+});

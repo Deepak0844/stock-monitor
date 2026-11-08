@@ -23,7 +23,12 @@ function picture(): Buffer {
   return pixels;
 }
 
-export type FakeVnc = { port: number; close(): Promise<void> };
+export type FakeVnc = {
+  port: number;
+  /** Turns the screen off and on, to test what happens when the proxy cannot reach it. */
+  setAvailable(available: boolean): Promise<void>;
+  close(): Promise<void>;
+};
 
 export async function startFakeVnc(): Promise<FakeVnc> {
   const frame = picture();
@@ -104,8 +109,16 @@ export async function startFakeVnc(): Promise<FakeVnc> {
   });
 
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
   return {
-    port: (server.address() as AddressInfo).port,
+    port,
+    async setAvailable(available) {
+      if (available && !server.listening) await new Promise<void>((resolve) => server.listen(port, "127.0.0.1", resolve));
+      if (!available && server.listening) {
+        for (const s of sockets) s.destroy();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    },
     close: async () => {
       for (const s of sockets) s.destroy();
       await new Promise<void>((resolve) => server.close(() => resolve()));

@@ -172,11 +172,11 @@ Every task is test-first (red, green, refactor), except the spike, which is thro
 ## Task 13: Browser tests through the whole stack
 **Description:** Extend the stack launcher with the browser service and the fake supplier. Drive the journeys in a real browser: add a supplier, connect it (with a test-only hook that logs in inside the remote window), see it connected, expire the session, see the notification and the pause, reconnect, and see it resume.
 **Acceptance criteria:**
-- [ ] Journeys: add and edit a supplier, connect, expired session, CAPTCHA, block, reconnect and resume, owner pause stays paused, cancel leaves nothing running
-- [ ] A refused screen connection is shown to the owner plainly
-- [ ] No secret in any page, response, console message or storage
-- [ ] Accessibility scan in light and dark of the new screens
-- [ ] Runs in CI at desktop and phone sizes
+- [x] Journeys: add and edit a supplier, connect, expired session, CAPTCHA, block, reconnect and resume, owner pause stays paused, cancel leaves nothing running
+- [x] A refused screen connection is shown to the owner plainly
+- [x] No secret in any page, response, console message or storage
+- [x] Accessibility scan in light and dark of the new screens
+- [x] Runs in CI at desktop and phone sizes
 **Verification:** `npm run test:e2e`
 **Dependencies:** 11, 12
 **Files:** `e2e/stack.ts`, `e2e/supplier-session.spec.ts`, helpers
