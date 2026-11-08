@@ -18,7 +18,8 @@ afterAll(async () => {
 
 const silent = () =>
   createLogger({ level: "silent", stream: new Writable({ write: (_c, _e, cb) => cb() }) });
-const app = (secureCookies = false) => buildApp({ db: t.appDb, logger: silent(), secureCookies });
+const app = (secureCookies = false, trustProxy = false) =>
+  buildApp({ db: t.appDb, logger: silent(), secureCookies, trustProxy });
 const login = (a: ReturnType<typeof app>, email: string, password: string) =>
   a.inject({ method: "POST", url: "/api/login", payload: { email, password } });
 const cookieOf = (res: { cookies: { name: string; value: string }[] }) =>
@@ -154,5 +155,38 @@ describe("no public signup", () => {
       payload: { email: "evil@example.com", password: PASSWORD },
     });
     expect(res.statusCode).toBe(401);
+  });
+});
+
+describe("client address behind a proxy", () => {
+  const failFrom = async (a: ReturnType<typeof app>, forwardedFor: string, times: number) => {
+    for (let i = 0; i < times; i++) {
+      await a.inject({
+        method: "POST",
+        url: "/api/login",
+        headers: { "x-forwarded-for": forwardedFor },
+        payload: { email: EMAIL, password: `wrong-password-${i}` },
+      });
+    }
+  };
+  const tryLogin = (a: ReturnType<typeof app>, forwardedFor: string) =>
+    a.inject({
+      method: "POST",
+      url: "/api/login",
+      headers: { "x-forwarded-for": forwardedFor },
+      payload: { email: EMAIL, password: "another-wrong-password" },
+    });
+
+  it("ignores X-Forwarded-For by default, so it cannot be used to dodge the rate limit", async () => {
+    const a = app(false, false);
+    await failFrom(a, "10.0.0.1", 5);
+    expect((await tryLogin(a, "10.0.0.2")).statusCode).toBe(429);
+  });
+
+  it("uses X-Forwarded-For when the proxy is trusted, so users are limited separately", async () => {
+    const a = app(false, true);
+    await failFrom(a, "10.0.0.1", 5);
+    expect((await tryLogin(a, "10.0.0.1")).statusCode).toBe(429);
+    expect((await tryLogin(a, "10.0.0.2")).statusCode).toBe(401);
   });
 });

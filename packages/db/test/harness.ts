@@ -1,10 +1,9 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { fileURLToPath } from "node:url";
+import { setupDatabase } from "../src/setup.js";
 
 export type TestDb = {
   url: string;
@@ -23,15 +22,20 @@ if (!process.env.DOCKER_HOST && !existsSync("/var/run/docker.sock") && existsSyn
   process.env.DOCKER_HOST = `unix://${orbstackSocket}`;
 }
 
-export async function startTestDb(): Promise<TestDb> {
+export type RunningPostgres = { url: string; stop: () => Promise<void> };
+
+/** A bare PostgreSQL in Docker: no migrations, no roles. */
+export async function startPostgres(): Promise<RunningPostgres> {
   const container: StartedPostgreSqlContainer = await new PostgreSqlContainer("postgres:17-alpine").start();
-  const url = container.getConnectionUri();
+  return { url: container.getConnectionUri(), stop: async () => void (await container.stop()) };
+}
+
+export async function startTestDb(): Promise<TestDb> {
+  const postgres = await startPostgres();
+  const url = postgres.url;
+  await setupDatabase({ ownerUrl: url, appRole: "app_login", appPassword: "app_login_pw" });
   const pool = new pg.Pool({ connectionString: url });
   const db = drizzle(pool);
-  await migrate(db, {
-    migrationsFolder: fileURLToPath(new URL("../drizzle", import.meta.url)),
-  });
-  await pool.query("create role app_login login password 'app_login_pw' in role app_user");
   const appUrl = new URL(url);
   appUrl.username = "app_login";
   appUrl.password = "app_login_pw";
@@ -46,7 +50,7 @@ export async function startTestDb(): Promise<TestDb> {
     stop: async () => {
       await appPool.end();
       await pool.end();
-      await container.stop();
+      await postgres.stop();
     },
   };
 }
