@@ -93,15 +93,17 @@ Every task is test-first (red, green, refactor). Run `pnpm check` before marking
 ## Task 7: Owner creation, login and logout
 **Description:** `pnpm create-owner` CLI, login and logout routes, argon2id hashing, server-side sessions with token hash, httpOnly cookie, expiry, login rate limit, audit events.
 **Acceptance criteria:**
-- [ ] Correct credentials give a session cookie. Wrong ones return one generic error
-- [ ] Repeated failures are rate-limited
-- [ ] Logout and expiry invalidate the session
-- [ ] Login, logout and failed login each write an audit event
-- [ ] No public signup route exists
+- [x] Correct credentials give a session cookie. Wrong ones return one generic error
+- [x] Repeated failures are rate-limited
+- [x] Logout and expiry invalidate the session
+- [x] Login, logout and failed login each write an audit event
+- [x] No public signup route exists
 **Verification:** `pnpm test:integration`
 **Dependencies:** 4, 5, 6
 **Files:** `apps/api/src/routes/auth.ts`, `apps/api/src/cli/create-owner.ts`, `packages/db` repositories, tests
 **Scope:** Medium
+
+**Status:** done 2026-11-08. Login limiter is in memory (resets on restart), keyed by IP and email, 5 failures per 15 minutes. Sessions last 7 days. The `create-owner` CLI wrapper has no automated test; its logic lives in `createOwner`, which is tested. Smoke-test it after Task 10 when `docker compose` and a migrate command exist.
 
 ## Task 8: Queue and worker
 **Description:** pg-boss setup with typed `enqueue`, a worker that registers handlers, and the `health.ping` job.

@@ -12,7 +12,8 @@
     "format": "prettier --write .",
     "test:unit": "vitest run --exclude '**/*.int.test.ts' --exclude '**/node_modules/**' --exclude '.claude/**'",
     "test:integration": "vitest run --passWithNoTests --exclude '.claude/**' .int.test.ts",
-    "check": "pnpm typecheck && pnpm lint && pnpm test:unit && pnpm test:integration"
+    "check": "pnpm typecheck && pnpm lint && pnpm test:unit && pnpm test:integration",
+    "create-owner": "pnpm --filter @stock-monitor/api create-owner"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

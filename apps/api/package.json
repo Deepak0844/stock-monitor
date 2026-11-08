@@ -5,14 +5,21 @@
   "main": "src/app.ts",
   "dependencies": {
     "@fastify/cookie": "^11.1.5",
+    "@node-rs/argon2": "^2.2.2",
+    "@stock-monitor/audit": "workspace:*",
     "@stock-monitor/db": "workspace:*",
     "@stock-monitor/shared": "workspace:*",
     "drizzle-orm": "^0.45.4",
     "fastify": "^5.12.8",
     "pg": "^8.23.1",
-    "pino": "^10.4.0"
+    "pino": "^10.4.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@types/pg": "^8.23.1"
+    "@types/pg": "^8.23.1",
+    "tsx": "^4.23.15"
+  },
+  "scripts": {
+    "create-owner": "tsx src/cli/create-owner.ts"
   }
 }
