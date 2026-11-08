@@ -7,6 +7,8 @@ const codes: ShopifyErrorCode[] = [
   "throttled",
   "unreachable",
   "unexpected_reply",
+  "invalid_shop",
+  "wrong_organization",
 ];
 
 describe("ShopifyError", () => {
@@ -37,6 +39,18 @@ describe("ShopifyError", () => {
   it("tells the owner to reconnect when Shopify rejects the credentials", () => {
     expect(new ShopifyError("rejected_credentials").message).toBe(
       "Shopify rejected the saved connection. Reconnect Shopify.",
+    );
+  });
+
+  it("explains the different-organization problem in plain words", () => {
+    expect(new ShopifyError("wrong_organization").message).toBe(
+      "Shopify says this app and your store belong to different organizations. Create the app in the same organization as your store.",
+    );
+  });
+
+  it("asks for a store address when the address is not valid", () => {
+    expect(new ShopifyError("invalid_shop").message).toBe(
+      "Enter your store address, like my-store.myshopify.com.",
     );
   });
 

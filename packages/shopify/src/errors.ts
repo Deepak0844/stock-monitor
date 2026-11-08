@@ -3,7 +3,9 @@ export type ShopifyErrorCode =
   | "no_access"
   | "throttled"
   | "unreachable"
-  | "unexpected_reply";
+  | "unexpected_reply"
+  | "invalid_shop"
+  | "wrong_organization";
 
 // Written for the store owner. No technical words, and never any text that came from Shopify.
 const MESSAGES: Record<ShopifyErrorCode, string> = {
@@ -12,6 +14,9 @@ const MESSAGES: Record<ShopifyErrorCode, string> = {
   throttled: "Shopify is asking us to slow down. Try again in a few minutes.",
   unreachable: "Can't reach Shopify right now. Try again in a few minutes.",
   unexpected_reply: "Shopify sent a reply we did not expect. Try again later.",
+  invalid_shop: "Enter your store address, like my-store.myshopify.com.",
+  wrong_organization:
+    "Shopify says this app and your store belong to different organizations. Create the app in the same organization as your store.",
 };
 
 export class ShopifyError extends Error {
