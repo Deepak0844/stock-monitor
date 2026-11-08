@@ -93,6 +93,15 @@ You have 15 minutes. The clock is shown. If time runs out, or you press **Cancel
 - **Keys only reach the supplier's page while you have clicked into the window.** The app does not log or store anything you type.
 - **If something looks wrong,** note the exact message and tell the developer. The messages are written to be read, for example "The login window could not be opened. Please try again."
 
+### Login window mode
+
+`LOGIN_WINDOW_MODE` in `.env` chooses how the live login window is run. After changing it, run `docker compose up -d browser` to recreate the browser container.
+
+- **`controlled`** (the default). The window is a Chromium that the app's automation tool launches and keeps in contact with. This is the original way.
+- **`plain`**. The window is an ordinary Chromium that nothing is controlling while you log in. Use it if a supplier's puzzle (CAPTCHA) rejects you in the live window even though your own browser is accepted: puzzles and bot checks can refuse a browser that an automation tool is driving. When you press **I'm logged in**, the browser is closed the way a person would close it, and the login is read from its temporary profile, which is then deleted.
+
+Both modes look and work the same to you, including the **Paste text** box. In `plain` mode a password you type is never saved by the browser (saving, autofill and sign-in are turned off in its profile), the sandbox stays on, and everything it loads still goes through the same network guard. `plain` does not disguise anything: the browser says what it is. It also does not make the supplier's later automated checks any less visible to the supplier, and the supplier's terms still decide whether those are allowed.
+
 ### The pilot supplier
 
 _To be filled in with the pilot supplier's name, whether it uses a puzzle or a code, how long a login lasted, and anything it showed, once the pilot is connected. Private details stay out of this file._

@@ -99,6 +99,8 @@ services:
     environment:
       NODE_ENV: production
       CONTROL_TOKEN: ${BROWSER_CONTROL_TOKEN:?Set BROWSER_CONTROL_TOKEN in .env (openssl rand -hex 24)}
+      # How the live login window starts: `controlled` (the default) or `plain`, an ordinary browser nothing controls while you log in.
+      LOGIN_WINDOW_MODE: ${LOGIN_WINDOW_MODE:-controlled}
     networks: [control, egress]
     # Chromium's own sandbox stays on. That needs user namespaces, which Docker's default seccomp profile blocks,
     # so this is Playwright's own profile (kept unchanged beside the Dockerfile). Everything else is taken away.

@@ -59,3 +59,16 @@ The owner added an ordinary public website as a supplier on their own Docker Com
 
 This confirms on the real container what the first try-out showed on the spike, and that the locked-down container (read-only filesystem, one capability, seccomp profile, no host folders) does not get in the way of a live window. It was not a real supplier, so a real CAPTCHA, a code or a long login is still untested. That is the pilot supplier's job (Task 14).
 
+## The pilot supplier rejected the puzzle in the live window (2026-11-09)
+
+The owner tried the pilot supplier (a Shopify storefront) in the live window. They solved Google's puzzle and the storefront answered "Captcha failed". The same login and puzzle worked in their normal browser at the same moment on the same internet connection. From inside the container, name lookup and connections to the puzzle's servers were fine, so the network path was ruled out. (The puzzle's `recaptcha.net` address lists an unreachable IPv6 address second; the proxy tries only the first address it resolves, which is a small thing worth hardening later.)
+
+What we found out while building the plain window (`SPEC-plain-login-window.md`):
+
+- Chromium reports `navigator.webdriver = true` to every page as soon as **any** remote-control channel is open on it, whether or not the tool is using it. Without one, it reports `false`. The fake supplier's `/webdriver-report` page shows this: `/seen/true` from the controlled window and `/seen/false` from the plain one.
+- So the plain window cannot keep a control channel open, even one that is only used at the end. The design therefore changed: when the owner finishes, the browser is told to shut down gracefully (SIGINT) and its cookie file is read offline. On Linux, Chromium encrypts cookie values with a key derived from a fixed password when it runs with `--password-store=basic`, which the service uses, so no key store is involved.
+- **SIGINT, not SIGTERM.** SIGTERM ended the browser without writing its cookies. SIGINT made it shut down gracefully and write them, including cookies with no expiry (kept because the profile is seeded with "continue where you left off").
+- A plain Chromium turns the guard's empty refusal into its own error page, so a typed private address fails to load with `ERR_HTTP_RESPONSE_CODE_FAILURE` and the internal server receives nothing.
+- Tested on Linux and inside the real container: ordinary command line (no remote-debugging, automation or `--no-sandbox` switch), sandbox on, window drawn on the shared screen, `/seen/false`, empty session when nothing was logged in, no process and no profile left after finish, cancel, time-out or the owner closing the window.
+
+**Not yet known:** whether the pilot supplier accepts its puzzle in the plain window. That is the owner's try-out (set `LOGIN_WINDOW_MODE=plain`, recreate the browser container, press Connect). If it still fails, the experiment has answered the question and the other options in the spec stand.

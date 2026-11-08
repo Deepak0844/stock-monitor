@@ -1,6 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { classifyPage } from "../src/classify.js";
-import { createFakeSupplier, FAKE_PASSWORD, FAKE_USERNAME, type FakeSupplier } from "./fake-supplier.js";
+import {
+  createFakeSupplier,
+  FAKE_PASSWORD,
+  FAKE_USERNAME,
+  type FakeSupplier,
+} from "./fake-supplier.js";
 
 let site: FakeSupplier;
 beforeAll(async () => {
@@ -25,7 +30,11 @@ const login = async (user = FAKE_USERNAME, password = FAKE_PASSWORD) =>
   });
 const sessionCookie = (res: Response) => res.headers.get("set-cookie")?.split(";")[0] ?? "";
 const loggedIn = async () => sessionCookie(await login());
-const textOf = (html: string) => html.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/g, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+const textOf = (html: string) =>
+  html
+    .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/g, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ");
 
 describe("login and the account page", () => {
   it("shows a login form with a password field", async () => {
@@ -44,7 +53,11 @@ describe("login and the account page", () => {
   });
 
   it("refuses wrong details with a 401 and no cookie", async () => {
-    for (const [u, p] of [[FAKE_USERNAME, "wrong"], ["nobody", FAKE_PASSWORD], ["", ""]] as const) {
+    for (const [u, p] of [
+      [FAKE_USERNAME, "wrong"],
+      ["nobody", FAKE_PASSWORD],
+      ["", ""],
+    ] as const) {
       const res = await login(u, p);
       expect(res.status).toBe(401);
       expect(res.headers.get("set-cookie")).toBeNull();
@@ -60,7 +73,9 @@ describe("login and the account page", () => {
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({ username: FAKE_USERNAME, password: FAKE_PASSWORD, next }),
       });
-    expect((await send("/products/blue-widget")).headers.get("location")).toBe("/products/blue-widget");
+    expect((await send("/products/blue-widget")).headers.get("location")).toBe(
+      "/products/blue-widget",
+    );
     for (const evil of ["https://evil.example/", "//evil.example/", "http://169.254.169.254/"]) {
       expect((await send(evil)).headers.get("location"), evil).toBe("/account");
     }
@@ -121,7 +136,11 @@ describe("product pages", () => {
 
 describe("pages that need attention", () => {
   it("has a challenge page with a widget marker and the wording the classifier looks for", async () => {
-    for (const [widget, marker] of [["recaptcha", "g-recaptcha"], ["hcaptcha", "h-captcha"], ["turnstile", "cf-turnstile"]]) {
+    for (const [widget, marker] of [
+      ["recaptcha", "g-recaptcha"],
+      ["hcaptcha", "h-captcha"],
+      ["turnstile", "cf-turnstile"],
+    ]) {
       const res = await get(`/captcha?widget=${widget}`);
       const body = await res.text();
       expect(body, widget).toContain(`class="${marker}"`);
@@ -134,7 +153,14 @@ describe("pages that need attention", () => {
       const res = await get(path, cookie);
       return classifyPage({
         requestedUrl: site.url + path,
-        page: { finalUrl: site.url + path, status: res.status, title: "", text: textOf(await res.text()), hasPasswordField: false, hasChallengeWidget: false },
+        page: {
+          finalUrl: site.url + path,
+          status: res.status,
+          title: "",
+          text: textOf(await res.text()),
+          hasPasswordField: false,
+          hasChallengeWidget: false,
+        },
       });
     };
     expect(await asFacts("/captcha")).toBe("captcha");
@@ -189,11 +215,24 @@ describe("addresses that point at private networks", () => {
   });
 });
 
+describe("the page that reports what the browser says about itself", () => {
+  it("asks for /seen/ followed by navigator.webdriver, and answers that request with nothing", async () => {
+    const body = await (await get("/webdriver-report")).text();
+    expect(body).toContain('fetch("/seen/" + navigator.webdriver)');
+    expect((await get("/seen/false")).status).toBe(204);
+    expect((await get("/seen/true")).status).toBe(204);
+    expect((await get("/seen/maybe")).status).toBe(404);
+  });
+});
+
 describe("the server", () => {
   it("records each request, so a test can prove something was or was not asked for", async () => {
     await get("/login");
     await get("/products/blue-widget");
-    expect(site.requests.map((r) => `${r.method} ${r.path}`)).toEqual(["GET /login", "GET /products/blue-widget"]);
+    expect(site.requests.map((r) => `${r.method} ${r.path}`)).toEqual([
+      "GET /login",
+      "GET /products/blue-widget",
+    ]);
   });
 
   it("answers 404 for an unknown address", async () => {
