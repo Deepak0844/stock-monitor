@@ -41,6 +41,8 @@ export type FakeShopify = {
   revokeIssuedTokens: () => void;
   /** Accept a fixed token, like a legacy permanent token. */
   allowToken: (token: string) => void;
+  /** Change the client id and secret the store accepts, as if the owner rotated them. Old tokens keep working until revoked. */
+  setCredentials: (credentials: { clientId: string; clientSecret: string }) => void;
   close: () => Promise<void>;
 };
 
@@ -52,8 +54,8 @@ const readBody = (req: IncomingMessage) =>
   });
 
 export async function createFakeShopify(options: FakeShopifyOptions = {}): Promise<FakeShopify> {
-  const clientId = options.clientId ?? "fake-client-id";
-  const clientSecret = options.clientSecret ?? "fake-client-secret";
+  let clientId = options.clientId ?? "fake-client-id";
+  let clientSecret = options.clientSecret ?? "fake-client-secret";
   let mode: FakeMode = "ok";
   let redirectTo = "";
   let issued = 0;
@@ -140,6 +142,10 @@ export async function createFakeShopify(options: FakeShopifyOptions = {}): Promi
     graphqlRequests: () => requests.filter((r) => /graphql\.json$/.test(r.path)),
     revokeIssuedTokens: () => validTokens.clear(),
     allowToken: (token) => void validTokens.add(token),
+    setCredentials: (credentials) => {
+      clientId = credentials.clientId;
+      clientSecret = credentials.clientSecret;
+    },
     close: () =>
       new Promise<void>((resolve) => {
         server.closeAllConnections();

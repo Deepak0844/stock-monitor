@@ -101,6 +101,8 @@ export function SyncCard({ api, connection, onFinished }: Props) {
       ? "Choose an inventory location first."
       : null;
   const busy = phase !== "idle";
+  // Until the last run is known, a run that already exists could be mistaken for the one just started.
+  const loadingLastRun = lastRun === undefined;
 
   const progress = () => {
     if (phase === "waiting") return "Starting the sync…";
@@ -144,7 +146,7 @@ export function SyncCard({ api, connection, onFinished }: Props) {
           type="button"
           className="button primary"
           onClick={() => void start()}
-          disabled={busy || hint !== null}
+          disabled={busy || hint !== null || loadingLastRun}
           aria-busy={busy}
         >
           {busy ? "Syncing…" : "Sync from Shopify"}

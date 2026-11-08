@@ -32,12 +32,13 @@ export function AppShell({ email, onSignOut, children }: Props) {
   const mainRef = useRef<HTMLElement>(null);
   const firstRender = useRef(true);
 
-  // After moving to another page, put keyboard and screen reader focus on the new content.
+  // After moving to another page, close the phone menu and put keyboard and screen reader focus on the new content.
   useEffect(() => {
     if (firstRender.current) {
       firstRender.current = false;
       return;
     }
+    setOpen(false);
     mainRef.current?.focus();
   }, [path]);
 

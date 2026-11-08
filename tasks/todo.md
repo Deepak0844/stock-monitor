@@ -149,17 +149,19 @@ Every task is test-first (red, green, refactor). Run `npm run check` before mark
 ## Task 10: Browser tests through the real stack
 **Description:** Extend `e2e/stack.ts` with the fake Shopify server and drive the full journey in a real browser.
 **Acceptance criteria:**
-- [ ] Journey: sign in, connect with fake credentials, test, choose a location, sync, see the variants
-- [ ] Rejected credentials show "Reconnect Shopify" and a reconnect restores sync
-- [ ] No secret is visible in the page, network responses or console
-- [ ] Runs on desktop and phone sizes in CI, including the accessibility scan
+- [x] Journey: sign in, connect with fake credentials, test, choose a location, sync, see the variants
+- [x] Rejected credentials show "Reconnect Shopify" and a reconnect restores sync
+- [x] No secret is visible in the page, network responses or console
+- [x] Runs on desktop and phone sizes in CI, including the accessibility scan
 **Verification:** `npm run test:e2e`
 **Dependencies:** 8, 9
 **Files:** `e2e/stack.ts`, `e2e/shopify.spec.ts`, `e2e/fake-shopify-server.ts`
 **Scope:** Medium
 
+**Status:** done 2026-11-08. The stack launcher now runs a fake Shopify, the real job queue and the real worker handler, and a small control channel (port 4174, this machine only) that tests use to reset state, rotate the fake store's secret and change its permissions. The Shopify tests run one after another, and the phone run starts after the desktop run, because they share one connection. Found by the tests: on a phone, tapping a link in the Menu left the menu open (fixed, with a unit test).
+
 ### Checkpoint: after Task 10
-- [ ] `npm run check` and `npm run test:e2e` pass in CI
+- [x] `npm run check` and `npm run test:e2e` pass in CI (confirmed on the PR)
 - [ ] Review with owner before continuing
 
 ## Task 11: Real development-store check and wrap-up

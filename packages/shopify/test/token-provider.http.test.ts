@@ -78,4 +78,12 @@ describe("token provider over real HTTP", () => {
       await elsewhere.close();
     }
   });
+
+  it("stops accepting the old secret once the store's credentials are rotated", async () => {
+    const before = provider();
+    expect(await before.getToken()).toBe("fake-access-token-1");
+    fake.setCredentials({ clientId: "the-id", clientSecret: "rotated-secret" });
+    expect(await failure(provider("the-secret").getToken())).toBe("rejected_credentials");
+    expect(await provider("rotated-secret").getToken()).toMatch(/^fake-access-token-/);
+  });
 });

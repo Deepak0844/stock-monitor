@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { ApiError, type ShopifyApi, type SyncRun } from "../api.js";
 import { aCheck, aConnection, fakeApi } from "../test/fake-api.js";
@@ -31,6 +31,13 @@ const locations = [
   { id: "gid://shopify/Location/1", name: "Shop floor" },
   { id: "gid://shopify/Location/2", name: "Back room" },
 ];
+
+/** The Sync button, once it has become available. */
+const syncButton = async () => {
+  const button = await screen.findByRole("button", { name: "Sync from Shopify" });
+  await waitFor(() => expect(button).toBeEnabled());
+  return button;
+};
 
 const setup = (shopify: Partial<ShopifyApi> = {}) => {
   const api = fakeApi({ shopify });
@@ -210,6 +217,19 @@ describe("sync", () => {
     expect(screen.getByText("Choose an inventory location first.")).toBeInTheDocument();
   });
 
+  it("is not offered until the last sync has loaded, so an old run can never be mistaken for a new one", async () => {
+    let load!: (run: SyncRun) => void;
+    const getSync = vi.fn(() => new Promise<SyncRun | null>((resolve) => (load = resolve as (run: SyncRun) => void)));
+    setup(connected(ready, { getSync }));
+    const button = await screen.findByRole("button", { name: "Sync from Shopify" });
+    expect(button).toBeDisabled();
+    expect(screen.getByRole("status", { name: /sync/i })).toHaveTextContent("Loading…");
+    await waitFor(() => expect(getSync).toHaveBeenCalled()); // the request is made just after the button appears
+    await act(async () => load(run({ id: 4 })));
+    expect(await screen.findByText(/10 variants/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sync from Shopify" })).toBeEnabled();
+  });
+
   it("shows the last sync without being asked", async () => {
     setup(connected(ready, { getSync: vi.fn().mockResolvedValue(run()) }));
     expect(await screen.findByText(/10 variants/)).toBeInTheDocument();
@@ -237,7 +257,7 @@ describe("sync", () => {
       .mockResolvedValue(run({ id: 7, total: 120, added: 120, updated: 0, unchanged: 0, removed: 0 }));
     const startSync = vi.fn().mockResolvedValue(undefined);
     const { user, api } = setup(connected(ready, { getSync, startSync }));
-    await user.click(await screen.findByRole("button", { name: "Sync from Shopify" }));
+    await user.click(await syncButton());
     expect(startSync).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: "Syncing…" })).toBeDisabled();
 
@@ -255,7 +275,7 @@ describe("sync", () => {
   it("does not mistake the previous run for the new one", async () => {
     const getSync = vi.fn().mockResolvedValue(run({ id: 4 })); // always the old run
     const { user } = setup(connected(ready, { getSync }));
-    await user.click(await screen.findByRole("button", { name: "Sync from Shopify" }));
+    await user.click(await syncButton());
     await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
     expect(screen.getByRole("button", { name: "Syncing…" })).toBeDisabled();
     expect(screen.getByRole("status", { name: /sync/i })).toHaveTextContent(/starting/i);
@@ -264,7 +284,7 @@ describe("sync", () => {
   it("says the worker may not be running when the sync never starts", async () => {
     const getSync = vi.fn().mockResolvedValue(run({ id: 4 }));
     const { user } = setup(connected(ready, { getSync }));
-    await user.click(await screen.findByRole("button", { name: "Sync from Shopify" }));
+    await user.click(await syncButton());
     await act(async () => { await vi.advanceTimersByTimeAsync(2000 * 16); });
     expect(await screen.findByText(/has not started/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sync from Shopify" })).toBeEnabled();
@@ -273,7 +293,7 @@ describe("sync", () => {
   it("shows the server's plain message when a sync cannot be started", async () => {
     const startSync = vi.fn().mockRejectedValue(new ApiError("A sync is already running.", 409, "sync_running"));
     const { user } = setup(connected(ready, { startSync }));
-    await user.click(await screen.findByRole("button", { name: "Sync from Shopify" }));
+    await user.click(await syncButton());
     expect(await screen.findByRole("alert")).toHaveTextContent("A sync is already running.");
   });
 
