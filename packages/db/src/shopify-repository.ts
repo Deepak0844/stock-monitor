@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { decrypt, encrypt } from "@stock-monitor/crypto";
 import type { CatalogStore, CatalogVariant, Credentials, StoredVariant, SyncResult } from "@stock-monitor/shopify";
@@ -31,6 +31,9 @@ export type SyncRunRecord = {
   error: string | null;
 };
 
+export type VariantRecord = CatalogVariant & { syncedAt: Date };
+export type VariantPage = { items: VariantRecord[]; total: number; page: number; pageSize: number };
+
 export type SyncOutcome = { status: "succeeded"; result: SyncResult } | { status: "failed"; error: string };
 
 const STALE_RUN_MINUTES = 30;
@@ -43,6 +46,9 @@ const chunks = <T>(items: T[], size: number): T[][] => {
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
   return out;
 };
+
+// In LIKE, backslash is the escape character in PostgreSQL. Escape it and the two wildcards.
+const likePattern = (text: string) => `%${text.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 
 const excluded = (column: { name: string }) => sql`excluded.${sql.identifier(column.name)}`;
 
@@ -210,6 +216,62 @@ export function createShopifyRepository<S extends Record<string, unknown>>(db: N
     },
   });
 
+  const variants = {
+    /** One page of variants that still exist in Shopify, with the total that match. */
+    async listVariants(opts: { page: number; pageSize: number; search?: string; warningsOnly?: boolean }): Promise<VariantPage> {
+      const conditions: (SQL | undefined)[] = [isNull(shopifyVariants.removedAt)];
+      if (opts.search) {
+        const pattern = likePattern(opts.search);
+        conditions.push(
+          or(
+            ilike(shopifyVariants.productTitle, pattern),
+            ilike(shopifyVariants.variantTitle, pattern),
+            ilike(shopifyVariants.sku, pattern),
+          ),
+        );
+      }
+      if (opts.warningsOnly) {
+        conditions.push(or(eq(shopifyVariants.tracked, false), eq(shopifyVariants.inventoryPolicy, "CONTINUE")));
+      }
+      const where = and(...conditions);
+
+      const [{ total } = { total: 0 }] = await db
+        .select({ total: sql<number>`count(*)::int` })
+        .from(shopifyVariants)
+        .where(where);
+      const rows = await db
+        .select()
+        .from(shopifyVariants)
+        .where(where)
+        .orderBy(
+          asc(sql`lower(${shopifyVariants.productTitle})`),
+          asc(sql`lower(${shopifyVariants.variantTitle})`),
+          asc(shopifyVariants.variantId),
+        )
+        .limit(opts.pageSize)
+        .offset((opts.page - 1) * opts.pageSize);
+
+      return {
+        total,
+        page: opts.page,
+        pageSize: opts.pageSize,
+        items: rows.map((r) => ({
+          variantId: r.variantId,
+          productId: r.productId,
+          productTitle: r.productTitle,
+          variantTitle: r.variantTitle,
+          options: r.options as { name: string; value: string }[],
+          sku: r.sku,
+          inventoryItemId: r.inventoryItemId,
+          tracked: r.tracked,
+          inventoryPolicy: r.inventoryPolicy as "DENY" | "CONTINUE",
+          available: r.available,
+          syncedAt: r.syncedAt,
+        })),
+      };
+    },
+  };
+
   const syncRuns = {
     /** Starts a run, or returns null if one is already running. A run stuck for over 30 minutes is closed first. */
     async startSyncRun(): Promise<number | null> {
@@ -224,6 +286,21 @@ export function createShopifyRepository<S extends Record<string, unknown>>(db: N
         );
       const [row] = await db.insert(shopifySyncRuns).values({}).onConflictDoNothing().returning({ id: shopifySyncRuns.id });
       return row?.id ?? null;
+    },
+
+    /** True while a sync is running. A run left over 30 minutes does not count, matching startSyncRun. */
+    async isSyncRunning(): Promise<boolean> {
+      const rows = await db
+        .select({ id: shopifySyncRuns.id })
+        .from(shopifySyncRuns)
+        .where(
+          and(
+            eq(shopifySyncRuns.status, "running"),
+            sql`${shopifySyncRuns.startedAt} > now() - ${`${STALE_RUN_MINUTES} minutes`}::interval`,
+          ),
+        )
+        .limit(1);
+      return rows.length > 0;
     },
 
     async finishSyncRun(id: number, outcome: SyncOutcome): Promise<void> {
@@ -254,5 +331,5 @@ export function createShopifyRepository<S extends Record<string, unknown>>(db: N
     },
   };
 
-  return { ...connection, ...syncRuns, catalogStore };
+  return { ...connection, ...variants, ...syncRuns, catalogStore };
 }

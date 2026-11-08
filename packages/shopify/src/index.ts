@@ -1,6 +1,7 @@
 export * from "./base-url.js";
 export * from "./catalog.js";
 export * from "./client.js";
+export * from "./connection.js";
 export * from "./domain.js";
 export * from "./errors.js";
 export * from "./sync.js";

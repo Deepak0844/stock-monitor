@@ -39,6 +39,8 @@ export type FakeShopify = {
   graphqlRequests: () => RecordedRequest[];
   /** Make every token issued so far stop working, as if the secret had been rotated. */
   revokeIssuedTokens: () => void;
+  /** Accept a fixed token, like a legacy permanent token. */
+  allowToken: (token: string) => void;
   close: () => Promise<void>;
 };
 
@@ -137,6 +139,7 @@ export async function createFakeShopify(options: FakeShopifyOptions = {}): Promi
     },
     graphqlRequests: () => requests.filter((r) => /graphql\.json$/.test(r.path)),
     revokeIssuedTokens: () => validTokens.clear(),
+    allowToken: (token) => void validTokens.add(token),
     close: () =>
       new Promise<void>((resolve) => {
         server.closeAllConnections();

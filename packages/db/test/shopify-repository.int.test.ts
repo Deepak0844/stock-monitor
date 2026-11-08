@@ -247,6 +247,65 @@ describe("variants: removed, never deleted", () => {
   });
 });
 
+describe("listing variants", () => {
+  const seed = async () => {
+    await reset();
+    await repo().catalogStore().save([
+      variant(1, { productTitle: "Garden Gloves", variantTitle: "Small", sku: "GLV-S", available: 4 }),
+      variant(2, { productTitle: "Garden Gloves", variantTitle: "Large", sku: "GLV-L", available: 0, tracked: false }),
+      variant(3, { productTitle: "Hose Reel", variantTitle: "30m", sku: "HOSE-30", available: null, inventoryPolicy: "CONTINUE" }),
+      variant(4, { productTitle: "50% Off Sign", variantTitle: "A_B", sku: null }),
+      variant(5, { productTitle: "Old Item", variantTitle: "Gone", sku: "OLD-1" }),
+    ]);
+    await repo().catalogStore().markRemoved([variant(5).variantId]);
+  };
+
+  it("lists variants in a stable order, without removed ones, with the total", async () => {
+    await seed();
+    const page = await repo().listVariants({ page: 1, pageSize: 25 });
+    expect(page.total).toBe(4);
+    expect(page.items.map((v) => v.variantTitle)).toEqual(["A_B", "Large", "Small", "30m"]);
+    expect(page.page).toBe(1);
+    expect(page.pageSize).toBe(25);
+  });
+
+  it("pages through the results", async () => {
+    await seed();
+    const first = await repo().listVariants({ page: 1, pageSize: 3 });
+    const second = await repo().listVariants({ page: 2, pageSize: 3 });
+    expect(first.items).toHaveLength(3);
+    expect(second.items).toHaveLength(1);
+    expect(first.total).toBe(4);
+    expect(new Set([...first.items, ...second.items].map((v) => v.variantId)).size).toBe(4);
+  });
+
+  it("searches product title, variant title and SKU, ignoring capitals", async () => {
+    await seed();
+    expect((await repo().listVariants({ page: 1, pageSize: 25, search: "garden" })).total).toBe(2);
+    expect((await repo().listVariants({ page: 1, pageSize: 25, search: "LARGE" })).items.map((v) => v.sku)).toEqual(["GLV-L"]);
+    expect((await repo().listVariants({ page: 1, pageSize: 25, search: "hose-30" })).total).toBe(1);
+  });
+
+  it("treats % and _ in a search as ordinary characters", async () => {
+    await seed();
+    expect((await repo().listVariants({ page: 1, pageSize: 25, search: "50%" })).total).toBe(1);
+    expect((await repo().listVariants({ page: 1, pageSize: 25, search: "%" })).total).toBe(1);
+    expect((await repo().listVariants({ page: 1, pageSize: 25, search: "A_B" })).total).toBe(1);
+    expect((await repo().listVariants({ page: 1, pageSize: 25, search: "_" })).total).toBe(1);
+  });
+
+  it("can show only variants that need attention", async () => {
+    await seed();
+    const page = await repo().listVariants({ page: 1, pageSize: 25, warningsOnly: true });
+    expect(page.items.map((v) => v.variantTitle).sort()).toEqual(["30m", "Large"]);
+  });
+
+  it("returns an empty page past the end", async () => {
+    await seed();
+    expect(await repo().listVariants({ page: 9, pageSize: 25 })).toMatchObject({ items: [], total: 4 });
+  });
+});
+
 describe("sync runs", () => {
   it("records a successful run with its counts", async () => {
     await reset();
@@ -285,6 +344,15 @@ describe("sync runs", () => {
     const { rows } = await t.pool.query("select status, error from shopify_sync_runs order by id");
     expect(rows[0]).toMatchObject({ status: "failed" });
     expect(rows[0].error).toMatch(/interrupted/i);
+  });
+
+  it("knows whether a sync is running, and ignores one that was left running for over 30 minutes", async () => {
+    await reset();
+    expect(await repo().isSyncRunning()).toBe(false);
+    await repo().startSyncRun();
+    expect(await repo().isSyncRunning()).toBe(true);
+    await t.pool.query("update shopify_sync_runs set started_at = now() - interval '2 hours'");
+    expect(await repo().isSyncRunning()).toBe(false);
   });
 
   it("records progress on a running sync, and the final result replaces it", async () => {
