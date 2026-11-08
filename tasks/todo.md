@@ -97,21 +97,23 @@ Every task is test-first (red, green, refactor). Run `npm run check` before mark
 ## Task 7: API routes
 **Description:** The `/api/shopify/*` routes from the spec: save and read the connection, test it, list locations, choose a location, start a sync, read sync status, and list variants with search and paging.
 **Acceptance criteria:**
-- [ ] All routes need a signed-in owner
-- [ ] No response, log or audit event ever contains the client secret, client ID or a token. The connection read returns only shop, credential type, scopes, location, status and times
-- [ ] A bad domain is rejected with a plain message before any network call
-- [ ] "Test connection" returns the shop name and the granted scopes, and warns in plain English if any write scope is present
-- [ ] Saving, testing and choosing a location write audit events
-- [ ] `SHOPIFY_BASE_URL_OVERRIDE` is honoured only from server config, and the app refuses to start with it set in production
-- [ ] Variants list supports search by title or SKU, paging, and returns the tracking and "continue selling" warnings
+- [x] All routes need a signed-in owner
+- [x] No response, log or audit event ever contains the client secret, client ID or a token. The connection read returns only shop, credential type, scopes, location, status and times
+- [x] A bad domain is rejected with a plain message before any network call
+- [x] "Test connection" returns the shop name and the granted scopes, and warns in plain English if any write scope is present
+- [x] Saving, testing and choosing a location write audit events
+- [x] `SHOPIFY_BASE_URL_OVERRIDE` is honoured only from server config, and the app refuses to start with it set in production
+- [x] Variants list supports search by title or SKU, paging, and returns the tracking and "continue selling" warnings
 **Verification:** `npm run test:integration`
 **Dependencies:** 3, 5, 6
 **Files:** `apps/api/src/routes/shopify.ts`, `apps/api/src/app.ts`, `packages/shared/src/config.ts`, tests
 **Scope:** Medium
 
+**Status:** done 2026-11-08. The permission list comes from `currentAppInstallation { accessScopes { handle } }` (field names read on shopify.dev), and the shop name from `shop { name }`. A legacy permanent token is accepted too. The permission query is best effort: if Shopify will not answer it, the connection still works and the owner is told the permissions could not be checked. A write permission counts as also allowing reads, as Shopify states. Saving is allowed with missing read permissions (with a warning) so the owner can fix it in Shopify and reconnect. Added `isSyncRunning` (ignores a run stuck for over 30 minutes) so a crashed sync cannot block the Sync button. Not verified until Task 11: the access scope `currentAppInstallation` needs, and any scope `shop` needs (neither page states one).
+
 ### Checkpoint: after Task 7
-- [ ] `npm run check` passes
-- [ ] A test proves the code contains no Shopify write call, and the requested scopes contain no write scope
+- [x] `npm run check` passes
+- [x] A test proves the code contains no Shopify write call, and the requested scopes contain no write scope
 - [ ] Review with owner before continuing
 
 ## Task 8: Settings > Shopify page and a small router

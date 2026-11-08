@@ -9,6 +9,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { users } from "@stock-monitor/db";
 import { createAuditWriter } from "@stock-monitor/audit";
+import { registerShopifyRoutes, type ShopifyRoutesDeps } from "./routes/shopify.js";
 import { AppError, unauthenticated } from "./errors.js";
 import { createLoginLimiter } from "./rate-limit.js";
 import {
@@ -38,6 +39,8 @@ export type AppDeps = {
   webRoot?: string;
   /** Believe X-Forwarded-For for the client address. Off unless a trusted proxy sits in front. */
   trustProxy?: boolean;
+  /** Shopify routes. Left out, the API has no /api/shopify routes. */
+  shopify?: ShopifyRoutesDeps;
 };
 
 const SECURITY_HEADERS = {
@@ -52,7 +55,7 @@ const isApiPath = (path: string) => path === "/api" || path.startsWith("/api/");
 
 const loginBody = z.object({ email: z.string().min(1), password: z.string().min(1) });
 
-export function buildApp({ db, logger, secureCookies = false, webRoot, trustProxy = false }: AppDeps) {
+export function buildApp({ db, logger, secureCookies = false, webRoot, trustProxy = false, shopify }: AppDeps) {
   const app = Fastify({
     loggerInstance: logger,
     genReqId: () => randomUUID(),
@@ -171,6 +174,8 @@ export function buildApp({ db, logger, secureCookies = false, webRoot, trustProx
     reply.clearCookie(SESSION_COOKIE, { path: "/" });
     return { ok: true };
   });
+
+  if (shopify) registerShopifyRoutes(app, shopify, audit);
 
   app.get("/health", async () => ({ status: "ok" }));
   app.get("/api/me", async (request) => ({ email: request.user?.email }));
