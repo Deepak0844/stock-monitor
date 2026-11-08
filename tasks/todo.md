@@ -18,15 +18,17 @@ Every task is test-first (red, green, refactor). Run `npm run check` before mark
 ## Task 2: Token provider and the fake Shopify server
 **Description:** A provider that returns a valid access token. For `client_credentials` it requests one from the shop's `/admin/oauth/access_token`, caches it in memory, refreshes about 10 minutes before expiry, and shares one in-flight refresh between concurrent callers. For `static_token` it returns the stored token. Also builds the test-only fake Shopify server (token endpoint first).
 **Acceptance criteria:**
-- [ ] Fetches a token with the client ID and secret, and reuses it until the refresh window
-- [ ] Refreshes ahead of expiry (fake clock). Ten concurrent calls cause one request
-- [ ] Rejected credentials raise the "rejected credentials" error. A network failure raises "cannot reach Shopify"
-- [ ] A static token works without any request. No token or secret appears in any error message or log
-- [ ] The base URL can be replaced through an injected function, and the domain check still runs first
+- [x] Fetches a token with the client ID and secret, and reuses it until the refresh window
+- [x] Refreshes ahead of expiry (fake clock). Ten concurrent calls cause one request
+- [x] Rejected credentials raise the "rejected credentials" error. A network failure raises "cannot reach Shopify"
+- [x] A static token works without any request. No token or secret appears in any error message or log
+- [x] The base URL can be replaced through an injected function, and the domain check still runs first
 **Verification:** `npm run test:unit`
 **Dependencies:** 1
 **Files:** `src/token-provider.ts`, `src/base-url.ts`, `test/fake-shopify.ts`, tests
 **Scope:** Medium
+
+**Status:** done 2026-11-08. Request and reply shapes come from Shopify's "Authenticate an app for stores in your organization" and "Access tokens" pages. Not stated by Shopify, so unverified until Task 11: the status and body for wrong credentials, and the status for the different-organization error (matched by its exact message text). Two error codes were added: `invalid_shop` and `wrong_organization`.
 
 ## Task 3: GraphQL client with version pinning and throttle handling
 **Description:** A client that posts GraphQL to the pinned API version (`2026-10`, one constant) with the access token header, reads `extensions.cost.throttleStatus`, waits before the next call when the bucket is low, retries throttled replies with backoff, and validates every response with Zod.
