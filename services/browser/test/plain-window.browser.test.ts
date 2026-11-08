@@ -162,8 +162,12 @@ describe.skipIf(!linux)("the plain window is as guarded as the controlled one", 
   });
 
   it("cannot be sent to a private address by a redirect from the supplier", async () => {
-    await open(plain, `${site.url}/redirect-to?url=${encodeURIComponent(`${internalUrl}/hit`)}`);
-    await new Promise((r) => setTimeout(r, 800));
+    await open(plain, `${site.url}/login`); // attach first, so the redirect below is not racing the test's attach
+    await expect(
+      plain
+        .loginPage()!
+        .goto(`${site.url}/redirect-to?url=${encodeURIComponent(`${internalUrl}/hit`)}`),
+    ).rejects.toThrow(/ERR_/);
     expect(internalHits).toBe(0);
   });
 

@@ -194,7 +194,7 @@ describe("the saved session stays in memory", () => {
           continue; // a file that vanished while scanning
         }
         if (info.isDirectory()) scan(path, depth + 1);
-        else if (info.size < 50_000_000 && readFileSync(path).includes(value)) hits.push(path);
+        else if (info.isFile() && info.size < 50_000_000 && readFileSync(path).includes(value)) hits.push(path);
       }
     };
     for (const name of readdirSync(tmpdir())) if (/playwright|chromium/i.test(name)) scan(join(tmpdir(), name));
