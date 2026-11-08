@@ -142,6 +142,21 @@ describe("the live window routes", () => {
     expect(sessions.open).toHaveBeenCalledWith("https://shop.acme.example/login");
   });
 
+  it("includes the VNC password in the answer when the service has one, and leaves it out when it has none", async () => {
+    const withPassword = createControlServer({ token: TOKEN, verify, sessions, vncPassword: "Ab3dE6gH" });
+    await new Promise<void>((resolve) => withPassword.listen(0, "127.0.0.1", resolve));
+    try {
+      const url = `http://127.0.0.1:${(withPassword.address() as AddressInfo).port}/sessions`;
+      const res = await fetch(url, { method: "POST", headers: { authorization: `Bearer ${TOKEN}` }, body: JSON.stringify({ url: "https://a.example/" }) });
+      expect(await res.json()).toEqual({ id: ID, expiresAt: "2026-11-08T12:00:00.000Z", vncPassword: "Ab3dE6gH" });
+    } finally {
+      withPassword.closeAllConnections();
+      await new Promise((resolve) => withPassword.close(resolve));
+    }
+    const plain = await call("POST", "/sessions", TOKEN, { url: "https://a.example/" });
+    expect(Object.keys(await plain.json())).toEqual(["id", "expiresAt"]);
+  });
+
   it.each([["no address", {}], ["an ftp address", { url: "ftp://a.example/" }], ["a number", { url: 5 }], ["an extra field", { url: "https://a.example/", state: {} }]])(
     "refuses %s with a plain 400",
     async (_n, payload) => {

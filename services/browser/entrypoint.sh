@@ -10,8 +10,15 @@ rm -f /tmp/.X99-lock /tmp/.X11-unix/X99
 Xvfb "$DISPLAY" -screen 0 1280x800x24 -nolisten tcp &
 for _ in $(seq 1 50); do [ -S /tmp/.X11-unix/X99 ] && break; sleep 0.1; done
 
-# No VNC password: the port is never published. Only the API can reach it, over the private network.
-x11vnc -display "$DISPLAY" -forever -shared -nopw -rfbport 5900 -noxdamage -quiet &
+# A new random VNC password every time the container starts. VNC only uses the first 8 characters, so it is exactly 8.
+# x11vnc reads it from a file and deletes the file ("rm:"), so it is never on a command line or left on disk. The
+# service gets it from the environment and gives it to the API when a window opens. The port is never published, so this
+# is a second lock behind the private network, not the only one.
+VNC_PASSWORD=""
+while [ "${#VNC_PASSWORD}" -lt 8 ]; do VNC_PASSWORD=$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 8); done
+export VNC_PASSWORD
+( umask 077; printf '%s\n' "$VNC_PASSWORD" > /tmp/vnc.pass )
+x11vnc -display "$DISPLAY" -forever -shared -passwdfile rm:/tmp/vnc.pass -rfbport 5900 -noxdamage -quiet &
 
 node --import tsx services/browser/src/main.ts &
 

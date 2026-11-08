@@ -9,6 +9,8 @@ export type Config = {
   sessionTimeoutMs: number;
   /** Test only: "host:port" pairs the guard lets through. */
   allowHosts: string[] | undefined;
+  /** The password for the shared screen. Set when windows are shown, because that is when VNC is running. */
+  vncPassword: string | undefined;
 };
 
 const MIN_TOKEN = 32;
@@ -31,13 +33,19 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     throw new Error("TEST_ALLOW_HOSTS must not be set in production.");
   }
 
+  const headed = env.HEADLESS_WINDOWS !== "1";
+  // VNC only uses the first 8 characters of a password, so exactly 8 is required, and no more is pretended.
+  const vncPassword = env.VNC_PASSWORD;
+  if (headed && !/^[A-Za-z0-9]{8}$/.test(vncPassword ?? "")) throw new Error("VNC_PASSWORD must be exactly 8 letters or digits.");
+
   return {
     token,
     port: whole("PORT", env.PORT, 8080, 1, 65535),
     host: env.HOST ?? "0.0.0.0",
     sandbox: env.NO_SANDBOX !== "1",
-    headed: env.HEADLESS_WINDOWS !== "1",
+    headed,
     sessionTimeoutMs: whole("SESSION_MINUTES", env.SESSION_MINUTES, 15, 1, 120) * 60_000,
     allowHosts: allow && allow.length > 0 ? allow : undefined,
+    vncPassword: headed ? vncPassword : undefined,
   };
 }

@@ -21,6 +21,7 @@ const PROBE = readFileSync(fileURLToPath(new URL("./rfb-probe.mjs", import.meta.
 
 let site: FakeSupplier;
 let loginUrl = "";
+let vncPassword = "";
 
 const docker = async (...args: string[]) => (await run("docker", args, { cwd: ROOT, maxBuffer: 50_000_000 })).stdout.trim();
 const inside = (...args: string[]) => docker("exec", ...args);
@@ -45,9 +46,11 @@ const control = async (method: string, path: string, body?: unknown) => {
 };
 
 /** Runs the stand-in VNC client inside the container, feeding it the script on stdin. */
-const screen = () =>
-  new Promise<{ banner: string; width: number; height: number; colours: number }>((resolve, reject) => {
-    const child = spawn("docker", ["exec", "-i", NAME, "node", "--input-type=module", "-"], { cwd: ROOT });
+type Probe = { banner: string; securityTypes: number[]; width: number; height: number; colours: number; offeredNone?: boolean; authFailed?: boolean };
+const probe = (password?: string) =>
+  new Promise<Probe>((resolve, reject) => {
+    const env = password === undefined ? [] : ["-e", `PROBE_PASSWORD=${password}`];
+    const child = spawn("docker", ["exec", "-i", ...env, NAME, "node", "--openssl-legacy-provider", "--input-type=module", "-"], { cwd: ROOT });
     let out = "";
     child.stdout.on("data", (c) => (out += c));
     child.on("close", () => {
@@ -59,6 +62,7 @@ const screen = () =>
     });
     child.stdin.end(PROBE);
   });
+const screen = () => probe(vncPassword);
 
 const headedChromium = async () =>
   Number(await inside(NAME, "sh", "-c", "for p in /proc/[0-9]*; do tr '\\0' ' ' < $p/cmdline 2>/dev/null | grep -q '/ms-playwright/[c]hromium-[0-9]' && echo $p; done | wc -l"));
@@ -77,6 +81,9 @@ async function startContainer() {
     IMAGE,
   );
   await until(healthy, 90_000, "the container to be healthy");
+  // The password is made inside the container, so read it from the service's own environment.
+  const line = await inside(NAME, "sh", "-c", "for p in /proc/[0-9]*; do tr '\\0' '\\n' < $p/environ 2>/dev/null | grep -m1 '^VNC_PASSWORD=' && break; done");
+  vncPassword = line.replace("VNC_PASSWORD=", "");
 }
 
 beforeAll(async () => {
@@ -104,7 +111,19 @@ describe("the container", () => {
     expect(out).toBe("401");
   });
 
-  it("shares an empty virtual screen over VNC, readable by a stand-in client", async () => {
+  it("protects VNC with a password: no 'none' login is offered, and a wrong password is refused", async () => {
+    expect(vncPassword).toMatch(/^[A-Za-z0-9]{8}$/);
+    expect(await probe()).toMatchObject({ offeredNone: false, securityTypes: [2] });
+    expect(await probe("WrongPw1")).toMatchObject({ authFailed: true });
+  });
+
+  it("never leaves the password in a file or in any process's command line", async () => {
+    expect(await inside(NAME, "sh", "-c", "test -e /tmp/vnc.pass && echo present || echo gone")).toBe("gone");
+    const found = await inside("-e", `PW=${vncPassword}`, NAME, "sh", "-c", 'for p in /proc/[0-9]*; do tr "\\0" " " < $p/cmdline 2>/dev/null | grep -qF "$PW" && echo $p; done | wc -l');
+    expect(found).toBe("0");
+  });
+
+  it("shares an empty virtual screen over VNC, readable by a stand-in client that knows the password", async () => {
     const frame = await screen();
     expect(frame.banner).toMatch(/^RFB 003\.\d{3}$/);
     expect([frame.width, frame.height]).toEqual([1280, 800]);
@@ -122,6 +141,7 @@ describe("a login window", () => {
     const r = await control("POST", "/sessions", { url: loginUrl });
     expect(r.status).toBe(201);
     id = r.body.id as string;
+    expect(r.body.vncPassword).toBe(vncPassword); // so the API can pass it on to the owner's page
     await until(async () => (await screen()).colours > 20, 20_000, "the window to be drawn on the screen");
     expect(await headedChromium()).toBeGreaterThan(0);
   });

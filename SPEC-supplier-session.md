@@ -88,6 +88,7 @@ Owner's browser ──HTTPS──> API ──private network──> Browser serv
 ## Security
 
 - **Authentication is ours.** The live-window WebSocket needs: a valid owner session cookie, an allowed `Origin` (so another website cannot drive it with the owner's cookie), and a valid one-time token. Wrong, expired or reused tokens are refused and audited. Attempts are rate limited.
+- **The shared screen has a password.** The browser container makes a new random 8-character VNC password each time it starts, gives it to the API when a window opens, and never puts it on a command line or leaves it on disk. VNC only uses the first 8 characters, so this is a second lock behind the private network, not a replacement for our own token handshake.
 - **Nothing is logged from the screen.** The proxy passes bytes through. It does not log, store or inspect keystrokes, clipboard contents or pictures.
 - **The browser container is locked down:** no published ports, a private network shared only with the API and worker, a non-root user, a seccomp profile, a memory and CPU limit, no mounted host folders, a throw-away profile in memory, and **no database credentials or encryption key**. A control token authenticates the API to it.
 - **SSRF guard.** Requests to loopback, private, link-local and cloud-metadata addresses are blocked inside the browser service, including after redirects and DNS lookups, as a second line of defence behind its separate network.
