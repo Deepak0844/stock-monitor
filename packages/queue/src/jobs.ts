@@ -6,6 +6,9 @@ export const jobSchemas = {
   // No data at all: the worker reads everything it needs from the database. Strict, so a secret
   // can never be added to a job by mistake.
   "shopify.sync": z.object({}).strict(),
+  // Which supplier to check, and nothing else. The worker reads the saved session from the database, so no
+  // session, cookie or token is ever in a job.
+  "supplier.session.verify": z.object({ supplierId: z.uuid() }).strict(),
 } as const;
 
 export type JobName = keyof typeof jobSchemas;

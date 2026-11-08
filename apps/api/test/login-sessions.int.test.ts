@@ -2,12 +2,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createHash, randomBytes } from "node:crypto";
 import { Writable } from "node:stream";
 import { startTestDb, type TestDb } from "@stock-monitor/db/test-harness";
-import { createLoginSessionRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
+import { createLoginSessionRepository, createNotificationRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
 import { unsealSessionState } from "@stock-monitor/supplier-session";
 import { createLogger } from "@stock-monitor/shared";
 import { buildApp } from "../src/app.js";
-import { createBrowserClient } from "../src/browser-client.js";
-import { createFakeBrowserService, FAKE_CONTROL_TOKEN, type FakeBrowserService } from "./fake-browser-service.js";
+import { createBrowserClient } from "@stock-monitor/browser-client";
+import { createFakeBrowserService, FAKE_CONTROL_TOKEN, type FakeBrowserService } from "@stock-monitor/browser-client/testing";
 
 let t: TestDb;
 let fake: FakeBrowserService;
@@ -15,6 +15,8 @@ let sid: string;
 let userId: string;
 const key = { key: randomBytes(32), keyId: "v1" };
 const logLines: string[] = [];
+const queued: { name: string; payload: unknown }[] = [];
+let enqueueFails = false;
 const bodies: string[] = [];
 const logger = createLogger({ level: "debug", stream: new Writable({ write: (c, _e, cb) => (logLines.push(c.toString()), cb()) }) });
 
@@ -37,6 +39,13 @@ const app = (over: { browserUrl?: string; encryptionKey?: Buffer } = {}) =>
       supplierSessions: sessionRepo(),
       browser: createBrowserClient({ baseUrl: over.browserUrl ?? fake.url, token: FAKE_CONTROL_TOKEN, timeoutMs: 2000 }),
       key: { key: over.encryptionKey ?? key.key, keyId: key.keyId },
+      notifications: createNotificationRepository(t.appDb),
+      queue: {
+        enqueue: async (name: string, payload: unknown) => {
+          if (enqueueFails) throw new Error("queue down");
+          queued.push({ name, payload });
+        },
+      },
     },
   });
 // One app is reused, because the API keeps each attempt's VNC password in memory between calls.
@@ -68,6 +77,8 @@ beforeEach(async () => {
   fake.requests.length = 0;
   logLines.length = 0;
   bodies.length = 0;
+  queued.length = 0;
+  enqueueFails = false;
   Object.assign(fake.behaviour, { open: "ok", finish: "ok", cancel: "ok", state: sessionState, vncPassword: VNC, delayMs: 0 });
   const a = await supplierRepo().create({ name: "Acme", websiteUrl: "https://shop.acme.example/", loginUrl: "https://shop.acme.example/login", checkIntervalMinutes: 60 });
   const g = await supplierRepo().create({ name: "Globex", websiteUrl: "https://globex.example/", loginUrl: null, checkIntervalMinutes: 60 });
@@ -93,6 +104,7 @@ describe("every login route needs a signed-in owner", () => {
     ["POST", `/api/login-sessions/${UNKNOWN}/cancel`],
     ["GET", `/api/suppliers/${UNKNOWN}/session`],
     ["DELETE", `/api/suppliers/${UNKNOWN}/session`],
+    ["POST", `/api/suppliers/${UNKNOWN}/check-session`],
   ] as const)("%s %s returns 401 without a session and reaches nothing", async (method, url) => {
     expect((await call(method, url, false)).status).toBe(401);
     expect(fake.requests).toHaveLength(0);
@@ -396,5 +408,62 @@ describe("deleting a supplier that has a login open", () => {
     expect((await call("DELETE", `/api/suppliers/${acme}`)).status).toBe(200);
     expect(fake.requests).toHaveLength(0);
     expect((await row(id)).status).toBe("ready");
+  });
+});
+
+describe("the first check after a login, and checking by hand", () => {
+  it("queues a check of the supplier when a login is finished, carrying only the supplier's id", async () => {
+    fake.behaviour.state = sessionState;
+    const { id } = await start();
+    await call("POST", `/api/login-sessions/${id}/finish`);
+    expect(queued).toEqual([{ name: "supplier.session.verify", payload: { supplierId: acme } }]);
+    expect(JSON.stringify(queued)).not.toMatch(new RegExp(`${COOKIE}|${STORAGE}`));
+  });
+
+  it("still finishes the login when the queue is down", async () => {
+    enqueueFails = true;
+    const { id } = await start();
+    const r = await call("POST", `/api/login-sessions/${id}/finish`);
+    expect(r.status).toBe(200);
+    expect((await supplierRepo().get(acme))?.sessionStatus).toBe("connected");
+  });
+
+  it("resolves the supplier's notification when the login is finished", async () => {
+    const notes = createNotificationRepository(t.appDb);
+    await notes.raise({ kind: "supplier_needs_reconnect", supplierId: acme, message: "Acme needs you to log in again.", reason: "login_required" });
+    const { id } = await start();
+    await call("POST", `/api/login-sessions/${id}/finish`);
+    expect(await notes.listOpen()).toEqual([]);
+  });
+
+  it("queues a check on request, and writes an audit event", async () => {
+    const { id } = await start();
+    await call("POST", `/api/login-sessions/${id}/finish`);
+    queued.length = 0;
+    const r = await call("POST", `/api/suppliers/${acme}/check-session`);
+    expect(r.status).toBe(202);
+    expect(r.body).toEqual({ queued: true });
+    expect(queued).toEqual([{ name: "supplier.session.verify", payload: { supplierId: acme } }]);
+    expect(await audit("supplier.session_check_requested")).toEqual([expect.objectContaining({ actor_user_id: userId, entity_id: acme })]);
+  });
+
+  it("says plainly to connect first when there is no saved session, and queues nothing", async () => {
+    const r = await call("POST", `/api/suppliers/${globex}/check-session`);
+    expect(r.status).toBe(409);
+    expect(r.body.error).toMatchObject({ code: "not_connected", message: "Connect this supplier first." });
+    expect(queued).toEqual([]);
+  });
+
+  it("gives a plain 404 for an unknown supplier", async () => {
+    expect((await call("POST", `/api/suppliers/${UNKNOWN}/check-session`)).body.error.code).toBe("supplier_not_found");
+  });
+
+  it("says plainly when the check could not be queued", async () => {
+    const { id } = await start();
+    await call("POST", `/api/login-sessions/${id}/finish`);
+    enqueueFails = true;
+    const r = await call("POST", `/api/suppliers/${acme}/check-session`);
+    expect(r.status).toBe(503);
+    expect(r.body.error.message).toBe("The check could not be started. Please try again in a minute.");
   });
 });

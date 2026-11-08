@@ -26,4 +26,19 @@ describe("parseJob", () => {
     expect(() => parseJob("shopify.sync", { clientSecret: "x" })).toThrow(/shopify\.sync/);
     expect(() => parseJob("shopify.sync", { anything: 1 })).toThrow();
   });
+
+  describe("supplier.session.verify", () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    it("carries only the supplier's id", () => {
+      expect(parseJob("supplier.session.verify", { supplierId: id })).toEqual({ supplierId: id });
+    });
+    it("needs a supplier id, and it must be an id", () => {
+      expect(() => parseJob("supplier.session.verify", {})).toThrow(/supplier\.session\.verify/);
+      expect(() => parseJob("supplier.session.verify", { supplierId: "acme" })).toThrow();
+    });
+    it("refuses anything else, so a session, cookie or token can never ride along in a job", () => {
+      expect(() => parseJob("supplier.session.verify", { supplierId: id, state: { cookies: [] } })).toThrow();
+      expect(() => parseJob("supplier.session.verify", { supplierId: id, cookie: "x" })).toThrow();
+    });
+  });
 });

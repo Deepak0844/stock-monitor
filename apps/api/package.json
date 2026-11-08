@@ -9,6 +9,7 @@
     "@fastify/websocket": "^11.3.7",
     "@node-rs/argon2": "^2.2.2",
     "@stock-monitor/audit": "*",
+    "@stock-monitor/browser-client": "*",
     "@stock-monitor/crypto": "*",
     "@stock-monitor/db": "*",
     "@stock-monitor/queue": "*",

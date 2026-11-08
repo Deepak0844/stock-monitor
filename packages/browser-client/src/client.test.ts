@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { createBrowserClient } from "./browser-client.js";
+import { createBrowserClient } from "./client.js";
 import { createFakeBrowserService, FAKE_CONTROL_TOKEN, type FakeBrowserService } from "../test/fake-browser-service.js";
 
 let fake: FakeBrowserService;
@@ -16,7 +16,7 @@ afterAll(async () => {
 });
 beforeEach(() => {
   fake.requests.length = 0;
-  Object.assign(fake.behaviour, { open: "ok", finish: "ok", cancel: "ok", state: { cookies: [], origins: [] }, vncPassword: "Ab3dE6gH", delayMs: 0 });
+  Object.assign(fake.behaviour, { open: "ok", finish: "ok", cancel: "ok", verify: "ok", verifyResult: "ok", state: { cookies: [], origins: [] }, vncPassword: "Ab3dE6gH", delayMs: 0 });
 });
 
 describe("openSession", () => {
@@ -90,5 +90,45 @@ describe("cancelSession", () => {
   it("only ever asks about a window id that looks like one", async () => {
     expect(await client().cancelSession("../verify")).toEqual({ ok: false, reason: "not_found" });
     expect(fake.requests).toHaveLength(0);
+  });
+});
+
+describe("verify", () => {
+  const state = { cookies: [{ name: "s", value: COOKIE }], origins: [] };
+
+  it("asks for a check, sending the session and the control token, and returns what the page was", async () => {
+    const r = await client().verify({ url: "https://shop.acme.example/account", state });
+    expect(r).toEqual({ ok: true, result: "ok", status: 200, blockedRequests: 0 });
+    expect(fake.requests[0]).toMatchObject({ method: "POST", path: "/verify", auth: `Bearer ${FAKE_CONTROL_TOKEN}`, body: { url: "https://shop.acme.example/account", state } });
+  });
+
+  it("sends the owner's login address when there is one, and leaves it out when there is not", async () => {
+    await client().verify({ url: "https://a.example/", loginUrl: "https://a.example/login", state });
+    await client().verify({ url: "https://a.example/", state });
+    expect((fake.requests[0]?.body as Record<string, unknown>).loginUrl).toBe("https://a.example/login");
+    expect("loginUrl" in (fake.requests[1]?.body as Record<string, unknown>)).toBe(false);
+  });
+
+  it.each(["ok", "login_required", "captcha", "blocked", "unreachable", "unknown"])("passes the answer %s through", async (result) => {
+    fake.behaviour.verifyResult = result;
+    expect(await client().verify({ url: "https://a.example/", state })).toMatchObject({ ok: true, result });
+  });
+
+  it("says failed for a broken answer or an answer that is not one of the six, and for a wrong token", async () => {
+    fake.behaviour.verify = "fail";
+    expect(await client().verify({ url: "https://a.example/", state })).toEqual({ ok: false, reason: "failed" });
+    fake.behaviour.verify = "garbage";
+    expect(await client().verify({ url: "https://a.example/", state })).toEqual({ ok: false, reason: "failed" });
+    fake.behaviour.verify = "ok";
+    expect(await client({ token: "w".repeat(40) }).verify({ url: "https://a.example/", state })).toEqual({ ok: false, reason: "failed" });
+  });
+
+  it("says unavailable when nothing answers or the service is too slow, and never puts the session in the result", async () => {
+    const down = await client({ baseUrl: "http://127.0.0.1:1" }).verify({ url: "https://a.example/", state });
+    expect(down).toEqual({ ok: false, reason: "unavailable" });
+    fake.behaviour.delayMs = 400;
+    const slow = await client({ timeoutMs: 100 }).verify({ url: "https://a.example/", state });
+    expect(slow).toEqual({ ok: false, reason: "unavailable" });
+    expect(JSON.stringify([down, slow])).not.toContain(COOKIE);
   });
 });

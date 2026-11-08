@@ -85,6 +85,27 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
         enabled: sql`case when ${suppliers.pausedReason} = 'session' then true else ${suppliers.enabled} end`,
         pausedReason: sql`case when ${suppliers.pausedReason} = 'session' then null else ${suppliers.pausedReason} end`,
       }),
+    /**
+     * A session check found a problem. The supplier gets the status, and is paused because the session
+     * needs attention, unless it was already paused: a pause the owner made stays the owner's.
+     */
+    markNeedsAttention: (id: string, status: "needs_reconnect" | "blocked") =>
+      set(id, {
+        sessionStatus: status,
+        enabled: sql`case when ${suppliers.pausedReason} is null then false else ${suppliers.enabled} end`,
+        pausedReason: sql`case when ${suppliers.pausedReason} is null then 'session' else ${suppliers.pausedReason} end`,
+        lastSessionCheckAt: sql`now()`,
+      }),
+    /** A session check found the session working: like markConnected, and records the check. */
+    markVerified: (id: string) =>
+      set(id, {
+        sessionStatus: "connected",
+        enabled: sql`case when ${suppliers.pausedReason} = 'session' then true else ${suppliers.enabled} end`,
+        pausedReason: sql`case when ${suppliers.pausedReason} = 'session' then null else ${suppliers.pausedReason} end`,
+        lastSessionCheckAt: sql`now()`,
+      }),
+    /** A check was tried but the supplier could not be reached. Nothing else changes. */
+    touchChecked: (id: string) => set(id, { lastSessionCheckAt: sql`now()` }),
     markNotConnected: (id: string) => set(id, { sessionStatus: "not_connected" }),
 
     pause: (id: string) => set(id, { enabled: false, pausedReason: "owner" }),

@@ -1,9 +1,13 @@
-import { isSessionState, type SessionState } from "@stock-monitor/supplier-session";
+import { isSessionState, type PageClass, type SessionState } from "@stock-monitor/supplier-session";
 
 export type OpenOutcome =
   | { ok: true; id: string; expiresAt: string; vncPassword?: string }
   | { ok: false; reason: "busy" | "failed" | "unavailable" };
 export type FinishOutcome = { ok: true; state: SessionState } | { ok: false; reason: "not_found" | "failed" | "unavailable" };
+/** What a check of a saved session found. It says what the page was, never anything the page held. */
+export type VerifyOutcome =
+  | { ok: true; result: PageClass; status: number | null; blockedRequests: number }
+  | { ok: false; reason: "failed" | "unavailable" };
 export type CancelOutcome = { ok: true } | { ok: false; reason: "not_found" | "unavailable" };
 
 export type BrowserClient = {
@@ -12,6 +16,8 @@ export type BrowserClient = {
   /** Saves the login as it is now and closes the window. */
   finishSession(id: string): Promise<FinishOutcome>;
   cancelSession(id: string): Promise<CancelOutcome>;
+  /** Loads a page with a saved session in a throw-away browser and says what it was. */
+  verify(request: { url: string; loginUrl?: string; state: SessionState }): Promise<VerifyOutcome>;
 };
 
 export type BrowserClientOptions = {
@@ -21,6 +27,7 @@ export type BrowserClientOptions = {
   fetchImpl?: typeof fetch;
 };
 
+const PAGE_CLASSES: readonly string[] = ["ok", "login_required", "captcha", "blocked", "unreachable", "unknown"];
 const WINDOW_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
@@ -72,6 +79,19 @@ export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, fetchI
       if (r.status === 404) return { ok: false, reason: "not_found" };
       if (r.status !== 200 || !isObject(r.json) || !isSessionState(r.json.state)) return { ok: false, reason: "failed" };
       return { ok: true, state: r.json.state };
+    },
+
+    async verify({ url, loginUrl, state }) {
+      const r = await call("POST", "/verify", { url, ...(loginUrl ? { loginUrl } : {}), state });
+      if (!r) return { ok: false, reason: "unavailable" };
+      const j = r.json;
+      if (r.status !== 200 || !isObject(j) || typeof j.result !== "string" || !PAGE_CLASSES.includes(j.result)) return { ok: false, reason: "failed" };
+      return {
+        ok: true,
+        result: j.result as PageClass,
+        status: typeof j.status === "number" ? j.status : null,
+        blockedRequests: typeof j.blockedRequests === "number" ? j.blockedRequests : 0,
+      };
     },
 
     async cancelSession(id) {

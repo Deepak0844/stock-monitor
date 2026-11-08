@@ -13,6 +13,9 @@ export type FakeBrowserService = {
     open: "ok" | "busy" | "fail" | "garbage";
     finish: "ok" | "gone" | "fail" | "garbage";
     cancel: "ok" | "gone" | "fail";
+    verify: "ok" | "fail" | "garbage";
+    /** What a check says the page was, when verify is "ok". */
+    verifyResult: string;
     state: unknown;
     vncPassword: string | undefined;
     /** Wait this long before answering, to test timeouts. */
@@ -24,7 +27,7 @@ export type FakeBrowserService = {
 export async function createFakeBrowserService(): Promise<FakeBrowserService> {
   const requests: FakeBrowserService["requests"] = [];
   const behaviour: FakeBrowserService["behaviour"] = {
-    open: "ok", finish: "ok", cancel: "ok", state: { cookies: [], origins: [] }, vncPassword: "Ab3dE6gH", delayMs: 0,
+    open: "ok", finish: "ok", cancel: "ok", verify: "ok", verifyResult: "ok", state: { cookies: [], origins: [] }, vncPassword: "Ab3dE6gH", delayMs: 0,
   };
   let counter = 0;
 
@@ -56,6 +59,11 @@ export async function createFakeBrowserService(): Promise<FakeBrowserService> {
         expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
         ...(behaviour.vncPassword ? { vncPassword: behaviour.vncPassword } : {}),
       });
+    }
+    if (req.method === "POST" && path === "/verify") {
+      if (behaviour.verify === "fail") return reply(500, { error: "verify_failed" });
+      if (behaviour.verify === "garbage") return reply(200, { result: "maybe" });
+      return reply(200, { result: behaviour.verifyResult, status: behaviour.verifyResult === "unreachable" ? null : 200, blockedRequests: 0 });
     }
     const finish = /^\/sessions\/([^/]+)\/finish$/.exec(path);
     if (req.method === "POST" && finish) {
