@@ -394,7 +394,7 @@ test("Check connection finds a login that has stopped working", async ({ page })
   await expect(page.getByText("A check of Acme Supply has started.")).toBeVisible();
   await expect(rowOf(page)).toContainText("Blocked", CHECK_WAIT); // the list reads itself again, no reload
   await page.goto("/");
-  await expect(page.getByRole("region", { name: "Needs attention" })).toContainText("is blocking access");
+  await expect(page.getByRole("region", { name: "Needs attention" })).toContainText("is refusing our automated checks");
 });
 
 test("a supplier that is not connected offers Connect, and a connected one offers Check connection", async ({ page }) => {
