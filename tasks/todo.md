@@ -68,14 +68,16 @@ Every task is test-first (red, green, refactor). Run `npm run check` before mark
 ## Task 5: Database tables and encrypted repositories
 **Description:** Migration for `shopify_connection`, `shopify_variants` and `shopify_sync_runs`. Repository functions to save and load the connection (credentials encrypted with the `crypto` package) and to upsert variants, mark removed ones, and record sync runs.
 **Acceptance criteria:**
-- [ ] Migrations apply from empty, and the restricted app role can use the new tables
-- [ ] The stored credentials never contain the plaintext secret, client ID or token (queried straight from the table)
-- [ ] Saving a second connection replaces the first. There is only ever one
-- [ ] Upserting the same variants twice changes nothing. A missing variant gets `removed_at`, and returns if it reappears
+- [x] Migrations apply from empty, and the restricted app role can use the new tables
+- [x] The stored credentials never contain the plaintext secret, client ID or token (queried straight from the table)
+- [x] Saving a second connection replaces the first. There is only ever one
+- [x] Upserting the same variants twice changes nothing. A missing variant gets `removed_at`, and returns if it reappears
 **Verification:** `npm run test:integration`
 **Dependencies:** 1
 **Files:** `packages/db/src/schema.ts`, one migration, `packages/shopify/src/repository.ts`, tests
 **Scope:** Medium
+
+**Status:** done 2026-11-08. The repository lives in `packages/db` (not `packages/shopify` as first listed), so the Shopify package stays free of database code, as the spec's structure says. It implements the `CatalogStore` interface from Task 4. The database itself enforces the one-connection rule and "only one sync running at a time" (a partial unique index). A sync run left running for over 30 minutes is closed as interrupted when the next one starts.
 
 ## Task 6: Sync job and worker handler
 **Description:** Add the `shopify.sync` job to the typed job list and a worker handler that loads the connection, runs `syncCatalog`, writes the variants and a sync run record, and moves the connection to `needs_reconnect` when credentials are rejected.
