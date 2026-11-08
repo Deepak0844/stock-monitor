@@ -1,5 +1,5 @@
 # THROW-AWAY SPIKE. Not part of the app. Run with: docker compose -p spike up -d --build
-# Nothing here is published to the network except the owner-only proxy on 127.0.0.1:4190.
+# Nothing here is published to the network except the owner-only proxy on 127.0.0.1:4191.
 name: spike
 services:
   site:
@@ -14,10 +14,10 @@ services:
   proxy:
     build: ./proxy
     ports:
-      - "127.0.0.1:4190:4190"
+      - "127.0.0.1:4191:4190"
     environment:
       OWNER_SECRET: "${OWNER_SECRET:?set OWNER_SECRET}"
-      ALLOWED_ORIGIN: "http://127.0.0.1:4190"
+      ALLOWED_ORIGIN: "http://127.0.0.1:4191"
       BROWSER_CONTROL: "http://browser:8080"
       VNC_HOST: browser
       VNC_PORT: "5900"

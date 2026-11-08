@@ -3,7 +3,7 @@ import { chromium, devices } from "@playwright/test";
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 
-const BASE = "http://127.0.0.1:4190";
+const BASE = "http://127.0.0.1:4191";
 const SECRET = process.env.OWNER_SECRET;
 const OUT = process.argv[2];
 fs.mkdirSync(OUT, { recursive: true });
@@ -43,8 +43,8 @@ const ownerContext = async (extra = {}) => {
 
   const owner = await ownerContext();
   const op = await owner.newPage();
-  await op.goto("http://localhost:4190/owner?secret=" + SECRET); // a different origin from the allowed one
-  const wrongOrigin = await op.evaluate((u) => new Promise((resolve) => { const s = new WebSocket(u); s.onopen = () => resolve("opened"); s.onerror = () => resolve("refused"); s.onclose = () => resolve("refused"); }), "ws://localhost:4190/screen");
+  await op.goto("http://localhost:4191/owner?secret=" + SECRET); // a different origin from the allowed one
+  const wrongOrigin = await op.evaluate((u) => new Promise((resolve) => { const s = new WebSocket(u); s.onopen = () => resolve("opened"); s.onerror = () => resolve("refused"); s.onclose = () => resolve("refused"); }), "ws://localhost:4191/screen");
   check("the screen connection is refused from a different origin even with the cookie", wrongOrigin === "refused");
   await owner.close();
 }
@@ -99,7 +99,7 @@ await control("/debug/focus", { selector: "#paste" });
 await page.evaluate(() => window.__rfb.focus());
 await page.evaluate(() => window.__rfb.clipboardPasteFrom("clipboard-text-42"));
 await sleep(500);
-await page.keyboard.press("Control+V");
+await page.keyboard.press("Control+v");
 const pasted = await until(async () => (await control("/debug/value?selector=%23paste")).value, 4000);
 check("pasting text into the remote page with Ctrl+V works", pasted === "clipboard-text-42", pasted ? `got "${pasted}"` : "nothing arrived");
 
