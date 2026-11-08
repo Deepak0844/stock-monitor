@@ -137,4 +137,21 @@ describe("loadConfig", () => {
       expect(() => loadConfig({ ...valid, APP_ORIGIN: "stock.example.com" })).toThrow(/APP_ORIGIN/);
     });
   });
+
+  describe("blank optional settings", () => {
+    it.each(["APP_ORIGIN", "BROWSER_SERVICE_URL", "BROWSER_CONTROL_TOKEN", "BROWSER_VNC_PORT", "SHOPIFY_BASE_URL_OVERRIDE"])(
+      "treats a blank %s as not set, as an env file with an empty line does",
+      (name) => {
+        const config = loadConfig({ ...valid, [name]: "" });
+        expect(config.appOrigin).toBeUndefined();
+        expect(config.browserServiceUrl).toBeUndefined();
+        expect(config.browserControlToken).toBeUndefined();
+        expect(config.browserVncPort).toBe(5900);
+        expect(config.shopifyBaseUrlOverride).toBeUndefined();
+      },
+    );
+    it("still refuses a blank required setting", () => {
+      expect(() => loadConfig({ ...valid, APP_ENCRYPTION_KEY: "" })).toThrow(/APP_ENCRYPTION_KEY/);
+    });
+  });
 });

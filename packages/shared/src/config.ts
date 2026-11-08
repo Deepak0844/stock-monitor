@@ -43,7 +43,12 @@ export type Config = {
   appOrigin: string | undefined;
 };
 
-export function loadConfig(env: Record<string, string | undefined>): Config {
+// An env file with `NAME=` and nothing after it sets the variable to an empty string. For a setting that is optional,
+// that means "not set", not "set to nothing".
+const BLANK_MEANS_UNSET = ["APP_ORIGIN", "BROWSER_SERVICE_URL", "BROWSER_CONTROL_TOKEN", "BROWSER_VNC_PORT", "SHOPIFY_BASE_URL_OVERRIDE"];
+
+export function loadConfig(input: Record<string, string | undefined>): Config {
+  const env = Object.fromEntries(Object.entries(input).filter(([name, value]) => !(value === "" && BLANK_MEANS_UNSET.includes(name))));
   const parsed = schema.safeParse(env);
   if (!parsed.success) {
     // Report variable names and reasons only. Never echo the values.
