@@ -32,7 +32,7 @@ describe("AppShell", () => {
     expect(within(nav).getByRole("link", { name: "Dashboard" })).toHaveAttribute("aria-current", "page");
   });
 
-  it.each(["Suppliers", "Approvals", "History"])(
+  it.each(["Approvals", "History"])(
     "shows %s as not available yet instead of a dead link",
     (label) => {
       setup();
@@ -43,6 +43,16 @@ describe("AppShell", () => {
       expect(item).toHaveTextContent("Soon");
     },
   );
+
+  it("makes Suppliers a real link to the suppliers page, and marks it current there and on its sub pages", () => {
+    window.history.replaceState(null, "", "/suppliers/new");
+    setup();
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    const link = within(nav).getByRole("link", { name: "Suppliers" });
+    expect(link).toHaveAttribute("href", "/suppliers");
+    expect(link).toHaveAttribute("aria-current", "page");
+    expect(within(nav).getByRole("link", { name: "Dashboard" })).not.toHaveAttribute("aria-current");
+  });
 
   it("makes Products a real link to the products page, and marks it current there", () => {
     window.history.replaceState(null, "", "/products");

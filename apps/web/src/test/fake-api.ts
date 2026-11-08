@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { Api, ConnectionCheck, ShopifyApi, ShopifyConnection, VariantItem, VariantPage } from "../api.js";
+import type { Api, ConnectionCheck, ShopifyApi, ShopifyConnection, Supplier, SuppliersApi, VariantItem, VariantPage } from "../api.js";
 
 export const aCheck = (over: Partial<ConnectionCheck> = {}): ConnectionCheck => ({
   shopName: "Acme Supplies",
@@ -44,14 +44,41 @@ export const aPage = (items: VariantItem[], over: Partial<VariantPage> = {}): Va
   ...over,
 });
 
+export const aSupplier = (over: Partial<Supplier> = {}): Supplier => ({
+  id: "11111111-1111-4111-8111-111111111111",
+  name: "Acme Supply",
+  websiteUrl: "https://shop.acme.example/",
+  loginUrl: null,
+  checkIntervalMinutes: 60,
+  enabled: true,
+  sessionStatus: "not_connected",
+  pausedReason: null,
+  lastSessionCheckAt: null,
+  createdAt: "2026-11-08T10:00:00.000Z",
+  updatedAt: "2026-11-08T10:00:00.000Z",
+  ...over,
+});
+
 /** A fake API for screen tests. Every method is a spy with a sensible default. */
-export function fakeApi(over: Partial<Omit<Api, "shopify">> & { shopify?: Partial<ShopifyApi> } = {}): Api {
-  const { shopify, ...rest } = over;
+export function fakeApi(
+  over: Partial<Omit<Api, "shopify" | "suppliers">> & { shopify?: Partial<ShopifyApi>; suppliers?: Partial<SuppliersApi> } = {},
+): Api {
+  const { shopify, suppliers, ...rest } = over;
   return {
     getMe: vi.fn().mockResolvedValue(null),
     login: vi.fn().mockResolvedValue({ email: "owner@example.com" }),
     logout: vi.fn().mockResolvedValue(undefined),
     ...rest,
+    suppliers: {
+      list: vi.fn().mockResolvedValue([]),
+      get: vi.fn().mockResolvedValue(aSupplier()),
+      create: vi.fn().mockImplementation(async (input) => aSupplier({ ...input })),
+      update: vi.fn().mockImplementation(async (_id, patch) => aSupplier({ ...patch })),
+      remove: vi.fn().mockResolvedValue(undefined),
+      pause: vi.fn().mockImplementation(async () => aSupplier({ enabled: false, pausedReason: "owner" })),
+      resume: vi.fn().mockImplementation(async () => aSupplier()),
+      ...suppliers,
+    },
     shopify: {
       getConnection: vi.fn().mockResolvedValue(null),
       test: vi.fn().mockResolvedValue(aCheck()),

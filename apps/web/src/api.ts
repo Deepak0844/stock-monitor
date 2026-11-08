@@ -71,12 +71,41 @@ export type ShopifyApi = {
   variants(query: VariantQuery): Promise<VariantPage>;
 };
 
+export type Supplier = {
+  id: string;
+  name: string;
+  websiteUrl: string;
+  loginUrl: string | null;
+  checkIntervalMinutes: number;
+  enabled: boolean;
+  sessionStatus: "not_connected" | "connected" | "needs_reconnect" | "blocked";
+  /** Who paused it: the owner, or the app because the session needs attention. null when it is not paused. */
+  pausedReason: "owner" | "session" | null;
+  lastSessionCheckAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SupplierInput = { name: string; websiteUrl: string; loginUrl: string | null; checkIntervalMinutes: number };
+
+export type SuppliersApi = {
+  list(): Promise<Supplier[]>;
+  get(id: string): Promise<Supplier>;
+  create(input: SupplierInput): Promise<Supplier>;
+  /** Only the fields given are changed. */
+  update(id: string, patch: Partial<SupplierInput>): Promise<Supplier>;
+  remove(id: string): Promise<void>;
+  pause(id: string): Promise<Supplier>;
+  resume(id: string): Promise<Supplier>;
+};
+
 export type Api = {
   /** The signed-in owner, or null when nobody is signed in. */
   getMe(): Promise<Owner | null>;
   login(email: string, password: string): Promise<Owner>;
   logout(): Promise<void>;
   shopify: ShopifyApi;
+  suppliers: SuppliersApi;
 };
 
 /** A failed request. The message is plain English from the server. The code says which kind of problem. */
@@ -157,6 +186,23 @@ const shopify: ShopifyApi = {
   },
 };
 
+const supplier = async (path: string, init: { method: string; json?: unknown }) =>
+  (await request<{ supplier: Supplier }>(path, init)).supplier;
+
+const suppliers: SuppliersApi = {
+  async list() {
+    return (await request<{ suppliers: Supplier[] }>("/api/suppliers", { method: "GET" })).suppliers;
+  },
+  get: (id) => supplier(`/api/suppliers/${encodeURIComponent(id)}`, { method: "GET" }),
+  create: (input) => supplier("/api/suppliers", { method: "POST", json: input }),
+  update: (id, patch) => supplier(`/api/suppliers/${encodeURIComponent(id)}`, { method: "PATCH", json: patch }),
+  async remove(id) {
+    await request(`/api/suppliers/${encodeURIComponent(id)}`, { method: "DELETE" });
+  },
+  pause: (id) => supplier(`/api/suppliers/${encodeURIComponent(id)}/pause`, { method: "POST" }),
+  resume: (id) => supplier(`/api/suppliers/${encodeURIComponent(id)}/resume`, { method: "POST" }),
+};
+
 export const api: Api = {
   async getMe() {
     const res = await send("/api/me", { method: "GET" });
@@ -169,4 +215,5 @@ export const api: Api = {
     await request("/api/logout", { method: "POST" });
   },
   shopify,
+  suppliers,
 };

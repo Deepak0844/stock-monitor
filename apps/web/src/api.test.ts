@@ -149,3 +149,60 @@ describe("shopify calls", () => {
     expect(url.searchParams.get("page")).toBe("2");
   });
 });
+
+describe("suppliers api", () => {
+  const supplier = { id: "s1", name: "Acme" };
+  const stub = (status: number, body?: unknown) => {
+    const fetchMock = vi.fn().mockImplementation(async () => respond(status, body)); // a fresh Response each call
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  };
+
+  it("lists suppliers", async () => {
+    const f = stub(200, { suppliers: [supplier] });
+    expect(await api.suppliers.list()).toEqual([supplier]);
+    expect(f.mock.calls[0]![0]).toBe("/api/suppliers");
+  });
+
+  it("gets one supplier by id", async () => {
+    const f = stub(200, { supplier });
+    expect(await api.suppliers.get("s1")).toEqual(supplier);
+    expect(f.mock.calls[0]![0]).toBe("/api/suppliers/s1");
+  });
+
+  it("creates a supplier by posting JSON and returns it", async () => {
+    const f = stub(201, { supplier });
+    const input = { name: "Acme", websiteUrl: "https://acme.example/", loginUrl: null, checkIntervalMinutes: 60 };
+    expect(await api.suppliers.create(input)).toEqual(supplier);
+    const [url, init] = f.mock.calls[0]!;
+    expect([url, init.method, JSON.parse(init.body)]).toEqual(["/api/suppliers", "POST", input]);
+  });
+
+  it("updates with PATCH and sends only what it is given", async () => {
+    const f = stub(200, { supplier });
+    await api.suppliers.update("s1", { name: "New" });
+    const [url, init] = f.mock.calls[0]!;
+    expect([url, init.method, JSON.parse(init.body)]).toEqual(["/api/suppliers/s1", "PATCH", { name: "New" }]);
+  });
+
+  it("deletes, pauses and resumes", async () => {
+    const f = stub(200, { ok: true, supplier });
+    await api.suppliers.remove("s1");
+    await api.suppliers.pause("s1");
+    await api.suppliers.resume("s1");
+    expect(f.mock.calls.map(([url, init]) => `${init.method} ${url}`)).toEqual([
+      "DELETE /api/suppliers/s1",
+      "POST /api/suppliers/s1/pause",
+      "POST /api/suppliers/s1/resume",
+    ]);
+  });
+
+  it("keeps the server's message and error code, so a screen can show it beside the right field", async () => {
+    stub(400, { error: { code: "invalid_website", message: "Enter the supplier's website address starting with https://" } });
+    await expect(api.suppliers.create({ name: "A", websiteUrl: "x", loginUrl: null, checkIntervalMinutes: 60 })).rejects.toMatchObject({
+      code: "invalid_website",
+      status: 400,
+      message: expect.stringMatching(/https/),
+    });
+  });
+});
