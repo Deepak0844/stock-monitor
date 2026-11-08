@@ -45,3 +45,17 @@ jobs:
             playwright-report
             test-results
           retention-days: 7
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the production image
+        run: docker build -t stock-monitor:ci .
+      # Loads the API and worker code inside the finished image, so a package missing from the
+      # image fails here and not on a real server.
+      - name: Check the image can load the API and the worker
+        run: >
+          docker run --rm --entrypoint node stock-monitor:ci --import tsx -e
+          "Promise.all([import('/app/apps/api/src/app.ts'), import('/app/apps/worker/src/worker.ts'), import('/app/packages/db/src/setup.ts')]).then(() => console.log('image ok'))"
