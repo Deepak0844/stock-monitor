@@ -196,3 +196,28 @@ export const supplierSessions = pgTable("supplier_sessions", {
   savedAt: timestamp("saved_at", { withTimezone: true }).notNull().defaultNow(),
   lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }),
 });
+
+// A message for the dashboard. At most one is open for each kind and supplier, however many times the same
+// problem is found: the database enforces it. A resolved one is kept as history.
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: text("kind").notNull(),
+    supplierId: uuid("supplier_id")
+      .notNull()
+      .references(() => suppliers.id, { onDelete: "cascade" }),
+    /** Plain English, ready to show. It never contains a secret. */
+    message: text("message").notNull(),
+    /** What the check found: a fixed code, never free text. */
+    reason: text("reason").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  },
+  (t) => [
+    check("notifications_kind", sql`${t.kind} in ('supplier_needs_reconnect')`),
+    check("notifications_reason", sql`${t.reason} in ('login_required', 'captcha', 'blocked', 'unknown')`),
+    uniqueIndex("notifications_one_open").on(t.kind, t.supplierId).where(sql`${t.resolvedAt} is null`),
+  ],
+);

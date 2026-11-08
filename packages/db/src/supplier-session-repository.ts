@@ -52,6 +52,16 @@ export function createSupplierSessionRepository<S extends Record<string, unknown
       return row ? { ciphertext: row.stateCiphertext, iv: row.stateIv, tag: row.stateTag, keyId: row.stateKeyId } : null;
     },
 
+    /** Records that a check found this session working. */
+    async markVerified(supplierId: string): Promise<boolean> {
+      const rows = await db
+        .update(supplierSessions)
+        .set({ lastVerifiedAt: sql`now()` as unknown as Date })
+        .where(eq(supplierSessions.supplierId, supplierId))
+        .returning({ id: supplierSessions.supplierId });
+      return rows.length > 0;
+    },
+
     async remove(supplierId: string): Promise<boolean> {
       const rows = await db.delete(supplierSessions).where(eq(supplierSessions.supplierId, supplierId)).returning({ id: supplierSessions.supplierId });
       return rows.length > 0;

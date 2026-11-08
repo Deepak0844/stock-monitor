@@ -43,6 +43,13 @@
       "when": 1794154546404,
       "tag": "0005_login_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794156478117,
+      "tag": "0006_notifications",
+      "breakpoints": true
     }
   ]
 }

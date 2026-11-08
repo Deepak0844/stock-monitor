@@ -10,6 +10,7 @@ import { z } from "zod";
 import { users } from "@stock-monitor/db";
 import { createAuditWriter } from "@stock-monitor/audit";
 import { registerShopifyRoutes, type ShopifyRoutesDeps } from "./routes/shopify.js";
+import { registerNotificationRoutes, type NotificationRoutesDeps } from "./routes/notifications.js";
 import { createScreenRegistry, registerLoginScreen, type LoginScreenDeps } from "./routes/login-screen.js";
 import { registerLoginSessionRoutes, type LoginSessionRoutesDeps } from "./routes/login-sessions.js";
 import { registerSupplierRoutes, type SupplierRoutesDeps } from "./routes/suppliers.js";
@@ -50,6 +51,8 @@ export type AppDeps = {
   loginSessions?: LoginSessionRoutesDeps;
   /** The live screen. Needs `loginSessions`. Left out, there is no way to reach a login window. */
   loginScreen?: LoginScreenDeps;
+  /** What needs the owner's attention. Left out, there are no /api/notifications routes. */
+  notifications?: NotificationRoutesDeps;
 };
 
 const SECURITY_HEADERS = {
@@ -68,7 +71,7 @@ const isApiPath = (path: string) => path === "/api" || path.startsWith("/api/");
 
 const loginBody = z.object({ email: z.string().min(1), password: z.string().min(1) });
 
-export function buildApp({ db, logger, secureCookies = false, webRoot, trustProxy = false, shopify, suppliers, loginSessions, loginScreen }: AppDeps) {
+export function buildApp({ db, logger, secureCookies = false, webRoot, trustProxy = false, shopify, suppliers, loginSessions, loginScreen, notifications }: AppDeps) {
   const app = Fastify({
     loggerInstance: logger,
     genReqId: () => randomUUID(),
@@ -189,6 +192,7 @@ export function buildApp({ db, logger, secureCookies = false, webRoot, trustProx
   });
 
   if (shopify) registerShopifyRoutes(app, shopify, audit);
+  if (notifications) registerNotificationRoutes(app, notifications);
   const screens = createScreenRegistry();
   const logins = loginSessions ? registerLoginSessionRoutes(app, { ...loginSessions, onEnded: screens.closeFor }, audit) : null;
   if (logins && loginSessions && loginScreen) {

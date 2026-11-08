@@ -4,6 +4,7 @@ import pg from "pg";
 import { KEY_ID } from "@stock-monitor/crypto";
 import {
   createLoginSessionRepository,
+  createNotificationRepository,
   createShopifyRepository,
   createSupplierRepository,
   createSupplierSessionRepository,
@@ -11,7 +12,7 @@ import {
 import { createQueue } from "@stock-monitor/queue";
 import { createLogger, loadConfig } from "@stock-monitor/shared";
 import { buildApp } from "./app.js";
-import { createBrowserClient } from "./browser-client.js";
+import { createBrowserClient } from "@stock-monitor/browser-client";
 
 const config = loadConfig(process.env);
 const logger = createLogger({ level: config.logLevel });
@@ -33,6 +34,7 @@ const app = buildApp({
   trustProxy: config.trustProxy,
   webRoot,
   suppliers: { repo: createSupplierRepository(db) },
+  notifications: { repo: createNotificationRepository(db) },
   // The login routes need the browser service. Without its address and token the API has no login routes.
   loginSessions:
     config.browserServiceUrl && config.browserControlToken
@@ -42,6 +44,8 @@ const app = buildApp({
           supplierSessions: createSupplierSessionRepository(db),
           browser: createBrowserClient({ baseUrl: config.browserServiceUrl, token: config.browserControlToken }),
           key: { key: config.encryptionKey, keyId: KEY_ID },
+          notifications: createNotificationRepository(db),
+          queue,
         }
       : undefined,
   // The live screen. It only accepts pages from the app's own origin: APP_ORIGIN, or localhost on this port when it is not set.

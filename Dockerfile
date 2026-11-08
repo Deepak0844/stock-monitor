@@ -7,6 +7,7 @@ COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
 COPY apps/worker/package.json apps/worker/
 COPY packages/audit/package.json packages/audit/
+COPY packages/browser-client/package.json packages/browser-client/
 COPY packages/crypto/package.json packages/crypto/
 COPY packages/db/package.json packages/db/
 COPY packages/queue/package.json packages/queue/

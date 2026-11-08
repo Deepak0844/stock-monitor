@@ -5,11 +5,11 @@ import type { AddressInfo } from "node:net";
 import { Writable } from "node:stream";
 import WebSocket from "ws";
 import { startTestDb, type TestDb } from "@stock-monitor/db/test-harness";
-import { createLoginSessionRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
+import { createLoginSessionRepository, createNotificationRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
 import { createLogger } from "@stock-monitor/shared";
 import { buildApp } from "../src/app.js";
-import { createBrowserClient } from "../src/browser-client.js";
-import { createFakeBrowserService, FAKE_CONTROL_TOKEN, type FakeBrowserService } from "./fake-browser-service.js";
+import { createBrowserClient } from "@stock-monitor/browser-client";
+import { createFakeBrowserService, FAKE_CONTROL_TOKEN, type FakeBrowserService } from "@stock-monitor/browser-client/testing";
 
 const ORIGIN = "http://localhost:3000";
 const VNC_PASSWORD = "Zq7Lm2Pw";
@@ -82,6 +82,8 @@ beforeEach(async () => {
       supplierSessions: createSupplierSessionRepository(t.appDb),
       browser: createBrowserClient({ baseUrl: fake.url, token: FAKE_CONTROL_TOKEN, timeoutMs: 2000 }),
       key,
+      notifications: createNotificationRepository(t.appDb),
+      queue: { enqueue: async () => {} },
     },
     loginScreen: { allowedOrigins: [ORIGIN], vnc: { host: "127.0.0.1", port: vncPort }, firstMessageTimeoutMs: 400, maxFailures: 4 },
   });
@@ -344,7 +346,7 @@ describe("a good connection", () => {
     const unreachable = buildApp({
       db: t.appDb,
       logger,
-      loginSessions: { suppliers: supplierRepo(), loginSessions: loginRepo(), supplierSessions: createSupplierSessionRepository(t.appDb), browser: createBrowserClient({ baseUrl: fake.url, token: FAKE_CONTROL_TOKEN }), key },
+      loginSessions: { suppliers: supplierRepo(), loginSessions: loginRepo(), supplierSessions: createSupplierSessionRepository(t.appDb), browser: createBrowserClient({ baseUrl: fake.url, token: FAKE_CONTROL_TOKEN }), key, notifications: createNotificationRepository(t.appDb), queue: { enqueue: async () => {} } },
       loginScreen: { allowedOrigins: [ORIGIN], vnc: { host: "127.0.0.1", port: 1 }, firstMessageTimeoutMs: 400 },
     });
     await unreachable.listen({ port: 0, host: "127.0.0.1" });

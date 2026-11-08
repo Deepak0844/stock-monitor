@@ -1,9 +1,10 @@
 import type { FastifyInstance, RawReplyDefaultExpression, RawRequestDefaultExpression, RawServerDefault } from "fastify";
 import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
-import type { createLoginSessionRepository, createSupplierRepository, createSupplierSessionRepository, FailureReason, LoginSessionRecord } from "@stock-monitor/db";
+import type { createLoginSessionRepository, createNotificationRepository, createSupplierRepository, createSupplierSessionRepository, FailureReason, LoginSessionRecord } from "@stock-monitor/db";
+import type { Queue } from "@stock-monitor/queue";
 import { createLoginToken, sealSessionState } from "@stock-monitor/supplier-session";
-import type { BrowserClient } from "../browser-client.js";
+import type { BrowserClient } from "@stock-monitor/browser-client";
 import { AppError } from "../errors.js";
 
 type App = FastifyInstance<RawServerDefault, RawRequestDefaultExpression, RawReplyDefaultExpression, Logger>;
@@ -14,6 +15,9 @@ export type LoginSessionRoutesDeps = {
   loginSessions: ReturnType<typeof createLoginSessionRepository>;
   supplierSessions: ReturnType<typeof createSupplierSessionRepository>;
   browser: BrowserClient;
+  notifications: ReturnType<typeof createNotificationRepository>;
+  /** Queues the check that follows a login. The job carries only the supplier's id. */
+  queue: Pick<Queue, "enqueue">;
   /** Seals saved sessions. The browser service never sees it. */
   key: { key: Buffer; keyId: string };
   /** Called whenever a login stops being open (finished, cancelled, failed or expired), so its screen connections can be closed. */
@@ -53,7 +57,7 @@ const view = (s: LoginSessionRecord) => ({
 });
 
 export function registerLoginSessionRoutes(app: App, deps: LoginSessionRoutesDeps, audit: Audit): LoginSessions {
-  const { suppliers, loginSessions, supplierSessions, browser, key } = deps;
+  const { suppliers, loginSessions, supplierSessions, browser, key, notifications, queue } = deps;
   const vnc = new Map<string, string>();
   const ended = (id: string) => {
     vnc.delete(id);
@@ -149,6 +153,10 @@ export function registerLoginSessionRoutes(app: App, deps: LoginSessionRoutesDep
 
     await loginSessions.finish(attempt.id);
     ended(attempt.id);
+    // The supplier has a working login again, so whatever was asking for one is no longer true.
+    await notifications.resolve("supplier_needs_reconnect", attempt.supplierId);
+    // A first check, to see that the saved login really works. If the queue is down the login still stands.
+    await queue.enqueue("supplier.session.verify", { supplierId: attempt.supplierId }).catch(() => {});
     const facts = await supplierSessions.facts(attempt.supplierId);
     await record(request, "login_session.finished", attempt.id, { supplierId: attempt.supplierId, savedItems: facts?.cookieCount ?? 0 });
     return { loginSession: view((await loginSessions.get(attempt.id)) as LoginSessionRecord), session: facts };
@@ -173,6 +181,18 @@ export function registerLoginSessionRoutes(app: App, deps: LoginSessionRoutesDep
   app.get<{ Params: { id: string } }>("/api/suppliers/:id/session", async (request) => {
     if (!(await suppliers.get(request.params.id))) throw SUPPLIER_NOT_FOUND();
     return { session: await supplierSessions.facts(request.params.id) };
+  });
+
+  app.post<{ Params: { id: string } }>("/api/suppliers/:id/check-session", async (request, reply) => {
+    if (!(await suppliers.get(request.params.id))) throw SUPPLIER_NOT_FOUND();
+    if (!(await supplierSessions.facts(request.params.id))) throw new AppError(409, "not_connected", "Connect this supplier first.");
+    try {
+      await queue.enqueue("supplier.session.verify", { supplierId: request.params.id });
+    } catch {
+      throw new AppError(503, "check_not_started", "The check could not be started. Please try again in a minute.");
+    }
+    await audit.record({ actorUserId: request.user?.id, action: "supplier.session_check_requested", entityType: "supplier", entityId: request.params.id, requestId: request.id });
+    return reply.status(202).send({ queued: true });
   });
 
   app.delete<{ Params: { id: string } }>("/api/suppliers/:id/session", async (request) => {

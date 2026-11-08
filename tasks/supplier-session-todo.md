@@ -131,12 +131,12 @@ Every task is test-first (red, green, refactor), except the spike, which is thro
 ## Task 10: Session check job, statuses, pauses and notifications
 **Description:** The `notifications` table. A `supplier.session.verify` job (empty payload) and API route that decrypt the saved state, ask the browser service to verify it, and update the supplier. `login_required`, `captcha` and `blocked` set the status, pause that supplier with reason `session`, and create exactly one open notification. `unreachable` is retried before anything is declared broken. `unknown` needs attention.
 **Acceptance criteria:**
-- [ ] Each result sets the right `session_status` and only that supplier is paused
-- [ ] Repeated failures create one notification, not many
-- [ ] A successful reconnect lifts a `session` pause and resolves the notification. An `owner` pause stays paused
-- [ ] `unreachable` is retried and does not by itself mark the session broken
-- [ ] A failed or blocked check is never reported as stock information
-- [ ] No state, cookie or token appears in the job, logs or audit events
+- [x] Each result sets the right `session_status` and only that supplier is paused
+- [x] Repeated failures create one notification, not many
+- [x] A successful reconnect lifts a `session` pause and resolves the notification. An `owner` pause stays paused
+- [x] `unreachable` is retried and does not by itself mark the session broken
+- [x] A failed or blocked check is never reported as stock information
+- [x] No state, cookie or token appears in the job, logs or audit events
 **Verification:** `npm run check`
 **Dependencies:** 2, 4, 6, 8
 **Files:** schema and migration, `packages/queue/src/jobs.ts`, `apps/worker/src/supplier-verify.ts`, `apps/api/src/routes/notifications.ts`, tests
