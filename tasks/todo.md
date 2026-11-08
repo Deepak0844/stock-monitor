@@ -1,150 +1,163 @@
-# Tasks: foundation
+# Tasks: shopify (Phase A, read-only)
 
-Every task is test-first (red, green, refactor). Run `npm run check` before marking a task done.
+Every task is test-first (red, green, refactor). Run `npm run check` before marking a task done. One branch and one PR per task, with a detailed description. Before writing a Shopify query, read the 2026-10 reference page for it.
 
-## Task 1: Monorepo scaffold and tooling
-**Description:** npm workspace with `apps/api`, `apps/worker`, `apps/web`, `packages/*`, TypeScript strict, ESLint, Prettier, Vitest, and the root scripts from the spec.
+## Task 1: Shopify domain check and error vocabulary
+**Description:** In a new `packages/shopify`, a validator that accepts only `*.myshopify.com` shop domains, and a small set of typed Shopify errors with plain-English messages (rejected credentials, no access, throttled, cannot reach Shopify, unexpected reply).
 **Acceptance criteria:**
-- [x] `npm install && npm run check` passes on a clean checkout
-- [x] A trivial test in `packages/shared` runs through `npm run test:unit`
-- [x] `.env.example` and `.gitignore` (excludes `.env`) exist
-
-**Status:** done 2026-11-08. Note: `test:e2e` script is added in Task 9. TypeScript is pinned to 6.x because typescript-eslint does not yet support 7.
-**Verification:** `npm run check`
+- [ ] Accepts `my-store.myshopify.com`. Rejects `evil.com`, `x.myshopify.com.evil.com`, `https://x.myshopify.com`, paths, ports, uppercase tricks, empty and very long input
+- [ ] Each error type carries a code and a message safe to show the owner, with no raw upstream text
+- [ ] `packages/shopify` exists in the workspace and is imported by tests
+**Verification:** `npm run test:unit`
 **Dependencies:** None
-**Files:** root configs, `packages/shared/*`
-**Scope:** Medium
-
-## Task 2: Config validation and safe logging
-**Description:** Zod-validated environment config that stops startup on bad input, and a pino logger that redacts secrets.
-**Acceptance criteria:**
-- [x] Startup fails with a clear message when a variable is missing or malformed
-- [x] A test logs a fake password, token and cookie and none appears in output
-- [x] Authorization and cookie headers are redacted
-**Verification:** `npm run test:unit`
-**Dependencies:** 1
-**Files:** `packages/shared/src/config.ts`, `packages/shared/src/logger.ts`, tests
+**Files:** `packages/shopify/package.json`, `src/domain.ts`, `src/errors.ts`, two test files
 **Scope:** Small
 
-**Status:** done 2026-11-08. `redactSecrets` in `packages/shared` is reused by the audit writer in Task 5.
-
-## Task 3: Database, migrations and test harness
-**Description:** Drizzle schema for `users`, `app_sessions`, `audit_events`, `app_settings`; migrations; Testcontainers helper for integration tests.
+## Task 2: Token provider and the fake Shopify server
+**Description:** A provider that returns a valid access token. For `client_credentials` it requests one from the shop's `/admin/oauth/access_token`, caches it in memory, refreshes about 10 minutes before expiry, and shares one in-flight refresh between concurrent callers. For `static_token` it returns the stored token. Also builds the test-only fake Shopify server (token endpoint first).
 **Acceptance criteria:**
-- [x] Migrations apply cleanly to an empty PostgreSQL
-- [x] Integration test harness starts and stops a real PostgreSQL
-- [x] `users.email` is unique, and tables match the spec
-**Verification:** `npm run test:integration`
-**Dependencies:** 1
-**Files:** `packages/db/src/schema.ts`, migrations, `packages/db/test/harness.ts`, tests
-**Scope:** Medium
-
-**Status:** done 2026-11-08. Harness falls back to the OrbStack socket when `DOCKER_HOST` is unset. `db:migrate` runner is added in Task 10. Also fixed a Task 1 script bug: the integration filter is a substring, not a glob.
-
-### Checkpoint: after Task 3
-- [ ] `npm run check` passes, including a real database test
-- [ ] Docker works for tests on this machine
-- [ ] Review with owner before continuing
-
-## Task 4: Crypto package
-**Description:** AES-256-GCM `encrypt` and `decrypt` with `keyId`, plus a key loader that reads `APP_ENCRYPTION_KEY`.
-**Acceptance criteria:**
-- [x] Round trip returns the original text
-- [x] A changed ciphertext, tag or wrong key makes `decrypt` throw
-- [x] A key of the wrong length is rejected at load
+- [ ] Fetches a token with the client ID and secret, and reuses it until the refresh window
+- [ ] Refreshes ahead of expiry (fake clock). Ten concurrent calls cause one request
+- [ ] Rejected credentials raise the "rejected credentials" error. A network failure raises "cannot reach Shopify"
+- [ ] A static token works without any request. No token or secret appears in any error message or log
+- [ ] The base URL can be replaced through an injected function, and the domain check still runs first
 **Verification:** `npm run test:unit`
 **Dependencies:** 1
-**Files:** `packages/crypto/src/{encrypt,decrypt,key}.ts`, tests
-**Scope:** Small
+**Files:** `src/token-provider.ts`, `src/base-url.ts`, `test/fake-shopify.ts`, tests
+**Scope:** Medium
 
-**Status:** done 2026-11-08.
-
-## Task 5: Audit writer with restricted database role
-**Description:** `audit.record()` with a detail redactor, and a database role for the app that can INSERT and SELECT but not UPDATE or DELETE on `audit_events`.
+## Task 3: GraphQL client with version pinning and throttle handling
+**Description:** A client that posts GraphQL to the pinned API version (`2026-10`, one constant) with the access token header, reads `extensions.cost.throttleStatus`, waits before the next call when the bucket is low, retries throttled replies with backoff, and validates every response with Zod.
 **Acceptance criteria:**
-- [x] An event is stored with actor, action, entity and request id
-- [x] Secret-like keys in `details` are stripped
-- [x] An UPDATE or DELETE on `audit_events` by the app role fails (integration test)
-**Verification:** `npm run test:integration`
+- [ ] Every request names the pinned version and sends the token header
+- [ ] A low bucket delays the next request by the computed wait. A throttled reply is retried with backoff up to a limit, then raises the "throttled" error
+- [ ] 401 or 403 raises "rejected credentials" or "no access". GraphQL `errors` and network failures map to typed errors
+- [ ] A response that does not match its schema raises "unexpected reply" and never returns partial data
+- [ ] Waits and backoff use an injectable clock, so tests are fast
+**Verification:** `npm run test:unit`
+**Dependencies:** 2
+**Files:** `src/client.ts`, `src/throttle.ts`, `src/version.ts`, tests, fake server additions
+**Scope:** Medium
+
+## Task 4: Locations, catalog queries and sync logic
+**Description:** Queries for locations and for products with variants and `available` quantity at one location, paged by cursor. A `syncCatalog` function that takes a client, a location and a storage interface, and reports added, updated and removed counts.
+**Acceptance criteria:**
+- [ ] Lists locations (id, name, active)
+- [ ] Reads all variants across pages, with product title, variant title, option values, SKU, inventory item id, `tracked`, `inventoryPolicy` and `available` at the chosen location
+- [ ] Query cost stays well under 1,000 and page size is a constant
+- [ ] A second run with no changes reports zero changes. A variant missing from Shopify is reported as removed, not deleted
+- [ ] A variant not stocked at the chosen location has `available` empty, not 0
+**Verification:** `npm run test:unit`
 **Dependencies:** 3
-**Files:** `packages/audit/src/*`, role migration, tests
+**Files:** `src/queries.ts`, `src/schemas.ts`, `src/sync.ts`, tests, fake server additions
 **Scope:** Medium
 
-**Status:** done 2026-11-08. App connects as a login role inside `app_user`; production setup must create that login role and `GRANT app_user` to it.
-
-## Task 6: API skeleton with route protection
-**Description:** Fastify app with `/health`, a stable error format, request ids and a hook that rejects unauthenticated requests outside an allow-list.
-**Acceptance criteria:**
-- [x] `/health` returns OK without login
-- [x] Any other route returns 401 with a plain-English message and error code when there is no session
-- [x] Errors never include stack traces
-**Verification:** `npm run test:integration` (uses `inject()`)
-**Dependencies:** 2, 3
-**Files:** `apps/api/src/{app,errors,auth-hook}.ts`, tests
-**Scope:** Medium
-
-**Status:** done 2026-11-08. Unknown URLs return 401 when signed out, so routes are not revealed. `/api/me` is the first protected route.
-
-### Checkpoint: after Task 6
+### Checkpoint: after Task 4
 - [ ] `npm run check` passes
-- [ ] No secret appears in logs for any request tested
+- [ ] The fake server's shapes are traced to the official 2026-10 reference pages, listed in the PR
 - [ ] Review with owner before continuing
 
-## Task 7: Owner creation, login and logout
-**Description:** `npm run create-owner` CLI, login and logout routes, argon2id hashing, server-side sessions with token hash, httpOnly cookie, expiry, login rate limit, audit events.
+## Task 5: Database tables and encrypted repositories
+**Description:** Migration for `shopify_connection`, `shopify_variants` and `shopify_sync_runs`. Repository functions to save and load the connection (credentials encrypted with the `crypto` package) and to upsert variants, mark removed ones, and record sync runs.
 **Acceptance criteria:**
-- [x] Correct credentials give a session cookie. Wrong ones return one generic error
-- [x] Repeated failures are rate-limited
-- [x] Logout and expiry invalidate the session
-- [x] Login, logout and failed login each write an audit event
-- [x] No public signup route exists
+- [ ] Migrations apply from empty, and the restricted app role can use the new tables
+- [ ] The stored credentials never contain the plaintext secret, client ID or token (queried straight from the table)
+- [ ] Saving a second connection replaces the first. There is only ever one
+- [ ] Upserting the same variants twice changes nothing. A missing variant gets `removed_at`, and returns if it reappears
 **Verification:** `npm run test:integration`
-**Dependencies:** 4, 5, 6
-**Files:** `apps/api/src/routes/auth.ts`, `apps/api/src/cli/create-owner.ts`, `packages/db` repositories, tests
+**Dependencies:** 1
+**Files:** `packages/db/src/schema.ts`, one migration, `packages/shopify/src/repository.ts`, tests
 **Scope:** Medium
 
-**Status:** done 2026-11-08. Login limiter is in memory (resets on restart), keyed by IP and email, 5 failures per 15 minutes. Sessions last 7 days. The `create-owner` CLI wrapper has no automated test; its logic lives in `createOwner`, which is tested. Smoke-test it after Task 10 when `docker compose` and a migrate command exist.
-
-## Task 8: Queue and worker
-**Description:** pg-boss setup with typed `enqueue`, a worker that registers handlers, and the `health.ping` job.
+## Task 6: Sync job and worker handler
+**Description:** Add the `shopify.sync` job to the typed job list and a worker handler that loads the connection, runs `syncCatalog`, writes the variants and a sync run record, and moves the connection to `needs_reconnect` when credentials are rejected.
 **Acceptance criteria:**
-- [x] A `health.ping` job is enqueued and processed by the worker in a test
-- [x] Payloads are validated with Zod
+- [ ] Enqueuing `shopify.sync` makes the worker sync a fake store into the database
+- [ ] The sync run records start, finish, counts and a plain-English error on failure
+- [ ] Rejected credentials set status `needs_reconnect`. A later successful sync sets it back to `connected`
+- [ ] Two sync requests at once do not run twice at the same time
+- [ ] No secret or token appears in the job payload, logs or run record
 **Verification:** `npm run test:integration`
-**Dependencies:** 3
-**Files:** `packages/queue/src/*`, `apps/worker/src/index.ts`, tests
+**Dependencies:** 4, 5
+**Files:** `packages/queue/src/jobs.ts`, `apps/worker/src/shopify-sync.ts`, `apps/worker/src/worker.ts`, tests
 **Scope:** Medium
 
-**Status:** done 2026-11-08. pg-boss 12 creates its own `pgboss` schema, so migration 0002 grants CREATE on the database to `app_user`. This gives no rights on the audit table. Worker entry point (`index.ts`) is startup glue and is not unit tested; handler registration is.
-
-## Task 9: Web shell with login and protected page, plus e2e
-**Description:** Minimal React app with a login form, a protected placeholder page, logout and plain-English errors, plus the Playwright journey.
+## Task 7: API routes
+**Description:** The `/api/shopify/*` routes from the spec: save and read the connection, test it, list locations, choose a location, start a sync, read sync status, and list variants with search and paging.
 **Acceptance criteria:**
-- [x] The owner logs in, sees the protected page, logs out
-- [x] After logout the protected page is blocked
-- [x] Wrong password shows a clear message, and the form is keyboard and screen-reader friendly
-**Verification:** `npm run test:e2e`
+- [ ] All routes need a signed-in owner
+- [ ] No response, log or audit event ever contains the client secret, client ID or a token. The connection read returns only shop, credential type, scopes, location, status and times
+- [ ] A bad domain is rejected with a plain message before any network call
+- [ ] "Test connection" returns the shop name and the granted scopes, and warns in plain English if any write scope is present
+- [ ] Saving, testing and choosing a location write audit events
+- [ ] `SHOPIFY_BASE_URL_OVERRIDE` is honoured only from server config, and the app refuses to start with it set in production
+- [ ] Variants list supports search by title or SKU, paging, and returns the tracking and "continue selling" warnings
+**Verification:** `npm run test:integration`
+**Dependencies:** 3, 5, 6
+**Files:** `apps/api/src/routes/shopify.ts`, `apps/api/src/app.ts`, `packages/shared/src/config.ts`, tests
+**Scope:** Medium
+
+### Checkpoint: after Task 7
+- [ ] `npm run check` passes
+- [ ] A test proves the code contains no Shopify write call, and the requested scopes contain no write scope
+- [ ] Review with owner before continuing
+
+## Task 8: Settings > Shopify page and a small router
+**Description:** A tiny History-API router, then the Settings > Shopify page: connect form, test connection, location picker, sync button with progress and last result, and reconnect. UI work: use `ui-ux-pro-max` and `design-taste-frontend`, the design system, and look at screenshots.
+**Acceptance criteria:**
+- [ ] Sidebar "Settings" becomes a live link. The router handles back, forward and deep links
+- [ ] The secret field is never prefilled and is cleared after saving. Errors are plain English, beside the field
+- [ ] Location picker, sync progress and the last sync result are shown. "Reconnect Shopify" appears when the connection needs it
+- [ ] Keyboard and screen reader friendly, and passes the accessibility scan in light and dark
+- [ ] Looks right at desktop and phone sizes (checked with screenshots)
+**Verification:** `npm run test:unit`, `npm run build`, screenshots reviewed
 **Dependencies:** 7
-**Files:** `apps/web/src/*`, `e2e/login.spec.ts`
+**Files:** `apps/web/src/router.tsx`, `pages/SettingsShopifyPage.tsx`, `api.ts`, `shell/AppShell.tsx`, tests
 **Scope:** Medium
-**Note:** UI work, so `ui-ux-pro-max` and `design-taste-frontend` apply here.
 
-**Status:** done 2026-11-08. The API now serves the built web app from the same origin (`webRoot`), with security headers. Playwright runs on desktop and phone sizes, including an axe accessibility scan, and has its own `e2e` job in CI. `npm run test:e2e` builds first. jsx-a11y lint is not used because it does not support ESLint 10 yet. The `e2e` CI job is not a required check yet.
-
-## Task 10: Docker Compose
-**Description:** Compose file for PostgreSQL, API, worker and web, with environment variables from `.env`.
+## Task 9: Products list
+**Description:** The Products page: a searchable, filterable table of imported variants (product, variant, options, SKU, available), with the tracking and "continue selling" warnings, an empty state that points to Settings, and a card layout on phones.
 **Acceptance criteria:**
-- [x] `docker compose up` starts all services and `/health` returns OK
-- [x] The worker processes a `health.ping` job in the composed stack
-- [x] No real secrets are committed
-**Verification:** `docker compose up` plus a manual health check
-**Dependencies:** 6, 8, 9
-**Files:** `docker-compose.yml`, Dockerfiles, `.env.example`
+- [ ] Sidebar "Products" becomes live
+- [ ] Search by title or SKU, a filter for items with warnings, paging
+- [ ] Warnings use words, not colour alone
+- [ ] Empty state: "No products yet. Connect Shopify in Settings."
+- [ ] Table is readable on a phone, and passes the accessibility scan
+**Verification:** `npm run test:unit`, screenshots reviewed
+**Dependencies:** 7, 8
+**Files:** `pages/ProductsPage.tsx`, `components/DataTable.tsx`, `api.ts`, tests
 **Scope:** Medium
 
-**Status:** done 2026-11-08. Verified by running the real stack, not only by tests. The web app is served by the API, so the compose file has no separate web service. Added: API server entry point, `npm run db:migrate` (runs migrations, creates the restricted login role), `COOKIE_SECURE`, `TRUST_PROXY` and `HOST` settings, a fix so `create-owner` accepts piped input (with tests), `docs/deployment.md`. Backups are documented but not automated.
+## Task 10: Browser tests through the real stack
+**Description:** Extend `e2e/stack.ts` with the fake Shopify server and drive the full journey in a real browser.
+**Acceptance criteria:**
+- [ ] Journey: sign in, connect with fake credentials, test, choose a location, sync, see the variants
+- [ ] Rejected credentials show "Reconnect Shopify" and a reconnect restores sync
+- [ ] No secret is visible in the page, network responses or console
+- [ ] Runs on desktop and phone sizes in CI, including the accessibility scan
+**Verification:** `npm run test:e2e`
+**Dependencies:** 8, 9
+**Files:** `e2e/stack.ts`, `e2e/shopify.spec.ts`, `e2e/fake-shopify-server.ts`
+**Scope:** Medium
 
-### Checkpoint: foundation complete
-- [ ] All nine spec success criteria met
+### Checkpoint: after Task 10
+- [ ] `npm run check` and `npm run test:e2e` pass in CI
+- [ ] Review with owner before continuing
+
+## Task 11: Real development-store check and wrap-up
+**Description:** Run the whole flow once against a real Shopify development store and record the result. Confirm the open points from the spec (the scope the `locations` query needs, field names in 2026-10, organization match). Fix the fake to match what Shopify really returns. Update `docs/deployment.md`.
+**Acceptance criteria:**
+- [ ] Real connection, location choice, sync and Products list work against a development store, shown in the PR (sensitive values hidden)
+- [ ] The scopes Shopify reports contain no write scope
+- [ ] Differences between the fake and the real responses are fixed, with tests
+- [ ] `docs/deployment.md` explains creating the Dev Dashboard app, the scopes to request, and the quarterly API version check
+- [ ] The spec's "not yet verified" list is updated with the findings
+**Verification:** manual run, recorded in the PR; `npm run check`
+**Dependencies:** 10, and a development store plus credentials from the owner
+**Files:** `docs/deployment.md`, `SPEC-shopify.md`, tests and fakes as needed
+**Scope:** Small to medium
+
+### Checkpoint: Phase A complete
+- [ ] All ten success criteria in `SPEC-shopify.md` met
 - [ ] `npm run check` and `npm run test:e2e` pass
-- [ ] Review with owner, then write `SPEC-shopify.md`
+- [ ] Review with owner, then write `SPEC-mapping.md`
