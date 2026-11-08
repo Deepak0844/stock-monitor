@@ -86,11 +86,11 @@ Every task is test-first (red, green, refactor), except the spike, which is thro
 ## Task 7: Browser service, interactive session
 **Description:** Extend the service with Xvfb and a VNC server. `POST /sessions` opens a headed window at a supplier's login address on the virtual screen. `POST /sessions/:id/finish` captures the session state, closes the browser and deletes the profile. `DELETE /sessions/:id` cancels. Only one session at a time, a 15-minute limit, and nothing left running afterwards.
 **Acceptance criteria:**
-- [ ] A session opens a visible window, and the VNC port answers (verified with a stand-in client)
-- [ ] Finishing returns the logged-in state, with the fake supplier's cookie, and closes everything
-- [ ] A second open session is refused with a plain error
-- [ ] Cancelling, finishing or timing out leaves no browser process and no profile directory
-- [ ] The VNC port is not published outside the container network
+- [x] A session opens a visible window, and the VNC port answers (verified with a stand-in client)
+- [x] Finishing returns the logged-in state, with the fake supplier's cookie, and closes everything
+- [x] A second open session is refused with a plain error
+- [x] Cancelling, finishing or timing out leaves no browser process and no profile directory
+- [x] The VNC port is not published outside the container network
 **Verification:** `npm run check`; browser-service tests
 **Dependencies:** 1, 6
 **Files:** `services/browser/*`, tests

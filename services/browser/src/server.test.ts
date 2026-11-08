@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import { createControlServer, type VerifyFn } from "./server.js";
+import { createControlServer, type SessionsApi, type VerifyFn } from "./server.js";
 
 const TOKEN = "t".repeat(40);
 const MARKER = "SESSION-COOKIE-MARKER-4c1e";
@@ -11,12 +11,19 @@ const body = { url: "https://shop.acme.example/account", state };
 let server: Server;
 let base: string;
 let verify: ReturnType<typeof vi.fn<VerifyFn>>;
+let sessions: { [K in keyof SessionsApi]: ReturnType<typeof vi.fn<SessionsApi[K]>> };
+const ID = "11111111-1111-4111-8111-111111111111";
 const logs: string[] = [];
 
 beforeEach(async () => {
   logs.length = 0;
   verify = vi.fn<VerifyFn>().mockResolvedValue({ result: "ok", status: 200, blockedRequests: 0 });
-  server = createControlServer({ token: TOKEN, verify, log: (line) => logs.push(line), maxBodyBytes: 100_000 });
+  sessions = {
+    open: vi.fn<SessionsApi["open"]>().mockResolvedValue({ ok: true, id: ID, expiresAt: "2026-11-08T12:00:00.000Z" }),
+    finish: vi.fn<SessionsApi["finish"]>().mockResolvedValue(state),
+    cancel: vi.fn<SessionsApi["cancel"]>().mockResolvedValue(true),
+  };
+  server = createControlServer({ token: TOKEN, verify, sessions, log: (line) => logs.push(line), maxBodyBytes: 100_000 });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
@@ -105,5 +112,88 @@ describe("POST /verify", () => {
 
   it("only accepts POST", async () => {
     expect((await fetch(`${base}/verify`, { headers: { authorization: `Bearer ${TOKEN}` } })).status).toBe(404);
+  });
+});
+
+describe("the live window routes", () => {
+  const call = (method: string, path: string, token: string | null = TOKEN, payload?: unknown) =>
+    fetch(`${base}${path}`, {
+      method,
+      headers: { "content-type": "application/json", ...(token === null ? {} : { authorization: `Bearer ${token}` }) },
+      body: payload === undefined ? undefined : JSON.stringify(payload),
+    });
+
+  it.each([
+    ["POST", "/sessions"],
+    ["POST", `/sessions/${ID}/finish`],
+    ["DELETE", `/sessions/${ID}`],
+  ])("%s %s needs the token and does nothing without it", async (method, path) => {
+    expect((await call(method, path, null, { url: "https://a.example/" })).status).toBe(401);
+    expect((await call(method, path, "x".repeat(40), { url: "https://a.example/" })).status).toBe(401);
+    expect(sessions.open).not.toHaveBeenCalled();
+    expect(sessions.finish).not.toHaveBeenCalled();
+    expect(sessions.cancel).not.toHaveBeenCalled();
+  });
+
+  it("opens a window and returns its id and expiry", async () => {
+    const res = await call("POST", "/sessions", TOKEN, { url: "https://shop.acme.example/login" });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({ id: ID, expiresAt: "2026-11-08T12:00:00.000Z" });
+    expect(sessions.open).toHaveBeenCalledWith("https://shop.acme.example/login");
+  });
+
+  it.each([["no address", {}], ["an ftp address", { url: "ftp://a.example/" }], ["a number", { url: 5 }], ["an extra field", { url: "https://a.example/", state: {} }]])(
+    "refuses %s with a plain 400",
+    async (_n, payload) => {
+      const res = await call("POST", "/sessions", TOKEN, payload);
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "invalid_request" });
+      expect(sessions.open).not.toHaveBeenCalled();
+    },
+  );
+
+  it("says plainly that a window is already open, with a 409", async () => {
+    sessions.open.mockResolvedValue({ ok: false, reason: "busy" });
+    const res = await call("POST", "/sessions", TOKEN, { url: "https://a.example/" });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "session_open", message: "A login window is already open. Finish or cancel it first." });
+  });
+
+  it("says the window could not start, with a 502 and no detail", async () => {
+    sessions.open.mockResolvedValue({ ok: false, reason: "failed" });
+    const res = await call("POST", "/sessions", TOKEN, { url: "https://a.example/" });
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "window_failed" });
+  });
+
+  it("finishing returns the saved session", async () => {
+    const res = await call("POST", `/sessions/${ID}/finish`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ state });
+    expect(sessions.finish).toHaveBeenCalledWith(ID);
+  });
+
+  it("answers 404 when there is no such window, for finish and cancel, and for an id that is not an id", async () => {
+    sessions.finish.mockResolvedValue(null);
+    sessions.cancel.mockResolvedValue(false);
+    for (const [method, path] of [["POST", `/sessions/${ID}/finish`], ["DELETE", `/sessions/${ID}`], ["POST", "/sessions/not-an-id/finish"], ["DELETE", "/sessions/not-an-id"]]) {
+      const res = await call(method as string, path as string);
+      expect(res.status, `${method} ${path}`).toBe(404);
+      expect(await res.json()).toEqual({ error: "session_not_found" });
+    }
+  });
+
+  it("cancelling answers 204", async () => {
+    expect((await call("DELETE", `/sessions/${ID}`)).status).toBe(204);
+    expect(sessions.cancel).toHaveBeenCalledWith(ID);
+  });
+
+  it("answers 500 with no detail, and logs only the error name, when finishing breaks", async () => {
+    sessions.finish.mockRejectedValue(Object.assign(new Error(`failed with ${MARKER}`), { name: "TargetClosedError" }));
+    const res = await call("POST", `/sessions/${ID}/finish`);
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "session_failed" });
+    expect(logs.join("\n")).toContain("TargetClosedError");
+    expect(logs.join("\n")).not.toContain(MARKER);
   });
 });
