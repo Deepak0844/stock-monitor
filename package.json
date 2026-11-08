@@ -11,8 +11,9 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "test:unit": "vitest run --exclude '**/*.int.test.ts' --exclude '**/node_modules/**' --exclude '.claude/**' --exclude 'e2e/**'",
+    "test:unit": "vitest run --exclude '**/*.int.test.ts' --exclude '**/*.browser.test.ts' --exclude '**/node_modules/**' --exclude '.claude/**' --exclude 'e2e/**'",
     "test:integration": "vitest run --passWithNoTests --exclude '.claude/**' --exclude 'e2e/**' .int.test.ts",
+    "test:browser": "vitest run --passWithNoTests --exclude '.claude/**' --exclude 'e2e/**' .browser.test.ts",
     "check": "npm run typecheck && npm run lint && npm run test:unit && npm run test:integration",
     "create-owner": "npm run create-owner -w @stock-monitor/api",
     "build": "npm run build --workspaces --if-present",
@@ -33,6 +34,7 @@
   },
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "services/*"
   ]
 }

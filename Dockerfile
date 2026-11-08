@@ -13,6 +13,7 @@ COPY packages/queue/package.json packages/queue/
 COPY packages/shared/package.json packages/shared/
 COPY packages/shopify/package.json packages/shopify/
 COPY packages/supplier-session/package.json packages/supplier-session/
+COPY services/browser/package.json services/browser/
 RUN npm ci
 COPY . .
 RUN npm run build && npm prune --omit=dev
