@@ -8,8 +8,8 @@
     "@types/pg": "^8.23.1"
   },
   "dependencies": {
-    "@stock-monitor/db": "workspace:*",
-    "@stock-monitor/shared": "workspace:*",
+    "@stock-monitor/db": "*",
+    "@stock-monitor/shared": "*",
     "drizzle-orm": "^0.45.4",
     "pg": "^8.23.1"
   }

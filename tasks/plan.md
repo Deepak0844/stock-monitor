@@ -6,7 +6,7 @@ Spec: `SPEC-foundation.md` (approved 2026-11-08). Map: `CAPABILITY-MAP.md`. Task
 Build the base every other module needs: a monorepo that builds and tests, PostgreSQL with migrations, encrypted secrets, single-owner login, an append-only audit log and a job queue. No supplier or Shopify logic.
 
 ## Architecture Decisions
-- pnpm workspaces with `apps/*` and `packages/*`. Shared code in `packages/` keeps the API, worker and web separate but consistent.
+- npm workspaces with `apps/*` and `packages/*`. Shared code in `packages/` keeps the API, worker and web separate but consistent.
 - Drizzle ORM with drizzle-kit migrations (owner decision).
 - Integration tests use real PostgreSQL through Testcontainers, never a mocked database.
 - The app connects as a database role with INSERT and SELECT only on `audit_events`. A separate migration role owns the schema. This makes the audit log tamper-resistant at the database level.

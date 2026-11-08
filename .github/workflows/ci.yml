@@ -15,12 +15,11 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+          cache: npm
+      - run: npm ci
       # typecheck, lint, unit and integration tests. Integration tests start PostgreSQL in Docker,
       # which GitHub's Ubuntu runners provide.
-      - run: pnpm check
+      - run: npm run check
