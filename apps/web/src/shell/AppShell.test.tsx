@@ -32,7 +32,7 @@ describe("AppShell", () => {
     expect(within(nav).getByRole("link", { name: "Dashboard" })).toHaveAttribute("aria-current", "page");
   });
 
-  it.each(["Suppliers", "Products", "Approvals", "History"])(
+  it.each(["Suppliers", "Approvals", "History"])(
     "shows %s as not available yet instead of a dead link",
     (label) => {
       setup();
@@ -43,6 +43,23 @@ describe("AppShell", () => {
       expect(item).toHaveTextContent("Soon");
     },
   );
+
+  it("makes Products a real link to the products page, and marks it current there", () => {
+    window.history.replaceState(null, "", "/products");
+    setup();
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    const link = within(nav).getByRole("link", { name: "Products" });
+    expect(link).toHaveAttribute("href", "/products");
+    expect(link).toHaveAttribute("aria-current", "page");
+    expect(within(nav).getByRole("link", { name: "Dashboard" })).not.toHaveAttribute("aria-current");
+  });
+
+  it("keeps the sections in a sensible order", () => {
+    setup();
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    const labels = within(nav).getAllByRole("listitem").map((li) => li.textContent?.replace("Soon", "").trim());
+    expect(labels).toEqual(["Dashboard", "Suppliers", "Products", "Approvals", "History", "Settings"]);
+  });
 
   it("makes Settings a real link to the Shopify settings page", () => {
     setup();

@@ -39,6 +39,25 @@ export type SyncRun = {
   error: string | null;
 };
 
+export type VariantWarning = { code: "not_tracked" | "continue_selling"; message: string };
+
+export type VariantItem = {
+  variantId: string;
+  productTitle: string;
+  variantTitle: string;
+  options: { name: string; value: string }[];
+  sku: string | null;
+  tracked: boolean;
+  inventoryPolicy: "DENY" | "CONTINUE";
+  /** Stock at the chosen location. null means the variant is not stocked there, which is not the same as 0. */
+  available: number | null;
+  syncedAt: string;
+  warnings: VariantWarning[];
+};
+
+export type VariantPage = { items: VariantItem[]; total: number; page: number; pageSize: number };
+export type VariantQuery = { page: number; pageSize: number; search?: string; warningsOnly?: boolean };
+
 export type ShopifyApi = {
   getConnection(): Promise<ShopifyConnection | null>;
   /** Checks typed-in details, or the saved connection when none are given. Saves nothing. */
@@ -49,6 +68,7 @@ export type ShopifyApi = {
   chooseLocation(id: string): Promise<ShopifyLocation>;
   startSync(): Promise<void>;
   getSync(): Promise<SyncRun | null>;
+  variants(query: VariantQuery): Promise<VariantPage>;
 };
 
 export type Api = {
@@ -125,6 +145,12 @@ const shopify: ShopifyApi = {
   },
   async startSync() {
     await request("/api/shopify/sync", { method: "POST" });
+  },
+  variants(query) {
+    const params = new URLSearchParams({ page: String(query.page), pageSize: String(query.pageSize) });
+    if (query.search) params.set("search", query.search);
+    if (query.warningsOnly) params.set("warningsOnly", "true");
+    return request(`/api/shopify/variants?${params}`, { method: "GET" });
   },
   async getSync() {
     return (await request<{ lastRun: SyncRun | null }>("/api/shopify/sync", { method: "GET" })).lastRun;

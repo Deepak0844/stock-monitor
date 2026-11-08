@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { Api, ConnectionCheck, ShopifyApi, ShopifyConnection } from "../api.js";
+import type { Api, ConnectionCheck, ShopifyApi, ShopifyConnection, VariantItem, VariantPage } from "../api.js";
 
 export const aCheck = (over: Partial<ConnectionCheck> = {}): ConnectionCheck => ({
   shopName: "Acme Supplies",
@@ -22,6 +22,28 @@ export const aConnection = (over: Partial<ShopifyConnection> = {}): ShopifyConne
   ...over,
 });
 
+export const aVariant = (n: number, over: Partial<VariantItem> = {}): VariantItem => ({
+  variantId: `gid://shopify/ProductVariant/${n}`,
+  productTitle: `Product ${n}`,
+  variantTitle: `Size ${n}`,
+  options: [{ name: "Size", value: String(n) }],
+  sku: `SKU-${n}`,
+  tracked: true,
+  inventoryPolicy: "DENY",
+  available: n,
+  syncedAt: "2026-11-08T10:00:00.000Z",
+  warnings: [],
+  ...over,
+});
+
+export const aPage = (items: VariantItem[], over: Partial<VariantPage> = {}): VariantPage => ({
+  items,
+  total: items.length,
+  page: 1,
+  pageSize: 25,
+  ...over,
+});
+
 /** A fake API for screen tests. Every method is a spy with a sensible default. */
 export function fakeApi(over: Partial<Omit<Api, "shopify">> & { shopify?: Partial<ShopifyApi> } = {}): Api {
   const { shopify, ...rest } = over;
@@ -39,6 +61,7 @@ export function fakeApi(over: Partial<Omit<Api, "shopify">> & { shopify?: Partia
       chooseLocation: vi.fn().mockImplementation(async (id: string) => ({ id, name: "Chosen location" })),
       startSync: vi.fn().mockResolvedValue(undefined),
       getSync: vi.fn().mockResolvedValue(null),
+      variants: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 25 }),
       ...shopify,
     },
   };

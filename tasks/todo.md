@@ -134,15 +134,17 @@ Every task is test-first (red, green, refactor). Run `npm run check` before mark
 ## Task 9: Products list
 **Description:** The Products page: a searchable, filterable table of imported variants (product, variant, options, SKU, available), with the tracking and "continue selling" warnings, an empty state that points to Settings, and a card layout on phones.
 **Acceptance criteria:**
-- [ ] Sidebar "Products" becomes live
-- [ ] Search by title or SKU, a filter for items with warnings, paging
-- [ ] Warnings use words, not colour alone
-- [ ] Empty state: "No products yet. Connect Shopify in Settings."
-- [ ] Table is readable on a phone, and passes the accessibility scan
+- [x] Sidebar "Products" becomes live
+- [x] Search by title or SKU, a filter for items with warnings, paging
+- [x] Warnings use words, not colour alone
+- [x] Empty state: "No products yet. Connect Shopify in Settings."
+- [x] Table is readable on a phone, and passes the accessibility scan
 **Verification:** `npm run test:unit`, screenshots reviewed
 **Dependencies:** 7, 8
 **Files:** `pages/ProductsPage.tsx`, `components/DataTable.tsx`, `api.ts`, tests
 **Scope:** Medium
+
+**Status:** done 2026-11-08. Search runs when the form is sent (Enter or the Search button), not on every keystroke. The previous page stays on screen, dimmed and marked busy, while the next one loads, and a late answer never overwrites a newer one. The table uses explicit table roles, so it stays a table for screen readers when the phone layout shows each row as a card. A variant Shopify calls "Default Title" is shown as "Only variant". Stock not held at the location reads "Not stocked here", a real zero reads "0". Checked with screenshots of 9 states and an automated accessibility scan of each: no violations. Known limit: sorting is by product title, case-insensitive but not numeric, so "Bin 10" sorts before "Bin 2".
 
 ## Task 10: Browser tests through the real stack
 **Description:** Extend `e2e/stack.ts` with the fake Shopify server and drive the full journey in a real browser.
