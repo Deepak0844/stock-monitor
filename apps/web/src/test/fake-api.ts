@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { Api, ConnectionCheck, ShopifyApi, ShopifyConnection, Supplier, SuppliersApi, LoginSession, LoginSessionsApi, VariantItem, VariantPage } from "../api.js";
+import type { Api, ConnectionCheck, ShopifyApi, ShopifyConnection, Supplier, SuppliersApi, LoginSession, LoginSessionsApi, AppNotification, NotificationsApi, VariantItem, VariantPage } from "../api.js";
 
 export const aCheck = (over: Partial<ConnectionCheck> = {}): ConnectionCheck => ({
   shopName: "Acme Supplies",
@@ -70,20 +70,34 @@ export const aLoginSession = (over: Partial<LoginSession> = {}): LoginSession =>
   ...over,
 });
 
+export const aNotification = (over: Partial<AppNotification> = {}): AppNotification => ({
+  id: "33333333-3333-4333-8333-333333333333",
+  kind: "supplier_needs_reconnect",
+  supplierId: "11111111-1111-4111-8111-111111111111",
+  supplierName: "Acme Supply",
+  message: "Acme Supply needs you to log in again.",
+  reason: "login_required",
+  createdAt: "2026-11-08T10:00:00.000Z",
+  readAt: null,
+  ...over,
+});
+
 /** A fake API for screen tests. Every method is a spy with a sensible default. */
 export function fakeApi(
   over: Partial<Omit<Api, "shopify" | "suppliers" | "loginSessions">> & {
     shopify?: Partial<ShopifyApi>;
     suppliers?: Partial<SuppliersApi>;
     loginSessions?: Partial<LoginSessionsApi>;
+    notifications?: Partial<NotificationsApi>;
   } = {},
 ): Api {
-  const { shopify, suppliers, loginSessions, ...rest } = over;
+  const { shopify, suppliers, loginSessions, notifications, ...rest } = over;
   return {
     getMe: vi.fn().mockResolvedValue(null),
     login: vi.fn().mockResolvedValue({ email: "owner@example.com" }),
     logout: vi.fn().mockResolvedValue(undefined),
     ...rest,
+    notifications: { list: vi.fn().mockResolvedValue([]), ...notifications },
     loginSessions: {
       start: vi.fn().mockResolvedValue({ loginSession: aLoginSession(), token: "t".repeat(64) }),
       finish: vi.fn().mockResolvedValue({ loginSession: aLoginSession({ status: "finished" }), session: null }),
@@ -99,6 +113,7 @@ export function fakeApi(
       remove: vi.fn().mockResolvedValue(undefined),
       pause: vi.fn().mockImplementation(async () => aSupplier({ enabled: false, pausedReason: "owner" })),
       resume: vi.fn().mockImplementation(async () => aSupplier()),
+      checkSession: vi.fn().mockResolvedValue(undefined),
       ...suppliers,
     },
     shopify: {

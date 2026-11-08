@@ -319,3 +319,114 @@ test("the connect screen passes the accessibility scan in light and dark, and ne
     supplier = await addViaApi(page);
   }
 });
+
+// ---------------------------------------------------------------------------------------------------------
+// What happens after a login: the check, the status, the dashboard message and the way back.
+
+/** Opens a supplier's connect screen, waits for the window, presses I'm logged in, and waits for the success message. */
+async function connectThroughTheWindow(page: Page, url: string, name = "Acme Supply") {
+  await page.goto(url);
+  await expect(liveCanvas(page)).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: "I'm logged in" }).click();
+  await expect(page.getByText(`${name} is connected.`)).toBeVisible();
+}
+const rowOf = (page: Page, name = "Acme Supply") => page.getByRole("row", { name: new RegExp(name) });
+const CHECK_WAIT = { timeout: 30_000 }; // the check runs in the background worker
+/** The list does not poll, so a page opened before a background check finished is reloaded until it shows the result. */
+const eventually = (page: Page, check: () => Promise<void>) =>
+  expect(async () => {
+    await page.reload();
+    await check();
+  }).toPass({ timeout: 30_000, intervals: [1_000, 2_000] });
+
+test("a check that finds the login gone marks only that supplier, raises one message, and Reconnect supplier leads back to a fix", async ({ page }, info) => {
+  await signIn(page);
+  const acme = await addViaApi(page);
+  await addViaApi(page, "Globex");
+  await control.browser({ verifyResult: "login_required" });
+  await connectThroughTheWindow(page, acme.url);
+
+  await page.goto("/suppliers");
+  await eventually(page, () => expect(rowOf(page)).toContainText("Needs reconnecting", { timeout: 1_000 }));
+  await expect(rowOf(page, "Globex")).toContainText("Not connected"); // nothing else changed
+  await expect(page.getByRole("link", { name: "Reconnect supplier Acme Supply" })).toBeVisible();
+  await shot(page, "suppliers-needs-reconnect", info.project.name);
+
+  await page.goto("/");
+  const card = page.getByRole("region", { name: "Needs attention" });
+  await expect(card.getByRole("listitem")).toHaveCount(1);
+  await expect(card).toContainText("Acme Supply needs you to log in again.");
+  await shot(page, "dashboard-needs-attention", info.project.name);
+
+  // The login works again: the owner reconnects from the message, and everything clears.
+  await control.browser({ verifyResult: "ok" });
+  await card.getByRole("link", { name: "Reconnect supplier Acme Supply" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Reconnect Acme Supply" })).toBeVisible();
+  await expect(liveCanvas(page)).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: "I'm logged in" }).click();
+  await expect(page.getByText("Acme Supply is connected.")).toBeVisible();
+  await page.goto("/");
+  await expect(page.getByText("Nothing needs your attention.")).toBeVisible();
+  await page.goto("/suppliers");
+  await expect(rowOf(page)).toContainText("Connected");
+  await expect(page.getByRole("button", { name: "Pause Acme Supply" })).toBeVisible(); // not left paused
+});
+
+test("a puzzle or a block shows as Blocked with its own plain message", async ({ page }) => {
+  await signIn(page);
+  const supplier = await addViaApi(page);
+  await control.browser({ verifyResult: "captcha" });
+  await connectThroughTheWindow(page, supplier.url);
+  await page.goto("/suppliers");
+  await eventually(page, () => expect(rowOf(page)).toContainText("Blocked", { timeout: 1_000 }));
+  await page.goto("/");
+  await expect(page.getByRole("region", { name: "Needs attention" })).toContainText("is asking you to solve a puzzle (a CAPTCHA)");
+});
+
+test("Check connection finds a login that has stopped working", async ({ page }) => {
+  await signIn(page);
+  const supplier = await addViaApi(page);
+  await connectThroughTheWindow(page, supplier.url);
+  await page.goto("/suppliers");
+  await expect(rowOf(page)).toContainText("Connected");
+  await control.browser({ verifyResult: "blocked" });
+  await page.getByRole("button", { name: "Check connection Acme Supply" }).click();
+  await expect(page.getByText("A check of Acme Supply has started.")).toBeVisible();
+  await expect(rowOf(page)).toContainText("Blocked", CHECK_WAIT); // the list reads itself again, no reload
+  await page.goto("/");
+  await expect(page.getByRole("region", { name: "Needs attention" })).toContainText("is blocking access");
+});
+
+test("a supplier that is not connected offers Connect, and a connected one offers Check connection", async ({ page }) => {
+  await signIn(page);
+  const supplier = await addViaApi(page);
+  await page.goto("/suppliers");
+  await expect(page.getByRole("link", { name: "Connect Acme Supply" })).toHaveAttribute("href", supplier.url);
+  await page.getByRole("link", { name: "Connect Acme Supply" }).click();
+  await expect(liveCanvas(page)).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: "I'm logged in" }).click();
+  await expect(page.getByText("Acme Supply is connected.")).toBeVisible();
+  await page.getByRole("link", { name: "Back to suppliers" }).click();
+  await expect(page.getByRole("button", { name: "Check connection Acme Supply" })).toBeVisible();
+});
+
+test("the dashboard and the supplier actions pass the accessibility scan in light and dark, and never scroll sideways", async ({ page }, info) => {
+  await signIn(page);
+  const supplier = await addViaApi(page);
+  await addViaApi(page, "Globex");
+  await control.browser({ verifyResult: "login_required" });
+  await connectThroughTheWindow(page, supplier.url);
+  await page.goto("/suppliers");
+  await eventually(page, () => expect(rowOf(page)).toContainText("Needs reconnecting", { timeout: 1_000 }));
+  for (const scheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    for (const path of ["/", "/suppliers"]) {
+      await page.goto(path);
+      await expect(path === "/" ? page.getByRole("region", { name: "Needs attention" }).getByRole("listitem") : rowOf(page)).toBeVisible();
+      await scan(page, `${scheme} ${path}`);
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      expect(overflow, `${scheme} ${path} must not scroll sideways`).toBeLessThanOrEqual(0);
+      await shot(page, `${path === "/" ? "dashboard" : "suppliers"}-${scheme}`, info.project.name);
+    }
+  }
+});

@@ -891,16 +891,16 @@ h3 {
   border: 0;
 }
 .suppliers-table th:nth-child(1) {
-  width: 18%;
+  width: 14%;
 }
 .suppliers-table th:nth-child(2) {
-  width: 23%;
-}
-.suppliers-table th:nth-child(3) {
   width: 16%;
 }
+.suppliers-table th:nth-child(3) {
+  width: 15%;
+}
 .suppliers-table th:nth-child(4) {
-  width: 12%;
+  width: 13%;
 }
 .suppliers-table .status-badge {
   white-space: nowrap;
@@ -912,11 +912,6 @@ h3 {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
-}
-@media (min-width: 56.0625rem) {
-  .suppliers-table .row-actions {
-    flex-wrap: nowrap;
-  }
 }
 a.button {
   text-decoration: none;
@@ -1024,6 +1019,33 @@ a.button {
     flex: 1;
     white-space: nowrap;
   }
+}
+
+/* ---------- Needs attention ---------- */
+.panel + .summary-grid {
+  margin-top: 1rem;
+}
+.attention-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.attention-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1.5rem;
+  padding: 0.75rem 1rem;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border: 1px solid var(--warn-border);
+  border-radius: 10px;
+}
+.attention-list .button.primary {
+  flex: none;
 }
 
 /* ---------- Connect supplier ---------- */

@@ -250,3 +250,30 @@ describe("login sessions api", () => {
     await Promise.resolve();
   });
 });
+
+describe("checking a connection and reading messages", () => {
+  const stub = (status: number, body?: unknown) => {
+    const fetchMock = vi.fn().mockImplementation(async () => respond(status, body));
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  };
+
+  it("asks for a check of a supplier's saved login", async () => {
+    const f = stub(202, { queued: true });
+    await api.suppliers.checkSession("s1");
+    const [url, init] = f.mock.calls[0]!;
+    expect([url, init.method]).toEqual(["/api/suppliers/s1/check-session", "POST"]);
+  });
+
+  it("keeps the server's plain message when there is nothing to check", async () => {
+    stub(409, { error: { code: "not_connected", message: "Connect this supplier first." } });
+    await expect(api.suppliers.checkSession("s1")).rejects.toMatchObject({ status: 409, code: "not_connected", message: "Connect this supplier first." });
+  });
+
+  it("lists what needs attention", async () => {
+    const note = { id: "n1", kind: "supplier_needs_reconnect", supplierId: "s1", supplierName: "Acme", message: "Acme needs you to log in again.", reason: "login_required", createdAt: "2026-11-08T10:00:00.000Z", readAt: null };
+    const f = stub(200, { notifications: [note] });
+    expect(await api.notifications.list()).toEqual([note]);
+    expect(f.mock.calls[0]![0]).toBe("/api/notifications");
+  });
+});

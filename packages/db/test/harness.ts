@@ -35,11 +35,14 @@ export async function startTestDb(): Promise<TestDb> {
   const url = postgres.url;
   await setupDatabase({ ownerUrl: url, appRole: "app_login", appPassword: "app_login_pw" });
   const pool = new pg.Pool({ connectionString: url });
+  // An idle connection reports an error when its container is stopped. That is expected at the end of a test file, so it must not crash the run.
+  pool.on("error", () => {});
   const db = drizzle(pool);
   const appUrl = new URL(url);
   appUrl.username = "app_login";
   appUrl.password = "app_login_pw";
   const appPool = new pg.Pool({ connectionString: appUrl.toString() });
+  appPool.on("error", () => {});
   return {
     url,
     pool,

@@ -145,12 +145,12 @@ Every task is test-first (red, green, refactor), except the spike, which is thro
 ## Task 11: Connect screen and dashboard card
 **Description:** The Connect screen (the noVNC library in the page, our own WebSocket handshake first, instructions, a countdown, **I'm logged in**, **Cancel**, a "Paste text" box, plain errors), the **Reconnect supplier** action on the Suppliers page, and a "Needs attention" card on the Dashboard fed by notifications. UI work with the design system, screenshots and the accessibility scan.
 **Acceptance criteria:**
-- [ ] The window appears only after the handshake succeeds. A failed handshake shows a plain message and no window
-- [ ] The token is sent as the first message, never in the address
-- [ ] Cancelling, closing the page, or running out of time closes the remote window
-- [ ] The Dashboard card lists open notifications with a working **Reconnect supplier** button. Empty state when none
-- [ ] Keyboard and screen reader friendly around the live window, and no accessibility violations
-- [ ] Works at desktop size. Phone is usable for status and notifications, and the connect screen says it is best on a computer
+- [x] The window appears only after the handshake succeeds. A failed handshake shows a plain message and no window
+- [x] The token is sent as the first message, never in the address
+- [x] Cancelling, closing the page, or running out of time closes the remote window
+- [x] The Dashboard card lists open notifications with a working **Reconnect supplier** button. Empty state when none
+- [x] Keyboard and screen reader friendly around the live window, and no accessibility violations
+- [x] Works at desktop size. Phone is usable for status and notifications, and the connect screen says it is best on a computer
 **Verification:** `npm run check`, screenshots reviewed
 **Dependencies:** 3, 9, 10
 **Files:** `apps/web/src/pages/ConnectSupplierPage.tsx`, `components/LiveWindow.tsx`, `pages/DashboardPage.tsx`, `api.ts`, tests
