@@ -48,19 +48,21 @@ Every task is test-first (red, green, refactor). Run `npm run check` before mark
 ## Task 4: Locations, catalog queries and sync logic
 **Description:** Queries for locations and for products with variants and `available` quantity at one location, paged by cursor. A `syncCatalog` function that takes a client, a location and a storage interface, and reports added, updated and removed counts.
 **Acceptance criteria:**
-- [ ] Lists locations (id, name, active)
-- [ ] Reads all variants across pages, with product title, variant title, option values, SKU, inventory item id, `tracked`, `inventoryPolicy` and `available` at the chosen location
-- [ ] Query cost stays well under 1,000 and page size is a constant
-- [ ] A second run with no changes reports zero changes. A variant missing from Shopify is reported as removed, not deleted
-- [ ] A variant not stocked at the chosen location has `available` empty, not 0
+- [x] Lists locations (id, name, active)
+- [x] Reads all variants across pages, with product title, variant title, option values, SKU, inventory item id, `tracked`, `inventoryPolicy` and `available` at the chosen location
+- [x] Query cost stays well under 1,000 and page size is a constant
+- [x] A second run with no changes reports zero changes. A variant missing from Shopify is reported as removed, not deleted
+- [x] A variant not stocked at the chosen location has `available` empty, not 0
 **Verification:** `npm run test:unit`
 **Dependencies:** 3
 **Files:** `src/queries.ts`, `src/schemas.ts`, `src/sync.ts`, tests, fake server additions
 **Scope:** Medium
 
+**Status:** done 2026-11-08. Field names come from the 2026-10 reference pages for `productVariants`, `ProductVariant`, `InventoryItem`, `InventoryLevel`, `InventoryQuantity`, `locations`, `Location`, `ProductVariantInventoryPolicy` and `SelectedOption`. No page states a query cost or a page-size limit, so the page size (50) is a constant and the cost estimate (2 + 8 per variant) is our own inference. Unverified until Task 11: that `locations` works with only `read_locations` or `read_inventory`, that `hasNextPage` exists on `PageInfo` for these connections (standard, but not stated on the pages read), and what `inventoryLevel` returns for an unstocked item (we treat null and a missing `available` as empty).
+
 ### Checkpoint: after Task 4
-- [ ] `npm run check` passes
-- [ ] The fake server's shapes are traced to the official 2026-10 reference pages, listed in the PR
+- [x] `npm run check` passes
+- [x] The fake server's shapes are traced to the official 2026-10 reference pages, listed in the PR
 - [ ] Review with owner before continuing
 
 ## Task 5: Database tables and encrypted repositories
