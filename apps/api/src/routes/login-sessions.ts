@@ -16,6 +16,8 @@ export type LoginSessionRoutesDeps = {
   browser: BrowserClient;
   /** Seals saved sessions. The browser service never sees it. */
   key: { key: Buffer; keyId: string };
+  /** Called whenever a login stops being open (finished, cancelled, failed or expired), so its screen connections can be closed. */
+  onEnded?: (loginSessionId: string) => void;
 };
 
 /** What the rest of the API may ask of the login routes. */
@@ -53,6 +55,10 @@ const view = (s: LoginSessionRecord) => ({
 export function registerLoginSessionRoutes(app: App, deps: LoginSessionRoutesDeps, audit: Audit): LoginSessions {
   const { suppliers, loginSessions, supplierSessions, browser, key } = deps;
   const vnc = new Map<string, string>();
+  const ended = (id: string) => {
+    vnc.delete(id);
+    deps.onEnded?.(id);
+  };
 
   const record = (request: { user: { id: string } | null; id: string }, action: string, id: string, details: Record<string, unknown>) =>
     audit.record({ actorUserId: request.user?.id, action, entityType: "login_session", entityId: id, details, requestId: request.id });
@@ -60,14 +66,14 @@ export function registerLoginSessionRoutes(app: App, deps: LoginSessionRoutesDep
   /** Marks attempts that ran out of time, and makes sure their windows are closed. */
   async function sweep() {
     for (const expired of await loginSessions.expireOverdue()) {
-      vnc.delete(expired.id);
+      ended(expired.id);
       if (expired.browserSessionId) await browser.cancelSession(expired.browserSessionId);
     }
   }
 
   async function failAttempt(request: Parameters<typeof record>[0], attempt: LoginSessionRecord, reason: FailureReason) {
     await loginSessions.fail(attempt.id, reason);
-    vnc.delete(attempt.id);
+    ended(attempt.id);
     await record(request, "login_session.failed", attempt.id, { supplierId: attempt.supplierId, reason });
   }
 
@@ -142,7 +148,7 @@ export function registerLoginSessionRoutes(app: App, deps: LoginSessionRoutesDep
     }
 
     await loginSessions.finish(attempt.id);
-    vnc.delete(attempt.id);
+    ended(attempt.id);
     const facts = await supplierSessions.facts(attempt.supplierId);
     await record(request, "login_session.finished", attempt.id, { supplierId: attempt.supplierId, savedItems: facts?.cookieCount ?? 0 });
     return { loginSession: view((await loginSessions.get(attempt.id)) as LoginSessionRecord), session: facts };
@@ -150,7 +156,7 @@ export function registerLoginSessionRoutes(app: App, deps: LoginSessionRoutesDep
 
   async function cancelAttempt(request: Parameters<typeof record>[0] | null, attempt: LoginSessionRecord) {
     if (!(await loginSessions.cancel(attempt.id))) return;
-    vnc.delete(attempt.id);
+    ended(attempt.id);
     if (attempt.browserSessionId) await browser.cancelSession(attempt.browserSessionId); // best effort: the window also closes by itself
     if (request) await record(request, "login_session.cancelled", attempt.id, { supplierId: attempt.supplierId });
   }
