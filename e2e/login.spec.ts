@@ -5,14 +5,14 @@ import { OWNER_EMAIL, OWNER_PASSWORD } from "./constants.js";
 async function signIn(page: Page) {
   await page.goto("/");
   await page.getByLabel("Email").fill(OWNER_EMAIL);
-  await page.getByLabel("Password").fill(OWNER_PASSWORD);
+  await page.getByLabel("Password", { exact: true }).fill(OWNER_PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
 }
 
 test("the owner signs in, sees the home page and signs out", async ({ page }) => {
   await signIn(page);
-  await expect(page.getByRole("heading", { name: "Stock Monitor" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
   await expect(page.getByText(OWNER_EMAIL)).toBeVisible();
 
   await page.getByRole("button", { name: "Sign out" }).click();
@@ -39,7 +39,7 @@ test("the session survives a page reload while signed in", async ({ page }) => {
 test("a wrong password shows a clear message and keeps the owner on the sign-in page", async ({ page }) => {
   await page.goto("/");
   await page.getByLabel("Email").fill(OWNER_EMAIL);
-  await page.getByLabel("Password").fill("not the right password");
+  await page.getByLabel("Password", { exact: true }).fill("not the right password");
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("alert")).toHaveText("Email or password is incorrect.");
   await expect(page.getByLabel("Email")).toHaveValue(OWNER_EMAIL);
@@ -109,4 +109,47 @@ test("the API sends security headers with the page", async ({ page }) => {
   const res = await page.goto("/");
   expect(res!.headers()["x-frame-options"]).toBe("DENY");
   expect(res!.headers()["content-security-policy"]).toContain("default-src 'self'");
+});
+
+test("the pages also pass the accessibility scan in dark mode", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+  const signedOut = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
+  expect(signedOut.violations).toEqual([]);
+
+  await signIn(page);
+  const signedIn = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
+  expect(signedIn.violations).toEqual([]);
+});
+
+test("the navigation shows the current page and marks unfinished sections as coming soon", async ({ page }) => {
+  await signIn(page);
+  const menu = page.getByRole("button", { name: "Menu" });
+  if (await menu.isVisible()) await menu.click(); // on a phone the navigation opens from the Menu button
+  const nav = page.getByRole("navigation", { name: "Main" });
+  await expect(nav.getByRole("link", { name: "Dashboard" })).toHaveAttribute("aria-current", "page");
+  for (const name of ["Suppliers", "Products", "Approvals", "History", "Settings"]) {
+    await expect(nav.getByText(name)).toBeVisible();
+    await expect(nav.getByRole("link", { name })).toHaveCount(0);
+  }
+});
+
+test("Tab reaches the skip link first and it jumps to the main content", async ({ page, isMobile }) => {
+  test.skip(isMobile, "keyboard Tab order is checked on desktop");
+  await signIn(page);
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  await page.keyboard.press("Tab");
+  const skip = page.getByRole("link", { name: "Skip to main content" });
+  await expect(skip).toBeFocused();
+  await expect(skip).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("main")).toBeFocused();
+});
+
+test("sign out is reachable on a phone without scrolling to the bottom", async ({ page, isMobile }) => {
+  test.skip(!isMobile, "phone layout only");
+  await signIn(page);
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeInViewport();
 });
