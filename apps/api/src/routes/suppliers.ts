@@ -13,6 +13,8 @@ export type SupplierRoutesDeps = {
   repo: Repository;
   /** Test only: replaces the real DNS lookup. */
   lookup?: HostLookup;
+  /** Runs before a supplier is deleted, for example to close a login window that is open for it. */
+  beforeDelete?: (supplierId: string) => Promise<void>;
 };
 
 const DEFAULT_INTERVAL = 60;
@@ -111,7 +113,9 @@ export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit
 
   app.delete<{ Params: { id: string } }>("/api/suppliers/:id", async (request) => {
     const supplier = await repo.get(request.params.id);
-    if (!supplier || !(await repo.remove(supplier.id))) throw NOT_FOUND();
+    if (!supplier) throw NOT_FOUND();
+    await deps.beforeDelete?.(supplier.id);
+    if (!(await repo.remove(supplier.id))) throw NOT_FOUND();
     await record(request, "supplier.deleted", supplier.id, { name: supplier.name });
     return { ok: true };
   });

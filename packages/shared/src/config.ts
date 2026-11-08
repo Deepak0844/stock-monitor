@@ -13,6 +13,9 @@ const schema = z.object({
   TRUST_PROXY: z.enum(["true", "false"]).default("false"),
   // Test only: send Shopify requests to a fake server. Refused in production, see below.
   SHOPIFY_BASE_URL_OVERRIDE: z.url().optional(),
+  // The browser service (the isolated container that opens supplier websites). Both or neither.
+  BROWSER_SERVICE_URL: z.url().optional(),
+  BROWSER_CONTROL_TOKEN: z.string().min(32).optional(),
 });
 
 export type Config = {
@@ -28,6 +31,9 @@ export type Config = {
   trustProxy: boolean;
   /** Test only. Never set in production: it would let Shopify credentials be sent to another host. */
   shopifyBaseUrlOverride: string | undefined;
+  /** Where the browser service listens on the private network, and the token that proves this caller to it. */
+  browserServiceUrl: string | undefined;
+  browserControlToken: string | undefined;
 };
 
 export function loadConfig(env: Record<string, string | undefined>): Config {
@@ -43,6 +49,12 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
   if (c.NODE_ENV === "production" && c.SHOPIFY_BASE_URL_OVERRIDE) {
     throw new Error("Invalid configuration:\nSHOPIFY_BASE_URL_OVERRIDE: must not be set in production");
   }
+  if (c.BROWSER_SERVICE_URL && !c.BROWSER_CONTROL_TOKEN) {
+    throw new Error("Invalid configuration:\nBROWSER_CONTROL_TOKEN: required when BROWSER_SERVICE_URL is set");
+  }
+  if (c.BROWSER_CONTROL_TOKEN && !c.BROWSER_SERVICE_URL) {
+    throw new Error("Invalid configuration:\nBROWSER_SERVICE_URL: required when BROWSER_CONTROL_TOKEN is set");
+  }
   return {
     nodeEnv: c.NODE_ENV,
     databaseUrl: c.DATABASE_URL,
@@ -53,5 +65,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     cookieSecure: c.COOKIE_SECURE ? c.COOKIE_SECURE === "true" : c.NODE_ENV === "production",
     trustProxy: c.TRUST_PROXY === "true",
     shopifyBaseUrlOverride: c.SHOPIFY_BASE_URL_OVERRIDE,
+    browserServiceUrl: c.BROWSER_SERVICE_URL,
+    browserControlToken: c.BROWSER_CONTROL_TOKEN,
   };
 }

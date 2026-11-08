@@ -2,10 +2,16 @@ import { fileURLToPath } from "node:url";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import { KEY_ID } from "@stock-monitor/crypto";
-import { createShopifyRepository, createSupplierRepository } from "@stock-monitor/db";
+import {
+  createLoginSessionRepository,
+  createShopifyRepository,
+  createSupplierRepository,
+  createSupplierSessionRepository,
+} from "@stock-monitor/db";
 import { createQueue } from "@stock-monitor/queue";
 import { createLogger, loadConfig } from "@stock-monitor/shared";
 import { buildApp } from "./app.js";
+import { createBrowserClient } from "./browser-client.js";
 
 const config = loadConfig(process.env);
 const logger = createLogger({ level: config.logLevel });
@@ -27,6 +33,17 @@ const app = buildApp({
   trustProxy: config.trustProxy,
   webRoot,
   suppliers: { repo: createSupplierRepository(db) },
+  // The login routes need the browser service. Without its address and token the API has no login routes.
+  loginSessions:
+    config.browserServiceUrl && config.browserControlToken
+      ? {
+          suppliers: createSupplierRepository(db),
+          loginSessions: createLoginSessionRepository(db),
+          supplierSessions: createSupplierSessionRepository(db),
+          browser: createBrowserClient({ baseUrl: config.browserServiceUrl, token: config.browserControlToken }),
+          key: { key: config.encryptionKey, keyId: KEY_ID },
+        }
+      : undefined,
   shopify: {
     repo: createShopifyRepository(db, { key: config.encryptionKey, keyId: KEY_ID }),
     queue,

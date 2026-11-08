@@ -99,11 +99,11 @@ Every task is test-first (red, green, refactor), except the spike, which is thro
 ## Task 8: Login sessions, token manager and sealed storage
 **Description:** The `login_sessions`, `supplier_sessions` and (shared with Task 10) tables, the token manager (256-bit random, stored as a hash, 10 minutes, single use, constant-time comparison), and the API routes to start, read, finish and cancel a login. Finishing seals and stores the state. A client for the browser service.
 **Acceptance criteria:**
-- [ ] Only one open login attempt at a time, enforced by the database
-- [ ] A token works once, expires after 10 minutes, and is never stored in plain form
-- [ ] Finishing stores the state sealed. No route ever returns it. The raw table contains no plaintext cookie
-- [ ] Cancelling, expiry and failure close the remote window and save nothing
-- [ ] Starting, finishing, cancelling and failing each write an audit event without any secret
+- [x] Only one open login attempt at a time, enforced by the database
+- [x] A token works once, expires after 10 minutes, and is never stored in plain form
+- [x] Finishing stores the state sealed. No route ever returns it. The raw table contains no plaintext cookie
+- [x] Cancelling, expiry and failure close the remote window and save nothing
+- [x] Starting, finishing, cancelling and failing each write an audit event without any secret
 **Verification:** `npm run check`
 **Dependencies:** 2, 4, 7
 **Files:** `packages/db/src/schema.ts`, migration, repositories, `packages/supplier-session/src/token.ts`, `apps/api/src/routes/login-sessions.ts`, `apps/api/src/browser-client.ts`, tests
