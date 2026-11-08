@@ -84,4 +84,6 @@ server.on("upgrade", (req, socket, head) => {
     });
   });
 });
+// Spike only: a browser service that is still starting must not crash the proxy.
+process.on("unhandledRejection", (e) => log("unhandled: " + e.message));
 server.listen(4190, "0.0.0.0", () => log("proxy on 4190"));

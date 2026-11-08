@@ -22,4 +22,10 @@ async function start() {
     window.__rfb = rfb;
   };
 }
+// "Paste text" box, as in the spec: send the text to the remote clipboard, then the owner presses Ctrl+V in the remote page.
+document.getElementById("send-paste").onclick = () => {
+  const box = document.getElementById("paste-text");
+  window.__rfb?.clipboardPasteFrom(box.value);
+  box.value = "";
+};
 start();

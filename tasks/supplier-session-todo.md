@@ -5,13 +5,13 @@ Every task is test-first (red, green, refactor), except the spike, which is thro
 ## Task 1: Spike (decision gate)
 **Description:** A throw-away proof, on the owner's machine, that the chain works: headed Chromium in Docker under Xvfb, shared by a VNC server, shown through noVNC in a page only a signed-in owner can reach (through a minimal authenticated WebSocket proxy), with a manual login saved and reused in a headless context. Uses a public test login page and a public CAPTCHA demo, never a supplier. Findings go in `docs/spikes/supplier-session.md`. Spike code lives in `spikes/supplier-session/` and is not part of the app.
 **Acceptance criteria:**
-- [ ] Headed Chromium starts in a container built from the pinned Playwright image, and a screenshot of the virtual screen shows it
-- [ ] noVNC shows and controls it through an authenticated proxy: typing and clicking reach the remote page (verified by driving the noVNC page with Playwright and reading the remote page's state)
-- [ ] A connection without a valid token or signed-in cookie is refused
-- [ ] A manual-style login on a public test page is saved with `storageState` and reused in a fresh headless context to reach a page that needs login
-- [ ] A public CAPTCHA widget renders in the remote window (it is not solved)
-- [ ] Findings recorded: start time, memory use, whether the content security policy `default-src 'self'` allows the same-origin WebSocket, clipboard behaviour, how a phone behaves, and anything that surprised
-- [ ] The owner has tried it once and says whether typing a password felt acceptable
+- [x] Headed Chromium starts in a container built from the pinned Playwright image, and a screenshot of the virtual screen shows it
+- [x] noVNC shows and controls it through an authenticated proxy: typing and clicking reach the remote page (verified by driving the noVNC page with Playwright and reading the remote page's state)
+- [x] A connection without a valid token or signed-in cookie is refused
+- [x] A manual-style login on a public test page is saved with `storageState` and reused in a fresh headless context to reach a page that needs login
+- [x] A public CAPTCHA widget renders in the remote window (it is not solved)
+- [x] Findings recorded: start time, memory use, whether the content security policy `default-src 'self'` allows the same-origin WebSocket, clipboard behaviour, how a phone behaves, and anything that surprised
+- [x] The owner has tried it once and says whether typing a password felt acceptable
 **Verification:** a short written report plus screenshots; the owner's try-out
 **Dependencies:** None
 **Files:** `spikes/supplier-session/*`, `docs/spikes/supplier-session.md`

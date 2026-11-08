@@ -2,7 +2,7 @@
 
 Run on 2026-11-08 on the owner's Mac (Docker Desktop, 7.8 GiB). Code: `spikes/supplier-session/` (throw-away, not part of the app). Driver: `drive.mjs`, which plays the owner in a real Chromium. Public targets only: a local fake login site, and Google's public reCAPTCHA demo page (looked at, never solved). No supplier was visited.
 
-**Result: 21 of 21 automated checks pass. The chain works. Nothing found that needs a design change (KasmVNC not needed).** Still open: the owner's own try-out (see the end).
+**Result: 21 of 21 automated checks pass (rerun at the end after the page changes). The chain works. Nothing found that needs a design change (KasmVNC not needed).** The owner has also tried it (see the end).
 
 ## Setup
 
@@ -21,7 +21,7 @@ Three containers in an isolated Compose project `spike`: `site` (fake supplier),
 | Saved login reused | The session state from `finish` has the cookie (2 cookies). A fresh headless context given that state reaches the logged-in page. Without the state it is sent to the login page. After the site expires sessions the saved state is sent to the login page too, so expiry is detectable. |
 | CAPTCHA widget | The reCAPTCHA widget renders in the remote window: `supplier-session/03-captcha-widget.png`. Not solved. |
 | CSP `default-src 'self'` and a same-origin WebSocket | **Allowed.** No CSP violation was logged. In modern Chromium `'self'` covers same-origin `ws://` and `wss://`, so no CSP loosening is needed. |
-| Clipboard | Works through noVNC (`clipboardPasteFrom`) into x11vnc, which sets both the PRIMARY and CLIPBOARD selections, and `Ctrl+V` in the remote page pastes it. **Gotcha:** my first driver sent `Control+V` (capital V), which is Ctrl+Shift+V, and nothing pasted. `Control+v` works. A real user pressing Ctrl+V is unaffected, but test helpers must use lowercase. |
+| Clipboard | Works through noVNC (`clipboardPasteFrom`) into x11vnc, which sets both the PRIMARY and CLIPBOARD selections, and `Ctrl+V` in the remote page pastes it. **Gotcha:** my first driver sent `Control+V` (capital V), which is Ctrl+Shift+V, and nothing pasted. `Control+v` works. **Correction:** this is not only a test detail. The owner pressed Ctrl+V in the live window and nothing pasted, because the noVNC library never reads the owner's own clipboard. The owner's text must be sent explicitly with `clipboardPasteFrom`, which is why the spec has a "Paste text" box. The spike page now has one; result below. |
 | Phone | The window connects and the page does not scroll sideways, but the remote screen is a fixed 1280x800 shrunk to the phone's width, so text is tiny: `supplier-session/04-phone.png`. Usable to look at, poor for typing or a CAPTCHA. This confirms the spec: desktop is the supported way to connect, a phone is best effort. A later option is to resize the virtual screen to the client's size. |
 
 ## Surprises
@@ -37,8 +37,13 @@ Three containers in an isolated Compose project `spike`: `site` (fake supplier),
 - A seccomp profile. The default Docker profile was used and Chromium's sandbox worked as non-root, so a custom one may not be needed. Decide in task 7.
 - Typing feel over a slow link.
 
-## Owner try-out (acceptance criterion, still open)
+## Owner try-out
 
-The stack can be started again with the commands in `spikes/supplier-session/docker-compose.yml`. The owner opens the window, types a password into the fake login, and says whether it felt acceptable. Their answer goes below.
+The owner opened the live window in their desktop browser and logged into the fake site by typing the username and password: it worked and they saw "You're logged in". Verdict on typing: **"no lags"**, so acceptable.
 
-> Owner's verdict: _pending_
+Paste took three attempts and showed two things that matter for the real build:
+
+1. Pressing Ctrl+V with nothing sent first does nothing (see the clipboard row above). The "Paste text" box fixed it: type or paste the text into the box, click **Send to remote clipboard**, click inside the remote field, press Ctrl+V. This worked for the owner.
+2. **Each tab that loads the page starts its own browser session, and a second one is refused with `502`** while one is open. The owner hit this after reloading and saw `start-refused-502`. The real design needs: a plain message ("A login window is already open"), a way to resume or close the open one, and cleanup when a tab closes (the spec already requires this).
+3. `docker restart` of the browser container left a stale X lock, so Chromium could not launch and every start failed with `browserType.launch: Target page, context or browser has been closed`. Recreating the container fixed it. The real service should remove stale `/tmp/.X99-lock` files at start, or the container must always be recreated.
+4. The proxy crashed once when a start request arrived before the browser service was listening (an unhandled rejection). The spike now guards it. The real proxy must return a plain error instead.
