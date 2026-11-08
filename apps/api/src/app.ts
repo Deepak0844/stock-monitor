@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import cookie from "@fastify/cookie";
+import fastifyStatic from "@fastify/static";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type { Logger } from "pino";
 import { hash, verify } from "@node-rs/argon2";
@@ -33,11 +34,23 @@ export type AppDeps = {
   logger: Logger;
   /** Set true in production so the session cookie is only sent over HTTPS. */
   secureCookies?: boolean;
+  /** Folder holding the built web app. When set, the API serves it from the same origin. */
+  webRoot?: string;
 };
+
+const SECURITY_HEADERS = {
+  "x-content-type-options": "nosniff",
+  "x-frame-options": "DENY",
+  "referrer-policy": "no-referrer",
+  "content-security-policy":
+    "default-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+};
+
+const isApiPath = (path: string) => path === "/api" || path.startsWith("/api/");
 
 const loginBody = z.object({ email: z.string().min(1), password: z.string().min(1) });
 
-export function buildApp({ db, logger, secureCookies = false }: AppDeps) {
+export function buildApp({ db, logger, secureCookies = false, webRoot }: AppDeps) {
   const app = Fastify({
     loggerInstance: logger,
     genReqId: () => randomUUID(),
@@ -45,12 +58,16 @@ export function buildApp({ db, logger, secureCookies = false }: AppDeps) {
   });
 
   app.register(cookie);
+  if (webRoot) app.register(fastifyStatic, { root: webRoot, wildcard: false });
   app.decorateRequest("user", null);
 
   app.addHook("onRequest", async (request, reply) => {
     reply.header("x-request-id", request.id);
+    reply.headers(SECURITY_HEADERS);
     const path = request.url.split("?")[0] ?? "";
     if (PUBLIC_ROUTES.has(path)) return;
+    // The web app's own files and pages are public. Only the API needs a session.
+    if (webRoot && !isApiPath(path) && (request.method === "GET" || request.method === "HEAD")) return;
     const token = request.cookies[SESSION_COOKIE];
     const user = token ? await findSessionUser(db, token) : null;
     if (!user) throw unauthenticated();
@@ -75,9 +92,14 @@ export function buildApp({ db, logger, secureCookies = false }: AppDeps) {
       .send(body("internal_error", "Something went wrong. Please try again.", request.id));
   });
 
-  app.setNotFoundHandler((request, reply) =>
-    reply.status(404).send(body("not_found", "That page or action does not exist.", request.id)),
-  );
+  app.setNotFoundHandler((request, reply) => {
+    const path = request.url.split("?")[0] ?? "";
+    if (webRoot && request.method === "GET" && !isApiPath(path)) {
+      // Single-page app: any other address loads the app, which then shows the right screen.
+      return reply.sendFile("index.html");
+    }
+    return reply.status(404).send(body("not_found", "That page or action does not exist.", request.id));
+  });
 
   const audit = createAuditWriter(db);
   const limiter = createLoginLimiter({ maxFailures: 5, windowMs: 15 * 60_000 });
