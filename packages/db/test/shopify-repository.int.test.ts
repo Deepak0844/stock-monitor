@@ -287,6 +287,25 @@ describe("sync runs", () => {
     expect(rows[0].error).toMatch(/interrupted/i);
   });
 
+  it("records progress on a running sync, and the final result replaces it", async () => {
+    await reset();
+    const id = await repo().startSyncRun();
+    await repo().updateSyncProgress(id!, 50);
+    expect(await repo().lastSyncRun()).toMatchObject({ status: "running", total: 50 });
+    await repo().updateSyncProgress(id!, 120);
+    expect((await repo().lastSyncRun())!.total).toBe(120);
+    await repo().finishSyncRun(id!, { status: "succeeded", result: { added: 120, updated: 0, unchanged: 0, removed: 0, total: 120 } });
+    expect(await repo().lastSyncRun()).toMatchObject({ status: "succeeded", total: 120 });
+  });
+
+  it("ignores progress for a run that has already finished", async () => {
+    await reset();
+    const id = await repo().startSyncRun();
+    await repo().finishSyncRun(id!, { status: "failed", error: "x" });
+    await repo().updateSyncProgress(id!, 999);
+    expect((await repo().lastSyncRun())!.total).toBeNull();
+  });
+
   it("returns the newest run, or nothing", async () => {
     await reset();
     expect(await repo().lastSyncRun()).toBeNull();

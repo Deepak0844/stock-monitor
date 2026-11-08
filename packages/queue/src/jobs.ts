@@ -3,6 +3,9 @@ import { z } from "zod";
 // Every background job is declared here with the shape of its payload.
 export const jobSchemas = {
   "health.ping": z.object({ message: z.string().min(1) }),
+  // No data at all: the worker reads everything it needs from the database. Strict, so a secret
+  // can never be added to a job by mistake.
+  "shopify.sync": z.object({}).strict(),
 } as const;
 
 export type JobName = keyof typeof jobSchemas;

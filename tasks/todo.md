@@ -82,15 +82,17 @@ Every task is test-first (red, green, refactor). Run `npm run check` before mark
 ## Task 6: Sync job and worker handler
 **Description:** Add the `shopify.sync` job to the typed job list and a worker handler that loads the connection, runs `syncCatalog`, writes the variants and a sync run record, and moves the connection to `needs_reconnect` when credentials are rejected.
 **Acceptance criteria:**
-- [ ] Enqueuing `shopify.sync` makes the worker sync a fake store into the database
-- [ ] The sync run records start, finish, counts and a plain-English error on failure
-- [ ] Rejected credentials set status `needs_reconnect`. A later successful sync sets it back to `connected`
-- [ ] Two sync requests at once do not run twice at the same time
-- [ ] No secret or token appears in the job payload, logs or run record
+- [x] Enqueuing `shopify.sync` makes the worker sync a fake store into the database
+- [x] The sync run records start, finish, counts and a plain-English error on failure
+- [x] Rejected credentials set status `needs_reconnect`. A later successful sync sets it back to `connected`
+- [x] Two sync requests at once do not run twice at the same time
+- [x] No secret or token appears in the job payload, logs or run record
 **Verification:** `npm run test:integration`
 **Dependencies:** 4, 5
 **Files:** `packages/queue/src/jobs.ts`, `apps/worker/src/shopify-sync.ts`, `apps/worker/src/worker.ts`, tests
 **Scope:** Medium
+
+**Status:** done 2026-11-08. The `SHOPIFY_BASE_URL_OVERRIDE` test seam and its refusal to start in production were built here (the worker is the first user), so Task 7 only has to reuse `config.shopifyBaseUrlOverride`. The `shopify.sync` job payload is strictly empty. Unexpected errors are recorded and logged but not thrown, so the queue does not retry them. Progress is stored in the run's `total` while it runs. The Dockerfile now copies `packages/shopify/package.json` (it had been missing since Shopify Task 1; nothing in CI builds the image). ESLint now allows unused parameters that start with an underscore.
 
 ## Task 7: API routes
 **Description:** The `/api/shopify/*` routes from the spec: save and read the connection, test it, list locations, choose a location, start a sync, read sync status, and list variants with search and paging.

@@ -71,4 +71,23 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...valid, COOKIE_SECURE: "yes" })).toThrow(/COOKIE_SECURE/);
     expect(() => loadConfig({ ...valid, TRUST_PROXY: "1" })).toThrow(/TRUST_PROXY/);
   });
+
+  it("has no Shopify base URL override by default", () => {
+    expect(loadConfig(valid).shopifyBaseUrlOverride).toBeUndefined();
+  });
+
+  it("accepts a Shopify base URL override outside production, for tests against a fake Shopify", () => {
+    const c = loadConfig({ ...valid, NODE_ENV: "test", SHOPIFY_BASE_URL_OVERRIDE: "http://127.0.0.1:4999" });
+    expect(c.shopifyBaseUrlOverride).toBe("http://127.0.0.1:4999");
+  });
+
+  it("refuses to start in production with a Shopify base URL override, so credentials cannot be redirected", () => {
+    expect(() =>
+      loadConfig({ ...valid, NODE_ENV: "production", SHOPIFY_BASE_URL_OVERRIDE: "http://127.0.0.1:4999" }),
+    ).toThrow(/SHOPIFY_BASE_URL_OVERRIDE/);
+  });
+
+  it("rejects a Shopify base URL override that is not a URL", () => {
+    expect(() => loadConfig({ ...valid, SHOPIFY_BASE_URL_OVERRIDE: "not a url" })).toThrow(/SHOPIFY_BASE_URL_OVERRIDE/);
+  });
 });

@@ -11,6 +11,7 @@ COPY packages/crypto/package.json packages/crypto/
 COPY packages/db/package.json packages/db/
 COPY packages/queue/package.json packages/queue/
 COPY packages/shared/package.json packages/shared/
+COPY packages/shopify/package.json packages/shopify/
 RUN npm ci
 COPY . .
 RUN npm run build && npm prune --omit=dev
