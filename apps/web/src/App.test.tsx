@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { App } from "./App.js";
 import type { Owner } from "./api.js";
@@ -58,14 +58,14 @@ describe("App", () => {
       window.history.replaceState(null, "", "/settings/shopify");
       render(<App api={signedIn()} />);
       expect(await screen.findByRole("heading", { level: 1, name: "Shopify settings" })).toBeInTheDocument();
-      expect(document.title).toBe("Shopify settings · Stock Monitor");
+      await waitFor(() => expect(document.title).toBe("Shopify settings · Stock Monitor")); // set after render, so wait for it
     });
 
     it("opens the products page at its own address", async () => {
       window.history.replaceState(null, "", "/products");
       render(<App api={signedIn()} />);
       expect(await screen.findByRole("heading", { level: 1, name: "Products" })).toBeInTheDocument();
-      expect(document.title).toBe("Products · Stock Monitor");
+      await waitFor(() => expect(document.title).toBe("Products · Stock Monitor")); // set after render, so wait for it
     });
 
     it("treats /settings as the Shopify settings page", async () => {
@@ -83,7 +83,7 @@ describe("App", () => {
       expect(window.location.pathname).toBe("/settings/shopify");
       await user.click(screen.getByRole("link", { name: "Dashboard" }));
       expect(await screen.findByRole("heading", { level: 1, name: "Dashboard" })).toBeInTheDocument();
-      expect(document.title).toBe("Dashboard · Stock Monitor");
+      await waitFor(() => expect(document.title).toBe("Dashboard · Stock Monitor")); // set after render, so wait for it
     });
 
     it("says plainly when an address does not exist, and offers a way back", async () => {
@@ -91,7 +91,7 @@ describe("App", () => {
       const user = userEvent.setup();
       render(<App api={signedIn()} />);
       expect(await screen.findByRole("heading", { level: 1, name: "Page not found" })).toBeInTheDocument();
-      expect(document.title).toBe("Page not found · Stock Monitor");
+      await waitFor(() => expect(document.title).toBe("Page not found · Stock Monitor")); // set after render, so wait for it
       await user.click(screen.getByRole("link", { name: "Go to the dashboard" }));
       expect(await screen.findByRole("heading", { level: 1, name: "Dashboard" })).toBeInTheDocument();
     });
