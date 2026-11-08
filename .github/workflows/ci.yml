@@ -86,3 +86,10 @@ jobs:
         run: >
           docker run --rm --entrypoint node stock-monitor:ci --import tsx -e
           "Promise.all([import('/app/apps/api/src/app.ts'), import('/app/apps/worker/src/worker.ts'), import('/app/packages/db/src/setup.ts')]).then(() => console.log('image ok'))"
+      # The browser service has its own image. Load its code the same way.
+      - name: Build the browser service image
+        run: docker build -f services/browser/Dockerfile -t stock-monitor-browser:ci .
+      - name: Check the browser service image can load its code
+        run: >
+          docker run --rm --entrypoint node stock-monitor-browser:ci --import tsx -e
+          "Promise.all([import('/app/services/browser/src/service.ts'), import('/app/services/browser/src/config.ts')]).then(() => console.log('browser image ok'))"

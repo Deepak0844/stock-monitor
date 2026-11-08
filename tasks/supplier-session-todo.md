@@ -159,11 +159,11 @@ Every task is test-first (red, green, refactor), except the spike, which is thro
 ## Task 12: Docker Compose integration
 **Description:** Add the browser service to `docker-compose.yml` on a private network shared only with the API and worker, with no published ports, a non-root user, a seccomp profile, resource limits and the control token. A test reads the compose file and inspects the running container.
 **Acceptance criteria:**
-- [ ] `docker compose up` starts everything and the API can reach the browser service
-- [ ] The browser service publishes no ports and is not on the default network
-- [ ] It runs as a non-root user, has no database credentials or encryption key in its environment, and mounts no host folders
-- [ ] The CI image check loads the browser service too
-- [ ] `docs/deployment.md` explains the new service and its security posture
+- [x] `docker compose up` starts everything and the API can reach the browser service
+- [x] The browser service publishes no ports and is not on the default network
+- [x] It runs as a non-root user, has no database credentials or encryption key in its environment, and mounts no host folders
+- [x] The CI image check loads the browser service too
+- [x] `docs/deployment.md` explains the new service and its security posture
 **Verification:** the compose test; a manual `docker compose up` smoke test in an isolated project
 **Dependencies:** 7, 9
 **Files:** `docker-compose.yml`, `services/browser/Dockerfile`, `.env.example`, `docs/deployment.md`, tests
