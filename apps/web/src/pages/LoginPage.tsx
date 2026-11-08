@@ -1,4 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
+import { Logo } from "../components/Logo.js";
+import { IconEye, IconEyeOff } from "../components/icons.js";
 
 type Props = { onLogin: (email: string, password: string) => Promise<void> };
 type FieldErrors = { email?: string; password?: string };
@@ -35,64 +37,83 @@ export function LoginPage({ onLogin }: Props) {
   }
 
   return (
-    <main className="auth">
-      <form className="card" onSubmit={submit} noValidate>
-        <h1>Sign in</h1>
-        <p className="muted">Sign in to review supplier stock and approve changes.</p>
-
-        <div className="field">
-          <label htmlFor="email">Email</label>
-          <input
-            id="email"
-            ref={emailRef}
-            type="email"
-            autoComplete="username"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            aria-invalid={errors.email ? "true" : undefined}
-            aria-describedby={errors.email ? "email-error" : undefined}
-          />
-          {errors.email && (
-            <p id="email-error" className="field-error">
-              {errors.email}
-            </p>
-          )}
+    <div className="auth">
+      <aside className="auth-brand">
+        <Logo />
+        <div className="auth-pitch">
+          <p className="auth-tagline">Know what your suppliers have, before your customers order.</p>
+          <ul className="auth-points">
+            <li>Checks your suppliers' stock for you.</li>
+            <li>You approve every change.</li>
+            <li>Nothing reaches Shopify without your OK.</li>
+          </ul>
         </div>
+      </aside>
 
-        <div className="field">
-          <label htmlFor="password">Password</label>
-          <div className="password-row">
+      <main className="auth-side">
+        <form className="auth-card" onSubmit={submit} noValidate>
+          <h1>Sign in</h1>
+          <p className="muted">Use the owner account to review supplier stock and approve changes.</p>
+
+          <div className="field">
+            <label htmlFor="email">Email</label>
             <input
-              id="password"
-              ref={passwordRef}
-              type={showPassword ? "text" : "password"}
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              aria-invalid={errors.password ? "true" : undefined}
-              aria-describedby={errors.password ? "password-error" : undefined}
+              id="email"
+              ref={emailRef}
+              type="email"
+              autoComplete="username"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              aria-invalid={errors.email ? "true" : undefined}
+              aria-describedby={errors.email ? "email-error" : undefined}
             />
-            <button type="button" className="button secondary" onClick={() => setShowPassword((s) => !s)}>
-              {showPassword ? "Hide password" : "Show password"}
-            </button>
+            {errors.email && (
+              <p id="email-error" className="field-error">
+                {errors.email}
+              </p>
+            )}
           </div>
-          {errors.password && (
-            <p id="password-error" className="field-error">
-              {errors.password}
+
+          <div className="field">
+            <label htmlFor="password">Password</label>
+            <div className="input-wrap">
+              <input
+                id="password"
+                ref={passwordRef}
+                type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                aria-invalid={errors.password ? "true" : undefined}
+                aria-describedby={errors.password ? "password-error" : undefined}
+              />
+              <button
+                type="button"
+                className="icon-button"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                onClick={() => setShowPassword((s) => !s)}
+              >
+                {showPassword ? <IconEyeOff /> : <IconEye />}
+              </button>
+            </div>
+            {errors.password && (
+              <p id="password-error" className="field-error">
+                {errors.password}
+              </p>
+            )}
+          </div>
+
+          {formError && (
+            <p role="alert" className="form-error">
+              {formError}
             </p>
           )}
-        </div>
 
-        {formError && (
-          <p role="alert" className="form-error">
-            {formError}
-          </p>
-        )}
-
-        <button type="submit" className="button primary" disabled={pending} aria-busy={pending}>
-          {pending ? "Signing in…" : "Sign in"}
-        </button>
-      </form>
-    </main>
+          <button type="submit" className="button primary" disabled={pending} aria-busy={pending}>
+            {pending ? "Signing in…" : "Sign in"}
+          </button>
+        </form>
+      </main>
+    </div>
   );
 }

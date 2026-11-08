@@ -21,6 +21,17 @@ describe("LoginPage", () => {
     expect(screen.getByRole("button", { name: "Sign in" })).toBeEnabled();
   });
 
+  it("says in plain words what the app does", () => {
+    setup();
+    expect(screen.getByText(/you approve every change/i)).toBeInTheDocument();
+    expect(screen.getByText(/nothing reaches shopify without your ok/i)).toBeInTheDocument();
+  });
+
+  it("names the app so the owner knows where they are", () => {
+    setup();
+    expect(screen.getAllByText("Stock Monitor").length).toBeGreaterThan(0);
+  });
+
   it("lets browsers and password managers fill the fields", () => {
     setup();
     expect(screen.getByLabelText("Email")).toHaveAttribute("autocomplete", "username");

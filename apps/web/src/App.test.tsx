@@ -28,7 +28,7 @@ describe("App", () => {
 
   it("shows the home page for a signed-in owner", async () => {
     render(<App api={fakeApi({ getMe: vi.fn().mockResolvedValue({ email: "owner@example.com" }) })} />);
-    expect(await screen.findByRole("heading", { name: "Stock Monitor" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
     expect(screen.getByText("owner@example.com")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
   });
