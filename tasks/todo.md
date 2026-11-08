@@ -134,13 +134,15 @@ Every task is test-first (red, green, refactor). Run `npm run check` before mark
 ## Task 10: Docker Compose
 **Description:** Compose file for PostgreSQL, API, worker and web, with environment variables from `.env`.
 **Acceptance criteria:**
-- [ ] `docker compose up` starts all services and `/health` returns OK
-- [ ] The worker processes a `health.ping` job in the composed stack
-- [ ] No real secrets are committed
+- [x] `docker compose up` starts all services and `/health` returns OK
+- [x] The worker processes a `health.ping` job in the composed stack
+- [x] No real secrets are committed
 **Verification:** `docker compose up` plus a manual health check
 **Dependencies:** 6, 8, 9
 **Files:** `docker-compose.yml`, Dockerfiles, `.env.example`
 **Scope:** Medium
+
+**Status:** done 2026-11-08. Verified by running the real stack, not only by tests. The web app is served by the API, so the compose file has no separate web service. Added: API server entry point, `npm run db:migrate` (runs migrations, creates the restricted login role), `COOKIE_SECURE`, `TRUST_PROXY` and `HOST` settings, a fix so `create-owner` accepts piped input (with tests), `docs/deployment.md`. Backups are documented but not automated.
 
 ### Checkpoint: foundation complete
 - [ ] All nine spec success criteria met

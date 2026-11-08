@@ -1,0 +1,74 @@
+# Local and single-server setup: PostgreSQL, a one-off migrate step, the API (which serves the
+# web app) and the worker. Copy .env.example to .env and fill it in first.
+x-app: &app
+  build: .
+  image: stock-monitor:local
+  init: true
+  restart: unless-stopped
+
+x-app-env: &app-env
+  NODE_ENV: production
+  DATABASE_URL: postgres://stock_app:${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in .env}@postgres:5432/stock_monitor
+  APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:?Set APP_ENCRYPTION_KEY in .env}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: stock_owner
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: stock_monitor
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stock_owner -d stock_monitor"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Runs once per deploy: applies migrations and sets up the restricted login role.
+  migrate:
+    <<: *app
+    restart: "no"
+    command: ["node", "--import", "tsx", "packages/db/src/migrate-cli.ts"]
+    environment:
+      MIGRATION_DATABASE_URL: postgres://stock_owner:${POSTGRES_PASSWORD}@postgres:5432/stock_monitor
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *app
+    command: ["node", "--import", "tsx", "apps/api/src/index.ts"]
+    environment:
+      <<: *app-env
+      HOST: 0.0.0.0
+      PORT: "3000"
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+    # Bound to this machine only. Put an HTTPS reverse proxy in front for anything else.
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    <<: *app
+    command: ["node", "--import", "tsx", "apps/worker/src/index.ts"]
+    environment:
+      <<: *app-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:
