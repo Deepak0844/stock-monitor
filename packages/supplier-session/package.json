@@ -6,5 +6,9 @@
   "types": "src/index.ts",
   "dependencies": {
     "@stock-monitor/crypto": "*"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./test/fake-supplier.ts"
   }
 }
