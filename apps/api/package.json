@@ -5,6 +5,7 @@
   "main": "src/app.ts",
   "dependencies": {
     "@fastify/cookie": "^11.1.5",
+    "@fastify/static": "^10.1.10",
     "@node-rs/argon2": "^2.2.2",
     "@stock-monitor/audit": "*",
     "@stock-monitor/db": "*",
