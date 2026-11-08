@@ -10,6 +10,7 @@ import { z } from "zod";
 import { users } from "@stock-monitor/db";
 import { createAuditWriter } from "@stock-monitor/audit";
 import { registerShopifyRoutes, type ShopifyRoutesDeps } from "./routes/shopify.js";
+import { createScreenRegistry, registerLoginScreen, type LoginScreenDeps } from "./routes/login-screen.js";
 import { registerLoginSessionRoutes, type LoginSessionRoutesDeps } from "./routes/login-sessions.js";
 import { registerSupplierRoutes, type SupplierRoutesDeps } from "./routes/suppliers.js";
 import { AppError, unauthenticated } from "./errors.js";
@@ -47,6 +48,8 @@ export type AppDeps = {
   suppliers?: SupplierRoutesDeps;
   /** Login routes. They need the suppliers and a browser service. Left out, the API has no /api/login-sessions routes. */
   loginSessions?: LoginSessionRoutesDeps;
+  /** The live screen. Needs `loginSessions`. Left out, there is no way to reach a login window. */
+  loginScreen?: LoginScreenDeps;
 };
 
 const SECURITY_HEADERS = {
@@ -57,11 +60,15 @@ const SECURITY_HEADERS = {
     "default-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
 };
 
+// The screen checks the owner's cookie, the Origin and the token itself, so that every refusal can be audited. Its own
+// tests prove that a request with no cookie or the wrong Origin is refused before any socket is opened.
+const isScreenPath = (path: string) => /^\/api\/login-sessions\/[^/]+\/screen$/.test(path);
+
 const isApiPath = (path: string) => path === "/api" || path.startsWith("/api/");
 
 const loginBody = z.object({ email: z.string().min(1), password: z.string().min(1) });
 
-export function buildApp({ db, logger, secureCookies = false, webRoot, trustProxy = false, shopify, suppliers, loginSessions }: AppDeps) {
+export function buildApp({ db, logger, secureCookies = false, webRoot, trustProxy = false, shopify, suppliers, loginSessions, loginScreen }: AppDeps) {
   const app = Fastify({
     loggerInstance: logger,
     genReqId: () => randomUUID(),
@@ -77,7 +84,7 @@ export function buildApp({ db, logger, secureCookies = false, webRoot, trustProx
     reply.header("x-request-id", request.id);
     reply.headers(SECURITY_HEADERS);
     const path = request.url.split("?")[0] ?? "";
-    if (PUBLIC_ROUTES.has(path)) return;
+    if (PUBLIC_ROUTES.has(path) || (loginScreen && isScreenPath(path))) return;
     // The web app's own files and pages are public. Only the API needs a session.
     if (webRoot && !isApiPath(path) && (request.method === "GET" || request.method === "HEAD")) return;
     const token = request.cookies[SESSION_COOKIE];
@@ -182,7 +189,13 @@ export function buildApp({ db, logger, secureCookies = false, webRoot, trustProx
   });
 
   if (shopify) registerShopifyRoutes(app, shopify, audit);
-  const logins = loginSessions ? registerLoginSessionRoutes(app, loginSessions, audit) : null;
+  const screens = createScreenRegistry();
+  const logins = loginSessions ? registerLoginSessionRoutes(app, { ...loginSessions, onEnded: screens.closeFor }, audit) : null;
+  if (logins && loginSessions && loginScreen) {
+    app.register(async (scope) =>
+      registerLoginScreen(scope, { screen: loginScreen, db, loginSessions: loginSessions.loginSessions, logins, audit, registry: screens }),
+    );
+  }
   if (suppliers) registerSupplierRoutes(app, { ...suppliers, beforeDelete: logins?.cancelOpenFor }, audit);
 
   app.get("/health", async () => ({ status: "ok" }));

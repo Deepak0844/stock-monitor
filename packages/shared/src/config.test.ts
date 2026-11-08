@@ -117,4 +117,24 @@ describe("loadConfig", () => {
       }
     });
   });
+
+  describe("the live screen", () => {
+    it("defaults to the standard VNC port and no fixed origin", () => {
+      const config = loadConfig(valid);
+      expect(config.browserVncPort).toBe(5900);
+      expect(config.appOrigin).toBeUndefined();
+    });
+    it("reads the VNC port, and refuses nonsense", () => {
+      expect(loadConfig({ ...valid, BROWSER_VNC_PORT: "5901" }).browserVncPort).toBe(5901);
+      for (const port of ["abc", "0", "70000", "5900.5"]) expect(() => loadConfig({ ...valid, BROWSER_VNC_PORT: port }), port).toThrow(/BROWSER_VNC_PORT/);
+    });
+    it("reads the origin the app is served from, as a browser spells it", () => {
+      expect(loadConfig({ ...valid, APP_ORIGIN: "https://stock.example.com" }).appOrigin).toBe("https://stock.example.com");
+      expect(loadConfig({ ...valid, APP_ORIGIN: "https://Stock.Example.com/some/path?x=1" }).appOrigin).toBe("https://stock.example.com");
+      expect(loadConfig({ ...valid, APP_ORIGIN: "http://localhost:3000/" }).appOrigin).toBe("http://localhost:3000");
+    });
+    it("refuses an origin that is not an address", () => {
+      expect(() => loadConfig({ ...valid, APP_ORIGIN: "stock.example.com" })).toThrow(/APP_ORIGIN/);
+    });
+  });
 });

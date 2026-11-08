@@ -112,12 +112,12 @@ Every task is test-first (red, green, refactor), except the spike, which is thro
 ## Task 9: The live-window WebSocket proxy and its security tests
 **Description:** The WebSocket route that, after the one-time-token handshake, pipes bytes between the owner's page and the browser service's VNC port. Refuses anything not signed in, from the wrong origin, or with a bad token. Rate limited. Passes bytes without logging them.
 **Acceptance criteria:**
-- [ ] Refused: no session cookie, wrong or missing `Origin`, missing, wrong, expired or reused token. Each refusal writes an audit event and reaches nothing behind the proxy
-- [ ] A correct connection pipes data both ways (against a stand-in VNC server), and closes when either side closes
-- [ ] The token is read from the first message, never from the address
-- [ ] Repeated failures are rate limited
-- [ ] No byte of traffic appears in logs or audit events
-- [ ] The content security policy allows only what the window needs
+- [x] Refused: no session cookie, wrong or missing `Origin`, missing, wrong, expired or reused token. Each refusal writes an audit event and reaches nothing behind the proxy
+- [x] A correct connection pipes data both ways (against a stand-in VNC server), and closes when either side closes
+- [x] The token is read from the first message, never from the address
+- [x] Repeated failures are rate limited
+- [x] No byte of traffic appears in logs or audit events
+- [x] The content security policy allows only what the window needs
 **Verification:** `npm run check`
 **Dependencies:** 8
 **Files:** `apps/api/src/routes/login-screen.ts`, tests

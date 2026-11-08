@@ -16,6 +16,9 @@ const schema = z.object({
   // The browser service (the isolated container that opens supplier websites). Both or neither.
   BROWSER_SERVICE_URL: z.url().optional(),
   BROWSER_CONTROL_TOKEN: z.string().min(32).optional(),
+  BROWSER_VNC_PORT: z.coerce.number().int().min(1).max(65535).default(5900),
+  // The address people open the app at, for example https://stock.example.com. The live screen only accepts connections from this origin.
+  APP_ORIGIN: z.url().optional(),
 });
 
 export type Config = {
@@ -34,6 +37,10 @@ export type Config = {
   /** Where the browser service listens on the private network, and the token that proves this caller to it. */
   browserServiceUrl: string | undefined;
   browserControlToken: string | undefined;
+  /** The VNC port on the browser service's host. */
+  browserVncPort: number;
+  /** The origin pages are served from, as a browser sends it in the Origin header. Left unset, only localhost on the API's own port is accepted. */
+  appOrigin: string | undefined;
 };
 
 export function loadConfig(env: Record<string, string | undefined>): Config {
@@ -67,5 +74,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     shopifyBaseUrlOverride: c.SHOPIFY_BASE_URL_OVERRIDE,
     browserServiceUrl: c.BROWSER_SERVICE_URL,
     browserControlToken: c.BROWSER_CONTROL_TOKEN,
+    browserVncPort: c.BROWSER_VNC_PORT,
+    appOrigin: c.APP_ORIGIN ? new URL(c.APP_ORIGIN).origin : undefined,
   };
 }

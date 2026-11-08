@@ -6,6 +6,7 @@
   "dependencies": {
     "@fastify/cookie": "^11.1.5",
     "@fastify/static": "^10.1.10",
+    "@fastify/websocket": "^11.3.7",
     "@node-rs/argon2": "^2.2.2",
     "@stock-monitor/audit": "*",
     "@stock-monitor/crypto": "*",
@@ -19,10 +20,12 @@
     "pg": "^8.23.1",
     "pino": "^10.4.0",
     "tsx": "^4.23.15",
+    "ws": "^8.22.2",
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@types/pg": "^8.23.1"
+    "@types/pg": "^8.23.1",
+    "@types/ws": "^8.18.2"
   },
   "scripts": {
     "create-owner": "tsx src/cli/create-owner.ts",

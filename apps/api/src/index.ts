@@ -44,6 +44,14 @@ const app = buildApp({
           key: { key: config.encryptionKey, keyId: KEY_ID },
         }
       : undefined,
+  // The live screen. It only accepts pages from the app's own origin: APP_ORIGIN, or localhost on this port when it is not set.
+  loginScreen:
+    config.browserServiceUrl && config.browserControlToken
+      ? {
+          allowedOrigins: config.appOrigin ? [config.appOrigin] : [`http://localhost:${config.port}`, `http://127.0.0.1:${config.port}`],
+          vnc: { host: new URL(config.browserServiceUrl).hostname, port: config.browserVncPort },
+        }
+      : undefined,
   shopify: {
     repo: createShopifyRepository(db, { key: config.encryptionKey, keyId: KEY_ID }),
     queue,
