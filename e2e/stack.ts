@@ -6,7 +6,16 @@ import { createServer } from "node:http";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { startTestDb } from "../packages/db/test/harness.js";
-import { createShopifyRepository, createSupplierRepository } from "../packages/db/src/index.js";
+import {
+  createLoginSessionRepository,
+  createNotificationRepository,
+  createShopifyRepository,
+  createSupplierRepository,
+  createSupplierSessionRepository,
+} from "../packages/db/src/index.js";
+import { createAuditWriter } from "../packages/audit/src/index.js";
+import { createBrowserClient } from "../packages/browser-client/src/index.js";
+import { createFakeBrowserService, FAKE_CONTROL_TOKEN } from "../packages/browser-client/test/fake-browser-service.js";
 import { createQueue } from "../packages/queue/src/index.js";
 import { createLogger } from "../packages/shared/src/index.js";
 import { createFakeCatalog, createFakeShopify, withFakeShop } from "../packages/shopify/test/testing.js";
@@ -14,12 +23,14 @@ import { buildApp } from "../apps/api/src/app.js";
 import { createOwner } from "../apps/api/src/owner.js";
 import { registerHandlers } from "../apps/worker/src/worker.js";
 import { LOCATIONS, VARIANTS } from "./catalog.js";
+import { startFakeVnc } from "./fake-vnc.js";
 import {
   CLIENT_ID,
   CLIENT_SECRET,
   CONTROL_PORT,
   OWNER_EMAIL,
   OWNER_PASSWORD,
+  BASE_URL,
   PORT,
   SHOP_NAME,
 } from "./constants.js";
@@ -43,11 +54,29 @@ const DEFAULT_SCOPES = ["read_products", "read_inventory"];
 serve(DEFAULT_SCOPES);
 
 // The real queue and the real worker handler, so a sync takes the same path as in production.
-const repo = createShopifyRepository(db.appDb, { key: randomBytes(32), keyId: "v1" });
+const encryption = { key: randomBytes(32), keyId: "v1" };
+const repo = createShopifyRepository(db.appDb, encryption);
 const baseUrl = () => fake.url;
 const queue = createQueue({ connectionString: db.appUrl, onError: (e) => logger.error({ err: e }, "queue error") });
 await queue.start();
-await registerHandlers(queue, logger, { shopify: { repo, baseUrl, clientOptions: { sleep: async () => {} } } });
+
+// The browser service is a stand-in that answers like the real one, and its screen is a stand-in VNC server
+// that draws a login page. Everything between them and the browser is the real code.
+const browser = await createFakeBrowserService();
+const vnc = await startFakeVnc();
+const browserClient = createBrowserClient({ baseUrl: browser.url, token: FAKE_CONTROL_TOKEN, timeoutMs: 5000 });
+const suppliers = createSupplierRepository(db.appDb);
+const loginSessions = createLoginSessionRepository(db.appDb);
+const supplierSessions = createSupplierSessionRepository(db.appDb);
+const notifications = createNotificationRepository(db.appDb);
+const E2E_SESSION = { cookies: [{ name: "session", value: "e2e-session-value", domain: "shop.acme.example", path: "/" }], origins: [] };
+const resetBrowser = () => Object.assign(browser.behaviour, { open: "ok", finish: "ok", cancel: "ok", verify: "ok", verifyResult: "ok", vncPassword: "Ab3dE6gH", state: E2E_SESSION, delayMs: 0 });
+resetBrowser();
+
+await registerHandlers(queue, logger, {
+  shopify: { repo, baseUrl, clientOptions: { sleep: async () => {} } },
+  supplierVerify: { suppliers, supplierSessions, notifications, audit: createAuditWriter(db.appDb), browser: browserClient, key: encryption.key, retryDelaysMs: [], sleep: async () => {} },
+});
 
 // No real DNS in browser tests. Every supplier name resolves to a public address, except one that
 // stands for a name pointing at the owner's own network.
@@ -57,7 +86,10 @@ const app = buildApp({
   db: db.appDb,
   logger,
   webRoot,
-  suppliers: { repo: createSupplierRepository(db.appDb), lookup },
+  suppliers: { repo: suppliers, lookup },
+  notifications: { repo: notifications },
+  loginSessions: { suppliers, loginSessions, supplierSessions, browser: browserClient, key: encryption, notifications, queue },
+  loginScreen: { allowedOrigins: [BASE_URL], vnc: { host: "127.0.0.1", port: vnc.port }, firstMessageTimeoutMs: 5000 },
   shopify: { repo, queue, baseUrl, clientOptions: { sleep: async () => {} } },
 });
 
@@ -82,6 +114,11 @@ const control = createServer(async (req, res) => {
     }
     if (req.method === "POST" && req.url === "/control/reset-suppliers") {
       await db.pool.query("truncate suppliers cascade");
+      resetBrowser();
+      return reply(200);
+    }
+    if (req.method === "POST" && req.url === "/control/browser") {
+      Object.assign(browser.behaviour, JSON.parse(body) as object);
       return reply(200);
     }
     if (req.method === "POST" && req.url === "/control/rotate-secret") {
@@ -113,6 +150,8 @@ const stop = async () => {
   stopping = true;
   control.close();
   await app.close();
+  await vnc.close();
+  await browser.close();
   await queue.stop();
   await fake.close();
   await db.stop();

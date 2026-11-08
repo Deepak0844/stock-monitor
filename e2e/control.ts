@@ -14,6 +14,8 @@ export const control = {
   reset: () => post("/control/reset"),
   /** Remove every supplier. Separate from reset so the supplier and Shopify journeys do not disturb each other. */
   resetSuppliers: () => post("/control/reset-suppliers"),
+  /** Steer the stand-in browser service: whether a window opens, what a finished login holds, what a check finds. */
+  browser: (behaviour: Record<string, unknown>) => post("/control/browser", behaviour),
   /** The store's owner rotates the client secret: the saved one stops working. */
   rotateSecret: (newSecret: string) => post("/control/rotate-secret", { clientSecret: newSecret }),
   /** Change which permissions the fake store reports for the app. */

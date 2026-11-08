@@ -54,6 +54,12 @@ describe("App", () => {
   describe("pages", () => {
     const signedIn = () => fakeApi({ getMe: vi.fn().mockResolvedValue({ email: "owner@example.com" } satisfies Owner) });
 
+    it("opens the connect screen for a supplier at its own address", async () => {
+      window.history.replaceState(null, "", "/suppliers/11111111-1111-4111-8111-111111111111/connect");
+      render(<App api={signedIn()} />);
+      expect(await screen.findByRole("heading", { level: 1, name: "Connect Acme Supply" })).toBeInTheDocument();
+    });
+
     it("opens the Shopify settings page at its own address, so it can be bookmarked or reloaded", async () => {
       window.history.replaceState(null, "", "/settings/shopify");
       render(<App api={signedIn()} />);
