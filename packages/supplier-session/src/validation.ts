@@ -83,7 +83,8 @@ export function isPrivateAddress(address: string): boolean {
   return privateRanges.check(address, "ipv6");
 }
 
-const systemLookup: HostLookup = async (host) => (await dns.lookup(host, { all: true })).map((a) => a.address);
+/** The real DNS lookup. Services use it by default. */
+export const systemLookup: HostLookup = async (host) => (await dns.lookup(host, { all: true })).map((a) => a.address);
 
 /** Looks the name up and refuses it if it is unknown or if any address it resolves to is not public. */
 export async function verifyPublicHost(host: string, lookup: HostLookup = systemLookup): Promise<HostCheckResult> {

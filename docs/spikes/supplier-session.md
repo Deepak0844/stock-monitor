@@ -12,7 +12,7 @@ Three containers in an isolated Compose project `spike`: `site` (fake supplier),
 
 | Question | Answer |
 |---|---|
-| Headed Chromium in the pinned Playwright image? | Yes. Chromium 158.0.8127.18, runs as uid 1001 (non-root) **with Chromium's sandbox on** (no `--no-sandbox` needed). Screenshot: `supplier-session/01-connected.png`. |
+| Headed Chromium in the pinned Playwright image? | Yes. Chromium 158.0.8127.18, runs as uid 1001 (non-root). **Correction (found in Task 6): the sandbox was NOT on.** The spike only checked its own flags, but Playwright's default `chromiumSandbox: false` adds `--no-sandbox` by itself. Screenshot: `supplier-session/01-connected.png`. |
 | Start time | About 0.5 s from the start request to a visible window (image already built and container already running). A cold container start was not timed. |
 | Memory | About 900 MB for the browser container while a window was open and a page loaded (reCAPTCHA page). About 48 MB idle with no Chromium running. The proxy uses about 45 MB. Plan for 1 GB per live window; the later headless checks need their own budget. |
 | Image size | `spike-browser` 2.62 GB, the proxy and site about 250 MB each. |
@@ -34,7 +34,7 @@ Three containers in an isolated Compose project `spike`: `site` (fake supplier),
 
 - A real supplier, a real CAPTCHA solve, or MFA. Those need the owner and are for task 14.
 - Cold start time, running for the full 15 minutes, or two clients at once.
-- A seccomp profile. The default Docker profile was used and Chromium's sandbox worked as non-root, so a custom one may not be needed. Decide in task 7.
+- The sandbox. **Wrong in the first version of this note.** With `chromiumSandbox: true`, Chromium as a non-root user fails with "No usable sandbox" under Docker's default seccomp profile, because that profile blocks user namespaces. Playwright's own `seccomp_profile.json` (kept unchanged in `services/browser/`) fixes it. Task 6 runs the service with the sandbox on and that profile, and checked that no Chromium process carries `--no-sandbox`. Every container that runs Chromium (the live window in Task 7 too) needs `chromiumSandbox: true` and that profile.
 - Typing feel over a slow link.
 
 ## Owner try-out

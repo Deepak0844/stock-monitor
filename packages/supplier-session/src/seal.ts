@@ -4,7 +4,8 @@ import { decrypt, encrypt, type Encrypted } from "@stock-monitor/crypto";
 export type SessionState = { cookies: Record<string, unknown>[]; origins: Record<string, unknown>[] };
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-const isSessionState = (v: unknown): v is SessionState => isObject(v) && Array.isArray(v.cookies) && Array.isArray(v.origins);
+/** True for the shape Playwright's storageState() returns. */
+export const isSessionState = (v: unknown): v is SessionState => isObject(v) && Array.isArray(v.cookies) && Array.isArray(v.origins);
 
 /** Encrypts a saved login session. Only the sealed form is ever stored. */
 export function sealSessionState(state: unknown, key: Buffer, keyId: string): Encrypted {

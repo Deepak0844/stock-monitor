@@ -73,11 +73,11 @@ Every task is test-first (red, green, refactor), except the spike, which is thro
 ## Task 6: Browser service, headless session check
 **Description:** `services/browser`: a small control server and a Dockerfile (pinned official Playwright image, non-root user, seccomp profile). `POST /verify` takes a session state and an address, opens a throw-away headless context with the state in memory, loads the page, blocks private addresses (including after redirects), gathers the page facts and classifies them.
 **Acceptance criteria:**
-- [ ] A saved logged-in state reaches the fake supplier's account page and returns `ok`. A fresh context returns `login_required`
-- [ ] Expired, CAPTCHA, blocked and slow pages return the right class, and a timeout returns `unreachable`
-- [ ] A redirect or link to a private, loopback or metadata address is blocked
-- [ ] The control server needs a control token. Wrong or missing is refused
-- [ ] No session state is written to disk. The response never echoes the state
+- [x] A saved logged-in state reaches the fake supplier's account page and returns `ok`. A fresh context returns `login_required`
+- [x] Expired, CAPTCHA, blocked and slow pages return the right class, and a timeout returns `unreachable`
+- [x] A redirect or link to a private, loopback or metadata address is blocked
+- [x] The control server needs a control token. Wrong or missing is refused
+- [x] No session state is written to disk. The response never echoes the state
 **Verification:** `npm run check`; browser-service tests with real Chromium against the fake supplier
 **Dependencies:** 4, 5
 **Files:** `services/browser/*`, tests, CI job for browser tests

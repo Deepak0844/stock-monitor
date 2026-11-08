@@ -164,12 +164,24 @@ describe("pages that need attention", () => {
 describe("addresses that point at private networks", () => {
   it.each([
     ["/redirect/metadata", "http://169.254.169.254/latest/meta-data/"],
-    ["/redirect/loopback", "http://127.0.0.1:1/"],
+    ["/redirect/loopback", "http://127.0.0.1:8099/"],
     ["/redirect/private", "http://10.0.0.5/admin"],
   ])("%s redirects to %s", async (path, target) => {
     const res = await get(path);
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toBe(target);
+  });
+
+  it("redirects wherever it is told, for tests that need a real listener to prove it was not reached", async () => {
+    const res = await get(`/redirect-to?url=${encodeURIComponent("http://127.0.0.1:9/hit")}`);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("http://127.0.0.1:9/hit");
+  });
+
+  it("has a page that tries to load an image and open a WebSocket on a private address", async () => {
+    const body = await (await get("/embeds-private")).text();
+    expect(body).toContain('src="http://10.0.0.5/pixel.png"');
+    expect(body).toContain('new WebSocket("ws://10.0.0.5/socket")');
   });
 
   it("has a page that links to a private address", async () => {

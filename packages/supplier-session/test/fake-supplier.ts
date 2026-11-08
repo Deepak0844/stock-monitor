@@ -41,7 +41,7 @@ const WIDGETS: Record<string, string> = {
 };
 const PRIVATE_TARGETS: Record<string, string> = {
   metadata: "http://169.254.169.254/latest/meta-data/",
-  loopback: "http://127.0.0.1:1/",
+  loopback: "http://127.0.0.1:8099/",
   private: "http://10.0.0.5/admin",
 };
 
@@ -144,6 +144,21 @@ export async function createFakeSupplier(options: { host?: string } = {}): Promi
     }
     const target = /^\/redirect\/([a-z]+)$/.exec(path)?.[1];
     if (target !== undefined && PRIVATE_TARGETS[target]) return redirect(PRIVATE_TARGETS[target]);
+    if (path === "/redirect-to") {
+      // Test only: a redirect to any address, so a test can aim it at a server it controls and prove it was never reached.
+      const to = url.searchParams.get("url");
+      return to ? redirect(to) : send(400, page("Bad request", "<p>Give a url.</p>"));
+    }
+    if (path === "/embeds-private") {
+      return send(
+        200,
+        page(
+          "Embeds | Fake Supplier",
+          `<h1>Embeds</h1>${ABOUT}<img src="http://10.0.0.5/pixel.png" alt="">` +
+            `<script>try { new WebSocket("ws://10.0.0.5/socket"); } catch (e) {}</script>`,
+        ),
+      );
+    }
     if (path === "/links-private") {
       return send(200, page("Links | Fake Supplier", `<h1>Links</h1>${ABOUT}<a href="http://10.0.0.5/">Our intranet</a>`));
     }
