@@ -4,6 +4,7 @@ import { createControlServer } from "./server.js";
 import { createGuard, type GuardOptions } from "./guard.js";
 import { startGuardProxy } from "./proxy.js";
 import { createSessions } from "./sessions.js";
+import { createPlainWindowOpener } from "./plain-window.js";
 import { createWindowOpener, type OpenedWindow } from "./window.js";
 import type { Page } from "playwright";
 import { verifyPage } from "./verify.js";
@@ -18,6 +19,10 @@ export type BrowserServiceOptions = {
   guard?: GuardOptions;
   /** How long a login window may stay open. */
   sessionTimeoutMs?: number;
+  /** How the live login window starts. `controlled` is the default and has always been. `plain` is an ordinary browser nothing controls. */
+  loginWindowMode?: "controlled" | "plain";
+  /** Test only: attach a test to a plain window as soon as it opens. A person's window is never attached until they finish. */
+  exposePageForTests?: boolean;
   /** The VNC password to give callers who open a window. */
   vncPassword?: string;
   /** false opens login windows with no display, for a machine that has none (tests). The container shows them on its virtual screen. */
@@ -34,7 +39,8 @@ export type BrowserService = {
 const MIN_TOKEN = 32;
 
 export async function startBrowserService(options: BrowserServiceOptions): Promise<BrowserService> {
-  if (options.token.length < MIN_TOKEN) throw new Error(`The control token must be at least ${MIN_TOKEN} characters.`);
+  if (options.token.length < MIN_TOKEN)
+    throw new Error(`The control token must be at least ${MIN_TOKEN} characters.`);
 
   const proxy = await startGuardProxy(createGuard(options.guard));
 
@@ -55,7 +61,15 @@ export async function startBrowserService(options: BrowserServiceOptions): Promi
   await getBrowser();
 
   let open: OpenedWindow | null = null;
-  const openWindow = createWindowOpener({ proxy, sandbox: options.sandbox ?? true, headless: !(options.headedWindows ?? true) });
+  const windowOptions = {
+    proxy,
+    sandbox: options.sandbox ?? true,
+    headless: !(options.headedWindows ?? true),
+  };
+  const openWindow =
+    options.loginWindowMode === "plain"
+      ? createPlainWindowOpener({ ...windowOptions, exposePage: options.exposePageForTests })
+      : createWindowOpener(windowOptions);
   const sessions = createSessions({
     timeoutMs: options.sessionTimeoutMs,
     openWindow: async (url) => {
@@ -72,7 +86,10 @@ export async function startBrowserService(options: BrowserServiceOptions): Promi
     sessions,
     vncPassword: options.vncPassword,
     verify: async (request) =>
-      verifyPage(await getBrowser(), request, { navigationTimeoutMs: options.navigationTimeoutMs, proxy }),
+      verifyPage(await getBrowser(), request, {
+        navigationTimeoutMs: options.navigationTimeoutMs,
+        proxy,
+      }),
   });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);

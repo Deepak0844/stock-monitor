@@ -7,7 +7,9 @@ let config;
 try {
   config = loadConfig(process.env);
 } catch (error) {
-  console.error(error instanceof Error ? error.message : "The browser service is not set up correctly.");
+  console.error(
+    error instanceof Error ? error.message : "The browser service is not set up correctly.",
+  );
   process.exit(1);
 }
 
@@ -18,6 +20,7 @@ const service = await startBrowserService({
   sandbox: config.sandbox,
   headedWindows: config.headed,
   sessionTimeoutMs: config.sessionTimeoutMs,
+  loginWindowMode: config.loginWindowMode,
   vncPassword: config.vncPassword,
   guard: config.allowHosts ? { allowHosts: config.allowHosts } : undefined,
   log: (line) => console.log(line),

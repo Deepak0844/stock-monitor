@@ -11,6 +11,11 @@ export type GuardProxy = {
   secret: string;
   /** Starts counting what is refused for one check. The check's id is the proxy user name. */
   track(id: string): GuardTracker;
+  /**
+   * A second listener for ONE plain browser window. A plain browser cannot give a proxy login, so this one takes
+   * no password. It listens on this machine only, applies the same guard, counts under `id`, and is closed with the proxy.
+   */
+  openListener(id: string): Promise<{ port: number; close(): Promise<void> }>;
   close(): Promise<void>;
 };
 
@@ -35,7 +40,9 @@ export async function startGuardProxy(guard: Guard): Promise<GuardProxy> {
     const text = Buffer.from(encoded, "base64").toString("utf8");
     const split = text.indexOf(":");
     if (split < 0) return null;
-    return timingSafeEqual(digest(text.slice(split + 1)), secretDigest) ? text.slice(0, split) : null;
+    return timingSafeEqual(digest(text.slice(split + 1)), secretDigest)
+      ? text.slice(0, split)
+      : null;
   };
   const refuse = (id: string, reason: "private" | "not_found") => {
     const t = trackers.get(id);
@@ -43,89 +50,126 @@ export async function startGuardProxy(guard: Guard): Promise<GuardProxy> {
     t.count += 1;
     if (reason === "private") t.privateAddress = true;
   };
-  const NEED_AUTH = 'HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="guard"\r\nConnection: close\r\nContent-Length: 0\r\n\r\n';
+  const NEED_AUTH =
+    'HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="guard"\r\nConnection: close\r\nContent-Length: 0\r\n\r\n';
 
-  const server = createServer(async (req: IncomingMessage, res) => {
-    const id = authenticate(req.headers["proxy-authorization"]);
-    if (id === null) {
-      res.writeHead(407, { "proxy-authenticate": 'Basic realm="guard"', connection: "close" });
-      return void res.end();
-    }
-    let url: URL;
-    try {
-      url = new URL(req.url ?? "");
-    } catch {
-      res.writeHead(400);
-      return void res.end();
-    }
-    if (url.protocol !== "http:") {
-      res.writeHead(400);
-      return void res.end();
-    }
-    const port = Number(url.port || 80);
-    const verdict = await guard.check(url.hostname, port);
-    if (!verdict.allowed) {
-      refuse(id, verdict.reason);
-      // Chromium shows a proxy's answer as if it were the page, so the answer says it came from the guard.
-      res.writeHead(Number.parseInt(STATUS[verdict.reason]), { "x-guard-blocked": verdict.reason, connection: "close" });
-      return void res.end();
-    }
-    const headers = { ...req.headers };
-    delete headers["proxy-authorization"];
-    delete headers["proxy-connection"];
-    const upstream = httpRequest({ host: verdict.address, port, method: req.method, path: url.pathname + url.search, headers }, (answer) => {
-      res.writeHead(answer.statusCode ?? 502, answer.headers);
-      answer.pipe(res);
+  /** Builds a proxy server. `identify` says which check a request belongs to, or null to ask for a login. */
+  const makeServer = (identify: (header: string | undefined) => string | null) => {
+    const server = createServer(async (req: IncomingMessage, res) => {
+      const id = identify(req.headers["proxy-authorization"]);
+      if (id === null) {
+        res.writeHead(407, { "proxy-authenticate": 'Basic realm="guard"', connection: "close" });
+        return void res.end();
+      }
+      let url: URL;
+      try {
+        url = new URL(req.url ?? "");
+      } catch {
+        res.writeHead(400);
+        return void res.end();
+      }
+      if (url.protocol !== "http:") {
+        res.writeHead(400);
+        return void res.end();
+      }
+      const port = Number(url.port || 80);
+      const verdict = await guard.check(url.hostname, port);
+      if (!verdict.allowed) {
+        refuse(id, verdict.reason);
+        // Chromium shows a proxy's answer as if it were the page, so the answer says it came from the guard.
+        res.writeHead(Number.parseInt(STATUS[verdict.reason]), {
+          "x-guard-blocked": verdict.reason,
+          connection: "close",
+        });
+        return void res.end();
+      }
+      const headers = { ...req.headers };
+      delete headers["proxy-authorization"];
+      delete headers["proxy-connection"];
+      const upstream = httpRequest(
+        {
+          host: verdict.address,
+          port,
+          method: req.method,
+          path: url.pathname + url.search,
+          headers,
+        },
+        (answer) => {
+          res.writeHead(answer.statusCode ?? 502, answer.headers);
+          answer.pipe(res);
+        },
+      );
+      upstream.on("error", () => {
+        if (!res.headersSent) res.writeHead(502);
+        res.end();
+      });
+      req.pipe(upstream);
     });
-    upstream.on("error", () => {
-      if (!res.headersSent) res.writeHead(502);
-      res.end();
-    });
-    req.pipe(upstream);
-  });
 
-  server.on("connect", async (req: IncomingMessage, client: Socket, head: Buffer) => {
-    client.on("error", () => client.destroy());
-    const id = authenticate(req.headers["proxy-authorization"]);
-    if (id === null) return void client.end(NEED_AUTH);
-    const target = /^(.+):(\d+)$/.exec(req.url ?? "");
-    if (!target) return void client.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
-    const port = Number(target[2]);
-    const verdict = await guard.check(target[1] as string, port);
-    if (!verdict.allowed) {
-      refuse(id, verdict.reason);
-      return void client.end(`HTTP/1.1 ${STATUS[verdict.reason]}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
-    }
-    const upstream = connect({ host: verdict.address, port });
-    sockets.add(upstream);
-    const end = () => {
-      upstream.destroy();
-      client.destroy();
-      sockets.delete(upstream);
-    };
-    upstream.on("error", end);
-    upstream.on("close", end);
-    client.on("close", end);
-    upstream.once("connect", () => {
-      client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
-      if (head.length > 0) upstream.write(head);
-      upstream.pipe(client);
-      client.pipe(upstream);
+    server.on("connect", async (req: IncomingMessage, client: Socket, head: Buffer) => {
+      client.on("error", () => client.destroy());
+      const id = identify(req.headers["proxy-authorization"]);
+      if (id === null) return void client.end(NEED_AUTH);
+      const target = /^(.+):(\d+)$/.exec(req.url ?? "");
+      if (!target) return void client.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
+      const port = Number(target[2]);
+      const verdict = await guard.check(target[1] as string, port);
+      if (!verdict.allowed) {
+        refuse(id, verdict.reason);
+        return void client.end(
+          `HTTP/1.1 ${STATUS[verdict.reason]}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`,
+        );
+      }
+      const upstream = connect({ host: verdict.address, port });
+      sockets.add(upstream);
+      const end = () => {
+        upstream.destroy();
+        client.destroy();
+        sockets.delete(upstream);
+      };
+      upstream.on("error", end);
+      upstream.on("close", end);
+      client.on("close", end);
+      upstream.once("connect", () => {
+        client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+        if (head.length > 0) upstream.write(head);
+        upstream.pipe(client);
+        client.pipe(upstream);
+      });
     });
-  });
-  server.on("connection", (socket) => {
-    sockets.add(socket);
-    socket.on("close", () => sockets.delete(socket));
-  });
+    server.on("connection", (socket) => {
+      sockets.add(socket);
+      socket.on("close", () => sockets.delete(socket));
+    });
+    return server;
+  };
 
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
+  const listen = async (server: ReturnType<typeof makeServer>) => {
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    return (server.address() as AddressInfo).port;
+  };
+  const server = makeServer(authenticate);
+  const port = await listen(server);
+  const extra = new Set<{ close(): Promise<void> }>();
 
   return {
-    port: (server.address() as AddressInfo).port,
+    port,
     secret,
+    async openListener(id) {
+      const own = makeServer(() => id);
+      const listener = {
+        port: await listen(own),
+        async close() {
+          extra.delete(listener);
+          await new Promise<void>((resolve) => own.close(() => resolve()));
+        },
+      };
+      extra.add(listener);
+      return listener;
+    },
     track(id) {
       const summary: BlockedSummary = { count: 0, privateAddress: false };
       trackers.set(id, summary);
@@ -133,6 +177,7 @@ export async function startGuardProxy(guard: Guard): Promise<GuardProxy> {
     },
     async close() {
       for (const socket of sockets) socket.destroy();
+      await Promise.all([...extra].map((l) => l.close()));
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },
   };

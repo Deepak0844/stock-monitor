@@ -68,7 +68,7 @@ const headedChromium = async () =>
   Number(await inside(NAME, "sh", "-c", "for p in /proc/[0-9]*; do tr '\\0' ' ' < $p/cmdline 2>/dev/null | grep -q '/ms-playwright/[c]hromium-[0-9]' && echo $p; done | wc -l"));
 const profileFolders = async () => Number(await inside(NAME, "sh", "-c", "ls /tmp | grep -c playwright_chromiumdev_profile || true"));
 
-async function startContainer() {
+async function startContainer(extraEnv: string[] = []) {
   await docker(
     "run", "-d", "--init", "--ipc=host",
     "--security-opt", `seccomp=${ROOT}services/browser/seccomp_profile.json`,
@@ -78,6 +78,7 @@ async function startContainer() {
     // The fake supplier runs on this machine, which the guard would refuse. Only a non-production container accepts this.
     "-e", "NODE_ENV=test",
     "-e", `TEST_ALLOW_HOSTS=host.docker.internal:${site.port}`,
+    ...extraEnv,
     IMAGE,
   );
   await until(healthy, 90_000, "the container to be healthy");
@@ -175,5 +176,60 @@ describe("a login window", () => {
     const r = await control("POST", "/sessions", { url: loginUrl });
     expect(r.status).toBe(201);
     expect((await control("DELETE", `/sessions/${r.body.id}`)).status).toBe(204);
+  });
+});
+
+/** Every Chromium process's command line, one line each. */
+const chromiumCommandLines = () =>
+  inside(NAME, "sh", "-c", "for p in /proc/[0-9]*; do tr '\\0' ' ' < $p/cmdline 2>/dev/null | grep '/ms-playwright/chromium-[0-9]'; done; true");
+const plainProfiles = async () => Number(await inside(NAME, "sh", "-c", "ls /tmp | grep -c sm-plain- || true"));
+
+describe("a plain login window", () => {
+  beforeAll(async () => {
+    await docker("rm", "-f", NAME);
+    await startContainer(["-e", "LOGIN_WINDOW_MODE=plain"]);
+  }, 300_000);
+
+  it("is an ordinary Chromium: sandbox on, no debugging channel, no automation switch, and it appears on the shared screen", async () => {
+    const baseline = await profileFolders();
+    const r = await control("POST", "/sessions", { url: loginUrl });
+    expect(r.status).toBe(201);
+    try {
+      await until(async () => (await screen()).colours > 20, 20_000, "the window to be drawn on the screen");
+      const lines = await chromiumCommandLines();
+      expect(lines).toContain("--user-data-dir=/tmp/sm-plain-");
+      expect(lines).not.toMatch(/--remote-debugging|--enable-automation|--no-sandbox|--disable-blink-features/);
+      expect(await profileFolders()).toBe(baseline); // no profile made by Playwright: nothing is driving this window
+      expect(await plainProfiles()).toBe(1);
+    } finally {
+      await control("DELETE", `/sessions/${r.body.id}`);
+    }
+  });
+
+  it("tells a page that it is not being driven", async () => {
+    const r = await control("POST", "/sessions", { url: `http://host.docker.internal:${site.port}/webdriver-report` });
+    expect(r.status).toBe(201);
+    await until(async () => site.requests.some((q) => q.path.startsWith("/seen/")), 15_000, "the page to report");
+    expect(site.requests.filter((q) => q.path.startsWith("/seen/")).map((q) => q.path)).toEqual(["/seen/false"]);
+    expect((await control("DELETE", `/sessions/${r.body.id}`)).status).toBe(204);
+  });
+
+  it("returns an empty session when nothing was logged in, then leaves no Chromium, no profile and an empty screen", async () => {
+    const r = await control("POST", "/sessions", { url: loginUrl });
+    expect(r.status).toBe(201);
+    const done = await control("POST", `/sessions/${r.body.id}/finish`);
+    expect(done.status).toBe(200);
+    expect(done.body.state.cookies).toEqual([]);
+    await until(async () => (await headedChromium()) === 0, 15_000, "Chromium to exit");
+    expect(await plainProfiles()).toBe(0);
+    expect((await screen()).colours).toBeLessThanOrEqual(EMPTY_SCREEN_MAX_COLOURS);
+  });
+
+  it("still refuses a second window", async () => {
+    const r = await control("POST", "/sessions", { url: loginUrl });
+    expect(r.status).toBe(201);
+    expect((await control("POST", "/sessions", { url: loginUrl })).status).toBe(409);
+    expect((await control("DELETE", `/sessions/${r.body.id}`)).status).toBe(204);
+    await until(async () => (await plainProfiles()) === 0, 15_000, "the profile to be removed");
   });
 });

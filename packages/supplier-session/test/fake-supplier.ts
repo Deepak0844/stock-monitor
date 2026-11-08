@@ -46,7 +46,10 @@ const PRIVATE_TARGETS: Record<string, string> = {
 };
 
 // Only addresses on this site are followed after a login. Anything else goes to the account page.
-const safeNext = (next: string | null) => (next && next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/account");
+const safeNext = (next: string | null) =>
+  next && next.startsWith("/") && !next.startsWith("//") && !next.includes("\\")
+    ? next
+    : "/account";
 
 async function readForm(req: IncomingMessage): Promise<URLSearchParams> {
   let body = "";
@@ -92,9 +95,16 @@ export async function createFakeSupplier(options: { host?: string } = {}): Promi
       );
 
     if (path === "/" && req.method === "GET") {
-      return send(200, page("Fake Supplier", `<h1>Fake Supplier</h1>${ABOUT}<a href="/products/blue-widget">Blue Widget</a> <a href="/login">Log in</a>`));
+      return send(
+        200,
+        page(
+          "Fake Supplier",
+          `<h1>Fake Supplier</h1>${ABOUT}<a href="/products/blue-widget">Blue Widget</a> <a href="/login">Log in</a>`,
+        ),
+      );
     }
-    if (path === "/login" && req.method === "GET") return loginForm(200, "", url.searchParams.get("next") ?? "");
+    if (path === "/login" && req.method === "GET")
+      return loginForm(200, "", url.searchParams.get("next") ?? "");
     if (path === "/login" && req.method === "POST") {
       const form = await readForm(req);
       const next = form.get("next");
@@ -103,7 +113,9 @@ export async function createFakeSupplier(options: { host?: string } = {}): Promi
       }
       const id = randomBytes(16).toString("hex");
       sessions.add(id);
-      return redirect(safeNext(next), { "set-cookie": `${COOKIE}=${id}; HttpOnly; Path=/; SameSite=Lax` });
+      return redirect(safeNext(next), {
+        "set-cookie": `${COOKIE}=${id}; HttpOnly; Path=/; SameSite=Lax`,
+      });
     }
     if (path === "/__expire" && req.method === "POST") {
       sessions.clear();
@@ -112,7 +124,13 @@ export async function createFakeSupplier(options: { host?: string } = {}): Promi
     }
     if (path === "/account") {
       if (!loggedIn(req)) return redirect(`/login?next=${encodeURIComponent("/account")}`);
-      return send(200, page("Your account | Fake Supplier", `<h1>Your account</h1><p>Signed in as buyer.</p>${ABOUT}<a href="/products/blue-widget">Blue Widget</a>`));
+      return send(
+        200,
+        page(
+          "Your account | Fake Supplier",
+          `<h1>Your account</h1><p>Signed in as buyer.</p>${ABOUT}<a href="/products/blue-widget">Blue Widget</a>`,
+        ),
+      );
     }
     const product = /^\/products\/([a-z-]+)$/.exec(path)?.[1];
     if (product !== undefined) {
@@ -121,17 +139,39 @@ export async function createFakeSupplier(options: { host?: string } = {}): Promi
       const detail = loggedIn(req)
         ? `<p>Wholesale price ${item.price} per case. ${item.stock} in stock.</p>`
         : "<p>Log in to see prices and stock.</p>";
-      return send(200, page(`${item.name} | Fake Supplier`, `<h1>${item.name}</h1>${detail}${ABOUT}`));
+      return send(
+        200,
+        page(`${item.name} | Fake Supplier`, `<h1>${item.name}</h1>${detail}${ABOUT}`),
+      );
     }
     if (path === "/captcha") {
       const widget = WIDGETS[url.searchParams.get("widget") ?? "recaptcha"] ?? WIDGETS.recaptcha;
-      return send(200, page("Security check", `<h1>Security check</h1><p>Please verify you are human to continue.</p>${widget}`));
+      return send(
+        200,
+        page(
+          "Security check",
+          `<h1>Security check</h1><p>Please verify you are human to continue.</p>${widget}`,
+        ),
+      );
     }
     if (path === "/blocked") {
-      return send(403, page("Access denied", "<h1>Access denied</h1><p>Access denied. Your request has been blocked.</p>"));
+      return send(
+        403,
+        page(
+          "Access denied",
+          "<h1>Access denied</h1><p>Access denied. Your request has been blocked.</p>",
+        ),
+      );
     }
     if (path === "/rate-limited") {
-      return send(429, page("Too many requests", "<h1>Too many requests</h1><p>Too many requests. Please slow down.</p>"), { "retry-after": "60" });
+      return send(
+        429,
+        page(
+          "Too many requests",
+          "<h1>Too many requests</h1><p>Too many requests. Please slow down.</p>",
+        ),
+        { "retry-after": "60" },
+      );
     }
     if (path === "/slow") {
       const ms = Math.min(Number(url.searchParams.get("ms")) || 5000, MAX_SLOW_MS);
@@ -159,8 +199,28 @@ export async function createFakeSupplier(options: { host?: string } = {}): Promi
         ),
       );
     }
+    if (path === "/webdriver-report") {
+      // Says what the browser reports about itself, by asking for /seen/true or /seen/false. A test reads the request log.
+      return send(
+        200,
+        page(
+          "Report | Fake Supplier",
+          `<h1>Report</h1>${ABOUT}<script>fetch("/seen/" + navigator.webdriver).catch(function () {});</script>`,
+        ),
+      );
+    }
+    if (/^\/seen\/(true|false)$/.test(path)) {
+      res.writeHead(204);
+      return void res.end();
+    }
     if (path === "/links-private") {
-      return send(200, page("Links | Fake Supplier", `<h1>Links</h1>${ABOUT}<a href="http://10.0.0.5/">Our intranet</a>`));
+      return send(
+        200,
+        page(
+          "Links | Fake Supplier",
+          `<h1>Links</h1>${ABOUT}<a href="http://10.0.0.5/">Our intranet</a>`,
+        ),
+      );
     }
     send(404, page("Not found", "<h1>Not found</h1><p>No such page.</p>"));
   });

@@ -2,7 +2,7 @@
 
 Module: `supplier-session` (an amendment to the live login window, Task 7 of its plan). Intent: `docs/intent/stock-monitor.md`.
 
-Status: **draft for owner review.** Not approved. No code until it is.
+Status: **built behind a setting, awaiting the owner's try-out.** The reading-the-session design below was changed during the build (see Design 3).
 
 ## Why
 
@@ -12,7 +12,7 @@ Today the login window is a Chromium that our automation tool (Playwright) launc
 
 ## Objective
 
-Make the login window **an ordinary Chromium that a person uses**, with nothing controlling it while they log in. The tool attaches only **at the end**, when the owner presses "I'm logged in", to read the saved session. The owner is still the one logging in, solving puzzles and typing, exactly as before.
+Make the login window **an ordinary Chromium that a person uses**, with nothing controlling it while they log in. Nothing attaches to it at all. When the owner presses "I'm logged in", the browser is closed the way a person would close it and the saved session is read from its profile. The owner is still the one logging in, solving puzzles and typing, exactly as before.
 
 Success is that the owner can log in to the pilot supplier through the live window, the session is saved, and a later check reaches a page that needs the login. Nothing else about the product changes.
 
@@ -33,7 +33,7 @@ Success is that the owner can log in to the pilot supplier through the live wind
 
 1. **Launch.** The service starts the Chromium binary itself with the usual flags (a profile folder, window position and size, no first-run prompts) and a **proxy setting that points at a second, loopback-only guard proxy** with no password, used by this one window. The browser's own traffic still goes through the guard, so private and metadata addresses are still refused, including redirects and loopback.
 2. **Profile.** Before launch, the temporary profile is seeded with settings that turn off saving passwords, autofill and sign-in, so a password typed into the window is never kept in the profile. The folder is removed when the window ends.
-3. **Reading the session.** The browser is started with a debugging channel open on `127.0.0.1` inside the container only. When the owner presses "I'm logged in", the service connects to it, reads the cookies and local storage, **detaches**, and closes the browser. At no other time does anything control the browser. (A page cannot reach that channel: the guard proxy refuses loopback, and Chromium refuses web origins on it.)
+3. **Reading the session.** *(Changed during the build.)* The first design opened a debugging channel on `127.0.0.1` and attached at the end. That does not work: Chromium tells every page it is automated (`navigator.webdriver`) as soon as any such channel is open, so the window would have looked driven the whole time. Instead there is **no channel at all**. When the owner presses "I'm logged in", the service asks the browser to shut down gracefully (SIGINT), which writes its cookies to the temporary profile, then reads the cookie file offline (on Linux with `--password-store=basic`, values are encrypted with a fixed, well-known key). Cookies with no expiry are kept because the profile is seeded to "continue where you left off". Local storage is not read; the pilot's login is cookie based.
 4. **Ending.** Cancel, finish, time out, or the owner closing the window all stop the process and delete the profile. One window at a time, 15 minutes, as today.
 5. **Tests.** The existing tests (types a login into the window, saves, reuses in a fresh headless check, leaves no process or profile behind) run against **both** modes. For the plain mode a test-only helper may attach to type into the page, because tests cannot use a mouse.
 
@@ -45,7 +45,7 @@ Success is that the owner can log in to the pilot supplier through the live wind
 
 ```
 services/browser/src/window.ts         the current window opener (controlled)
-services/browser/src/plain-window.ts   the new opener (plain launch, attach at the end)
+services/browser/src/plain-window.ts   the new opener (plain launch, session read from the profile at the end)
 services/browser/src/config.ts         LOGIN_WINDOW_MODE
 services/browser/src/proxy.ts          a second, loopback-only listener for the plain window
 services/browser/test/                 tests for both modes
@@ -58,9 +58,9 @@ Test-first. **Unit:** the profile seeding (password saving and autofill off), th
 
 ## Boundaries
 
-- **Always:** keep the sandbox on, keep the guard proxy in the path, delete the profile, keep the debugging channel inside the container.
+- **Always:** keep the sandbox on, keep the guard proxy in the path, delete the profile, keep any test-only debugging channel out of the service's normal run.
 - **Ask first:** adding a dependency (none planned), changing the container's permissions (none planned), making plain the default.
-- **Never:** spoof or hide the browser's identity, auto-solve a captcha, save a supplier password, leave the debugging channel reachable from outside the container or from a web page.
+- **Never:** spoof or hide the browser's identity, auto-solve a captcha, save a supplier password, open a remote-control channel on a window a person is using.
 
 ## Success criteria
 
@@ -69,7 +69,7 @@ Test-first. **Unit:** the profile seeding (password saving and autofill off), th
 3. In plain mode, nothing controls the browser until the owner presses "I'm logged in".
 4. A password typed into the window is not saved anywhere in the profile, and the profile is gone afterwards, whichever way the window ended.
 5. The window is still behind the guard proxy: a redirect or typed address to a private network is refused.
-6. The debugging channel is not reachable from a web page or from outside the container.
+6. There is no debugging channel at all while the owner uses the window (a test-only helper may open one so tests can type).
 7. Both modes pass `npm run check`, the browser tests and the container tests. The controlled mode is unchanged and still the default.
 
 ## Plan in two steps
