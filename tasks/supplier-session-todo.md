@@ -24,11 +24,11 @@ Every task is test-first (red, green, refactor), except the spike, which is thro
 ## Task 2: Supplier validation, table and API
 **Description:** `packages/supplier-session` with supplier address validation (https only, no IP addresses, no `localhost`, no look-alikes, no private, loopback, link-local or cloud-metadata addresses, with a DNS check helper). A `suppliers` table and repository, and the routes to add, list, read, edit, delete, pause and resume. Pausing records reason `owner`.
 **Acceptance criteria:**
-- [ ] Rejects `http://`, IP addresses, `localhost`, `x.com@evil.com` tricks, ports to internal services, and names that resolve to private addresses
-- [ ] Supplier names are unique. Intervals have sensible limits
-- [ ] Pausing one supplier changes no other
-- [ ] All routes need a signed-in owner, and each change writes an audit event
-- [ ] Plain-English error messages
+- [x] Rejects `http://`, IP addresses, `localhost`, `x.com@evil.com` tricks, ports to internal services, and names that resolve to private addresses
+- [x] Supplier names are unique. Intervals have sensible limits
+- [x] Pausing one supplier changes no other
+- [x] All routes need a signed-in owner, and each change writes an audit event
+- [x] Plain-English error messages
 **Verification:** `npm run check`
 **Dependencies:** 1
 **Files:** `packages/supplier-session/src/validation.ts`, `packages/db/src/schema.ts`, one migration, `packages/db/src/supplier-repository.ts`, `apps/api/src/routes/suppliers.ts`, tests

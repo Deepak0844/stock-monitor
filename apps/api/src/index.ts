@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import { KEY_ID } from "@stock-monitor/crypto";
-import { createShopifyRepository } from "@stock-monitor/db";
+import { createShopifyRepository, createSupplierRepository } from "@stock-monitor/db";
 import { createQueue } from "@stock-monitor/queue";
 import { createLogger, loadConfig } from "@stock-monitor/shared";
 import { buildApp } from "./app.js";
@@ -26,6 +26,7 @@ const app = buildApp({
   secureCookies: config.cookieSecure,
   trustProxy: config.trustProxy,
   webRoot,
+  suppliers: { repo: createSupplierRepository(db) },
   shopify: {
     repo: createShopifyRepository(db, { key: config.encryptionKey, keyId: KEY_ID }),
     queue,

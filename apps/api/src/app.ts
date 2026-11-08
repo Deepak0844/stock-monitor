@@ -10,6 +10,7 @@ import { z } from "zod";
 import { users } from "@stock-monitor/db";
 import { createAuditWriter } from "@stock-monitor/audit";
 import { registerShopifyRoutes, type ShopifyRoutesDeps } from "./routes/shopify.js";
+import { registerSupplierRoutes, type SupplierRoutesDeps } from "./routes/suppliers.js";
 import { AppError, unauthenticated } from "./errors.js";
 import { createLoginLimiter } from "./rate-limit.js";
 import {
@@ -41,6 +42,8 @@ export type AppDeps = {
   trustProxy?: boolean;
   /** Shopify routes. Left out, the API has no /api/shopify routes. */
   shopify?: ShopifyRoutesDeps;
+  /** Supplier routes. Left out, the API has no /api/suppliers routes. */
+  suppliers?: SupplierRoutesDeps;
 };
 
 const SECURITY_HEADERS = {
@@ -55,7 +58,7 @@ const isApiPath = (path: string) => path === "/api" || path.startsWith("/api/");
 
 const loginBody = z.object({ email: z.string().min(1), password: z.string().min(1) });
 
-export function buildApp({ db, logger, secureCookies = false, webRoot, trustProxy = false, shopify }: AppDeps) {
+export function buildApp({ db, logger, secureCookies = false, webRoot, trustProxy = false, shopify, suppliers }: AppDeps) {
   const app = Fastify({
     loggerInstance: logger,
     genReqId: () => randomUUID(),
@@ -176,6 +179,7 @@ export function buildApp({ db, logger, secureCookies = false, webRoot, trustProx
   });
 
   if (shopify) registerShopifyRoutes(app, shopify, audit);
+  if (suppliers) registerSupplierRoutes(app, suppliers, audit);
 
   app.get("/health", async () => ({ status: "ok" }));
   app.get("/api/me", async (request) => ({ email: request.user?.email }));
