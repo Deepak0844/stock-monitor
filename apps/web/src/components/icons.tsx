@@ -99,3 +99,24 @@ export const IconEyeOff = () => (
     <path d="M3 3l18 18" />
   </Icon>
 );
+
+export const IconCheck = () => (
+  <Icon>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M8.5 12.5l2.5 2.5 4.5-5" />
+  </Icon>
+);
+export const IconAlert = () => (
+  <Icon>
+    <path d="M12 3l10 18H2z" />
+    <path d="M12 10v4" />
+    <path d="M12 17.5v.01" />
+  </Icon>
+);
+export const IconInfo = () => (
+  <Icon>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 11v5" />
+    <path d="M12 7.5v.01" />
+  </Icon>
+);

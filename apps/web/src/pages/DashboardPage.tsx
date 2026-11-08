@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { IconApprovals, IconLink, IconRefresh } from "../components/icons.js";
+import { useTitle } from "../useTitle.js";
 
 function SummaryCard(props: { icon: ReactNode; title: string; value: string; note: string }) {
   const id = `card-${props.title.replace(/\s+/g, "-").toLowerCase()}`;
@@ -23,6 +24,7 @@ const STEPS = [
 ] as const;
 
 export function DashboardPage() {
+  useTitle("Dashboard");
   return (
     <>
       <div className="page-header">

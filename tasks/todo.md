@@ -119,15 +119,17 @@ Every task is test-first (red, green, refactor). Run `npm run check` before mark
 ## Task 8: Settings > Shopify page and a small router
 **Description:** A tiny History-API router, then the Settings > Shopify page: connect form, test connection, location picker, sync button with progress and last result, and reconnect. UI work: use `ui-ux-pro-max` and `design-taste-frontend`, the design system, and look at screenshots.
 **Acceptance criteria:**
-- [ ] Sidebar "Settings" becomes a live link. The router handles back, forward and deep links
-- [ ] The secret field is never prefilled and is cleared after saving. Errors are plain English, beside the field
-- [ ] Location picker, sync progress and the last sync result are shown. "Reconnect Shopify" appears when the connection needs it
-- [ ] Keyboard and screen reader friendly, and passes the accessibility scan in light and dark
-- [ ] Looks right at desktop and phone sizes (checked with screenshots)
+- [x] Sidebar "Settings" becomes a live link. The router handles back, forward and deep links
+- [x] The secret field is never prefilled and is cleared after saving. Errors are plain English, beside the field
+- [x] Location picker, sync progress and the last sync result are shown. "Reconnect Shopify" appears when the connection needs it
+- [x] Keyboard and screen reader friendly, and passes the accessibility scan in light and dark
+- [x] Looks right at desktop and phone sizes (checked with screenshots)
 **Verification:** `npm run test:unit`, `npm run build`, screenshots reviewed
 **Dependencies:** 7
 **Files:** `apps/web/src/router.tsx`, `pages/SettingsShopifyPage.tsx`, `api.ts`, `shell/AppShell.tsx`, tests
 **Scope:** Medium
+
+**Status:** done 2026-11-08. The router is the browser's own history (no library); unknown addresses show a "Page not found" page, and after moving to another page keyboard focus moves to the page content. The Settings page is `/settings/shopify` (`/settings` is an alias). Reconnecting keeps the store address but never the client id, secret or token. After a sync the connection is read again, because its status may have changed. If a sync never starts, the page says the background worker may not be running after about 30 seconds. Checked with screenshots of 12 states (desktop light and dark, phone) and an automated accessibility scan of each: no violations. Browser tests through the whole stack with a fake Shopify are Task 10.
 
 ## Task 9: Products list
 **Description:** The Products page: a searchable, filterable table of imported variants (product, variant, options, SKU, available), with the tracking and "continue selling" warnings, an empty state that points to Settings, and a card layout on phones.

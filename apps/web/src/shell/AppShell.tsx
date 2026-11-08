@@ -1,5 +1,6 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Logo } from "../components/Logo.js";
+import { Link, usePath } from "../router.js";
 import {
   IconApprovals,
   IconDashboard,
@@ -19,11 +20,22 @@ const COMING = [
   { label: "Products", icon: <IconProducts /> },
   { label: "Approvals", icon: <IconApprovals /> },
   { label: "History", icon: <IconHistory /> },
-  { label: "Settings", icon: <IconSettings /> },
 ];
 
 export function AppShell({ email, onSignOut, children }: Props) {
   const [open, setOpen] = useState(false);
+  const path = usePath();
+  const mainRef = useRef<HTMLElement>(null);
+  const firstRender = useRef(true);
+
+  // After moving to another page, put keyboard and screen reader focus on the new content.
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    mainRef.current?.focus();
+  }, [path]);
 
   useEffect(() => {
     if (!open) return;
@@ -55,10 +67,10 @@ export function AppShell({ email, onSignOut, children }: Props) {
         <nav id="main-nav" aria-label="Main">
           <ul className="nav-list">
             <li>
-              <a href="/" className="nav-item is-current" aria-current="page">
+              <Link to="/" className={path === "/" ? "nav-item is-current" : "nav-item"} aria-current={path === "/" ? "page" : undefined}>
                 <IconDashboard />
                 Dashboard
-              </a>
+              </Link>
             </li>
             {COMING.map((item) => (
               <li key={item.label}>
@@ -69,6 +81,16 @@ export function AppShell({ email, onSignOut, children }: Props) {
                 </span>
               </li>
             ))}
+            <li>
+              <Link
+                to="/settings/shopify"
+                className={path.startsWith("/settings") ? "nav-item is-current" : "nav-item"}
+                aria-current={path.startsWith("/settings") ? "page" : undefined}
+              >
+                <IconSettings />
+                Settings
+              </Link>
+            </li>
           </ul>
         </nav>
       </div>
@@ -83,7 +105,7 @@ export function AppShell({ email, onSignOut, children }: Props) {
             </button>
           </div>
         </header>
-        <main id="main" tabIndex={-1}>
+        <main id="main" tabIndex={-1} ref={mainRef}>
           {children}
         </main>
       </div>
