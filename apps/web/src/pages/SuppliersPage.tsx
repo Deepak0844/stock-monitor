@@ -5,13 +5,18 @@ import { formatWhen } from "../format.js";
 import { Link } from "../router.js";
 import { useTitle } from "../useTitle.js";
 
+const CHECK_REFRESH_MS = 4000;
+const CHECK_REFRESHES = 3;
 const COLUMNS = ["Name", "Website", "Status", "Last checked", "Actions"];
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong. Please try again.");
 
-/** The one word shown for a supplier. Paused wins, because a paused supplier is not being checked whatever its session says. */
+/**
+ * The one word shown for a supplier. Paused wins when the owner paused it. When the app paused it because its login
+ * needs attention, the reason is what the owner has to act on, so that is shown instead.
+ */
 function statusOf(s: Supplier): { words: string; tone: "ok" | "warn" | "neutral" } {
-  if (!s.enabled) return { words: "Paused", tone: "neutral" };
+  if (!s.enabled && s.pausedReason !== "session") return { words: "Paused", tone: "neutral" };
   switch (s.sessionStatus) {
     case "connected":
       return { words: "Connected", tone: "ok" };
@@ -41,6 +46,7 @@ export function SuppliersPage({ api }: { api: Api }) {
   const [confirming, setConfirming] = useState<Supplier | null>(null);
   const [busy, setBusy] = useState(false);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(() => {
     setLoadError(null);
@@ -53,6 +59,8 @@ export function SuppliersPage({ api }: { api: Api }) {
   useEffect(() => {
     if (confirming) cancelRef.current?.focus();
   }, [confirming]);
+  // A check takes a moment. The list is read again shortly after one is asked for, and never after the page is left.
+  useEffect(() => () => void (refreshTimer.current && clearTimeout(refreshTimer.current)), []);
 
   async function run(work: () => Promise<void>) {
     setBusy(true);
@@ -70,6 +78,20 @@ export function SuppliersPage({ api }: { api: Api }) {
   const replace = (updated: Supplier) => setSuppliers((list) => list?.map((s) => (s.id === updated.id ? updated : s)) ?? null);
   const toggle = (s: Supplier) =>
     run(async () => replace(await (s.enabled ? api.suppliers.pause(s.id) : api.suppliers.resume(s.id))));
+  /** Reads the list again, a few times a few seconds apart, because a check finishes some moments after it is asked for. */
+  const refreshSoon = (times: number) => {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => {
+      load();
+      if (times > 1) refreshSoon(times - 1);
+    }, CHECK_REFRESH_MS);
+  };
+  const check = (s: Supplier) =>
+    run(async () => {
+      await api.suppliers.checkSession(s.id);
+      setDone(`A check of ${s.name} has started. Its status will update in a moment.`);
+      refreshSoon(CHECK_REFRESHES);
+    });
   const remove = (s: Supplier) =>
     run(async () => {
       try {
@@ -175,6 +197,19 @@ export function SuppliersPage({ api }: { api: Api }) {
                   </td>
                   <td role="cell" data-label="Actions">
                     <div className="row-actions">
+                      {s.sessionStatus === "connected" ? (
+                        <button type="button" className="button secondary" disabled={busy} aria-label={`Check connection ${s.name}`} onClick={() => void check(s)}>
+                          Check connection
+                        </button>
+                      ) : s.sessionStatus === "not_connected" ? (
+                        <Link to={`/suppliers/${s.id}/connect`} className="button secondary" aria-label={`Connect ${s.name}`}>
+                          Connect
+                        </Link>
+                      ) : (
+                        <Link to={`/suppliers/${s.id}/connect`} className="button primary inline" aria-label={`Reconnect supplier ${s.name}`}>
+                          Reconnect supplier
+                        </Link>
+                      )}
                       <Link to={`/suppliers/${s.id}/edit`} className="button secondary" aria-label={`Edit ${s.name}`}>
                         Edit
                       </Link>

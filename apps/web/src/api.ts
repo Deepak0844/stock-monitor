@@ -97,6 +97,8 @@ export type SuppliersApi = {
   remove(id: string): Promise<void>;
   pause(id: string): Promise<Supplier>;
   resume(id: string): Promise<Supplier>;
+  /** Asks for a check of the supplier's saved login. The answer arrives later, as the supplier's status. */
+  checkSession(id: string): Promise<void>;
 };
 
 export type LoginStatus = "starting" | "ready" | "connected" | "saving" | "finished" | "cancelled" | "expired" | "failed";
@@ -122,6 +124,22 @@ export type LoginSessionsApi = {
   cancelOnLeave(id: string): void;
 };
 
+/** Something that needs the owner's attention, in plain words. */
+export type AppNotification = {
+  id: string;
+  kind: "supplier_needs_reconnect";
+  supplierId: string;
+  supplierName: string;
+  message: string;
+  reason: "login_required" | "captcha" | "blocked" | "unknown";
+  createdAt: string;
+  readAt: string | null;
+};
+export type NotificationsApi = {
+  /** What is open now, newest first. */
+  list(): Promise<AppNotification[]>;
+};
+
 export type Api = {
   /** The signed-in owner, or null when nobody is signed in. */
   getMe(): Promise<Owner | null>;
@@ -130,6 +148,7 @@ export type Api = {
   shopify: ShopifyApi;
   suppliers: SuppliersApi;
   loginSessions: LoginSessionsApi;
+  notifications: NotificationsApi;
 };
 
 /** A failed request. The message is plain English from the server. The code says which kind of problem. */
@@ -225,6 +244,15 @@ const suppliers: SuppliersApi = {
   },
   pause: (id) => supplier(`/api/suppliers/${encodeURIComponent(id)}/pause`, { method: "POST" }),
   resume: (id) => supplier(`/api/suppliers/${encodeURIComponent(id)}/resume`, { method: "POST" }),
+  async checkSession(id) {
+    await request(`/api/suppliers/${encodeURIComponent(id)}/check-session`, { method: "POST" });
+  },
+};
+
+const notifications: NotificationsApi = {
+  async list() {
+    return (await request<{ notifications: AppNotification[] }>("/api/notifications", { method: "GET" })).notifications;
+  },
 };
 
 const loginSessions: LoginSessionsApi = {
@@ -253,4 +281,5 @@ export const api: Api = {
   shopify,
   suppliers,
   loginSessions,
+  notifications,
 };

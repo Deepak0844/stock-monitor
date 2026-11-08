@@ -81,7 +81,7 @@ export function App({ api = realApi }: { api?: Api }) {
       }
     >
       {path === "/" ? (
-        <DashboardPage />
+        <DashboardPage api={api} />
       ) : path === "/products" ? (
         <ProductsPage api={api} />
       ) : path === "/suppliers" ? (
