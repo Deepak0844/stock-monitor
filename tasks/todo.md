@@ -75,13 +75,15 @@ Every task is test-first (red, green, refactor). Run `pnpm check` before marking
 ## Task 6: API skeleton with route protection
 **Description:** Fastify app with `/health`, a stable error format, request ids and a hook that rejects unauthenticated requests outside an allow-list.
 **Acceptance criteria:**
-- [ ] `/health` returns OK without login
-- [ ] Any other route returns 401 with a plain-English message and error code when there is no session
-- [ ] Errors never include stack traces
+- [x] `/health` returns OK without login
+- [x] Any other route returns 401 with a plain-English message and error code when there is no session
+- [x] Errors never include stack traces
 **Verification:** `pnpm test:integration` (uses `inject()`)
 **Dependencies:** 2, 3
 **Files:** `apps/api/src/{app,errors,auth-hook}.ts`, tests
 **Scope:** Medium
+
+**Status:** done 2026-11-08. Unknown URLs return 401 when signed out, so routes are not revealed. `/api/me` is the first protected route.
 
 ### Checkpoint: after Task 6
 - [ ] `pnpm check` passes
