@@ -90,4 +90,31 @@ describe("loadConfig", () => {
   it("rejects a Shopify base URL override that is not a URL", () => {
     expect(() => loadConfig({ ...valid, SHOPIFY_BASE_URL_OVERRIDE: "not a url" })).toThrow(/SHOPIFY_BASE_URL_OVERRIDE/);
   });
+
+  describe("the browser service", () => {
+    const token = "t".repeat(40);
+    it("is optional", () => {
+      const config = loadConfig(valid);
+      expect(config.browserServiceUrl).toBeUndefined();
+      expect(config.browserControlToken).toBeUndefined();
+    });
+    it("reads the address and the control token", () => {
+      const config = loadConfig({ ...valid, BROWSER_SERVICE_URL: "http://browser:8080", BROWSER_CONTROL_TOKEN: token });
+      expect(config.browserServiceUrl).toBe("http://browser:8080");
+      expect(config.browserControlToken).toBe(token);
+    });
+    it("needs both or neither, so a half setup cannot start", () => {
+      expect(() => loadConfig({ ...valid, BROWSER_SERVICE_URL: "http://browser:8080" })).toThrow(/BROWSER_CONTROL_TOKEN/);
+      expect(() => loadConfig({ ...valid, BROWSER_CONTROL_TOKEN: token })).toThrow(/BROWSER_SERVICE_URL/);
+    });
+    it("refuses a short control token, without printing it", () => {
+      try {
+        loadConfig({ ...valid, BROWSER_SERVICE_URL: "http://browser:8080", BROWSER_CONTROL_TOKEN: "short-secret" });
+        expect.unreachable();
+      } catch (error) {
+        expect(String(error)).toMatch(/BROWSER_CONTROL_TOKEN/);
+        expect(String(error)).not.toContain("short-secret");
+      }
+    });
+  });
 });
