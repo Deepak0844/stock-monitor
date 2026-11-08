@@ -49,10 +49,10 @@ Every task is test-first (red, green, refactor), except the spike, which is thro
 ## Task 4: Page classifier and session sealing (pure logic)
 **Description:** A pure `classifyPage` that takes what a page showed (final address, HTTP status, title, a text excerpt, whether a password field or a known challenge widget is present, the owner's login-address pattern) and returns `ok`, `login_required`, `captcha`, `blocked`, `unreachable` or `unknown`. Also functions to seal and unseal session state with the `crypto` package.
 **Acceptance criteria:**
-- [ ] Recognises login redirects, password fields, reCAPTCHA, hCaptcha and Turnstile markers, "verify you are human" wording, HTTP 403 and 429, "access denied" wording
-- [ ] Says `unknown` for anything unclear, and a test proves an ambiguous page is never `ok`
-- [ ] Built from saved example pages (fixtures), including pages with tricky wording
-- [ ] Sealed state decrypts to the original, fails on tampering or a wrong key, and contains no plaintext
+- [x] Recognises login redirects, password fields, reCAPTCHA, hCaptcha and Turnstile markers, "verify you are human" wording, HTTP 403 and 429, "access denied" wording
+- [x] Says `unknown` for anything unclear, and a test proves an ambiguous page is never `ok`
+- [x] Built from saved example pages (fixtures), including pages with tricky wording
+- [x] Sealed state decrypts to the original, fails on tampering or a wrong key, and contains no plaintext
 **Verification:** `npm run test:unit`
 **Dependencies:** 1
 **Files:** `packages/supplier-session/src/classify.ts`, `seal.ts`, fixtures, tests
