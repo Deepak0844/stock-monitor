@@ -1,0 +1,171 @@
+// A small fake supplier website for tests. It has a login form, a cookie session that can be made to
+// expire, an account page and product pages that need the login, a challenge page, block pages,
+// a slow page, and addresses that point at private networks. Nothing here talks to the internet.
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { randomBytes } from "node:crypto";
+import type { AddressInfo } from "node:net";
+
+export const FAKE_USERNAME = "buyer";
+export const FAKE_PASSWORD = "correct-horse-battery";
+const COOKIE = "supplier_session";
+const MAX_SLOW_MS = 30_000;
+
+export type FakeSupplier = {
+  /** For example http://127.0.0.1:41234 */
+  url: string;
+  port: number;
+  /** Every request received, in order, without the query string. */
+  requests: { method: string; path: string }[];
+  /** Makes every saved login stop working, as if the supplier had logged everyone out. */
+  expireSessions(): void;
+  close(): Promise<void>;
+};
+
+const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+const page = (title: string, body: string) =>
+  `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title></head><body>${body}</body></html>`;
+
+// Enough ordinary shop text that a healthy page looks like a real one, not an empty shell.
+const ABOUT =
+  "<p>Fake Supplier Ltd sells wholesale packs to trade customers. Orders placed before noon leave the warehouse the same day. " +
+  "All prices are per case and exclude delivery. Stock levels are updated every hour and shown on each product page. " +
+  "Contact the trade desk for pallet quantities and special orders.</p>";
+const PRODUCTS: Record<string, { name: string; price: string; stock: number }> = {
+  "blue-widget": { name: "Blue Widget 12 pack", price: "£48.00", stock: 120 },
+  "red-gadget": { name: "Red Gadget 6 pack", price: "£31.50", stock: 0 },
+};
+const WIDGETS: Record<string, string> = {
+  recaptcha: '<div class="g-recaptcha" data-sitekey="fake-site-key"></div>',
+  hcaptcha: '<div class="h-captcha" data-sitekey="fake-site-key"></div>',
+  turnstile: '<div class="cf-turnstile" data-sitekey="fake-site-key"></div>',
+};
+const PRIVATE_TARGETS: Record<string, string> = {
+  metadata: "http://169.254.169.254/latest/meta-data/",
+  loopback: "http://127.0.0.1:1/",
+  private: "http://10.0.0.5/admin",
+};
+
+// Only addresses on this site are followed after a login. Anything else goes to the account page.
+const safeNext = (next: string | null) => (next && next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/account");
+
+async function readForm(req: IncomingMessage): Promise<URLSearchParams> {
+  let body = "";
+  for await (const chunk of req) {
+    body += chunk;
+    if (body.length > 10_000) break;
+  }
+  return new URLSearchParams(body);
+}
+
+export async function createFakeSupplier(options: { host?: string } = {}): Promise<FakeSupplier> {
+  const host = options.host ?? "127.0.0.1";
+  const sessions = new Set<string>();
+  const timers = new Set<NodeJS.Timeout>();
+  const requests: FakeSupplier["requests"] = [];
+
+  const loggedIn = (req: IncomingMessage) => {
+    const id = new RegExp(`(?:^|;\\s*)${COOKIE}=([0-9a-f]+)`).exec(req.headers.cookie ?? "")?.[1];
+    return id !== undefined && sessions.has(id);
+  };
+
+  const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    const url = new URL(req.url ?? "/", "http://fake.invalid");
+    const path = url.pathname;
+    requests.push({ method: req.method ?? "GET", path });
+    const send = (status: number, html: string, headers: Record<string, string> = {}) => {
+      res.writeHead(status, { "content-type": "text/html; charset=utf-8", ...headers });
+      res.end(html);
+    };
+    const redirect = (to: string, headers: Record<string, string> = {}) => {
+      res.writeHead(302, { location: to, ...headers });
+      res.end();
+    };
+    const loginForm = (status: number, message: string, next: string) =>
+      send(
+        status,
+        page(
+          "Log in | Fake Supplier",
+          `<h1>Log in</h1>${message}<form method="post" action="/login"><input type="hidden" name="next" value="${escapeHtml(next)}">` +
+            `<label>Username <input name="username"></label><label>Password <input name="password" type="password"></label>` +
+            `<button type="submit">Log in</button></form>`,
+        ),
+      );
+
+    if (path === "/" && req.method === "GET") {
+      return send(200, page("Fake Supplier", `<h1>Fake Supplier</h1>${ABOUT}<a href="/products/blue-widget">Blue Widget</a> <a href="/login">Log in</a>`));
+    }
+    if (path === "/login" && req.method === "GET") return loginForm(200, "", url.searchParams.get("next") ?? "");
+    if (path === "/login" && req.method === "POST") {
+      const form = await readForm(req);
+      const next = form.get("next");
+      if (form.get("username") !== FAKE_USERNAME || form.get("password") !== FAKE_PASSWORD) {
+        return loginForm(401, "<p>Wrong details.</p>", next ?? "");
+      }
+      const id = randomBytes(16).toString("hex");
+      sessions.add(id);
+      return redirect(safeNext(next), { "set-cookie": `${COOKIE}=${id}; HttpOnly; Path=/; SameSite=Lax` });
+    }
+    if (path === "/__expire" && req.method === "POST") {
+      sessions.clear();
+      res.writeHead(204);
+      return res.end();
+    }
+    if (path === "/account") {
+      if (!loggedIn(req)) return redirect(`/login?next=${encodeURIComponent("/account")}`);
+      return send(200, page("Your account | Fake Supplier", `<h1>Your account</h1><p>Signed in as buyer.</p>${ABOUT}<a href="/products/blue-widget">Blue Widget</a>`));
+    }
+    const product = /^\/products\/([a-z-]+)$/.exec(path)?.[1];
+    if (product !== undefined) {
+      const item = PRODUCTS[product];
+      if (!item) return send(404, page("Not found", "<h1>Not found</h1><p>No such product.</p>"));
+      const detail = loggedIn(req)
+        ? `<p>Wholesale price ${item.price} per case. ${item.stock} in stock.</p>`
+        : "<p>Log in to see prices and stock.</p>";
+      return send(200, page(`${item.name} | Fake Supplier`, `<h1>${item.name}</h1>${detail}${ABOUT}`));
+    }
+    if (path === "/captcha") {
+      const widget = WIDGETS[url.searchParams.get("widget") ?? "recaptcha"] ?? WIDGETS.recaptcha;
+      return send(200, page("Security check", `<h1>Security check</h1><p>Please verify you are human to continue.</p>${widget}`));
+    }
+    if (path === "/blocked") {
+      return send(403, page("Access denied", "<h1>Access denied</h1><p>Access denied. Your request has been blocked.</p>"));
+    }
+    if (path === "/rate-limited") {
+      return send(429, page("Too many requests", "<h1>Too many requests</h1><p>Too many requests. Please slow down.</p>"), { "retry-after": "60" });
+    }
+    if (path === "/slow") {
+      const ms = Math.min(Number(url.searchParams.get("ms")) || 5000, MAX_SLOW_MS);
+      const timer = setTimeout(() => {
+        timers.delete(timer);
+        send(200, page("Slow page | Fake Supplier", `<h1>Slow page</h1>${ABOUT}`));
+      }, ms);
+      timers.add(timer);
+      return;
+    }
+    const target = /^\/redirect\/([a-z]+)$/.exec(path)?.[1];
+    if (target !== undefined && PRIVATE_TARGETS[target]) return redirect(PRIVATE_TARGETS[target]);
+    if (path === "/links-private") {
+      return send(200, page("Links | Fake Supplier", `<h1>Links</h1>${ABOUT}<a href="http://10.0.0.5/">Our intranet</a>`));
+    }
+    send(404, page("Not found", "<h1>Not found</h1><p>No such page.</p>"));
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, host, resolve);
+  });
+  const { port } = server.address() as AddressInfo;
+
+  return {
+    url: `http://${host}:${port}`,
+    port,
+    requests,
+    expireSessions: () => sessions.clear(),
+    async close() {
+      for (const timer of timers) clearTimeout(timer);
+      timers.clear();
+      server.closeAllConnections(); // so a slow request does not hold the shutdown
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    },
+  };
+}

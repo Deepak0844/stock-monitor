@@ -61,10 +61,10 @@ Every task is test-first (red, green, refactor), except the spike, which is thro
 ## Task 5: Fake supplier website (test helper)
 **Description:** A small web server for tests with: a login form, a cookie session, an account page that needs login, product pages, a switch to expire all sessions, a CAPTCHA-like page, a block page (403 and 429), a slow page, and a page that redirects to a private address. Used by every later browser test.
 **Acceptance criteria:**
-- [ ] Logging in sets a session cookie, and the account page then loads. Expiring sessions sends the user back to the login form
-- [ ] The CAPTCHA-like page contains a widget marker and the wording the classifier looks for
-- [ ] A redirect to a private address exists so the SSRF guard can be tested
-- [ ] Starts and stops cleanly on a free port
+- [x] Logging in sets a session cookie, and the account page then loads. Expiring sessions sends the user back to the login form
+- [x] The CAPTCHA-like page contains a widget marker and the wording the classifier looks for
+- [x] A redirect to a private address exists so the SSRF guard can be tested
+- [x] Starts and stops cleanly on a free port
 **Verification:** `npm run test:unit`
 **Dependencies:** None
 **Files:** `packages/supplier-session/test/fake-supplier.ts`, tests
