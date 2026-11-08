@@ -115,6 +115,11 @@ const control = createServer(async (req, res) => {
     if (req.method === "POST" && req.url === "/control/reset-suppliers") {
       await db.pool.query("truncate suppliers cascade");
       resetBrowser();
+      await vnc.setAvailable(true);
+      return reply(200);
+    }
+    if (req.method === "POST" && req.url === "/control/vnc") {
+      await vnc.setAvailable((JSON.parse(body) as { available: boolean }).available);
       return reply(200);
     }
     if (req.method === "POST" && req.url === "/control/browser") {
