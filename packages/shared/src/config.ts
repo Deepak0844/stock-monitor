@@ -11,6 +11,8 @@ const schema = z.object({
   HOST: z.string().min(1).default("127.0.0.1"),
   COOKIE_SECURE: z.enum(["true", "false"]).optional(),
   TRUST_PROXY: z.enum(["true", "false"]).default("false"),
+  // Test only: send Shopify requests to a fake server. Refused in production, see below.
+  SHOPIFY_BASE_URL_OVERRIDE: z.url().optional(),
 });
 
 export type Config = {
@@ -24,6 +26,8 @@ export type Config = {
   cookieSecure: boolean;
   /** Believe X-Forwarded-For. Only turn on behind a proxy that overwrites that header. */
   trustProxy: boolean;
+  /** Test only. Never set in production: it would let Shopify credentials be sent to another host. */
+  shopifyBaseUrlOverride: string | undefined;
 };
 
 export function loadConfig(env: Record<string, string | undefined>): Config {
@@ -36,6 +40,9 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     throw new Error(`Invalid configuration:\n${problems.join("\n")}`);
   }
   const c = parsed.data;
+  if (c.NODE_ENV === "production" && c.SHOPIFY_BASE_URL_OVERRIDE) {
+    throw new Error("Invalid configuration:\nSHOPIFY_BASE_URL_OVERRIDE: must not be set in production");
+  }
   return {
     nodeEnv: c.NODE_ENV,
     databaseUrl: c.DATABASE_URL,
@@ -45,5 +52,6 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     host: c.HOST,
     cookieSecure: c.COOKIE_SECURE ? c.COOKIE_SECURE === "true" : c.NODE_ENV === "production",
     trustProxy: c.TRUST_PROXY === "true",
+    shopifyBaseUrlOverride: c.SHOPIFY_BASE_URL_OVERRIDE,
   };
 }

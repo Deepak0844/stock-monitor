@@ -240,6 +240,14 @@ export function createShopifyRepository<S extends Record<string, unknown>>(db: N
       }
     },
 
+    /** While a sync runs, `total` holds how many variants it has seen so far. The final result replaces it. */
+    async updateSyncProgress(id: number, variantsSeen: number): Promise<void> {
+      await db
+        .update(shopifySyncRuns)
+        .set({ total: variantsSeen })
+        .where(and(eq(shopifySyncRuns.id, id), eq(shopifySyncRuns.status, "running")));
+    },
+
     async lastSyncRun(): Promise<SyncRunRecord | null> {
       const [row] = await db.select().from(shopifySyncRuns).orderBy(desc(shopifySyncRuns.id)).limit(1);
       return (row as SyncRunRecord | undefined) ?? null;
