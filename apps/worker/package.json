@@ -7,12 +7,12 @@
     "start": "tsx src/index.ts"
   },
   "dependencies": {
-    "@stock-monitor/queue": "workspace:*",
-    "@stock-monitor/shared": "workspace:*",
+    "@stock-monitor/queue": "*",
+    "@stock-monitor/shared": "*",
     "pino": "^10.4.0"
   },
   "devDependencies": {
-    "@stock-monitor/db": "workspace:*",
+    "@stock-monitor/db": "*",
     "tsx": "^4.23.15"
   }
 }

@@ -6,9 +6,9 @@
   "dependencies": {
     "@fastify/cookie": "^11.1.5",
     "@node-rs/argon2": "^2.2.2",
-    "@stock-monitor/audit": "workspace:*",
-    "@stock-monitor/db": "workspace:*",
-    "@stock-monitor/shared": "workspace:*",
+    "@stock-monitor/audit": "*",
+    "@stock-monitor/db": "*",
+    "@stock-monitor/shared": "*",
     "drizzle-orm": "^0.45.4",
     "fastify": "^5.12.8",
     "pg": "^8.23.1",
