@@ -242,3 +242,11 @@ Before delivering any UI code, verify:
 - [ ] Responsive: 375px, 768px, 1024px, 1440px
 - [ ] No content hidden behind fixed navbars
 - [ ] No horizontal scroll on mobile
+
+## App shell (added with the redesign)
+
+- Signed-in layout: left sidebar (16rem) with the logo and navigation, a top bar with the owner's email and Sign out, then the page. Header and content share the same side padding so edges line up.
+- Sections that are not built yet are shown as disabled items with a "Soon" badge. Never link to a page that does not exist.
+- Empty states are honest: state what is true now ("No suppliers yet.") and what will appear later. No invented numbers.
+- Phone (under 56rem): the sidebar collapses behind a Menu button. Sign out stays directly under the header, never at the bottom of the page.
+- Sign-in uses a dark brand panel (plain-words pitch) beside the form. The panel shrinks to a header band on a phone.

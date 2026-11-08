@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { api as realApi, type Api } from "./api.js";
-import { HomePage } from "./pages/HomePage.js";
+import { DashboardPage } from "./pages/DashboardPage.js";
 import { LoginPage } from "./pages/LoginPage.js";
+import { AppShell } from "./shell/AppShell.js";
 
 type State =
   | { kind: "loading" }
@@ -35,7 +36,7 @@ export function App({ api = realApi }: { api?: Api }) {
 
   if (state.kind === "error") {
     return (
-      <main className="auth">
+      <main className="auth-single">
         <div className="card">
           <p role="alert" className="form-error">
             {state.message}
@@ -60,7 +61,7 @@ export function App({ api = realApi }: { api?: Api }) {
   }
 
   return (
-    <HomePage
+    <AppShell
       email={state.email}
       onSignOut={() =>
         api
@@ -68,6 +69,8 @@ export function App({ api = realApi }: { api?: Api }) {
           .then(() => setState({ kind: "signedOut" }))
           .catch((e: unknown) => setState({ kind: "error", message: messageOf(e) }))
       }
-    />
+    >
+      <DashboardPage />
+    </AppShell>
   );
 }
