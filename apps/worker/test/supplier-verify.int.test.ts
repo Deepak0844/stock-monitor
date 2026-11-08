@@ -65,7 +65,7 @@ beforeEach(async () => {
 });
 
 const supplier = async (id: string) => (await suppliers().get(id))!;
-const audit = async () => (await t.pool.query("select action, entity_id, details from audit_events where action = 'supplier.session_checked'")).rows as { entity_id: string; details: { result: string } }[];
+const audit = async () => (await t.pool.query("select action, entity_id, details from audit_events where action = 'supplier.session_checked'")).rows as { entity_id: string; details: { result: string; httpStatus: number | null } }[];
 const verifies = () => fake.requests.filter((r) => r.path === "/verify");
 
 describe("nothing to check", () => {
@@ -98,7 +98,7 @@ describe("a session that works", () => {
 
   it("writes an audit event saying only what was found", async () => {
     await verifySupplierSession(deps(), acme);
-    expect(await audit()).toEqual([expect.objectContaining({ entity_id: acme, details: { result: "ok" } })]);
+    expect(await audit()).toEqual([expect.objectContaining({ entity_id: acme, details: { result: "ok", httpStatus: 200 } })]);
   });
 });
 
@@ -106,7 +106,7 @@ describe("a session that needs attention", () => {
   it.each([
     ["login_required", "needs_reconnect", "Acme needs you to log in again."],
     ["captcha", "blocked", "Acme is asking you to solve a puzzle (a CAPTCHA). Log in again to solve it."],
-    ["blocked", "blocked", "Acme is blocking access. Reconnect the supplier to check whether the site still lets you in."],
+    ["blocked", "blocked", "Acme is refusing our automated checks, even though your login may have worked. It stays paused. Ask the supplier for a price list or feed, or reconnect to try again."],
     ["unknown", "needs_reconnect", "We could not tell whether Acme is still logged in. Reconnect the supplier to be sure."],
   ])("%s sets the status %s, pauses only that supplier, and raises one plain notification", async (result, status, message) => {
     fake.behaviour.verifyResult = result;
@@ -114,7 +114,7 @@ describe("a session that needs attention", () => {
     expect(await supplier(acme)).toMatchObject({ sessionStatus: status, enabled: false, pausedReason: "session" });
     expect(await supplier(globex)).toMatchObject({ sessionStatus: "connected", enabled: true, pausedReason: null });
     expect(await notes().listOpen()).toEqual([expect.objectContaining({ supplierId: acme, supplierName: "Acme", message, reason: result })]);
-    expect(await audit()).toEqual([expect.objectContaining({ details: { result } })]);
+    expect(await audit()).toEqual([expect.objectContaining({ details: { result, httpStatus: 200 } })]);
   });
 
   it("raises one notification however many checks find the problem", async () => {
@@ -172,7 +172,7 @@ describe("a supplier that cannot be reached", () => {
     await verifySupplierSession(deps(), acme);
     expect(await supplier(acme)).toMatchObject({ sessionStatus: "connected", enabled: true, pausedReason: null, lastSessionCheckAt: expect.any(Date) });
     expect(await notes().listOpen()).toEqual([]);
-    expect(await audit()).toEqual([expect.objectContaining({ details: { result: "unreachable" } })]);
+    expect(await audit()).toEqual([expect.objectContaining({ details: { result: "unreachable", httpStatus: null } })]);
   });
 
   it("carries on as normal when a retry gets through", async () => {

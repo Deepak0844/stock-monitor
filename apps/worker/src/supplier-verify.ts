@@ -35,7 +35,7 @@ const DEFAULT_RETRY_DELAYS_MS = [10_000, 60_000];
 const MESSAGES: Record<NotificationReason, (name: string) => string> = {
   login_required: (name) => `${name} needs you to log in again.`,
   captcha: (name) => `${name} is asking you to solve a puzzle (a CAPTCHA). Log in again to solve it.`,
-  blocked: (name) => `${name} is blocking access. Reconnect the supplier to check whether the site still lets you in.`,
+  blocked: (name) => `${name} is refusing our automated checks, even though your login may have worked. It stays paused. Ask the supplier for a price list or feed, or reconnect to try again.`,
   unknown: (name) => `We could not tell whether ${name} is still logged in. Reconnect the supplier to be sure.`,
 };
 
@@ -54,7 +54,9 @@ export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId
   const sealed = await supplierSessions.getSealed(supplierId);
   if (!sealed) return { kind: "skipped", reason: "no_session" };
 
-  const record = (result: string) => audit.record({ action: "supplier.session_checked", entityType: "supplier", entityId: supplierId, details: { result } });
+  // The HTTP status tells us why a check was refused (403 vs 429 vs a challenge page). Never page text.
+  let httpStatus: number | null = null;
+  const record = (result: string) => audit.record({ action: "supplier.session_checked", entityType: "supplier", entityId: supplierId, details: { result, httpStatus } });
   const needsAttention = async (result: NotificationReason): Promise<CheckOutcome> => {
     await suppliers.markNeedsAttention(supplierId, STATUS[result]);
     await notifications.raise({ kind: "supplier_needs_reconnect", supplierId, message: MESSAGES[result](supplier.name), reason: result });
@@ -78,6 +80,7 @@ export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId
     if (attempt > 0) await sleep(delays[attempt - 1] as number);
     const outcome = await browser.verify({ url: supplier.websiteUrl, loginUrl: supplier.loginUrl ?? undefined, state });
     result = outcome.ok ? outcome.result : "service_unavailable";
+    httpStatus = outcome.ok ? outcome.status : null;
     if (result !== "unreachable" && result !== "service_unavailable") break; // a clear answer
   }
 
@@ -105,6 +108,6 @@ export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId
 export function createSupplierVerifyHandler(deps: SupplierVerifyDeps) {
   return async function handleSupplierVerify(payload: { supplierId: string }): Promise<void> {
     const outcome = await verifySupplierSession(deps, payload.supplierId);
-    deps.logger.info({ supplierId: payload.supplierId, outcome: outcome.kind }, "session check finished");
+    deps.logger.info({ supplierId: payload.supplierId, outcome: outcome.kind, ...(outcome.kind === "needs_attention" && { result: outcome.result }) }, "session check finished");
   };
 }
