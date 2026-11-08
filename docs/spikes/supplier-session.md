@@ -47,3 +47,15 @@ Paste took three attempts and showed two things that matter for the real build:
 2. **Each tab that loads the page starts its own browser session, and a second one is refused with `502`** while one is open. The owner hit this after reloading and saw `start-refused-502`. The real design needs: a plain message ("A login window is already open"), a way to resume or close the open one, and cleanup when a tab closes (the spec already requires this).
 3. `docker restart` of the browser container left a stale X lock, so Chromium could not launch and every start failed with `browserType.launch: Target page, context or browser has been closed`. Recreating the container fixed it. The real service should remove stale `/tmp/.X99-lock` files at start, or the container must always be recreated.
 4. The proxy crashed once when a start request arrived before the browser service was listening (an unhandled rejection). The spike now guards it. The real proxy must return a plain error instead.
+
+## Owner try-out on the real stack (2026-11-08, after Task 12)
+
+The owner added an ordinary public website as a supplier on their own Docker Compose stack (the real browser container on its private network, the real proxy and the real viewer) and pressed Connect. Their words:
+
+- **Typing:** no issues.
+- **Paste:** works (Paste text, Send to the window, then Ctrl+V).
+- **The page:** the website they gave rendered.
+- **Anything odd:** nothing.
+
+This confirms on the real container what the first try-out showed on the spike, and that the locked-down container (read-only filesystem, one capability, seccomp profile, no host folders) does not get in the way of a live window. It was not a real supplier, so a real CAPTCHA, a code or a long login is still untested. That is the pilot supplier's job (Task 14).
+
