@@ -120,6 +120,47 @@ What the pilot supplier showed when it was connected by hand (2026-11), with its
 
 Earlier trials with other suppliers showed that a supplier's bot protection can accept a login by hand and still refuse the app's automated check (the check then shows **Blocked**, never a broken link or "out of stock"). If that happens, the options are to ask the supplier for a price list or feed, or to leave that supplier paused.
 
+## Stock rules
+
+Stock rules tell the app how one supplier's product pages show stock, so it can say whether an item is **In stock**, **Out of stock** or **Cannot tell**. You build them in the app, from a saved copy of a real page. Nothing is clicked, typed or scrolled on the supplier's site, and nothing is written to Shopify.
+
+### Before you start
+
+The supplier must be **connected**, **running** and recorded as **Allowed** on its Edit page (see "Record your permission decision"). Without that, captures and stock checks are refused with a plain message.
+
+### Setting rules up
+
+1. Open **Suppliers**, then **Stock rules** on the supplier's row.
+2. **Capture a page.** Choose one of the supplier's links and press **Capture a page**. In a few seconds it appears in the list. Press **View** to see its picture and the words the page showed. The picture is only for you: the app reads the words, never the picture.
+3. **Label examples.** For each saved page, choose the answer you expect (for example "In stock" for a page that shows stock, "Out of stock" for a sold-out page) and press **Save label**. Capture at least one of each kind you want to be sure about.
+4. **Build the rules.** Each rule is one question about the page: *text on the page* or *button on the page* (and whether the button must be enabled). Rules can be limited to the part of the page **under a heading**, so a "Sold out" badge on a related product does not decide your item.
+   - **Page checks:** words that must be on a normal product page. If one is missing, the page has changed and the answer is Cannot tell.
+   - **In stock when / Out of stock when:** any one matching decides. Both matching, or neither, is Cannot tell.
+   - **Quantity (optional):** a number that follows a label, for example "Units left".
+   - **Region (optional):** for a supplier that lists stock by region, the heading above the list of regions and numbers. The region itself is set on the supplier's Edit page (a default) or on a link (its own).
+5. **Test all examples.** The app runs your rules on every labelled saved page and says which give the answer you expect.
+6. **Save version**, then **Turn on**. A version can only be turned on when every labelled example passes. Saving never turns anything on and never changes an older version.
+
+### Checking stock
+
+On **Links**, press **Check stock** on a link, or choose a supplier and press **Check all stock** (one page at a time, with the supplier's pause between pages). The answer appears in the Stock column a moment later, with the reason when it is Cannot tell. **History** shows a link's earlier answers and the rules version used.
+
+### What the answers mean
+
+| Answer | Meaning |
+|---|---|
+| In stock (12) | Your in-stock rules matched and nothing contradicted them. The quantity is shown when your rules read one. |
+| Out of stock | Your out-of-stock rules matched, or the region's number is 0, or the region is **not listed** while the rest of the region table is still on the page. |
+| Cannot tell | The app is not sure, and says why: the **page changed**, the rules disagreed or found nothing, the quantity and the wording disagree, the check did not work (login needed, puzzle, blocked, supplier unreachable), the page is missing, or the address never worked. **Cannot tell is never treated as out of stock.** |
+
+When many of a supplier's pages change at once, you get one message on the Dashboard ("<supplier>'s pages changed. Review its stock rules.") with a link back to the rules. Open the saved copy the app kept, point the rules at the new wording, test, and turn on a new version.
+
+### Things to know
+
+- **Saved pages are private.** A capture can show account names or wholesale prices. Only you can see it, it never goes in a log, and unlabelled and page-changed captures are deleted after 30 days (the clean-up runs when a capture or a check is requested). Labelled examples stay until you delete them: delete them when you no longer need them.
+- **A 404 or a redirect to the home page** is not decided by the stock rules. On a link that worked before it is "Page missing" (a candidate for "unavailable" after two checks at least 6 hours apart, for your approval later); on a link that never worked it is "Never worked", a wrong address to fix.
+- **If stock only appears after a click or a scroll,** version one cannot read it. The answer is Cannot tell.
+
 ## Server hardening (the checklist from the design discussion)
 
 Saved supplier sessions are decrypted in memory while a check runs, so anyone who controls the server could use them. Encryption protects the database and backups, not a compromised server.
