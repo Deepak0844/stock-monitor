@@ -16,6 +16,10 @@ export const control = {
   resetSuppliers: () => post("/control/reset-suppliers"),
   /** A clean slate for the link journeys: variants, one connected supplier with no recorded permission, no links. */
   resetMappings: () => post("/control/reset-mappings"),
+  /** A clean slate for the stock rule journeys: six linked variants, one connected supplier that is allowed, no rules. */
+  resetExtraction: () => post("/control/reset-extraction"),
+  /** Turns a set of stock rules on directly, for a journey that is about checking, not about building rules. */
+  seedRecipe: (rules: unknown) => post("/control/seed-recipe", { rules }),
   /** Turns the stand-in VNC screen off or on, to test a screen the proxy cannot reach. */
   vnc: (available: boolean) => post("/control/vnc", { available }),
   /** Steer the stand-in browser service: whether a window opens, what a finished login holds, what a check finds. */
