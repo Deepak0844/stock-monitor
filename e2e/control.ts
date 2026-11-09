@@ -14,6 +14,8 @@ export const control = {
   reset: () => post("/control/reset"),
   /** Remove every supplier. Separate from reset so the supplier and Shopify journeys do not disturb each other. */
   resetSuppliers: () => post("/control/reset-suppliers"),
+  /** A clean slate for the link journeys: variants, one connected supplier with no recorded permission, no links. */
+  resetMappings: () => post("/control/reset-mappings"),
   /** Turns the stand-in VNC screen off or on, to test a screen the proxy cannot reach. */
   vnc: (available: boolean) => post("/control/vnc", { available }),
   /** Steer the stand-in browser service: whether a window opens, what a finished login holds, what a check finds. */

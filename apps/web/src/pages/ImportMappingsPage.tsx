@@ -101,7 +101,9 @@ export function ImportMappingsPage({ api }: { api: Api }) {
           ) : (
             <Notice kind="warning">No rows can be saved. Check the columns above, or fix the problems below and import again.</Notice>
           )}
-          {step.preview.skippedSuppliers > 0 && <p>{step.preview.skippedSuppliers} rows are for suppliers not in the app.</p>}
+          {step.preview.skippedSuppliers > 0 && <p>
+              {step.preview.skippedSuppliers} {step.preview.skippedSuppliers === 1 ? "row is" : "rows are"} for suppliers not in the app.
+            </p>}
           {step.preview.sample.length > 0 && (
             <ul className="plain-list" aria-label="Examples">
               {step.preview.sample.map((s) => (
