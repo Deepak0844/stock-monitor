@@ -1,10 +1,13 @@
 import { PgBoss } from "pg-boss";
 import { jobSchemas, parseJob, type JobName, type JobPayload } from "./jobs.js";
 
+/** For a job that runs long: how many seconds it may run before the queue gives up on it, and how often it is tried again. */
+export type JobOptions = { expireInSeconds?: number; retryLimit?: number };
+
 export type Queue = {
   start(): Promise<void>;
   stop(): Promise<void>;
-  enqueue<N extends JobName>(name: N, payload: JobPayload<N>): Promise<void>;
+  enqueue<N extends JobName>(name: N, payload: JobPayload<N>, options?: JobOptions): Promise<void>;
   work<N extends JobName>(name: N, handler: (payload: JobPayload<N>) => Promise<void>): Promise<void>;
 };
 
@@ -24,8 +27,8 @@ export function createQueue(opts: {
     async stop() {
       await boss.stop({ graceful: true });
     },
-    async enqueue(name, payload) {
-      await boss.send(name, parseJob(name, payload));
+    async enqueue(name, payload, options) {
+      await boss.send(name, parseJob(name, payload), options ?? {});
     },
     async work(name, handler) {
       await boss.work(name, async (jobs) => {
