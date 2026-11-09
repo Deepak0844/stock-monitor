@@ -16,7 +16,10 @@ export type FakeBrowserService = {
     verify: "ok" | "fail" | "garbage";
     /** How a page check behaves, and what page it reports when "ok". */
     checkPage: "ok" | "fail" | "garbage";
-    page: { result: string; status: number | null; finalUrl: string | null; title: string | null; heading: string | null; softNotFound: boolean };
+    /** Lets a test give each address its own page. Falls back to `page`. */
+    pageFor?: (url: string) => FakeBrowserService["behaviour"]["page"] | undefined;
+    /** A page with no `finalUrl` ends on the address that was asked for. */
+    page: { result: string; status: number | null; finalUrl?: string | null; title: string | null; heading: string | null; softNotFound: boolean };
     /** What a check says the page was, when verify is "ok". */
     verifyResult: string;
     state: unknown;
@@ -71,7 +74,9 @@ export async function createFakeBrowserService(): Promise<FakeBrowserService> {
     if (req.method === "POST" && path === "/check-page") {
       if (behaviour.checkPage === "fail") return reply(500, { error: "check_failed" });
       if (behaviour.checkPage === "garbage") return reply(200, { result: "maybe" });
-      return reply(200, { ...behaviour.page, blockedRequests: 0 });
+      const asked = (body as { url?: string } | undefined)?.url ?? "";
+      const page = behaviour.pageFor?.(asked) ?? behaviour.page;
+      return reply(200, { ...page, finalUrl: page.finalUrl === undefined ? asked : page.finalUrl, blockedRequests: 0 });
     }
     const finish = /^\/sessions\/([^/]+)\/finish$/.exec(path);
     if (req.method === "POST" && finish) {
