@@ -149,3 +149,66 @@ describe("variants with no link", () => {
     expect(await screen.findByText("Every variant has a link.")).toBeInTheDocument();
   });
 });
+
+describe("stock answers", () => {
+  const stock = (over: Partial<NonNullable<Mapping["latestStock"]>> = {}) => ({ answer: "in_stock" as const, reason: null, quantity: null, matchedText: "Add to cart", observedAt: "2026-11-10T10:00:00.000Z", ...over });
+
+  it("says when no stock check has run yet", async () => {
+    setup([blue]);
+    expect(await screen.findByText("No stock check yet")).toBeInTheDocument();
+  });
+
+  it("shows the latest answer in words, with the quantity, the region and the reason", async () => {
+    setup([
+      aMapping({ id: "a", productTitle: "Alpha", latestStock: stock({ quantity: 12 }) }),
+      aMapping({ id: "b", productTitle: "Beta", region: "Hull", latestStock: stock({ answer: "out_of_stock", reason: "not_listed" }) }),
+      aMapping({ id: "c", productTitle: "Gamma", latestStock: stock({ answer: "cannot_tell", reason: "neither_matched" }) }),
+    ]);
+    expect(within(await screen.findByRole("row", { name: /Alpha/ })).getByText("In stock (12)")).toBeInTheDocument();
+    expect(within(screen.getByRole("row", { name: /Beta/ })).getByText("Out of stock: not listed for Hull")).toBeInTheDocument();
+    const gamma = within(screen.getByRole("row", { name: /Gamma/ }));
+    expect(gamma.getByText("Cannot tell")).toBeInTheDocument();
+    expect(gamma.getByText("None of the rules matched.")).toBeInTheDocument();
+  });
+
+  it("says a changed page needs the stock rules reviewed, with a link to them", async () => {
+    setup([aMapping({ latestStock: stock({ answer: "cannot_tell", reason: "page_changed" }) })]);
+    const row = within(await screen.findByRole("row", { name: /Blue Tee/ }));
+    expect(row.getByText(/The page changed\. Review the stock rules\./)).toBeInTheDocument();
+    expect(row.getByRole("link", { name: "Review stock rules" })).toHaveAttribute("href", `/suppliers/${acme.id}/rules`);
+  });
+
+  it("checks stock for one link and says it started, or shows the server's plain reason", async () => {
+    const checkLink = vi.fn().mockRejectedValueOnce(new ApiError("Turn on stock rules for this supplier first.", 409, "no_recipe")).mockResolvedValue(undefined);
+    const { api, user } = setup([blue], { stock: { checkLink } });
+    await user.click(await screen.findByRole("button", { name: "Check stock Blue Tee Large" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Turn on stock rules");
+    await user.click(screen.getByRole("button", { name: "Check stock Blue Tee Large" }));
+    expect(api.stock.checkLink).toHaveBeenLastCalledWith(blue.id);
+    expect(await screen.findByText(/stock check of Blue Tee \(Large\) has started/i)).toBeInTheDocument();
+  });
+
+  it("checks all of one supplier's stock once that supplier is chosen", async () => {
+    const checkSupplier = vi.fn().mockResolvedValue(3);
+    const { user } = setup([blue], { stock: { checkSupplier } });
+    await screen.findByText("Blue Tee");
+    await user.selectOptions(screen.getByLabelText("Supplier"), acme.id);
+    await user.click(await screen.findByRole("button", { name: "Check all stock for Acme Supply" }));
+    expect(checkSupplier).toHaveBeenCalledWith(acme.id);
+    expect(await screen.findByText(/Checking stock for 3 links/)).toBeInTheDocument();
+  });
+
+  it("shows a link's history of stock answers", async () => {
+    const observations = vi.fn().mockResolvedValue([
+      { id: 2, ...stock({ quantity: 5 }), quantityMismatch: false, recipeVersion: 2, checkResult: "ok" },
+      { id: 1, ...stock({ answer: "out_of_stock" }), observedAt: "2026-11-09T10:00:00.000Z", quantityMismatch: false, recipeVersion: 1, checkResult: "ok" },
+    ]);
+    const { user } = setup([blue], { stock: { observations } });
+    await user.click(await screen.findByRole("button", { name: "Show history Blue Tee Large" }));
+    const list = await screen.findByRole("list", { name: "Stock history for Blue Tee Large" });
+    const items = within(list).getAllByRole("listitem");
+    expect(items[0]).toHaveTextContent("In stock (5)");
+    expect(items[0]).toHaveTextContent("rules version 2");
+    expect(items[1]).toHaveTextContent("Out of stock");
+  });
+});

@@ -222,3 +222,38 @@ describe("permission to check automatically", () => {
     expect(api.suppliers.setPermission).not.toHaveBeenCalled();
   });
 });
+
+describe("default region", () => {
+  const setupEdit = (supplier = aSupplier()) => {
+    const api = fakeApi({ suppliers: { get: vi.fn().mockResolvedValue(supplier) } });
+    render(<SupplierFormPage api={api} id={supplier.id} />);
+    return { api, user: userEvent.setup() };
+  };
+
+  it("is not shown when adding a supplier", () => {
+    render(<SupplierFormPage api={fakeApi()} />);
+    expect(screen.queryByLabelText("Default region (optional)")).toBeNull();
+  });
+
+  it("saves the region stock checks look for, and clears it", async () => {
+    const { api, user } = setupEdit(aSupplier({ defaultRegion: "Bristol" }));
+    const field = await screen.findByLabelText("Default region (optional)");
+    expect(field).toHaveValue("Bristol");
+    await user.clear(field);
+    await user.type(field, "Loughborough");
+    await user.click(screen.getByRole("button", { name: "Save region" }));
+    await waitFor(() => expect(api.suppliers.setRegion).toHaveBeenCalledWith(aSupplier().id, "Loughborough"));
+    expect(await screen.findByText("Region saved.")).toBeInTheDocument();
+    await user.clear(field);
+    await user.click(screen.getByRole("button", { name: "Save region" }));
+    await waitFor(() => expect(api.suppliers.setRegion).toHaveBeenLastCalledWith(aSupplier().id, null));
+  });
+
+  it("shows the server's plain message when it is refused", async () => {
+    const setRegion = vi.fn().mockRejectedValue(new ApiError("A region can be up to 200 characters of text, or empty to clear it.", 400, "invalid_region"));
+    const api = fakeApi({ suppliers: { get: vi.fn().mockResolvedValue(aSupplier()), setRegion } });
+    render(<SupplierFormPage api={api} id={aSupplier().id} />);
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Save region" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("up to 200 characters");
+  });
+});

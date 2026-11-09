@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Api, LinkStatus, Mapping, Supplier, UnmappedList } from "../api.js";
+import type { Api, LinkStatus, Mapping, Observation, Supplier, UnmappedList } from "../api.js";
 import { LINK_STATUS_OPTIONS, linkStatusOf } from "../components/linkStatus.js";
 import { Notice } from "../components/Notice.js";
+import { ANSWER_TONE, reasonWords, stockSentence } from "../components/stockWords.js";
 import { formatDay, formatWhen } from "../format.js";
 import { Link } from "../router.js";
 import { useTitle } from "../useTitle.js";
 
-const COLUMNS = ["Product", "Supplier", "Page", "Status", "Last checked", "Actions"];
+const COLUMNS = ["Product", "Supplier", "Page", "Status", "Stock", "Last checked", "Actions"];
 const SHOW_UNMAPPED = 50;
 const SEARCH_DELAY_MS = 250;
 
@@ -44,6 +45,7 @@ export function MappingsPage({ api }: { api: Api }) {
   const [search, setSearch] = useState("");
   const [variantSearch, setVariantSearch] = useState("");
   const [unmapped, setUnmapped] = useState<UnmappedList | null>(null);
+  const [history, setHistory] = useState<{ mapping: Mapping; items: Observation[] } | null>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const q = useDelayed(search);
   const vq = useDelayed(variantSearch);
@@ -86,6 +88,21 @@ export function MappingsPage({ api }: { api: Api }) {
     run(async () => {
       await api.mappings.checkLink(m.id);
       setDone(`A check of ${m.productTitle} (${m.variantTitle}) has started. Its status will update in a moment.`);
+    });
+  const checkStock = (m: Mapping) =>
+    run(async () => {
+      await api.stock.checkLink(m.id);
+      setDone(`A stock check of ${m.productTitle} (${m.variantTitle}) has started. The answer will appear here in a moment.`);
+    });
+  const checkAllStock = (s: Supplier) =>
+    run(async () => {
+      const n = await api.stock.checkSupplier(s.id);
+      setDone(`Checking stock for ${n} ${n === 1 ? "link" : "links"} for ${s.name}, one page at a time. Answers will appear as they finish.`);
+    });
+  const toggleHistory = (m: Mapping) =>
+    run(async () => {
+      if (history?.mapping.id === m.id) return setHistory(null);
+      setHistory({ mapping: m, items: await api.stock.observations(m.id) });
     });
   const supplier = suppliers.find((s) => s.id === supplierId);
   const checkAll = (s: Supplier) =>
@@ -175,9 +192,14 @@ export function MappingsPage({ api }: { api: Api }) {
               <input id="link-search" type="search" autoComplete="off" value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
             {supplier && (
-              <button type="button" className="button secondary" disabled={busy} onClick={() => void checkAll(supplier)}>
-                Check all links for {supplier.name}
-              </button>
+              <>
+                <button type="button" className="button secondary" disabled={busy} onClick={() => void checkAll(supplier)}>
+                  Check all links for {supplier.name}
+                </button>
+                <button type="button" className="button secondary" disabled={busy} onClick={() => void checkAllStock(supplier)}>
+                  Check all stock for {supplier.name}
+                </button>
+              </>
             )}
           </div>
 
@@ -248,6 +270,26 @@ export function MappingsPage({ api }: { api: Api }) {
                         {s.hint && <div className="muted">{s.hint}</div>}
                         {m.linkStatus === "page_missing" && m.lastWorkedAt && <div className="muted">Worked until {formatDay(m.lastWorkedAt)}</div>}
                       </td>
+                      <td role="cell" data-label="Stock">
+                        {m.latestStock ? (
+                          <>
+                            <span className={`status-badge ${ANSWER_TONE[m.latestStock.answer]}`}>
+                              {stockSentence(m.latestStock, m.region ?? suppliers.find((x) => x.id === m.supplierId)?.defaultRegion)}
+                            </span>
+                            {reasonWords(m.latestStock.reason) && m.latestStock.reason !== "not_listed" && <div className="muted">{reasonWords(m.latestStock.reason)}</div>}
+                            {m.latestStock.reason === "page_changed" && (
+                              <div>
+                                <Link to={`/suppliers/${m.supplierId}/rules`} className="button secondary">
+                                  Review stock rules
+                                </Link>
+                              </div>
+                            )}
+                            <div className="muted">Seen {formatWhen(m.latestStock.observedAt)}</div>
+                          </>
+                        ) : (
+                          <span className="muted">No stock check yet</span>
+                        )}
+                      </td>
                       <td role="cell" data-label="Last checked">
                         {m.lastLinkCheckAt ? formatWhen(m.lastLinkCheckAt) : <span className="muted">Never</span>}
                       </td>
@@ -255,6 +297,12 @@ export function MappingsPage({ api }: { api: Api }) {
                         <div className="row-actions">
                           <button type="button" className="button secondary" disabled={busy || !m.enabled} aria-label={`Check now ${label(m)}`} onClick={() => void checkOne(m)}>
                             Check now
+                          </button>
+                          <button type="button" className="button secondary" disabled={busy || !m.enabled} aria-label={`Check stock ${label(m)}`} onClick={() => void checkStock(m)}>
+                            Check stock
+                          </button>
+                          <button type="button" className="button secondary" disabled={busy} aria-label={`${history?.mapping.id === m.id ? "Hide" : "Show"} history ${label(m)}`} onClick={() => void toggleHistory(m)}>
+                            {history?.mapping.id === m.id ? "Hide history" : "History"}
                           </button>
                           <Link to={`/mappings/${m.id}/edit`} className="button secondary" aria-label={`Edit link ${label(m)}`}>
                             Edit
@@ -278,6 +326,26 @@ export function MappingsPage({ api }: { api: Api }) {
                 })}
               </tbody>
             </table>
+          )}
+          {history && (
+            <div className="subpanel">
+              <h3>Stock history for {label(history.mapping)}</h3>
+              {history.items.length === 0 ? (
+                <p className="muted">No stock checks yet.</p>
+              ) : (
+                <ul className="plain-list" aria-label={`Stock history for ${label(history.mapping)}`}>
+                  {history.items.map((o) => (
+                    <li key={o.id}>
+                      <span>
+                        <strong>{stockSentence(o, history.mapping.region)}</strong> · {formatWhen(o.observedAt)}
+                        {o.recipeVersion !== null ? ` · rules version ${o.recipeVersion}` : ""}
+                        {reasonWords(o.reason) && o.reason !== "not_listed" ? ` · ${reasonWords(o.reason)}` : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           )}
         </section>
       )}

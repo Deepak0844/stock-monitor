@@ -7,10 +7,13 @@ import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { startTestDb } from "../packages/db/test/harness.js";
 import {
+  createCaptureRepository,
   createImportPreviewRepository,
   createLoginSessionRepository,
   createMappingRepository,
   createNotificationRepository,
+  createObservationRepository,
+  createRecipeRepository,
   createShopifyRepository,
   createSupplierRepository,
   createSupplierSessionRepository,
@@ -73,11 +76,17 @@ const loginSessions = createLoginSessionRepository(db.appDb);
 const supplierSessions = createSupplierSessionRepository(db.appDb);
 const notifications = createNotificationRepository(db.appDb);
 const E2E_SESSION = { cookies: [{ name: "session", value: "e2e-session-value", domain: "shop.acme.example", path: "/" }], origins: [] };
-const resetBrowser = () => Object.assign(browser.behaviour, { open: "ok", finish: "ok", cancel: "ok", verify: "ok", verifyResult: "ok", checkPage: "ok", pageFor: undefined, page: { result: "ok", status: 200, title: "Blue Tee", heading: "Blue Tee", softNotFound: false }, vncPassword: "Ab3dE6gH", state: E2E_SESSION, delayMs: 0 });
+const DEFAULT_DESCRIPTION = { sections: [{ heading: "Blue Tee", level: 1, lines: ["Soft cotton."] }], buttons: [{ label: "Add to cart", enabled: true, section: "Blue Tee" }] };
+const resetBrowser = () => Object.assign(browser.behaviour, { open: "ok", finish: "ok", cancel: "ok", verify: "ok", verifyResult: "ok", checkPage: "ok", capture: "ok", description: DEFAULT_DESCRIPTION, descriptionFor: undefined, pageFor: undefined, page: { result: "ok", status: 200, title: "Blue Tee", heading: "Blue Tee", softNotFound: false }, vncPassword: "Ab3dE6gH", state: E2E_SESSION, delayMs: 0 });
 resetBrowser();
 
 await registerHandlers(queue, logger, {
   shopify: { repo, baseUrl, clientOptions: { sleep: async () => {} } },
+  extractionCapture: { captures: createCaptureRepository(db.appDb), mappings: createMappingRepository(db.appDb), suppliers, supplierSessions, browser: browserClient, key: encryption.key },
+  extractionChecks: {
+    mappings: createMappingRepository(db.appDb), suppliers, supplierSessions, recipes: createRecipeRepository(db.appDb), observations: createObservationRepository(db.appDb),
+    captures: createCaptureRepository(db.appDb), notifications, audit: createAuditWriter(db.appDb), browser: browserClient, key: encryption.key, sleep: async () => {},
+  },
   mappingLinks: { mappings: createMappingRepository(db.appDb), suppliers, supplierSessions, audit: createAuditWriter(db.appDb), browser: browserClient, key: encryption.key, sleep: async () => {} },
   supplierVerify: { suppliers, supplierSessions, notifications, audit: createAuditWriter(db.appDb), browser: browserClient, key: encryption.key, retryDelaysMs: [], sleep: async () => {} },
 });
@@ -91,7 +100,10 @@ const app = buildApp({
   logger,
   webRoot,
   suppliers: { repo: suppliers, lookup },
-  mappings: { mappings: createMappingRepository(db.appDb), suppliers, previews: createImportPreviewRepository(db.appDb), supplierSessions, queue, lookup },
+  mappings: { mappings: createMappingRepository(db.appDb), suppliers, previews: createImportPreviewRepository(db.appDb), supplierSessions, queue, lookup, observations: createObservationRepository(db.appDb) },
+  captures: { captures: createCaptureRepository(db.appDb), mappings: createMappingRepository(db.appDb), suppliers, supplierSessions, queue },
+  recipes: { recipes: createRecipeRepository(db.appDb), captures: createCaptureRepository(db.appDb), mappings: createMappingRepository(db.appDb), suppliers },
+  stockChecks: { mappings: createMappingRepository(db.appDb), suppliers, supplierSessions, recipes: createRecipeRepository(db.appDb), observations: createObservationRepository(db.appDb), queue },
   notifications: { repo: notifications },
   loginSessions: { suppliers, loginSessions, supplierSessions, browser: browserClient, key: encryption, notifications, queue },
   loginScreen: { allowedOrigins: [BASE_URL], vnc: { host: "127.0.0.1", port: vnc.port }, firstMessageTimeoutMs: 5000 },
@@ -139,6 +151,34 @@ const control = createServer(async (req, res) => {
       if (!made.ok) return reply(500, { error: "seed failed" });
       await supplierSessions.save(made.supplier.id, sealSessionState(E2E_SESSION, encryption.key, encryption.keyId), E2E_SESSION);
       await suppliers.markConnected(made.supplier.id);
+      return reply(200);
+    }
+    if (req.method === "POST" && req.url === "/control/reset-extraction") {
+      // A clean slate for the stock rule journeys: six variants, each with a link to one connected supplier that is allowed
+      // to be checked, and no rules, captures or answers. They run in their own projects, after every other journey.
+      await db.pool.query("truncate suppliers, shopify_variants, import_previews, audit_events cascade");
+      resetBrowser();
+      const made = await suppliers.create({ name: "Acme Supply", websiteUrl: "https://shop.acme.example/", loginUrl: null, checkIntervalMinutes: 60 });
+      if (!made.ok) return reply(500, { error: "seed failed" });
+      await supplierSessions.save(made.supplier.id, sealSessionState(E2E_SESSION, encryption.key, encryption.keyId), E2E_SESSION);
+      await suppliers.markConnected(made.supplier.id);
+      await suppliers.setPermission(made.supplier.id, { status: "granted", note: null });
+      for (let n = 1; n <= 6; n++) {
+        await db.pool.query(
+          `insert into shopify_variants (variant_id, product_id, product_title, variant_title, options, sku, inventory_item_id, tracked, inventory_policy)
+           values ($1, 'p1', 'Blue Tee', $2, '[]', $3, $4, true, 'DENY')`,
+          [`v${n}`, `Size ${n}`, `B036${n}`, `inv-${n}`],
+        );
+        await createMappingRepository(db.appDb).create({ variantId: `v${n}`, supplierId: made.supplier.id, url: `https://shop.acme.example/p/${n}`, note: null });
+      }
+      return reply(200);
+    }
+    if (req.method === "POST" && req.url === "/control/seed-recipe") {
+      // Turns rules on directly, so a journey about checking stock does not have to build them first.
+      const [row] = (await db.pool.query("select id from suppliers limit 1")).rows as { id: string }[];
+      const recipes = createRecipeRepository(db.appDb);
+      const saved = await recipes.create(row!.id, (JSON.parse(body) as { rules: unknown }).rules);
+      await recipes.activate(saved.id);
       return reply(200);
     }
     if (req.method === "POST" && req.url === "/control/vnc") {

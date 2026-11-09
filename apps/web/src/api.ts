@@ -210,7 +210,7 @@ export type StockApi = {
   observations(mappingId: string): Promise<Observation[]>;
 };
 export type MappingFilter = { supplierId?: string; status?: LinkStatus; search?: string };
-export type MappingInput = { variantId: string; supplierId: string; url: string; note?: string | null };
+export type MappingInput = { variantId: string; supplierId: string; url: string; note?: string | null; region?: string | null };
 export type UnmappedVariant = { variantId: string; productTitle: string; variantTitle: string; sku: string | null };
 export type UnmappedList = { total: number; unmapped: number; items: UnmappedVariant[] };
 
@@ -233,7 +233,7 @@ export type MappingsApi = {
   list(filter?: MappingFilter): Promise<Mapping[]>;
   get(id: string): Promise<Mapping>;
   create(input: MappingInput): Promise<Mapping>;
-  update(id: string, patch: { url?: string; note?: string | null; enabled?: boolean }): Promise<Mapping>;
+  update(id: string, patch: { url?: string; note?: string | null; region?: string | null; enabled?: boolean }): Promise<Mapping>;
   remove(id: string): Promise<void>;
   /** Asks for a check of one link. The answer arrives later, as the link's status. */
   checkLink(id: string): Promise<void>;
@@ -272,11 +272,11 @@ export type LoginSessionsApi = {
 /** Something that needs the owner's attention, in plain words. */
 export type AppNotification = {
   id: string;
-  kind: "supplier_needs_reconnect";
+  kind: "supplier_needs_reconnect" | "recipe_needs_review";
   supplierId: string;
   supplierName: string;
   message: string;
-  reason: "login_required" | "captcha" | "blocked" | "unknown";
+  reason: "login_required" | "captcha" | "blocked" | "unknown" | "page_changed";
   createdAt: string;
   readAt: string | null;
 };
