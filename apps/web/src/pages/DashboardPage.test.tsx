@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { ApiError } from "../api.js";
-import { aNotification, aSupplier, fakeApi } from "../test/fake-api.js";
+import { aMapping, aNotification, aSupplier, fakeApi } from "../test/fake-api.js";
 import { DashboardPage } from "./DashboardPage.js";
 
 afterEach(cleanup);
@@ -103,5 +103,38 @@ describe("Supplier connections", () => {
     const summary = card("Supplier connections");
     expect(await within(summary).findByText("1 of 3")).toBeInTheDocument();
     expect(within(summary).getByText("suppliers connected.")).toBeInTheDocument();
+  });
+
+  describe("supplier links card", () => {
+    it("says how many variants are not mapped and how many links need attention", async () => {
+      setup({
+        mappings: {
+          unmapped: vi.fn().mockResolvedValue({ total: 340, unmapped: 212, items: [] }),
+          list: vi.fn().mockResolvedValue([
+            aMapping({ id: "a", linkStatus: "never_worked" }),
+            aMapping({ id: "b", linkStatus: "page_missing" }),
+            aMapping({ id: "c", linkStatus: "moved" }),
+            aMapping({ id: "d", linkStatus: "works" }),
+            aMapping({ id: "e", linkStatus: "needs_login" }),
+          ]),
+        },
+      });
+      const c = within(await screen.findByRole("heading", { level: 2, name: "Supplier links" }).then((h) => h.closest("section")!));
+      expect(await c.findByText("212 of 340")).toBeInTheDocument();
+      expect(c.getByText(/variants not mapped\. 3 links need attention\./)).toBeInTheDocument();
+      expect(c.getByRole("link", { name: "See links" })).toHaveAttribute("href", "/mappings");
+    });
+
+    it("says so when Shopify has no variants yet", async () => {
+      setup();
+      const c = within(await screen.findByRole("heading", { level: 2, name: "Supplier links" }).then((h) => h.closest("section")!));
+      expect(await c.findByText("No variants from Shopify yet.")).toBeInTheDocument();
+    });
+
+    it("says it could not load, without breaking the rest of the page", async () => {
+      setup({ mappings: { unmapped: vi.fn().mockRejectedValue(new ApiError("x", 500)) } });
+      expect(await screen.findByText("Could not load links.")).toBeInTheDocument();
+      expect(screen.getByText("Nothing needs your attention.")).toBeInTheDocument();
+    });
   });
 });

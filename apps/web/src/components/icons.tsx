@@ -27,6 +27,12 @@ export const IconDashboard = () => (
     <rect x="3" y="14" width="7" height="7" rx="1.5" />
   </Icon>
 );
+export const IconLinks = () => (
+  <Icon>
+    <path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1" />
+    <path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1" />
+  </Icon>
+);
 export const IconSuppliers = () => (
   <Icon>
     <path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2" />

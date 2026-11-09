@@ -4,6 +4,9 @@ import { DashboardPage } from "./pages/DashboardPage.js";
 import { NotFoundPage } from "./pages/NotFoundPage.js";
 import { ProductsPage } from "./pages/ProductsPage.js";
 import { ConnectSupplierPage } from "./pages/ConnectSupplierPage.js";
+import { ImportMappingsPage } from "./pages/ImportMappingsPage.js";
+import { MappingFormPage } from "./pages/MappingFormPage.js";
+import { MappingsPage } from "./pages/MappingsPage.js";
 import { SupplierFormPage } from "./pages/SupplierFormPage.js";
 import { SuppliersPage } from "./pages/SuppliersPage.js";
 import { SettingsShopifyPage } from "./pages/SettingsShopifyPage.js";
@@ -24,6 +27,7 @@ export function App({ api = realApi }: { api?: Api }) {
   const [state, setState] = useState<State>({ kind: "loading" });
   const path = usePath();
   const editId = /^\/suppliers\/([^/]+)\/edit$/.exec(path)?.[1];
+  const mappingEditId = /^\/mappings\/([^/]+)\/edit$/.exec(path)?.[1];
   const connectId = /^\/suppliers\/([^/]+)\/connect$/.exec(path)?.[1];
 
   const checkSession = useCallback(() => {
@@ -88,6 +92,14 @@ export function App({ api = realApi }: { api?: Api }) {
         <SuppliersPage api={api} />
       ) : path === "/suppliers/new" ? (
         <SupplierFormPage api={api} />
+      ) : path === "/mappings" ? (
+        <MappingsPage api={api} />
+      ) : path === "/mappings/new" ? (
+        <MappingFormPage api={api} />
+      ) : path === "/mappings/import" ? (
+        <ImportMappingsPage api={api} />
+      ) : mappingEditId ? (
+        <MappingFormPage key={mappingEditId} api={api} id={mappingEditId} />
       ) : connectId ? (
         <ConnectSupplierPage key={connectId} api={api} supplierId={connectId} />
       ) : editId ? (

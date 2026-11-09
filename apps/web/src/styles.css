@@ -1099,3 +1099,45 @@ a.button {
     transition: none !important;
   }
 }
+
+/* ---------- Links (mappings) ---------- */
+.plain-list {
+  list-style: none;
+  margin: 0.5rem 0 1rem;
+  padding: 0;
+}
+.plain-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding: 0.625rem 0;
+  border-bottom: 1px solid var(--divider);
+  overflow-wrap: anywhere;
+}
+.plain-list li:last-child {
+  border-bottom: 0;
+}
+.field .label {
+  margin: 0 0 0.25rem;
+  font-weight: 600;
+}
+.links-table td .muted {
+  margin-top: 0.25rem;
+  font-size: 0.875rem;
+}
+.links-table td[data-label="Page"] {
+  overflow-wrap: anywhere;
+}
+fieldset[role="group"] {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+fieldset[role="group"] legend {
+  padding: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
