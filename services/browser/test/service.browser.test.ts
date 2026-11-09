@@ -209,3 +209,59 @@ describe("the control token", () => {
     expect(site.requests.filter((r) => r.path === "/account")).toHaveLength(0);
   });
 });
+
+describe("POST /check-page (real Chromium, fake supplier)", () => {
+  const check = async (path: string, state: unknown = empty) => {
+    const res = await fetch(`${service.url}/check-page`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ url: `${site.url}${path}`, state }),
+    });
+    return { status: res.status, body: (await res.json()) as { result: string; status: number | null; finalUrl: string | null; title: string | null; heading: string | null; softNotFound: boolean } };
+  };
+
+  it("reads the title, heading and address of a normal page", async () => {
+    const { body } = await check("/products/blue-widget", (await loginState()).state);
+    expect(body).toMatchObject({ result: "ok", status: 200, title: "Blue Widget 12 pack | Fake Supplier", heading: "Blue Widget 12 pack", softNotFound: false });
+    expect(new URL(body.finalUrl as string).pathname).toBe("/products/blue-widget");
+  });
+
+  it("never returns the query string, which can hold a secret", async () => {
+    const { body } = await check("/products/blue-widget?token=SECRET-VALUE");
+    expect(JSON.stringify(body)).not.toContain("SECRET-VALUE");
+    expect(body.finalUrl).not.toContain("?");
+  });
+
+  it.each([
+    ["/products/nothing", 404, true],
+    ["/gone410", 410, true],
+    ["/soft404", 200, true],
+  ])("sees %s as gone", async (path, status, softNotFound) => {
+    const { body } = await check(path);
+    expect(body.status).toBe(status);
+    expect(body.softNotFound).toBe(softNotFound);
+  });
+
+  it("follows a redirect to the home page and says where it ended", async () => {
+    const { body } = await check("/redirect-home");
+    expect(new URL(body.finalUrl as string).pathname).toBe("/");
+  });
+
+  it("follows a redirect to a category", async () => {
+    const { body } = await check("/redirect-category");
+    expect(new URL(body.finalUrl as string).pathname).toBe("/collections/widgets");
+  });
+
+  it("says a different page title when the page was renamed", async () => {
+    expect((await check("/renamed")).body.title).toBe("Red Gadget | Fake Supplier");
+  });
+
+  it("a supplier that cannot be reached is unreachable, so the link is never judged", async () => {
+    const res = await fetch(`${service.url}/check-page`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ url: `${deadOrigin}/p`, state: empty }),
+    });
+    expect(await res.json()).toMatchObject({ result: "unreachable", softNotFound: false });
+  });
+});

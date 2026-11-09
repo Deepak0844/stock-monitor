@@ -9,6 +9,10 @@ export const jobSchemas = {
   // Which supplier to check, and nothing else. The worker reads the saved session from the database, so no
   // session, cookie or token is ever in a job.
   "supplier.session.verify": z.object({ supplierId: z.uuid() }).strict(),
+  // Which link to check, and nothing else. A run for a whole supplier is just the supplier's id. The worker reads the
+  // saved session and the address from the database, so no session, cookie or address is ever in a job.
+  "mapping.link.check": z.object({ mappingId: z.uuid() }).strict(),
+  "mapping.links.check": z.object({ supplierId: z.uuid() }).strict(),
 } as const;
 
 export type JobName = keyof typeof jobSchemas;

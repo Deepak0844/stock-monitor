@@ -16,7 +16,7 @@ afterAll(async () => {
 });
 beforeEach(() => {
   fake.requests.length = 0;
-  Object.assign(fake.behaviour, { open: "ok", finish: "ok", cancel: "ok", verify: "ok", verifyResult: "ok", state: { cookies: [], origins: [] }, vncPassword: "Ab3dE6gH", delayMs: 0 });
+  Object.assign(fake.behaviour, { open: "ok", finish: "ok", cancel: "ok", verify: "ok", verifyResult: "ok", checkPage: "ok", state: { cookies: [], origins: [] }, vncPassword: "Ab3dE6gH", delayMs: 0 });
 });
 
 describe("openSession", () => {
@@ -130,5 +130,33 @@ describe("verify", () => {
     const slow = await client({ timeoutMs: 100 }).verify({ url: "https://a.example/", state });
     expect(slow).toEqual({ ok: false, reason: "unavailable" });
     expect(JSON.stringify([down, slow])).not.toContain(COOKIE);
+  });
+});
+
+describe("checkPage", () => {
+  const state = { cookies: [{ name: "s", value: COOKIE, domain: "shop.acme.example", path: "/" }], origins: [] };
+
+  it("sends the address and session with the token and returns what the page was", async () => {
+    const r = await client().checkPage({ url: "https://shop.acme.example/p", state });
+    expect(r).toEqual({ ok: true, result: "ok", status: 200, finalUrl: "https://shop.acme.example/p", title: "Blue Widget", heading: "Blue Widget", softNotFound: false, blockedRequests: 0 });
+    expect(fake.requests[0]).toMatchObject({ method: "POST", path: "/check-page", auth: `Bearer ${FAKE_CONTROL_TOKEN}` });
+  });
+
+  it("passes on a missing page", async () => {
+    fake.behaviour.page = { result: "ok", status: 404, finalUrl: "https://shop.acme.example/p", title: "Not found", heading: "Not found", softNotFound: true };
+    expect(await client().checkPage({ url: "https://shop.acme.example/p", state })).toMatchObject({ ok: true, status: 404, softNotFound: true });
+  });
+
+  it("says failed for an error or an answer that makes no sense, and unavailable when nothing answers", async () => {
+    fake.behaviour.checkPage = "fail";
+    expect(await client().checkPage({ url: "https://a.example/", state })).toEqual({ ok: false, reason: "failed" });
+    fake.behaviour.checkPage = "garbage";
+    expect(await client().checkPage({ url: "https://a.example/", state })).toEqual({ ok: false, reason: "failed" });
+    expect(await client({ baseUrl: "http://127.0.0.1:1" }).checkPage({ url: "https://a.example/", state })).toEqual({ ok: false, reason: "unavailable" });
+  });
+
+  it("never puts the session in an error", async () => {
+    fake.behaviour.checkPage = "fail";
+    expect(JSON.stringify(await client().checkPage({ url: "https://a.example/", state }))).not.toContain(COOKIE);
   });
 });

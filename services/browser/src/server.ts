@@ -1,9 +1,10 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { isSessionState, type SessionState } from "@stock-monitor/supplier-session";
-import type { VerifyOutcome, VerifyRequest } from "./verify.js";
+import type { CheckPageOutcome, CheckPageRequest, VerifyOutcome, VerifyRequest } from "./verify.js";
 
 export type VerifyFn = (request: VerifyRequest) => Promise<VerifyOutcome>;
+export type CheckPageFn = (request: CheckPageRequest) => Promise<CheckPageOutcome>;
 export type SessionsApi = {
   open(url: string): Promise<{ ok: true; id: string; expiresAt: string } | { ok: false; reason: "busy" | "failed" }>;
   /** The saved session, with the window closed. null when there is no such open window. */
@@ -14,6 +15,8 @@ export type ControlServerOptions = {
   /** Every call except /health must carry this as a Bearer token. */
   token: string;
   verify: VerifyFn;
+  /** Loads one page with a saved session and says what happened to the link. Left out, there is no /check-page route. */
+  checkPage?: CheckPageFn;
   /** The live login window. Left out, the service has no /sessions routes. */
   sessions?: SessionsApi;
   /** Handed to the caller with each new window, so it can log in to the shared screen. */
@@ -67,7 +70,7 @@ const SESSION_PATH = /^\/sessions(?:\/([^/]+?)(\/finish)?)?$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The service's only door. Plain HTTP on the private network: the caller proves itself with the control token. */
-export function createControlServer({ token, verify, sessions, vncPassword, log = () => {}, maxBodyBytes = 5_000_000 }: ControlServerOptions): Server {
+export function createControlServer({ token, verify, checkPage, sessions, vncPassword, log = () => {}, maxBodyBytes = 5_000_000 }: ControlServerOptions): Server {
   const tokenDigest = digest(token);
   const authorised = (header: string | undefined) => {
     const given = /^Bearer (.+)$/.exec(header ?? "")?.[1];
@@ -129,18 +132,18 @@ export function createControlServer({ token, verify, sessions, vncPassword, log 
     if (!authorised(req.headers.authorization)) return reply(res, 401, { error: "unauthorised" });
     const session = sessions ? SESSION_PATH.exec(path) : null;
     if (sessions && session) return handleSession(sessions, req, res, session[1], session[2] === "/finish");
-    if (req.method !== "POST" || path !== "/verify") return reply(res, 404, { error: "not_found" });
+    if (req.method !== "POST" || (path !== "/verify" && !(path === "/check-page" && checkPage))) return reply(res, 404, { error: "not_found" });
 
     const raw = await readBody(req, maxBodyBytes);
     if (raw === null) return reply(res, 413, { error: "too_large" }, { connection: "close" });
     const request = parse(raw);
     if (!request) return reply(res, 400, { error: "invalid_request" });
     try {
-      reply(res, 200, await verify(request));
+      reply(res, 200, path === "/check-page" && checkPage ? await checkPage(request) : await verify(request));
     } catch (error) {
       // The name only. A browser error message can contain the address and with it a secret.
-      log(`verify failed: ${error instanceof Error ? error.name : "unknown"}`);
-      reply(res, 500, { error: "verify_failed" });
+      log(`${path === "/check-page" ? "check-page" : "verify"} failed: ${error instanceof Error ? error.name : "unknown"}`);
+      reply(res, 500, { error: path === "/check-page" ? "check_failed" : "verify_failed" });
     }
   });
 }
