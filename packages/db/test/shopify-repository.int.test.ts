@@ -36,7 +36,7 @@ const variant = (n: number, over: Partial<CatalogVariant> = {}): CatalogVariant 
 });
 
 const reset = async () => {
-  await t.pool.query("truncate shopify_connection, shopify_variants, shopify_sync_runs");
+  await t.pool.query("truncate shopify_connection, shopify_variants, shopify_sync_runs cascade");
 };
 
 describe("connection: one row, credentials encrypted", () => {

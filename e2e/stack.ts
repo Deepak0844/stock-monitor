@@ -106,7 +106,7 @@ const control = createServer(async (req, res) => {
   };
   try {
     if (req.method === "POST" && req.url === "/control/reset") {
-      await db.pool.query("truncate shopify_connection, shopify_variants, shopify_sync_runs");
+      await db.pool.query("truncate shopify_connection, shopify_variants, shopify_sync_runs cascade");
       fake.setCredentials({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET });
       fake.setMode("ok");
       serve(DEFAULT_SCOPES);

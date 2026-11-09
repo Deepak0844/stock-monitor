@@ -4,3 +4,5 @@ export * from "./supplier-repository.js";
 export * from "./login-session-repository.js";
 export * from "./supplier-session-repository.js";
 export * from "./notification-repository.js";
+export * from "./mapping-repository.js";
+export * from "./import-preview-repository.js";

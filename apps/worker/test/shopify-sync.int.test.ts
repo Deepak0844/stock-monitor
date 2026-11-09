@@ -68,7 +68,7 @@ afterAll(async () => {
 });
 
 const fresh = async () => {
-  await t.pool.query("truncate shopify_connection, shopify_variants, shopify_sync_runs");
+  await t.pool.query("truncate shopify_connection, shopify_variants, shopify_sync_runs cascade");
   logLines.length = 0;
   fake = await createFakeShopify({ clientId: CLIENT_ID, clientSecret: SECRET });
 };
