@@ -11,7 +11,7 @@ let t: TestDb;
 let sid: string;
 let acme = "";
 let linkId = "";
-const queued: { name: string; payload: unknown }[] = [];
+const queued: { name: string; payload: unknown; options?: unknown }[] = [];
 let enqueueFails = false;
 const key = randomBytes(32);
 const logger = createLogger({ level: "silent", stream: new Writable({ write: (_c, _e, cb) => cb() }) });
@@ -24,9 +24,9 @@ const app = () =>
       suppliers: createSupplierRepository(t.appDb),
       supplierSessions: createSupplierSessionRepository(t.appDb),
       queue: {
-        enqueue: async (name: string, payload: unknown) => {
+        enqueue: async (name: string, payload: unknown, options?: unknown) => {
           if (enqueueFails) throw new Error("queue down");
-          queued.push({ name, payload });
+          queued.push({ name, payload, ...(options ? { options } : {}) });
           return null;
         },
       } as never,
@@ -119,7 +119,21 @@ describe("check all of a supplier's links", () => {
   it("queues one job that carries only the supplier's id", async () => {
     const r = await post(`/api/suppliers/${acme}/check-links`);
     expect(r).toMatchObject({ status: 202, body: { queued: true, links: 1 } });
-    expect(queued).toEqual([{ name: "mapping.links.check", payload: { supplierId: acme } }]);
+    expect(queued).toMatchObject([{ name: "mapping.links.check", payload: { supplierId: acme } }]);
+  });
+  it("lets a long run finish and never starts it twice: the job gets time for every page and no retry", async () => {
+    await suppliers().setPermission(acme, { status: "granted", note: null, pauseSeconds: 60 });
+    for (let n = 2; n <= 60; n++) {
+      await t.pool.query(
+        `insert into shopify_variants (variant_id, product_id, product_title, variant_title, options, sku, inventory_item_id, tracked, inventory_policy)
+         values ($1, 'p1', 'Tee', 'V', '[]', $1, $1, true, 'DENY')`,
+        [`w${n}`],
+      );
+      await createMappingRepository(t.appDb).create({ variantId: `w${n}`, supplierId: acme, url: `https://shop.acme.example/p/${n}`, note: null });
+    }
+    await post(`/api/suppliers/${acme}/check-links`);
+    // 60 links, a 60 second pause and some time for each page itself: well over the queue's default 15 minutes.
+    expect(queued[0]?.options).toEqual({ expireInSeconds: 60 * (60 + 30), retryLimit: 0 });
   });
   it("refuses when the supplier has no recorded permission", async () => {
     await suppliers().setPermission(acme, { status: "unknown", note: null });

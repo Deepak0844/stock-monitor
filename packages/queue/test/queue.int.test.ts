@@ -22,6 +22,16 @@ const started = async () => {
 };
 
 describe("queue", () => {
+  it("accepts how long a job may run and that it must not be retried, and still runs it once", async () => {
+    const q = createQueue({ connectionString: t.appUrl });
+    await q.start();
+    const seen: string[] = [];
+    await q.work("health.ping", async ({ message }) => void seen.push(message));
+    await q.enqueue("health.ping", { message: "long job" }, { expireInSeconds: 3 * 3600, retryLimit: 0 });
+    await expect.poll(() => seen, { timeout: 20_000 }).toEqual(["long job"]);
+    await q.stop();
+  }, 40_000);
+
   it("runs the handler with the validated payload when a job is enqueued", async () => {
     const q = await started();
     const received = new Promise<{ message: string }>((resolve) => {
