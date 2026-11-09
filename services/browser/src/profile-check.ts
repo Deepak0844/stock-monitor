@@ -48,11 +48,11 @@ export function lastVisited(profile: string): { url: string; title: string } | n
   }
 }
 
-export type ProfileCheckOptions = { proxy: GuardProxy; sandbox: boolean; headless: boolean; baseDir?: string; settleMs?: number;
+export type ProfileCheckOptions = { proxy: GuardProxy; sandbox: boolean; headless: boolean; baseDir?: string; settleMs?: number; language?: string;
   /** The screen the browser opens on. Not the one VNC shows, or a check would appear in the owner's login window. */
   display?: string };
 
-export function createProfileChecker({ proxy, sandbox, headless, baseDir = join(tmpdir(), "sm-profiles"), settleMs = 12_000, display }: ProfileCheckOptions) {
+export function createProfileChecker({ proxy, sandbox, headless, baseDir = join(tmpdir(), "sm-profiles"), settleMs = 12_000, display, language }: ProfileCheckOptions) {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
   /** Starts the browser on `profile`. Returns once it is running; `stop` quits it the way a person would. */
@@ -80,7 +80,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = join(
   async function seed(profile: string, state: VerifyRequest["state"]) {
     await rm(profile, { recursive: true, force: true });
     await mkdir(profile, { recursive: true });
-    await seedProfile(profile);
+    await seedProfile(profile, language);
     const b = await launch(profile, "about:blank", true);
     try {
       const port = await waitForDebuggingPort(profile, b.child, 20_000);

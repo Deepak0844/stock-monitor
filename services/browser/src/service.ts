@@ -30,6 +30,8 @@ export type BrowserServiceOptions = {
   profileSettleMs?: number;
   /** Test only: where the profile check keeps its profiles. */
   profileDir?: string;
+  /** The owner's real browser language, passed to plain windows. */
+  language?: string;
   /** The VNC password to give callers who open a window. */
   vncPassword?: string;
   /** false opens login windows with no display, for a machine that has none (tests). The container shows them on its virtual screen. */
@@ -73,9 +75,10 @@ export async function startBrowserService(options: BrowserServiceOptions): Promi
     sandbox: options.sandbox ?? true,
     headless: !(options.headedWindows ?? true),
   };
+  const plainOptions = { ...windowOptions, language: options.language };
   const openWindow =
     options.loginWindowMode === "plain"
-      ? createPlainWindowOpener({ ...windowOptions, exposePage: options.exposePageForTests })
+      ? createPlainWindowOpener({ ...plainOptions, exposePage: options.exposePageForTests })
       : createWindowOpener(windowOptions);
   const sessions = createSessions({
     timeoutMs: options.sessionTimeoutMs,
@@ -89,7 +92,7 @@ export async function startBrowserService(options: BrowserServiceOptions): Promi
 
   const checkInProfile =
     options.verifyMode === "profile"
-      ? createProfileChecker({ ...windowOptions, baseDir: options.profileDir, settleMs: options.profileSettleMs, display: process.env.CHECK_DISPLAY })
+      ? createProfileChecker({ ...plainOptions, baseDir: options.profileDir, settleMs: options.profileSettleMs, display: process.env.CHECK_DISPLAY })
       : null;
 
   const server = createControlServer({

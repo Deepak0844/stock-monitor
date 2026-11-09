@@ -18,6 +18,8 @@ export type Config = {
   loginWindowMode: "controlled" | "plain";
   /** SPIKE. `headless` is the existing check. `profile` checks from a persistent, uncontrolled, headed Chromium. */
   verifyMode: "headless" | "profile";
+  /** The owner's real browser language, for example en-IN. Not set means Chromium's own default. */
+  language: string | undefined;
 };
 
 const MIN_TOKEN = 32;
@@ -66,6 +68,17 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
   const verifyMode = env.VERIFY_MODE === undefined || env.VERIFY_MODE === "" ? "headless" : env.VERIFY_MODE;
   if (verifyMode !== "headless" && verifyMode !== "profile") throw new Error("VERIFY_MODE must be headless or profile.");
   if (verifyMode === "profile" && !headed) throw new Error("VERIFY_MODE=profile needs a display, so HEADLESS_WINDOWS must not be 1.");
+  const language = env.BROWSER_LANGUAGE === "" ? undefined : env.BROWSER_LANGUAGE;
+  if (language !== undefined && !/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(language))
+    throw new Error("BROWSER_LANGUAGE must look like en-IN or en-US.");
+  // Chromium reads TZ itself and falls back to UTC without a word for a name it does not know.
+  if (env.TZ) {
+    try {
+      new Intl.DateTimeFormat(undefined, { timeZone: env.TZ });
+    } catch {
+      throw new Error("TZ must be a real timezone name such as Asia/Kolkata.");
+    }
+  }
 
   return {
     token,
@@ -78,5 +91,6 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     vncPassword: headed ? vncPassword : undefined,
     loginWindowMode: mode,
     verifyMode,
+    language,
   };
 }

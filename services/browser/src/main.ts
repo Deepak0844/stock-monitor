@@ -22,6 +22,7 @@ const service = await startBrowserService({
   sessionTimeoutMs: config.sessionTimeoutMs,
   loginWindowMode: config.loginWindowMode,
   verifyMode: config.verifyMode,
+  language: config.language,
   vncPassword: config.vncPassword,
   guard: config.allowHosts ? { allowHosts: config.allowHosts } : undefined,
   log: (line) => console.log(line),

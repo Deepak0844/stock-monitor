@@ -18,6 +18,7 @@ export type PlainWindowOptions = {
   sandbox: boolean;
   /** true only for a machine with no display. The container shows the window on its virtual screen. */
   headless: boolean;
+  language?: string;
   /** Test only: attach to the browser straight away so a test can type into it. A person's window is never attached early. */
   exposePage?: boolean;
   startupTimeoutMs?: number;
@@ -57,7 +58,7 @@ export function plainLaunchArgs(o: {
 }
 
 /** Before the browser first runs: no saving of passwords, no autofill, no sign-in, so a typed password is never kept. */
-export async function seedProfile(profile: string): Promise<void> {
+export async function seedProfile(profile: string, language?: string): Promise<void> {
   await mkdir(join(profile, "Default"), { recursive: true });
   const preferences = {
     credentials_enable_service: false,
@@ -65,6 +66,8 @@ export async function seedProfile(profile: string): Promise<void> {
     autofill: { profile_enabled: false, credit_card_enabled: false },
     signin: { allowed: false },
     browser: { check_default_browser: false },
+    // What pages see as the browser's language. Chromium on Linux ignores --lang for this and reads the preference.
+    ...(language ? { intl: { accept_languages: `${language},${language.split("-")[0]}` } } : {}),
     // Keeps cookies that have no expiry when the browser closes, so the login can be read from the profile.
     session: { restore_on_startup: 1 },
   };
@@ -134,6 +137,7 @@ export function createPlainWindowOpener({
   proxy,
   sandbox,
   headless,
+  language,
   exposePage = false,
   startupTimeoutMs = 20_000,
 }: PlainWindowOptions): (url: string) => Promise<PlainOpenedWindow> {
@@ -158,7 +162,7 @@ export function createPlainWindowOpener({
     };
 
     try {
-      await seedProfile(profile);
+      await seedProfile(profile, language);
       child = spawn(
         chromium.executablePath(),
         plainLaunchArgs({

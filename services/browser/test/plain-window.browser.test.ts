@@ -151,6 +151,17 @@ describe.skipIf(!linux)("nothing controls the browser while the person uses it",
   });
 });
 
+describe.skipIf(!linux)("the owner's own language", () => {
+  it("is what pages see in the plain window, and Chromium's default when none is set", async () => {
+    const mine = await start({ exposePageForTests: true, language: "en-IN" });
+    await open(mine, `${site.url}/`);
+    expect(await mine.loginPage()!.evaluate(() => [navigator.language, navigator.languages.join()])).toEqual(["en-IN", "en-IN,en"]);
+    const dflt = await start({ exposePageForTests: true });
+    await open(dflt, `${site.url}/`);
+    expect(await dflt.loginPage()!.evaluate(() => navigator.language)).toBe("en-US");
+  });
+});
+
 describe.skipIf(!linux)("the plain window is as guarded as the controlled one", () => {
   it("cannot be steered to a private address by typing one in", async () => {
     await open(plain, `${site.url}/login`);
