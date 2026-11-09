@@ -106,9 +106,19 @@ The browser container runs in UTC with no language set, which can look odd next 
 
 Both modes look and work the same to you, including the **Paste text** box. In `plain` mode a password you type is never saved by the browser (saving, autofill and sign-in are turned off in its profile), the sandbox stays on, and everything it loads still goes through the same network guard. `plain` does not disguise anything: the browser says what it is. It also does not make the supplier's later automated checks any less visible to the supplier, and the supplier's terms still decide whether those are allowed.
 
+### Record your permission decision
+
+After connecting, open the supplier's **Edit** page. The **Permission to check automatically** box is your own record of whether the supplier allows automatic checks: **Not recorded** (the default), **Allowed** or **Not allowed**, with a note (for example who you asked and when) and the **pause between pages** in seconds. Link checks are refused until the supplier is **Allowed**. It is a reminder and a record, not a legal control: you set it, and the supplier's terms still decide what is allowed. Set the pause to at least the delay the supplier's `robots.txt` asks for.
+
 ### The pilot supplier
 
-_To be filled in with the pilot supplier's name, whether it uses a puzzle or a code, how long a login lasted, and anything it showed, once the pilot is connected. Private details stay out of this file._
+What the pilot supplier showed when it was connected by hand (2026-11), with its name left out because this repository is public:
+
+- **The login showed a puzzle (CAPTCHA).** It was solved by hand in the live window, and the login was accepted.
+- **The saved login lasted for at least several hours.** The exact limit is not known yet. The app will notice when it ends and ask you to reconnect, so there is nothing to do in advance.
+- **The owner read the supplier's terms and recorded the permission decision** on the supplier's Edit page before any check.
+
+Earlier trials with other suppliers showed that a supplier's bot protection can accept a login by hand and still refuse the app's automated check (the check then shows **Blocked**, never a broken link or "out of stock"). If that happens, the options are to ask the supplier for a price list or feed, or to leave that supplier paused.
 
 ## Server hardening (the checklist from the design discussion)
 
