@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ApiError, type Api, type Supplier, type SupplierInput } from "../api.js";
 import { Notice } from "../components/Notice.js";
-import { PermissionPanel } from "../components/PermissionPanel.js";
+import { PermissionPanel, RegionPanel } from "../components/PermissionPanel.js";
 import { Link, navigate } from "../router.js";
 import { useTitle } from "../useTitle.js";
 
@@ -69,6 +69,11 @@ export function SupplierFormPage({ api, id }: { api: Api; id?: string }) {
           {load.supplier && (
             <section className="panel">
               <PermissionPanel api={api} supplier={load.supplier} />
+            </section>
+          )}
+          {load.supplier && (
+            <section className="panel">
+              <RegionPanel api={api} supplier={load.supplier} />
             </section>
           )}
         </>

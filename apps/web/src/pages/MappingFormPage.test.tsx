@@ -103,3 +103,35 @@ describe("editing a link", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("That link does not exist.");
   });
 });
+
+describe("region", () => {
+  it("adds an optional region to a new link", async () => {
+    const { api, user } = setup();
+    await screen.findByRole("option", { name: /Blue Tee/ });
+    await user.selectOptions(screen.getByLabelText("Variant", { exact: true }), "v1");
+    await user.selectOptions(screen.getByLabelText("Supplier", { exact: true }), aSupplier().id);
+    await user.type(screen.getByLabelText("Supplier page address"), "https://shop.acme.example/p/blue");
+    await user.type(screen.getByLabelText("Region (optional)"), "Hull");
+    await user.click(screen.getByRole("button", { name: "Add link" }));
+    await waitFor(() => expect(api.mappings.create).toHaveBeenCalledWith(expect.objectContaining({ region: "Hull" })));
+  });
+
+  it("leaves the region out when it is empty, so the supplier's default is used", async () => {
+    const { api, user } = setup();
+    await screen.findByRole("option", { name: /Blue Tee/ });
+    await user.selectOptions(screen.getByLabelText("Variant", { exact: true }), "v1");
+    await user.selectOptions(screen.getByLabelText("Supplier", { exact: true }), aSupplier().id);
+    await user.type(screen.getByLabelText("Supplier page address"), "https://shop.acme.example/p/blue");
+    await user.click(screen.getByRole("button", { name: "Add link" }));
+    await waitFor(() => expect(api.mappings.create).toHaveBeenCalledWith({ variantId: "v1", supplierId: aSupplier().id, url: "https://shop.acme.example/p/blue", note: null }));
+  });
+
+  it("changes only the region of an existing link, and clears it", async () => {
+    const { api, user } = setup({ mappings: { get: vi.fn().mockResolvedValue(aMapping({ region: "Hull" })) } }, { id: aMapping().id });
+    const region = await screen.findByLabelText("Region (optional)");
+    expect(region).toHaveValue("Hull");
+    await user.clear(region);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(api.mappings.update).toHaveBeenCalledWith(aMapping().id, { region: null }));
+  });
+});

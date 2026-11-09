@@ -37,7 +37,7 @@ export function DashboardPage({ api }: { api: Api }) {
   const [notes, setNotes] = useState<AppNotification[] | null>(null);
   const [notesError, setNotesError] = useState<string | null>(null);
   const [suppliers, setSuppliers] = useState<Supplier[] | "error" | null>(null);
-  const [links, setLinks] = useState<{ unmapped: number; total: number; attention: number } | "error" | null>(null);
+  const [links, setLinks] = useState<{ unmapped: number; total: number; attention: number; answers: { in: number; out: number; unsure: number } } | "error" | null>(null);
 
   const loadNotes = useCallback(() => {
     setNotesError(null);
@@ -53,7 +53,18 @@ export function DashboardPage({ api }: { api: Api }) {
 
   useEffect(() => {
     Promise.all([api.mappings.unmapped(), api.mappings.list({})])
-      .then(([u, all]) => setLinks({ unmapped: u.unmapped, total: u.total, attention: all.filter((m) => NEEDS_ATTENTION.has(m.linkStatus)).length }))
+      .then(([u, all]) =>
+        setLinks({
+          unmapped: u.unmapped,
+          total: u.total,
+          attention: all.filter((m) => NEEDS_ATTENTION.has(m.linkStatus)).length,
+          answers: {
+            in: all.filter((m) => m.latestStock?.answer === "in_stock").length,
+            out: all.filter((m) => m.latestStock?.answer === "out_of_stock").length,
+            unsure: all.filter((m) => m.latestStock?.answer === "cannot_tell").length,
+          },
+        }),
+      )
       .catch(() => setLinks("error"));
   }, [api]);
 
@@ -76,6 +87,16 @@ export function DashboardPage({ api }: { api: Api }) {
         : links.total === 0
           ? { value: "0", note: "No variants from Shopify yet." }
           : { value: `${links.unmapped} of ${links.total}`, note: `variants not mapped. ${links.attention} ${links.attention === 1 ? "link needs" : "links need"} attention.` };
+
+  const answered = links !== null && links !== "error" ? links.answers.in + links.answers.out + links.answers.unsure : 0;
+  const stockCard =
+    links === null
+      ? { value: "…", note: "Loading…" }
+      : links === "error"
+        ? { value: "–", note: "Could not load stock answers." }
+        : answered === 0
+          ? { value: "None", note: "No stock checks yet." }
+          : { value: `${links.answers.in} in stock`, note: `${links.answers.out} out of stock, ${links.answers.unsure} cannot tell.` };
 
   return (
     <>
@@ -109,9 +130,15 @@ export function DashboardPage({ api }: { api: Api }) {
             {notes.map((n) => (
               <li key={n.id}>
                 <span>{n.message}</span>
-                <Link to={`/suppliers/${n.supplierId}/connect`} className="button primary inline" aria-label={`Reconnect supplier ${n.supplierName}`}>
-                  Reconnect supplier
-                </Link>
+                {n.kind === "recipe_needs_review" ? (
+                  <Link to={`/suppliers/${n.supplierId}/rules`} className="button primary inline" aria-label={`Review stock rules ${n.supplierName}`}>
+                    Review stock rules
+                  </Link>
+                ) : (
+                  <Link to={`/suppliers/${n.supplierId}/connect`} className="button primary inline" aria-label={`Reconnect supplier ${n.supplierName}`}>
+                    Reconnect supplier
+                  </Link>
+                )}
               </li>
             ))}
           </ul>
@@ -133,6 +160,7 @@ export function DashboardPage({ api }: { api: Api }) {
             ) : undefined
           }
         />
+        <SummaryCard icon={<IconRefresh />} title="Stock answers" value={stockCard.value} note={stockCard.note} />
         <SummaryCard icon={<IconRefresh />} title="Stock checks" value="None" note="No checks scheduled." />
         <SummaryCard
           icon={<IconApprovals />}

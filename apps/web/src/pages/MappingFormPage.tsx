@@ -4,11 +4,11 @@ import { Notice } from "../components/Notice.js";
 import { Link, navigate } from "../router.js";
 import { useTitle } from "../useTitle.js";
 
-type Field = "variant" | "supplier" | "url" | "note";
+type Field = "variant" | "supplier" | "url" | "note" | "region";
 type Errors = Partial<Record<Field, string>>;
 type Load = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; mapping: Mapping | null };
 
-const ORDER: Field[] = ["variant", "supplier", "url", "note"];
+const ORDER: Field[] = ["variant", "supplier", "url", "note", "region"];
 const FIELD_OF_CODE: Record<string, Field> = {
   variant_not_found: "variant",
   already_mapped: "variant",
@@ -16,6 +16,7 @@ const FIELD_OF_CODE: Record<string, Field> = {
   invalid_url: "url",
   wrong_site: "url",
   invalid_note: "note",
+  invalid_region: "region",
 };
 const message = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong. Please try again.");
 
@@ -70,6 +71,7 @@ function MappingForm({ api, mapping }: { api: Api; mapping: Mapping | null }) {
   const [supplierId, setSupplierId] = useState("");
   const [url, setUrl] = useState(mapping?.url ?? "");
   const [note, setNote] = useState(mapping?.note ?? "");
+  const [region, setRegion] = useState(mapping?.region ?? "");
   const [find, setFind] = useState("");
   const [variants, setVariants] = useState<UnmappedVariant[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -81,6 +83,7 @@ function MappingForm({ api, mapping }: { api: Api; mapping: Mapping | null }) {
     supplier: useRef<HTMLSelectElement>(null),
     url: useRef<HTMLInputElement>(null),
     note: useRef<HTMLInputElement>(null),
+    region: useRef<HTMLInputElement>(null),
   };
 
   useEffect(() => {
@@ -114,12 +117,13 @@ function MappingForm({ api, mapping }: { api: Api; mapping: Mapping | null }) {
     setSaving(true);
     try {
       if (mapping) {
-        const patch: { url?: string; note?: string | null } = {};
+        const patch: { url?: string; note?: string | null; region?: string | null } = {};
         if (trimmed !== mapping.url) patch.url = trimmed;
         if ((note.trim() || null) !== mapping.note) patch.note = note.trim() || null;
+        if ((region.trim() || null) !== mapping.region) patch.region = region.trim() || null;
         if (Object.keys(patch).length > 0) await api.mappings.update(mapping.id, patch);
       } else {
-        await api.mappings.create({ variantId, supplierId, url: trimmed, note: note.trim() || null });
+        await api.mappings.create({ variantId, supplierId, url: trimmed, note: note.trim() || null, ...(region.trim() ? { region: region.trim() } : {}) });
       }
       navigate("/mappings");
     } catch (error) {
@@ -202,6 +206,13 @@ function MappingForm({ api, mapping }: { api: Api; mapping: Mapping | null }) {
         <label htmlFor="note">Note (optional)</label>
         <input id="note" ref={refs.note as React.RefObject<HTMLInputElement>} type="text" autoComplete="off" value={note} onChange={(e) => setNote(e.target.value)} {...described("note")} />
         {err("note")}
+      </div>
+
+      <div className="field">
+        <label htmlFor="region">Region (optional)</label>
+        <input id="region" ref={refs.region as React.RefObject<HTMLInputElement>} type="text" autoComplete="off" value={region} onChange={(e) => setRegion(e.target.value)} {...described("region")} />
+        <p className="hint">For suppliers that list stock by region: the region's name as the supplier writes it. Left empty, the supplier's default region is used.</p>
+        {err("region")}
       </div>
 
       {formError && (

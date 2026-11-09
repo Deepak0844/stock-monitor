@@ -138,3 +138,34 @@ describe("Supplier connections", () => {
     });
   });
 });
+
+describe("stock rules on the dashboard", () => {
+  it("a changed-pages notification links to the stock rules, not to Reconnect", async () => {
+    setup({ notifications: { list: vi.fn().mockResolvedValue([aNotification({ kind: "recipe_needs_review", reason: "page_changed", message: "Acme Supply's pages changed. Review its stock rules." })]) } });
+    expect(await screen.findByText("Acme Supply's pages changed. Review its stock rules.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Review stock rules Acme Supply" })).toHaveAttribute("href", "/suppliers/11111111-1111-4111-8111-111111111111/rules");
+    expect(screen.queryByRole("link", { name: /Reconnect supplier/ })).toBeNull();
+  });
+
+  it("an old reconnect notification still links to Reconnect", async () => {
+    setup({ notifications: { list: vi.fn().mockResolvedValue([aNotification()]) } });
+    expect(await screen.findByRole("link", { name: "Reconnect supplier Acme Supply" })).toBeInTheDocument();
+  });
+
+  it("a card counts the latest stock answers", async () => {
+    const stock = (answer: "in_stock" | "out_of_stock" | "cannot_tell") => ({ answer, reason: null, quantity: null, matchedText: null, observedAt: "2026-11-10T10:00:00.000Z" });
+    setup({ mappings: { list: vi.fn().mockResolvedValue([
+      aMapping({ id: "a", latestStock: stock("in_stock") }), aMapping({ id: "b", latestStock: stock("in_stock") }),
+      aMapping({ id: "c", latestStock: stock("out_of_stock") }), aMapping({ id: "d", latestStock: stock("cannot_tell") }), aMapping({ id: "e" }),
+    ]) } });
+    const c = within(await screen.findByRole("heading", { level: 2, name: "Stock answers" }).then((h) => h.closest("section")!));
+    expect(await c.findByText("2 in stock")).toBeInTheDocument();
+    expect(c.getByText("1 out of stock, 1 cannot tell.")).toBeInTheDocument();
+  });
+
+  it("says no stock check has run yet", async () => {
+    setup();
+    const c = within(await screen.findByRole("heading", { level: 2, name: "Stock answers" }).then((h) => h.closest("section")!));
+    expect(await c.findByText("No stock checks yet.")).toBeInTheDocument();
+  });
+});

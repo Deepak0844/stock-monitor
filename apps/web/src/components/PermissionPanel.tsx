@@ -90,3 +90,48 @@ export function PermissionPanel({ api, supplier }: { api: Api; supplier: Supplie
     </form>
   );
 }
+
+/** The region stock checks look for on this supplier's pages, unless a link has its own. */
+export function RegionPanel({ api, supplier }: { api: Api; supplier: Supplier }) {
+  const [region, setRegion] = useState(supplier.defaultRegion ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setError(null);
+    setSaved(false);
+    setSaving(true);
+    try {
+      await api.suppliers.setRegion(supplier.id, region.trim() || null);
+      setSaved(true);
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={(e) => void submit(e)} noValidate className="connect-form">
+      <h2>Region for stock checks</h2>
+      <div className="field">
+        <label htmlFor="default-region">Default region (optional)</label>
+        <input id="default-region" type="text" autoComplete="off" value={region} onChange={(e) => setRegion(e.target.value)} />
+        <p className="hint">For a supplier that lists stock by region: the region's name as the supplier writes it. A link can have its own region. Leave empty if the supplier has no regions.</p>
+      </div>
+      {error && (
+        <Notice kind="error" role="alert">
+          {error}
+        </Notice>
+      )}
+      <div aria-live="polite">{saved && <Notice kind="success" role="status">Region saved.</Notice>}</div>
+      <div className="actions">
+        <button type="submit" className="button secondary" disabled={saving}>
+          Save region
+        </button>
+      </div>
+    </form>
+  );
+}
