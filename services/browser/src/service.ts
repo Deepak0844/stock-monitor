@@ -8,6 +8,7 @@ import { createPlainWindowOpener } from "./plain-window.js";
 import { createWindowOpener, type OpenedWindow } from "./window.js";
 import type { Page } from "playwright";
 import { verifyPage } from "./verify.js";
+import { createProfileChecker } from "./profile-check.js";
 
 export type BrowserServiceOptions = {
   token: string;
@@ -23,6 +24,12 @@ export type BrowserServiceOptions = {
   loginWindowMode?: "controlled" | "plain";
   /** Test only: attach a test to a plain window as soon as it opens. A person's window is never attached until they finish. */
   exposePageForTests?: boolean;
+  /** SPIKE: `profile` checks from a persistent, uncontrolled, headed Chromium. Default `headless`. */
+  verifyMode?: "headless" | "profile";
+  /** Test only: how long the profile check lets the page load. */
+  profileSettleMs?: number;
+  /** Test only: where the profile check keeps its profiles. */
+  profileDir?: string;
   /** The VNC password to give callers who open a window. */
   vncPassword?: string;
   /** false opens login windows with no display, for a machine that has none (tests). The container shows them on its virtual screen. */
@@ -80,12 +87,18 @@ export async function startBrowserService(options: BrowserServiceOptions): Promi
     },
   });
 
+  const checkInProfile =
+    options.verifyMode === "profile"
+      ? createProfileChecker({ ...windowOptions, baseDir: options.profileDir, settleMs: options.profileSettleMs })
+      : null;
+
   const server = createControlServer({
     token: options.token,
     log: options.log,
     sessions,
     vncPassword: options.vncPassword,
     verify: async (request) =>
+      checkInProfile?.(request) ??
       verifyPage(await getBrowser(), request, {
         navigationTimeoutMs: options.navigationTimeoutMs,
         proxy,

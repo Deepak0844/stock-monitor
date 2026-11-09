@@ -17,6 +17,7 @@ describe("loadConfig", () => {
       allowHosts: undefined,
       vncPassword: VNC,
       loginWindowMode: "controlled",
+      verifyMode: "headless",
     });
   });
   it.each([[undefined], [""], ["short"], ["x".repeat(31)]])(
@@ -86,5 +87,16 @@ describe("loadConfig", () => {
         );
       },
     );
+  });
+
+  describe("VERIFY_MODE (spike)", () => {
+    it("is headless unless asked, and accepts profile", () => {
+      expect(loadConfig({ ...base, VERIFY_MODE: "" }).verifyMode).toBe("headless");
+      expect(loadConfig({ ...base, VERIFY_MODE: "profile" }).verifyMode).toBe("profile");
+    });
+    it("refuses anything else, and profile without a display", () => {
+      expect(() => loadConfig({ ...base, VERIFY_MODE: "stealth" })).toThrow(/VERIFY_MODE/);
+      expect(() => loadConfig({ ...base, VERIFY_MODE: "profile", HEADLESS_WINDOWS: "1" })).toThrow(/display/);
+    });
   });
 });

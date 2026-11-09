@@ -72,7 +72,7 @@ export async function seedProfile(profile: string): Promise<void> {
 }
 
 /** The port Chromium chose for its debugging channel, once it has written it. */
-async function waitForDebuggingPort(
+export async function waitForDebuggingPort(
   profile: string,
   child: ChildProcess,
   timeoutMs: number,
@@ -103,7 +103,7 @@ const signalGroup = (child: ChildProcess, signal: NodeJS.Signals) => {
 };
 
 /** Asks the browser to quit the way a person closing it would, which makes it write its profile to disk. */
-const quitCleanly = async (child: ChildProcess, timeoutMs: number) => {
+export const quitCleanly = async (child: ChildProcess, timeoutMs: number) => {
   if (child.exitCode !== null) return;
   const gone = new Promise<void>((resolve) => child.once("exit", () => resolve()));
   child.kill("SIGINT"); // a graceful shutdown, which writes the cookies to the profile. SIGTERM exits without writing them.

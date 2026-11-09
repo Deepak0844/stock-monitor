@@ -16,6 +16,8 @@ export type Config = {
    * Chromium that nothing controls while the owner logs in, read only at the end.
    */
   loginWindowMode: "controlled" | "plain";
+  /** SPIKE. `headless` is the existing check. `profile` checks from a persistent, uncontrolled, headed Chromium. */
+  verifyMode: "headless" | "profile";
 };
 
 const MIN_TOKEN = 32;
@@ -61,6 +63,10 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
   if (mode !== "controlled" && mode !== "plain")
     throw new Error("LOGIN_WINDOW_MODE must be controlled or plain.");
 
+  const verifyMode = env.VERIFY_MODE === undefined || env.VERIFY_MODE === "" ? "headless" : env.VERIFY_MODE;
+  if (verifyMode !== "headless" && verifyMode !== "profile") throw new Error("VERIFY_MODE must be headless or profile.");
+  if (verifyMode === "profile" && !headed) throw new Error("VERIFY_MODE=profile needs a display, so HEADLESS_WINDOWS must not be 1.");
+
   return {
     token,
     port: whole("PORT", env.PORT, 8080, 1, 65535),
@@ -71,5 +77,6 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     allowHosts: allow && allow.length > 0 ? allow : undefined,
     vncPassword: headed ? vncPassword : undefined,
     loginWindowMode: mode,
+    verifyMode,
   };
 }
