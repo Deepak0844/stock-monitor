@@ -57,6 +57,13 @@
       "when": 1794254914683,
       "tag": "0007_mappings",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794260386945,
+      "tag": "0008_extraction",
+      "breakpoints": true
     }
   ]
 }

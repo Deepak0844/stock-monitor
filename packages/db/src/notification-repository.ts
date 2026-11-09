@@ -2,8 +2,8 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { notifications, suppliers } from "./schema.js";
 
-export type NotificationKind = "supplier_needs_reconnect";
-export type NotificationReason = "login_required" | "captcha" | "blocked" | "unknown";
+export type NotificationKind = "supplier_needs_reconnect" | "recipe_needs_review";
+export type NotificationReason = "login_required" | "captcha" | "blocked" | "unknown" | "page_changed";
 
 export type NotificationRecord = {
   id: string;

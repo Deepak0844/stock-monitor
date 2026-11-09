@@ -10,6 +10,8 @@ export type MappingRecord = {
   supplierId: string;
   url: string;
   note: string | null;
+  /** The region label to look for on this page. null means the supplier's default region. */
+  region: string | null;
   enabled: boolean;
   linkStatus: LinkStatusValue;
   lastLinkCheckAt: Date | null;
@@ -59,7 +61,7 @@ export function createMappingRepository<S extends Record<string, unknown>>(db: N
   const joined = () =>
     db
       .select({
-        id: mappings.id, variantId: mappings.variantId, supplierId: mappings.supplierId, url: mappings.url, note: mappings.note,
+        id: mappings.id, variantId: mappings.variantId, supplierId: mappings.supplierId, url: mappings.url, note: mappings.note, region: mappings.region,
         enabled: mappings.enabled, linkStatus: mappings.linkStatus, lastLinkCheckAt: mappings.lastLinkCheckAt,
         lastWorkedAt: mappings.lastWorkedAt, workedTitle: mappings.workedTitle, workedHeading: mappings.workedHeading,
         missingChecks: mappings.missingChecks, firstMissingAt: mappings.firstMissingAt, createdAt: mappings.createdAt, updatedAt: mappings.updatedAt,
@@ -115,7 +117,7 @@ export function createMappingRepository<S extends Record<string, unknown>>(db: N
     },
 
     /** Changing the address starts the link's history again. Changing only the note or `enabled` does not. */
-    async update(id: string, patch: { url?: string; note?: string | null; enabled?: boolean }): Promise<MappingRecord | null> {
+    async update(id: string, patch: { url?: string; note?: string | null; region?: string | null; enabled?: boolean }): Promise<MappingRecord | null> {
       if (!UUID.test(id)) return null;
       const [row] = await db
         .update(mappings)

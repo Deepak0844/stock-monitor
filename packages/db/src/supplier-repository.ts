@@ -16,6 +16,8 @@ export type SupplierRecord = {
   permissionNote: string | null;
   permissionSetAt: Date | null;
   checkPauseSeconds: number;
+  /** The region label stock checks look for, unless a link has its own. */
+  defaultRegion: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -120,6 +122,9 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
         permissionSetAt: sql`now()`,
         ...(input.pauseSeconds !== undefined ? { checkPauseSeconds: input.pauseSeconds } : {}),
       }),
+
+    /** The region label stock checks look for on this supplier's pages. null clears it. */
+    setRegion: (id: string, region: string | null) => set(id, { defaultRegion: region }),
 
     pause: (id: string) => set(id, { enabled: false, pausedReason: "owner" }),
     resume: (id: string) => set(id, { enabled: true, pausedReason: null }),
