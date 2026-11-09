@@ -6,7 +6,7 @@ const MAX_RULES = 10;
 const MAX_WORDS = 200;
 
 /** Lower case, with any run of spaces (including non-breaking ones) as one space. How every rule compares words. */
-export const normaliseWords = (text: string): string => text.normalize("NFKC").toLowerCase().replace(/[\s ]+/g, " ").trim();
+export const normaliseWords = (text: string): string => text.normalize("NFKC").toLowerCase().replace(/[\s\u00a0]+/g, " ").trim();
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const fail = (message: string): never => {
