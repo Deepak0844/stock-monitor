@@ -2,7 +2,7 @@
 
 Module id: `mapping`. Depends on: `foundation` (done), `shopify` (read, done), `supplier-session` (supplier records, done except the pilot connect). Map: `CAPABILITY-MAP.md`. Intent: `docs/intent/stock-monitor.md`.
 
-Status: **draft v2 for owner review.** Not approved. No plan and no code until it is. v2 records the owner's answers to the first draft's questions (2026-11-10).
+Status: **v2, owner answers received (2026-11-10).** The owner answered every open question (see the table below). Ready for the plan once the owner confirms this version. v2 records the owner's answers to the first draft's questions.
 
 ## Objective
 
@@ -20,7 +20,11 @@ User: the store owner, who is not technical. Success: the owner can map a suppli
 | Shopify metafield suggestions? | **Dropped for the MVP.** The Shopify sync is not touched. |
 | When are links checked? | **When the owner asks** (one link, all of a supplier's links, or right after an import). Regular checks come with `scheduling`. |
 | What does a 404 mean? | The owner wants a **404 to mean "product not available"** for the pilot supplier. See "Link status and what it means", which keeps safeguards so a typo or a redirect cannot wrongly mark an item unavailable. |
-| Pilot supplier | **One supplier** (named in the project notes, not in this repo). See "Permission to check", which is a blocker. |
+| Pilot supplier | **One supplier** (named in the project notes, not in this repo). The owner chose to go ahead with it. See "Permission to check": the terms risk is known and the owner's decision is recorded in the app. |
+| Record permission in the app? | **Yes**, the per-supplier permission field. |
+| Unavailable-candidate timing | **Yes** to two page-missing checks at least 6 hours apart, and 5 links and 30% for a supplier-wide problem. |
+| SKU unique per variant? | **Yes.** Each `Variant SKU` is unique. |
+| Redirect to the home page | **Not a stock status.** It says nothing about stock. See "Link status". |
 | Shopify store | **Not connected yet.** The owner connects it after the app is built and tested. Until then the module is built and tested with made-up variants. |
 
 ## What exists today that this builds on
@@ -43,7 +47,7 @@ User: the store owner, who is not technical. Success: the owner can map a suppli
 
 A read of the suppliers' terms (2026-11-10, by a fetch tool, not legal advice; the details are in the project notes) found that **the pilot supplier's terms prohibit automated access**, and require software acting for a person to identify itself. Its `robots.txt` also disallows account pages. Most of the other suppliers read so far prohibit collecting prices or content without written consent too, or say nothing about it. Silence is not permission.
 
-So before any link check touches a real supplier, the owner decides one of: **get written permission** from the supplier (or a price and stock list), **choose a pilot whose terms allow it**, or knowingly accept the risk. The app records that decision:
+The owner has decided to go ahead with this supplier as the pilot. Before any link check touches a real supplier, the owner records which of these applies: **get written permission** from the supplier (or a price and stock list), **choose a pilot whose terms allow it**, or knowingly accept the risk. The app records that decision:
 
 - **Proposed:** a per-supplier field `automation_permission` (`unknown` by default, `granted`, `not_granted`) with a date and a note, set by the owner on the supplier's page. Link checks against a supplier that is not `granted` are refused with a plain message ("You have not recorded permission to check this supplier automatically. Open the supplier to record it."). Tests use the fake supplier, marked `granted`. This is a reminder and a record, not a legal control: the owner can set it.
 
@@ -73,7 +77,7 @@ Each mapping has a status in words. The status says what happened to the **link*
 | The page loaded and looks like a normal page | **Works** | |
 | The **first** checks never loaded a normal page (typo, wrong page) | **Never worked** | "This address never loaded the right page. Check it." |
 | It worked before and now answers 404 or 410, or loads a page saying "not found" or "no longer available" | **Page missing**, with "Worked until 5 Nov" | "The page is gone. The product may be discontinued." |
-| The address redirects to another page, such as the home page, a category or a search page | **Moved** | "The supplier sends this address somewhere else." |
+| The address redirects to another page, such as the home page, a category or a search page | **Moved** | "The supplier sends this address somewhere else." This is **not a stock status**: it never counts as page missing and never makes an unavailable candidate, even when the target is the home page. |
 | The page loads but its title or main heading is not what it was when it first worked | **Looks different** | "The page changed. Check it is still the same product." |
 | The supplier asked for a login, a puzzle, or blocked the check | **Needs login** | The supplier's own status and notification are used. **The link is not marked broken.** |
 | The supplier could not be reached, or the browser service is down | **Could not check** | Nothing is concluded. |
@@ -175,9 +179,10 @@ Test-first throughout. Automated tests never visit a real supplier.
 10. Page addresses are refused if they are `http`, an IP address, a private address, or on another website.
 11. `npm run check` and the browser tests pass, including the accessibility scan of the new screens.
 
-## Still open for the owner
+## Resolved questions (owner, 2026-11-10)
 
-1. **Pilot supplier and permission.** The pilot supplier's terms prohibit automated access (see "Permission to check"). Will you ask it for permission or a stock list, choose another pilot, or decide otherwise? This does not block writing the plan or building and testing with the fake supplier, but it blocks any real check.
-2. **Recording permission in the app.** Do you want the per-supplier `automation_permission` field and the refusal described above? I recommend yes.
-3. **"Unavailable candidate" timing.** Is "two page-missing checks at least six hours apart" right, and "5 links and 30%" for a supplier-wide problem? These are my proposals.
-4. **Which SKU column.** The export's `Variant SKU` is assumed unique per variant. If you reuse a SKU across variants, tell me.
+1. Pilot supplier: go ahead. The owner records the permission status in the app.
+2. Permission field: yes. It is a reminder and a record the owner sets, not a legal control.
+3. Timing: two page-missing checks at least 6 hours apart, and 5 links and 30% for a supplier-wide problem.
+4. `Variant SKU` is unique per variant.
+5. A link that redirects to the home page has no stock status.
