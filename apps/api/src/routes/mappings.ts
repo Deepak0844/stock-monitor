@@ -1,10 +1,11 @@
 import type { FastifyInstance, RawReplyDefaultExpression, RawRequestDefaultExpression, RawServerDefault } from "fastify";
 import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
-import type { createMappingRepository, createSupplierRepository } from "@stock-monitor/db";
+import type { createImportPreviewRepository, createMappingRepository, createSupplierRepository } from "@stock-monitor/db";
 import { sameSite } from "@stock-monitor/mapping";
 import { validateSupplierUrl, verifyPublicHost, type HostLookup } from "@stock-monitor/supplier-session";
 import { AppError } from "../errors.js";
+import { registerMappingImportRoutes } from "./mapping-import.js";
 
 type App = FastifyInstance<RawServerDefault, RawRequestDefaultExpression, RawReplyDefaultExpression, Logger>;
 type Audit = ReturnType<typeof createAuditWriter>;
@@ -12,6 +13,8 @@ type Audit = ReturnType<typeof createAuditWriter>;
 export type MappingRoutesDeps = {
   mappings: ReturnType<typeof createMappingRepository>;
   suppliers: ReturnType<typeof createSupplierRepository>;
+  /** Import from the Shopify export. Left out, there are no /api/mappings/import routes. */
+  previews?: ReturnType<typeof createImportPreviewRepository>;
   /** Test only: replaces the real DNS lookup. */
   lookup?: HostLookup;
 };
@@ -36,6 +39,7 @@ const noteOf = (value: unknown): string | null => {
 
 export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: Audit): void {
   const { mappings, suppliers } = deps;
+  if (deps.previews) registerMappingImportRoutes(app, { mappings, suppliers, previews: deps.previews }, audit);
 
   const record = (request: { user: { id: string } | null; id: string }, action: string, entityType: string, id: string, details?: Record<string, unknown>) =>
     audit.record({ actorUserId: request.user?.id, action, entityType, entityId: id, details, requestId: request.id });
