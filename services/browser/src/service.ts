@@ -7,6 +7,7 @@ import { createSessions } from "./sessions.js";
 import { createPlainWindowOpener } from "./plain-window.js";
 import { createWindowOpener, type OpenedWindow } from "./window.js";
 import type { Page } from "playwright";
+import { capturePage } from "./capture.js";
 import { checkPage, verifyPage } from "./verify.js";
 import { createProfileChecker } from "./profile-check.js";
 import { PROFILE_ROOT } from "./profile-store.js";
@@ -109,6 +110,7 @@ export async function startBrowserService(options: BrowserServiceOptions): Promi
     vncPassword: options.vncPassword,
     // A link check always uses the headless browser: the profile checker reads only History titles, with no status or address.
     checkPage: async (request) => checkPage(await getBrowser(), request, { navigationTimeoutMs: options.navigationTimeoutMs, proxy }),
+    capture: async (request) => capturePage(await getBrowser(), request, { navigationTimeoutMs: options.navigationTimeoutMs, proxy }),
     verify: async (request) =>
       checkInProfile?.(request) ??
       verifyPage(await getBrowser(), request, {

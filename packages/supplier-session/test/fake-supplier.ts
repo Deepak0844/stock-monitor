@@ -159,6 +159,29 @@ export async function createFakeSupplier(options: { host?: string } = {}): Promi
     if (path === "/redirect-category") return redirect("/collections/widgets");
     if (path === "/collections/widgets") return send(200, page("Widgets | Fake Supplier", `<h1>Widgets</h1>${ABOUT}`));
     if (path === "/renamed") return send(200, page("Red Gadget | Fake Supplier", `<h1>Red Gadget</h1>${ABOUT}`));
+    // Stock pages for the extraction tests: made-up shop pages that show stock in different ways.
+    if (path.startsWith("/stock/")) {
+      const BUY = '<button>Add to cart</button>';
+      const NOT_BUY = '<button disabled>Add to cart</button>';
+      const table = (rows: string[][]) =>
+        `<h2>Click and collect availability</h2><table>${rows.map(([name, n]) => `<tr><td>${name}</td><td>${n}</td></tr>`).join("")}</table>`;
+      const variants: Record<string, string> = {
+        in: `<h1>Blue Tee</h1><p>Soft cotton.</p>${BUY}`,
+        "sold-out": `<h1>Blue Tee</h1><p>Soft cotton.</p><p>Sold out</p>${NOT_BUY}`,
+        region: `<h1>Blue Tee</h1><p>Soft cotton.</p>${table([["Loughborough", "46"], ["Sheffield", "22"], ["Cardiff", "0"]])}`,
+        "region-no-row": `<h1>Blue Tee</h1>${table([["Sheffield", "22"], ["Bristol", "48"]])}`,
+        changed: `<h1>Blue Tee</h1><p>Soft cotton.</p><p>Currently unavailable</p><a href="/x">Tell me when it is back</a>`,
+        "related-sold-out": `<h1>Blue Tee</h1>${BUY}<h2>You may also like</h2><p>Red Tee</p><p>Sold out</p>`,
+        form:
+          `<h1>Blue Tee</h1><form><input type="password" value="TYPED-SECRET-VALUE"><input type="hidden" name="t" value="HIDDEN-MARKER">` +
+          `<textarea>TEXTAREA-SECRET</textarea><select><option>SELECT-SECRET</option></select><button type="submit">Save</button></form>` +
+          `<script>window.x = "SCRIPT-MARKER"</script><style>.a{content:"STYLE-MARKER"}</style><div hidden>HIDDEN-TEXT</div><div style="display:none">DISPLAY-NONE-TEXT</div><noscript>NOSCRIPT-TEXT</noscript><p>Visible text</p>`,
+        huge: `<h1>Blue Tee</h1><p>${"x".repeat(1_000_000)}</p>${Array.from({ length: 10_000 }, (_, n) => `<button>Button ${n}</button>`).join("")}${Array.from({ length: 8_000 }, (_, n) => `<p>Line ${n}</p>`).join("")}`,
+      };
+      // Ordinary shop text under the heading, so a healthy page does not look like an empty shell to the classifier.
+      const html = variants[path.slice("/stock/".length)]?.replace("<h1>Blue Tee</h1>", `<h1>Blue Tee</h1>${ABOUT}`);
+      if (html) return send(200, page("Blue Tee | Fake Supplier", html), { "set-cookie": "tracker=COOKIE-MARKER; Path=/" });
+    }
     if (path === "/captcha") {
       const widget = WIDGETS[url.searchParams.get("widget") ?? "recaptcha"] ?? WIDGETS.recaptcha;
       return send(
