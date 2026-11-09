@@ -16,6 +16,10 @@ export type FakeBrowserService = {
     verify: "ok" | "fail" | "garbage";
     /** How a page check behaves, and what page it reports when "ok". */
     checkPage: "ok" | "fail" | "garbage";
+    /** How a page capture behaves, what it describes, and the picture (base64) it returns. */
+    capture: "ok" | "fail" | "garbage";
+    description: { sections: { heading: string | null; level: number; lines: string[] }[]; buttons: { label: string; enabled: boolean; section: string | null }[] };
+    picture: string | null;
     /** Lets a test give each address its own page. Falls back to `page`. */
     pageFor?: (url: string) => FakeBrowserService["behaviour"]["page"] | undefined;
     /** A page with no `finalUrl` ends on the address that was asked for. */
@@ -33,7 +37,7 @@ export type FakeBrowserService = {
 export async function createFakeBrowserService(): Promise<FakeBrowserService> {
   const requests: FakeBrowserService["requests"] = [];
   const behaviour: FakeBrowserService["behaviour"] = {
-    open: "ok", finish: "ok", cancel: "ok", verify: "ok", verifyResult: "ok", checkPage: "ok", page: { result: "ok", status: 200, finalUrl: "https://shop.acme.example/p", title: "Blue Widget", heading: "Blue Widget", softNotFound: false }, state: { cookies: [], origins: [] }, vncPassword: "Ab3dE6gH", delayMs: 0,
+    open: "ok", finish: "ok", cancel: "ok", verify: "ok", verifyResult: "ok", checkPage: "ok", capture: "ok", description: { sections: [{ heading: "Blue Tee", level: 1, lines: ["Soft cotton."] }], buttons: [{ label: "Add to cart", enabled: true, section: "Blue Tee" }] }, picture: Buffer.from("PNG-bytes").toString("base64"), page: { result: "ok", status: 200, finalUrl: "https://shop.acme.example/p", title: "Blue Widget", heading: "Blue Widget", softNotFound: false }, state: { cookies: [], origins: [] }, vncPassword: "Ab3dE6gH", delayMs: 0,
   };
   let counter = 0;
 
@@ -77,6 +81,13 @@ export async function createFakeBrowserService(): Promise<FakeBrowserService> {
       const asked = (body as { url?: string } | undefined)?.url ?? "";
       const page = behaviour.pageFor?.(asked) ?? behaviour.page;
       return reply(200, { ...page, finalUrl: page.finalUrl === undefined ? asked : page.finalUrl, blockedRequests: 0 });
+    }
+    if (req.method === "POST" && path === "/capture") {
+      if (behaviour.capture === "fail") return reply(500, { error: "capture_failed" });
+      if (behaviour.capture === "garbage") return reply(200, { result: "maybe" });
+      const asked = body as { url?: string; picture?: boolean } | undefined;
+      const page = behaviour.pageFor?.(asked?.url ?? "") ?? behaviour.page;
+      return reply(200, { ...page, finalUrl: page.finalUrl === undefined ? (asked?.url ?? null) : page.finalUrl, blockedRequests: 0, description: behaviour.description, picture: asked?.picture ? behaviour.picture : null });
     }
     const finish = /^\/sessions\/([^/]+)\/finish$/.exec(path);
     if (req.method === "POST" && finish) {

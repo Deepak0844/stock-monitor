@@ -12,6 +12,11 @@ export type VerifyOutcome =
 export type CheckPageOutcome =
   | { ok: true; result: PageClass; status: number | null; finalUrl: string | null; title: string | null; heading: string | null; softNotFound: boolean; blockedRequests: number }
   | { ok: false; reason: "failed" | "unavailable" };
+/** A page as the browser showed it: headings with their lines, and the buttons. The picture is for the owner's eyes only. */
+export type PageDescriptionParts = { sections: { heading: string | null; level: number; lines: string[] }[]; buttons: { label: string; enabled: boolean; section: string | null }[] };
+export type CaptureOutcome =
+  | ({ ok: true; picture: Buffer | null; description: PageDescriptionParts } & Omit<Extract<CheckPageOutcome, { ok: true }>, "ok">)
+  | { ok: false; reason: "failed" | "unavailable" };
 export type CancelOutcome = { ok: true } | { ok: false; reason: "not_found" | "unavailable" };
 
 export type BrowserClient = {
@@ -22,6 +27,8 @@ export type BrowserClient = {
   cancelSession(id: string): Promise<CancelOutcome>;
   /** Loads one page with a saved session and says what happened to it: the status, where it ended, its title and heading. */
   checkPage(request: { url: string; loginUrl?: string; state: SessionState }): Promise<CheckPageOutcome>;
+  /** Loads one page with a saved session and describes it, for stock rules. A picture is taken only when asked for. */
+  capture(request: { url: string; loginUrl?: string; state: SessionState; picture?: boolean }): Promise<CaptureOutcome>;
   /** Loads a page with a saved session in a throw-away browser and says what it was. */
   verify(request: { url: string; loginUrl?: string; state: SessionState }): Promise<VerifyOutcome>;
 };
@@ -115,6 +122,28 @@ export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, fetchI
         heading: text(j.heading),
         softNotFound: j.softNotFound === true,
         blockedRequests: typeof j.blockedRequests === "number" ? j.blockedRequests : 0,
+      };
+    },
+
+    async capture({ url, loginUrl, state, picture }) {
+      const r = await call("POST", "/capture", { url, ...(loginUrl ? { loginUrl } : {}), state, ...(picture ? { picture: true } : {}) });
+      if (!r) return { ok: false, reason: "unavailable" };
+      const j = r.json;
+      if (r.status !== 200 || !isObject(j) || typeof j.result !== "string" || !PAGE_CLASSES.includes(j.result) || !isObject(j.description)) return { ok: false, reason: "failed" };
+      const d = j.description;
+      if (!Array.isArray(d.sections) || !Array.isArray(d.buttons)) return { ok: false, reason: "failed" };
+      const text = (v: unknown) => (typeof v === "string" ? v : null);
+      return {
+        ok: true,
+        result: j.result as PageClass,
+        status: typeof j.status === "number" ? j.status : null,
+        finalUrl: text(j.finalUrl),
+        title: text(j.title),
+        heading: text(j.heading),
+        softNotFound: j.softNotFound === true,
+        blockedRequests: typeof j.blockedRequests === "number" ? j.blockedRequests : 0,
+        description: { sections: d.sections as PageDescriptionParts["sections"], buttons: d.buttons as PageDescriptionParts["buttons"] },
+        picture: typeof j.picture === "string" ? Buffer.from(j.picture, "base64") : null,
       };
     },
 

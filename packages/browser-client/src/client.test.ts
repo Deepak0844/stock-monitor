@@ -16,7 +16,7 @@ afterAll(async () => {
 });
 beforeEach(() => {
   fake.requests.length = 0;
-  Object.assign(fake.behaviour, { open: "ok", finish: "ok", cancel: "ok", verify: "ok", verifyResult: "ok", checkPage: "ok", state: { cookies: [], origins: [] }, vncPassword: "Ab3dE6gH", delayMs: 0 });
+  Object.assign(fake.behaviour, { open: "ok", finish: "ok", cancel: "ok", verify: "ok", verifyResult: "ok", checkPage: "ok", capture: "ok", state: { cookies: [], origins: [] }, vncPassword: "Ab3dE6gH", delayMs: 0 });
 });
 
 describe("openSession", () => {
@@ -158,5 +158,35 @@ describe("checkPage", () => {
   it("never puts the session in an error", async () => {
     fake.behaviour.checkPage = "fail";
     expect(JSON.stringify(await client().checkPage({ url: "https://a.example/", state }))).not.toContain(COOKIE);
+  });
+});
+
+describe("capture", () => {
+  const state = { cookies: [{ name: "s", value: COOKIE, domain: "shop.acme.example", path: "/" }], origins: [] };
+
+  it("sends the address and session with the token, and returns the description without a picture unless asked", async () => {
+    const r = await client().capture({ url: "https://shop.acme.example/p", state });
+    expect(r).toMatchObject({ ok: true, result: "ok", picture: null, description: { buttons: [{ label: "Add to cart", enabled: true, section: "Blue Tee" }] } });
+    expect(fake.requests[0]).toMatchObject({ method: "POST", path: "/capture", auth: `Bearer ${FAKE_CONTROL_TOKEN}`, body: { url: "https://shop.acme.example/p" } });
+    expect((fake.requests[0]?.body as Record<string, unknown>).picture).toBeUndefined();
+  });
+
+  it("asks for a picture and gets the bytes back", async () => {
+    const r = await client().capture({ url: "https://shop.acme.example/p", state, picture: true });
+    expect(fake.requests[0]?.body).toMatchObject({ picture: true });
+    expect(r.ok && r.picture?.toString()).toBe("PNG-bytes");
+  });
+
+  it("says failed for an error or a garbled answer, and unavailable when nothing answers", async () => {
+    fake.behaviour.capture = "fail";
+    expect(await client().capture({ url: "https://a.example/", state })).toEqual({ ok: false, reason: "failed" });
+    fake.behaviour.capture = "garbage";
+    expect(await client().capture({ url: "https://a.example/", state })).toEqual({ ok: false, reason: "failed" });
+    expect(await client({ baseUrl: "http://127.0.0.1:1" }).capture({ url: "https://a.example/", state })).toEqual({ ok: false, reason: "unavailable" });
+  });
+
+  it("never puts the session in an error", async () => {
+    fake.behaviour.capture = "fail";
+    expect(JSON.stringify(await client().capture({ url: "https://a.example/", state }))).not.toContain(COOKIE);
   });
 });

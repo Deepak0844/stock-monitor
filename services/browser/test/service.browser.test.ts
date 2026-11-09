@@ -265,3 +265,93 @@ describe("POST /check-page (real Chromium, fake supplier)", () => {
     expect(await res.json()).toMatchObject({ result: "unreachable", softNotFound: false });
   });
 });
+
+describe("POST /capture (real Chromium, fake supplier)", () => {
+  type Described = { result: string; status: number | null; finalUrl: string | null; title: string | null; description: { sections: { heading: string | null; level: number; lines: string[] }[]; buttons: { label: string; enabled: boolean; section: string | null }[] }; picture: string | null };
+  const capture = async (path: string, picture = false) => {
+    const res = await fetch(`${service.url}/capture`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ url: `${site.url}${path}`, state: empty, picture }),
+    });
+    const text = await res.text();
+    return { status: res.status, text, body: JSON.parse(text) as Described };
+  };
+
+  it("describes a page: headings with their lines, and the buttons", async () => {
+    const { body } = await capture("/stock/in");
+    expect(body.result).toBe("ok");
+    expect(body.description.sections[0]).toMatchObject({ heading: "Blue Tee", level: 1 });
+    expect(body.description.sections[0]?.lines).toContain("Soft cotton.");
+    expect(body.description.buttons).toEqual([{ label: "Add to cart", enabled: true, section: "Blue Tee" }]);
+  });
+
+  it("says a disabled button is disabled", async () => {
+    const { body } = await capture("/stock/sold-out");
+    expect(body.description.buttons).toEqual([{ label: "Add to cart", enabled: false, section: "Blue Tee" }]);
+    expect(body.description.sections[0]?.lines).toContain("Sold out");
+  });
+
+  it("keeps a table row together, with its cells apart, under its own heading", async () => {
+    const { body } = await capture("/stock/region");
+    const table = body.description.sections.find((s) => s.heading === "Click and collect availability");
+    expect(table).toMatchObject({ level: 2 });
+    expect(table?.lines).toEqual(["Loughborough\t46", "Sheffield\t22", "Cardiff\t0"]);
+  });
+
+  it("puts a related product's text under its own heading", async () => {
+    const { body } = await capture("/stock/related-sold-out");
+    const related = body.description.sections.find((s) => s.heading === "You may also like");
+    expect(related?.lines).toContain("Sold out");
+    expect(body.description.sections[0]?.lines).not.toContain("Sold out");
+  });
+
+  it("never returns form values, hidden text, scripts, styles or cookies", async () => {
+    const { text } = await capture("/stock/form", true);
+    for (const secret of ["TYPED-SECRET-VALUE", "HIDDEN-MARKER", "TEXTAREA-SECRET", "SELECT-SECRET", "SCRIPT-MARKER", "STYLE-MARKER", "HIDDEN-TEXT", "DISPLAY-NONE-TEXT", "NOSCRIPT-TEXT", "COOKIE-MARKER"]) {
+      expect(text, secret).not.toContain(secret);
+    }
+    expect(text).toContain("Visible text");
+  });
+
+  it("takes a picture only when asked, and it is a PNG", async () => {
+    expect((await capture("/stock/in")).body.picture).toBeNull();
+    const { body } = await capture("/stock/in", true);
+    expect(Buffer.from(body.picture as string, "base64").subarray(1, 4).toString()).toBe("PNG");
+  });
+
+  it("caps a huge page instead of failing", async () => {
+    const { status, body, text } = await capture("/stock/huge");
+    expect(status).toBe(200);
+    expect(body.description.buttons.length).toBeLessThanOrEqual(500);
+    expect(body.description.sections.flatMap((s) => s.lines).length).toBeLessThanOrEqual(5000);
+    expect(body.description.sections.flatMap((s) => s.lines).every((l) => l.length <= 2000)).toBe(true);
+    expect(text.length).toBeLessThan(1_500_000);
+  });
+
+  it("reports the status, class and address like a link check, without the query string", async () => {
+    const { body } = await capture("/stock/in?token=SECRET-VALUE");
+    expect(JSON.stringify(body)).not.toContain("SECRET-VALUE");
+    expect(body).toMatchObject({ status: 200, title: "Blue Tee | Fake Supplier" });
+  });
+
+  it("a missing page is described too, with its status", async () => {
+    const { body } = await capture("/stock/nothing-here");
+    expect(body.status).toBe(404);
+  });
+
+  it("never visits a private address", async () => {
+    const res = await fetch(`${service.url}/capture`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ url: `${internalUrl}/secret`, state: empty, picture: true }),
+    });
+    expect(await res.text()).not.toContain("secret internal service");
+    expect(internalHits).toBe(0);
+  });
+
+  it("needs the control token", async () => {
+    const res = await fetch(`${service.url}/capture`, { method: "POST", body: JSON.stringify({ url: `${site.url}/stock/in`, state: empty }) });
+    expect(res.status).toBe(401);
+  });
+});
