@@ -22,6 +22,20 @@ long-lived, uncontrolled, headed browser differently?
 
 No spoofing, no flags hidden, no solving. The profile is kept while the saved session is unchanged, and replaced after a new login.
 
+## Persistent login profile (`LOGIN_PROFILE=persistent`, plain window only)
+
+Why: each login normally opens a brand-new browser profile and deletes it, so a supplier's captcha sees a first-time visitor
+every time (two Shopify suppliers answer "Captcha failed" to a solved puzzle). With this on, the login window uses the same
+per-site profile the checks use, so cookies and history from earlier logins are still there for the next one.
+
+- One profile per site (the host), in the container's memory-backed `/tmp/sm-profiles`. It survives between logins and checks
+  while the container runs. A restart or rebuild resets it (a disk volume would keep cookies more weakly protected than the sealed database does).
+- One browser per profile, so the login window and the checks take turns: a login waits up to a minute for a running check;
+  a check that finds the owner logging in to that site answers `unreachable` and changes nothing.
+- At the end of a login the profile is marked as holding the session that was just stored, so the next check keeps it, history and all.
+- Cache capped at 32 MB per profile. The profile holds more cookies over time (third-party ones too), and they all go into the stored session.
+- Whether it improves captcha scores is the question this answers. No promise.
+
 ## Limits
 
 - Step 1 is title only: no HTTP status (`httpStatus: null`) and no page text, so `ok` there means "looks like the real page", and a home page that loads for anyone looks the same logged in or out. Point the supplier's check address at a page that needs a login. Step 2 (blank or unclear titles only) reads the text.

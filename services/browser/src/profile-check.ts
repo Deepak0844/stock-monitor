@@ -2,15 +2,15 @@
 // a fresh, Playwright-controlled one. Question it answers: does the supplier's bot protection treat a long-lived, uncontrolled,
 // headed browser differently from our headless check? No spoofing: the browser is real and unmodified.
 import { spawn } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { classifyPage, type PageClass } from "@stock-monitor/supplier-session";
 import { plainLaunchArgs, quitCleanly, seedProfile, waitForDebuggingPort } from "./plain-window.js";
+import { cookieHash, holdProfile, PROFILE_ROOT, profileDirFor, releaseProfile } from "./profile-store.js";
 import type { GuardProxy } from "./proxy.js";
 import { CHALLENGE_WIDGET, MAX_TEXT, type VerifyOutcome, type VerifyRequest } from "./verify.js";
 
@@ -52,7 +52,7 @@ export type ProfileCheckOptions = { proxy: GuardProxy; sandbox: boolean; headles
   /** The screen the browser opens on. Not the one VNC shows, or a check would appear in the owner's login window. */
   display?: string };
 
-export function createProfileChecker({ proxy, sandbox, headless, baseDir = join(tmpdir(), "sm-profiles"), settleMs = 12_000, display, language }: ProfileCheckOptions) {
+export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFILE_ROOT, settleMs = 12_000, display, language }: ProfileCheckOptions) {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
   /** Starts the browser on `profile`. Returns once it is running; `stop` quits it the way a person would. */
@@ -62,7 +62,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = join(
     const id = randomUUID();
     const tracker = proxy.track(id);
     const listener = await proxy.openListener(id);
-    const child = spawn(chromium.executablePath(), plainLaunchArgs({ profile, proxyPort: listener.port, url, headless, sandbox, debuggable }), {
+    const child = spawn(chromium.executablePath(), plainLaunchArgs({ profile, proxyPort: listener.port, url, headless, sandbox, debuggable, smallCache: true }), {
       stdio: "ignore",
       detached: true,
       env: display ? { ...process.env, DISPLAY: display } : process.env,
@@ -136,8 +136,18 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = join(
   }
 
   async function check(request: VerifyRequest): Promise<VerifyOutcome> {
-    const profile = join(baseDir, createHash("sha256").update(new URL(request.url).host).digest("hex").slice(0, 16));
-    const hash = createHash("sha256").update(JSON.stringify(request.state.cookies)).digest("hex");
+    const profile = profileDirFor(baseDir, request.url);
+    const hash = cookieHash(request.state.cookies);
+    // The owner is logging in to this site in this profile. A check says nothing and is tried again.
+    if (!holdProfile(profile)) return { result: "unreachable", status: null, blockedRequests: 0 };
+    try {
+      return await checkHeld(request, profile, hash);
+    } finally {
+      releaseProfile(profile);
+    }
+  }
+
+  async function checkHeld(request: VerifyRequest, profile: string, hash: string): Promise<VerifyOutcome> {
     const marker = join(profile, "seeded");
     const seededWith = await readFile(marker, "utf8").catch(() => "");
     // A new login replaces the profile; an unchanged session keeps it, with its history and cache.

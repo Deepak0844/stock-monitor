@@ -19,6 +19,7 @@ describe("loadConfig", () => {
       loginWindowMode: "controlled",
       verifyMode: "headless",
       language: undefined,
+      loginProfile: "fresh",
     });
   });
   it.each([[undefined], [""], ["short"], ["x".repeat(31)]])(
@@ -113,6 +114,17 @@ describe("loadConfig", () => {
       expect(() => loadConfig({ ...base, TZ: "Asia/Kolkata" })).not.toThrow();
       expect(() => loadConfig({ ...base, TZ: "Mars/Olympus" })).toThrow(/TZ/);
       expect(() => loadConfig({ ...base, TZ: "" })).not.toThrow();
+    });
+  });
+
+  describe("LOGIN_PROFILE (spike)", () => {
+    it("is fresh unless asked, and accepts persistent in plain mode", () => {
+      expect(loadConfig({ ...base, LOGIN_PROFILE: "" }).loginProfile).toBe("fresh");
+      expect(loadConfig({ ...base, LOGIN_WINDOW_MODE: "plain", LOGIN_PROFILE: "persistent" }).loginProfile).toBe("persistent");
+    });
+    it("refuses anything else, and persistent without the plain window", () => {
+      expect(() => loadConfig({ ...base, LOGIN_PROFILE: "forever" })).toThrow(/LOGIN_PROFILE/);
+      expect(() => loadConfig({ ...base, LOGIN_PROFILE: "persistent" })).toThrow(/plain/);
     });
   });
 });

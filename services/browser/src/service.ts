@@ -9,6 +9,7 @@ import { createWindowOpener, type OpenedWindow } from "./window.js";
 import type { Page } from "playwright";
 import { verifyPage } from "./verify.js";
 import { createProfileChecker } from "./profile-check.js";
+import { PROFILE_ROOT } from "./profile-store.js";
 
 export type BrowserServiceOptions = {
   token: string;
@@ -26,6 +27,8 @@ export type BrowserServiceOptions = {
   exposePageForTests?: boolean;
   /** SPIKE: `profile` checks from a persistent, uncontrolled, headed Chromium. Default `headless`. */
   verifyMode?: "headless" | "profile";
+  /** SPIKE: `persistent` keeps one login-window profile per supplier site between logins. Default `fresh`. */
+  loginProfile?: "fresh" | "persistent";
   /** Test only: how long the profile check lets the page load. */
   profileSettleMs?: number;
   /** Test only: where the profile check keeps its profiles. */
@@ -75,7 +78,11 @@ export async function startBrowserService(options: BrowserServiceOptions): Promi
     sandbox: options.sandbox ?? true,
     headless: !(options.headedWindows ?? true),
   };
-  const plainOptions = { ...windowOptions, language: options.language };
+  const plainOptions = {
+    ...windowOptions,
+    language: options.language,
+    persistent: options.loginProfile === "persistent" ? { baseDir: options.profileDir ?? PROFILE_ROOT } : undefined,
+  };
   const openWindow =
     options.loginWindowMode === "plain"
       ? createPlainWindowOpener({ ...plainOptions, exposePage: options.exposePageForTests })

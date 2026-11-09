@@ -18,6 +18,8 @@ export type Config = {
   loginWindowMode: "controlled" | "plain";
   /** SPIKE. `headless` is the existing check. `profile` checks from a persistent, uncontrolled, headed Chromium. */
   verifyMode: "headless" | "profile";
+  /** SPIKE. `persistent` keeps one login-window profile per supplier site between logins. Plain windows only. */
+  loginProfile: "fresh" | "persistent";
   /** The owner's real browser language, for example en-IN. Not set means Chromium's own default. */
   language: string | undefined;
 };
@@ -68,6 +70,9 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
   const verifyMode = env.VERIFY_MODE === undefined || env.VERIFY_MODE === "" ? "headless" : env.VERIFY_MODE;
   if (verifyMode !== "headless" && verifyMode !== "profile") throw new Error("VERIFY_MODE must be headless or profile.");
   if (verifyMode === "profile" && !headed) throw new Error("VERIFY_MODE=profile needs a display, so HEADLESS_WINDOWS must not be 1.");
+  const loginProfile = env.LOGIN_PROFILE === undefined || env.LOGIN_PROFILE === "" ? "fresh" : env.LOGIN_PROFILE;
+  if (loginProfile !== "fresh" && loginProfile !== "persistent") throw new Error("LOGIN_PROFILE must be fresh or persistent.");
+  if (loginProfile === "persistent" && mode !== "plain") throw new Error("LOGIN_PROFILE=persistent needs LOGIN_WINDOW_MODE=plain.");
   const language = env.BROWSER_LANGUAGE === "" ? undefined : env.BROWSER_LANGUAGE;
   if (language !== undefined && !/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(language))
     throw new Error("BROWSER_LANGUAGE must look like en-IN or en-US.");
@@ -92,5 +97,6 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     loginWindowMode: mode,
     verifyMode,
     language,
+    loginProfile,
   };
 }
