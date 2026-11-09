@@ -6,12 +6,15 @@ import {
   index,
   integer,
   jsonb,
+  customType,
   pgTable,
   text,
   timestamp,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+
+const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
 
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -140,6 +143,8 @@ export const suppliers = pgTable(
     permissionSetAt: timestamp("permission_set_at", { withTimezone: true }),
     /** Seconds to wait between two pages of this supplier. At least the supplier's own crawl delay. */
     checkPauseSeconds: integer("check_pause_seconds").notNull().default(10),
+    /** The region label stock checks look for on a supplier's page, unless a link has its own. */
+    defaultRegion: text("default_region"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -147,6 +152,7 @@ export const suppliers = pgTable(
     check("suppliers_session_status", sql`${t.sessionStatus} in ('not_connected', 'connected', 'needs_reconnect', 'blocked')`),
     check("suppliers_automation_permission", sql`${t.automationPermission} in ('unknown', 'granted', 'not_granted')`),
     check("suppliers_check_pause", sql`${t.checkPauseSeconds} >= 1`),
+    check("suppliers_default_region", sql`${t.defaultRegion} is null or char_length(${t.defaultRegion}) between 1 and 200`),
     check("suppliers_check_interval", sql`${t.checkIntervalMinutes} between 15 and 1440`),
     check(
       "suppliers_pause_reason",
@@ -225,8 +231,8 @@ export const notifications = pgTable(
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
   },
   (t) => [
-    check("notifications_kind", sql`${t.kind} in ('supplier_needs_reconnect')`),
-    check("notifications_reason", sql`${t.reason} in ('login_required', 'captcha', 'blocked', 'unknown')`),
+    check("notifications_kind", sql`${t.kind} in ('supplier_needs_reconnect', 'recipe_needs_review')`),
+    check("notifications_reason", sql`${t.reason} in ('login_required', 'captcha', 'blocked', 'unknown', 'page_changed')`),
     uniqueIndex("notifications_one_open").on(t.kind, t.supplierId).where(sql`${t.resolvedAt} is null`),
   ],
 );
@@ -247,6 +253,8 @@ export const mappings = pgTable(
       .references(() => suppliers.id, { onDelete: "cascade" }),
     url: text("url").notNull(),
     note: text("note"),
+    /** The region label to look for on this link's page. Left empty, the supplier's default region is used. */
+    region: text("region"),
     enabled: boolean("enabled").notNull().default(true),
     linkStatus: text("link_status").notNull().default("not_checked"),
     lastLinkCheckAt: timestamp("last_link_check_at", { withTimezone: true }),
@@ -263,6 +271,7 @@ export const mappings = pgTable(
       "mappings_link_status",
       sql`${t.linkStatus} in ('not_checked', 'works', 'never_worked', 'page_missing', 'moved', 'looks_different', 'needs_login', 'could_not_check')`,
     ),
+    check("mappings_region", sql`${t.region} is null or char_length(${t.region}) between 1 and 200`),
     uniqueIndex("mappings_variant_supplier_unique").on(t.variantId, t.supplierId),
     index("mappings_supplier_idx").on(t.supplierId),
   ],
@@ -275,3 +284,80 @@ export const importPreviews = pgTable("import_previews", {
   rows: jsonb("rows").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// A supplier's stock rules. Never edited: every save is the next version, and at most one is on at a time (the database
+// enforces it). `rules` is the validated recipe: words and lists, never patterns or code.
+export const stockRecipes = pgTable(
+  "stock_recipes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    supplierId: uuid("supplier_id")
+      .notNull()
+      .references(() => suppliers.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    rules: jsonb("rules").notNull(),
+    active: boolean("active").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    activatedAt: timestamp("activated_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("stock_recipes_supplier_version").on(t.supplierId, t.version),
+    uniqueIndex("stock_recipes_one_active").on(t.supplierId).where(sql`${t.active}`),
+  ],
+);
+
+// A saved page: what the browser showed (never cookies, form values or scripts) and a picture. Private page content: only
+// the signed-in owner reads it, it is never logged, and unlabelled and page-changed ones are deleted after 30 days.
+// The link is kept as null when the link is deleted, so the owner's examples survive.
+export const pageCaptures = pgTable(
+  "page_captures",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    supplierId: uuid("supplier_id")
+      .notNull()
+      .references(() => suppliers.id, { onDelete: "cascade" }),
+    mappingId: uuid("mapping_id").references(() => mappings.id, { onDelete: "set null" }),
+    name: text("name").notNull().default(""),
+    /** The answer the owner expects from this page. Set means it is a test example. */
+    expectedAnswer: text("expected_answer"),
+    status: text("status").notNull().default("pending"),
+    /** A fixed code, never a message. */
+    failureReason: text("failure_reason"),
+    pageClass: text("page_class"),
+    description: jsonb("description"),
+    picture: bytea("picture"),
+    keptReason: text("kept_reason").notNull().default("example"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("page_captures_status", sql`${t.status} in ('pending', 'ready', 'failed')`),
+    check("page_captures_expected", sql`${t.expectedAnswer} is null or ${t.expectedAnswer} in ('in_stock', 'out_of_stock', 'cannot_tell')`),
+    check("page_captures_kept", sql`${t.keptReason} in ('example', 'page_changed')`),
+    index("page_captures_supplier_idx").on(t.supplierId, t.createdAt),
+  ],
+);
+
+// What one check saw. Append only: the app role may add rows but never change or remove them (a link or supplier delete still
+// removes them, through the foreign key). Holds the short matched line at most, never page text, a picture or a session.
+export const stockObservations = pgTable(
+  "stock_observations",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    mappingId: uuid("mapping_id")
+      .notNull()
+      .references(() => mappings.id, { onDelete: "cascade" }),
+    observedAt: timestamp("observed_at", { withTimezone: true }).notNull().defaultNow(),
+    answer: text("answer").notNull(),
+    reason: text("reason"),
+    quantity: integer("quantity"),
+    matchedText: text("matched_text"),
+    quantityMismatch: boolean("quantity_mismatch").notNull().default(false),
+    recipeVersion: integer("recipe_version"),
+    checkResult: text("check_result").notNull(),
+    captureId: uuid("capture_id").references(() => pageCaptures.id, { onDelete: "set null" }),
+  },
+  (t) => [
+    check("stock_observations_answer", sql`${t.answer} in ('in_stock', 'out_of_stock', 'cannot_tell')`),
+    index("stock_observations_mapping_idx").on(t.mappingId, t.observedAt),
+  ],
+);

@@ -22,17 +22,20 @@ export type SupplierVerifyDeps = {
  * What a check found. It is only ever about the session: a check that failed or was blocked says nothing
  * about stock, and nothing here could be mistaken for a stock figure.
  */
+/** The reasons a session check can raise. (The other reason, page_changed, belongs to stock rules.) */
+type SessionReason = Exclude<NotificationReason, "page_changed">;
+
 export type CheckOutcome =
   | { kind: "skipped"; reason: "no_supplier" | "no_session" }
   | { kind: "ok" }
-  | { kind: "needs_attention"; result: NotificationReason }
+  | { kind: "needs_attention"; result: SessionReason }
   | { kind: "unreachable" }
   | { kind: "service_unavailable" };
 
 const DEFAULT_RETRY_DELAYS_MS = [10_000, 60_000];
 
 // What the owner reads. Plain words, and the supplier's name, never an exception name or a secret.
-const MESSAGES: Record<NotificationReason, (name: string) => string> = {
+const MESSAGES: Record<SessionReason, (name: string) => string> = {
   login_required: (name) => `${name} needs you to log in again.`,
   captcha: (name) => `${name} is asking you to solve a puzzle (a CAPTCHA). Log in again to solve it.`,
   blocked: (name) => `${name} is refusing our automated checks, even though your login may have worked. It stays paused. Ask the supplier for a price list or feed, or reconnect to try again.`,
@@ -57,7 +60,7 @@ export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId
   // The HTTP status tells us why a check was refused (403 vs 429 vs a challenge page). Never page text.
   let httpStatus: number | null = null;
   const record = (result: string) => audit.record({ action: "supplier.session_checked", entityType: "supplier", entityId: supplierId, details: { result, httpStatus } });
-  const needsAttention = async (result: NotificationReason): Promise<CheckOutcome> => {
+  const needsAttention = async (result: SessionReason): Promise<CheckOutcome> => {
     await suppliers.markNeedsAttention(supplierId, STATUS[result]);
     await notifications.raise({ kind: "supplier_needs_reconnect", supplierId, message: MESSAGES[result](supplier.name), reason: result });
     await record(result);

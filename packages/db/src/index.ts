@@ -6,3 +6,6 @@ export * from "./supplier-session-repository.js";
 export * from "./notification-repository.js";
 export * from "./mapping-repository.js";
 export * from "./import-preview-repository.js";
+export * from "./recipe-repository.js";
+export * from "./capture-repository.js";
+export * from "./observation-repository.js";
