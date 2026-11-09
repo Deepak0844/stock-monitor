@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { Api, ConnectionCheck, ShopifyApi, ShopifyConnection, Supplier, SuppliersApi, Mapping, MappingsApi, LoginSession, LoginSessionsApi, AppNotification, NotificationsApi, VariantItem, VariantPage } from "../api.js";
+import type { Api, ConnectionCheck, ShopifyApi, ShopifyConnection, Supplier, SuppliersApi, Mapping, MappingsApi, Capture, CapturesApi, RecipesApi, RecipeVersion, StockApi, LoginSession, LoginSessionsApi, AppNotification, NotificationsApi, VariantItem, VariantPage } from "../api.js";
 
 export const aCheck = (over: Partial<ConnectionCheck> = {}): ConnectionCheck => ({
   shopName: "Acme Supplies",
@@ -58,6 +58,7 @@ export const aSupplier = (over: Partial<Supplier> = {}): Supplier => ({
   permissionNote: null,
   permissionSetAt: null,
   checkPauseSeconds: 10,
+  defaultRegion: null,
   createdAt: "2026-11-08T10:00:00.000Z",
   updatedAt: "2026-11-08T10:00:00.000Z",
   ...over,
@@ -80,6 +81,34 @@ export const aMapping = (over: Partial<Mapping> = {}): Mapping => ({
   supplierName: "Acme Supply",
   variantRemoved: false,
   unavailableCandidate: false,
+  latestStock: null,
+  region: null,
+  ...over,
+});
+
+export const aCapture = (over: Partial<Capture> = {}): Capture => ({
+  id: "66666666-6666-4666-8666-666666666666",
+  supplierId: "11111111-1111-4111-8111-111111111111",
+  mappingId: "44444444-4444-4444-8444-444444444444",
+  name: "Blue Tee in stock",
+  expectedAnswer: null,
+  status: "ready",
+  failureReason: null,
+  pageClass: "ok",
+  keptReason: "example",
+  createdAt: "2026-11-10T10:00:00.000Z",
+  hasPicture: true,
+  ...over,
+});
+
+export const aRecipeVersion = (over: Partial<RecipeVersion> = {}): RecipeVersion => ({
+  id: "77777777-7777-4777-8777-777777777777",
+  supplierId: "11111111-1111-4111-8111-111111111111",
+  version: 1,
+  rules: { pageChecks: [{ type: "text", text: "Blue Tee" }], inStock: [{ type: "button", label: "Add to cart", enabled: true }], outOfStock: [{ type: "text", text: "Sold out" }] },
+  active: false,
+  createdAt: "2026-11-10T10:00:00.000Z",
+  activatedAt: null,
   ...over,
 });
 
@@ -108,15 +137,18 @@ export const aNotification = (over: Partial<AppNotification> = {}): AppNotificat
 
 /** A fake API for screen tests. Every method is a spy with a sensible default. */
 export function fakeApi(
-  over: Partial<Omit<Api, "shopify" | "suppliers" | "loginSessions" | "mappings">> & {
+  over: Partial<Omit<Api, "shopify" | "suppliers" | "loginSessions" | "mappings" | "captures" | "recipes" | "stock">> & {
     shopify?: Partial<ShopifyApi>;
     suppliers?: Partial<SuppliersApi>;
     loginSessions?: Partial<LoginSessionsApi>;
     notifications?: Partial<NotificationsApi>;
     mappings?: Partial<MappingsApi>;
+    captures?: Partial<CapturesApi>;
+    recipes?: Partial<RecipesApi>;
+    stock?: Partial<StockApi>;
   } = {},
 ): Api {
-  const { shopify, suppliers, loginSessions, notifications, mappings, ...rest } = over;
+  const { shopify, suppliers, loginSessions, notifications, mappings, captures, recipes, stock, ...rest } = over;
   return {
     getMe: vi.fn().mockResolvedValue(null),
     login: vi.fn().mockResolvedValue({ email: "owner@example.com" }),
@@ -139,6 +171,7 @@ export function fakeApi(
       pause: vi.fn().mockImplementation(async () => aSupplier({ enabled: false, pausedReason: "owner" })),
       resume: vi.fn().mockImplementation(async () => aSupplier()),
       checkSession: vi.fn().mockResolvedValue(undefined),
+      setRegion: vi.fn().mockImplementation(async (_id, region) => aSupplier({ defaultRegion: region })),
       setPermission: vi.fn().mockImplementation(async (_id, input) => aSupplier({ automationPermission: input.status, permissionNote: input.note })),
       ...suppliers,
     },
@@ -155,6 +188,28 @@ export function fakeApi(
       importPreview: vi.fn(),
       importConfirm: vi.fn(),
       ...mappings,
+    },
+    captures: {
+      list: vi.fn().mockResolvedValue([]),
+      get: vi.fn().mockResolvedValue({ ...aCapture(), description: null }),
+      request: vi.fn().mockImplementation(async (_id, input) => aCapture({ status: "pending", name: input.name ?? "", mappingId: input.mappingId })),
+      label: vi.fn().mockImplementation(async (_id, patch) => aCapture({ ...(patch.name === undefined ? {} : { name: patch.name }), ...(patch.expected === undefined ? {} : { expectedAnswer: patch.expected }) })),
+      remove: vi.fn().mockResolvedValue(undefined),
+      pictureUrl: (id: string) => `/api/captures/${id}/picture`,
+      ...captures,
+    },
+    recipes: {
+      list: vi.fn().mockResolvedValue([]),
+      save: vi.fn().mockResolvedValue({ id: "88888888-8888-4888-8888-888888888888", version: 1 }),
+      test: vi.fn().mockResolvedValue({ results: [], passed: false }),
+      activate: vi.fn().mockImplementation(async () => aRecipeVersion({ active: true })),
+      ...recipes,
+    },
+    stock: {
+      checkLink: vi.fn().mockResolvedValue(undefined),
+      checkSupplier: vi.fn().mockResolvedValue(1),
+      observations: vi.fn().mockResolvedValue([]),
+      ...stock,
     },
     shopify: {
       getConnection: vi.fn().mockResolvedValue(null),

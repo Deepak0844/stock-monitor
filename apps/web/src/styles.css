@@ -1141,3 +1141,45 @@ fieldset[role="group"] legend {
   font-size: 1.125rem;
   font-weight: 600;
 }
+
+/* ---------- Stock rules ---------- */
+.rule-editor fieldset {
+  border: 0;
+  margin: 0 0 1.5rem;
+  padding: 0;
+  min-width: 0;
+}
+.rule-editor legend {
+  padding: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+.rule-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.75rem 1rem;
+  align-items: end;
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius);
+}
+.capture-picture {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1rem 0;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius);
+}
+.capture-text h3 {
+  margin: 1rem 0 0.25rem;
+  font-size: 1rem;
+}
+.capture-text h4 {
+  margin: 0.75rem 0 0;
+  font-size: 0.9375rem;
+}
+.capture-text .plain-list li {
+  white-space: pre-wrap;
+}
