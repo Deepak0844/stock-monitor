@@ -59,6 +59,18 @@ describe.skipIf(!linux)("profile check (spike)", () => {
   it("sends a person with no session to the login page", async () => {
     expect((await verify("/account", { cookies: [], origins: [] })).result).toBe("login_required");
   });
+  it("reads the page when its title says nothing: a signed-in page with no title is ok, and the answer carries a status", async () => {
+    expect(await verify("/untitled", await login())).toMatchObject({ result: "ok", status: 200 });
+  });
+  it("reads a page with no title that asks for a login, as needing one", async () => {
+    expect((await verify("/untitled", { cookies: [], origins: [] })).result).toBe("login_required");
+  });
+  it("reads a page with no title that shows a challenge, as a captcha", async () => {
+    expect((await verify("/untitled-challenge", await login())).result).toBe("captcha");
+  });
+  it("does not read a page it could already tell from its title", async () => {
+    expect((await verify("/account", await login())).status).toBeNull();
+  });
   it("sees a challenge page", async () => {
     expect((await verify("/captcha", await login())).result).toBe("captcha");
   });

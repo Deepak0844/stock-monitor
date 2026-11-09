@@ -9,10 +9,10 @@ import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
-import type { PageClass } from "@stock-monitor/supplier-session";
+import { classifyPage, type PageClass } from "@stock-monitor/supplier-session";
 import { plainLaunchArgs, quitCleanly, seedProfile, waitForDebuggingPort } from "./plain-window.js";
 import type { GuardProxy } from "./proxy.js";
-import type { VerifyOutcome, VerifyRequest } from "./verify.js";
+import { CHALLENGE_WIDGET, MAX_TEXT, type VerifyOutcome, type VerifyRequest } from "./verify.js";
 
 const CHALLENGE_TITLE = /just a moment|attention required|verify|human|captcha|security check|checking your browser/i;
 const BLOCKED_TITLE = /access denied|forbidden|blocked|error 1020|too many requests/i;
@@ -57,6 +57,8 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = join(
 
   /** Starts the browser on `profile`. Returns once it is running; `stop` quits it the way a person would. */
   async function launch(profile: string, url: string, debuggable: boolean) {
+    // A clean quit leaves the last port behind, and a new launch must not be mistaken for it.
+    if (debuggable) await rm(join(profile, "DevToolsActivePort"), { force: true });
     const id = randomUUID();
     const tracker = proxy.track(id);
     const listener = await proxy.openListener(id);
@@ -92,6 +94,47 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = join(
     }
   }
 
+  /**
+   * Step 2, only when the title could not say. The same profile, now with a debugging channel, loads the page again and
+   * reads its text, so the normal classifier can decide. By now step 1 has already been through any challenge, and the
+   * profile holds what it earned. A page that cannot be read leaves the answer as it was: unknown.
+   */
+  async function readPage(profile: string, request: VerifyRequest): Promise<{ result: PageClass; status: number | null } | null> {
+    const b = await launch(profile, "about:blank", true);
+    try {
+      const port = await waitForDebuggingPort(profile, b.child, 20_000);
+      const cdp = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+      try {
+        const context = cdp.contexts()[0];
+        const page = context?.pages()[0] ?? (await context?.newPage());
+        if (!page) return null;
+        const response = await page.goto(request.url, { timeout: 20_000, waitUntil: "load" });
+        const status = response?.status() ?? null;
+        const seen = await page.evaluate(
+          (selector) => ({
+            title: document.title,
+            text: (document.body?.innerText ?? "").slice(0, 20_000),
+            hasPasswordField: document.querySelector('input[type="password"]') !== null,
+            hasChallengeWidget: document.querySelector(selector) !== null,
+          }),
+          CHALLENGE_WIDGET,
+        );
+        const result = classifyPage({
+          requestedUrl: request.url,
+          loginUrl: request.loginUrl,
+          page: { finalUrl: page.url(), status, ...seen, text: seen.text.slice(0, MAX_TEXT) },
+        });
+        return { result, status };
+      } finally {
+        await cdp.close().catch(() => {});
+      }
+    } catch {
+      return null; // refused, too slow or closed: say nothing more than step 1 did
+    } finally {
+      await b.stop();
+    }
+  }
+
   async function check(request: VerifyRequest): Promise<VerifyOutcome> {
     const profile = join(baseDir, createHash("sha256").update(new URL(request.url).host).digest("hex").slice(0, 16));
     const hash = createHash("sha256").update(JSON.stringify(request.state.cookies)).digest("hex");
@@ -112,6 +155,10 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = join(
     const result = seen
       ? classifyByTitle({ url: request.url, loginUrl: request.loginUrl, finalUrl: seen.url, title: seen.title })
       : "unreachable";
+    if (result === "unknown") {
+      const read = await readPage(profile, request);
+      if (read) return { result: read.result, status: read.status, blockedRequests: b.blocked() };
+    }
     return { result, status: null, blockedRequests: b.blocked() };
   }
 

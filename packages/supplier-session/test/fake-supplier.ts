@@ -122,6 +122,14 @@ export async function createFakeSupplier(options: { host?: string } = {}): Promi
       res.writeHead(204);
       return res.end();
     }
+    // A real shop can ship a page with no <title> at all. Only the page's text can say what it is.
+    if (path === "/untitled") {
+      const detail = loggedIn(req) ? "<p>Signed in as buyer.</p>" : "<p>Log in to see prices and stock.</p>";
+      return send(200, page("", `<h1>Fake Supplier</h1>${detail}${ABOUT}`));
+    }
+    if (path === "/untitled-challenge") {
+      return send(200, page("", `<h1>One moment</h1><p>Please verify you are human to continue.</p>${WIDGETS.recaptcha}${ABOUT}`));
+    }
     if (path === "/account") {
       if (!loggedIn(req)) return redirect(`/login?next=${encodeURIComponent("/account")}`);
       return send(
