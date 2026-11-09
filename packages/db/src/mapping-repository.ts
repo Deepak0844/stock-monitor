@@ -177,6 +177,12 @@ export function createMappingRepository<S extends Record<string, unknown>>(db: N
       return row ?? null;
     },
 
+    /** Every variant Shopify still has, with its SKU. Removed variants are left out so their SKUs cannot match. */
+    async liveVariantSkus(): Promise<{ variantId: string; sku: string }[]> {
+      const rows = await db.select({ variantId: shopifyVariants.variantId, sku: shopifyVariants.sku }).from(shopifyVariants).where(isNull(shopifyVariants.removedAt));
+      return rows.filter((r): r is { variantId: string; sku: string } => !!r.sku?.trim());
+    },
+
     /** Every existing link, for the import preview to compare against. */
     async linksByVariant(): Promise<{ variantId: string; supplierId: string; url: string }[]> {
       return db.select({ variantId: mappings.variantId, supplierId: mappings.supplierId, url: mappings.url }).from(mappings);

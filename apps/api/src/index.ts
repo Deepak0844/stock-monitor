@@ -6,7 +6,7 @@ import {
   createLoginSessionRepository,
   createNotificationRepository,
   createShopifyRepository,
-  createMappingRepository, createSupplierRepository,
+  createImportPreviewRepository, createMappingRepository, createSupplierRepository,
   createSupplierSessionRepository,
 } from "@stock-monitor/db";
 import { createQueue } from "@stock-monitor/queue";
@@ -35,7 +35,7 @@ const app = buildApp({
   webRoot,
   suppliers: { repo: createSupplierRepository(db) },
   notifications: { repo: createNotificationRepository(db) },
-  mappings: { mappings: createMappingRepository(db), suppliers: createSupplierRepository(db) },
+  mappings: { mappings: createMappingRepository(db), suppliers: createSupplierRepository(db), previews: createImportPreviewRepository(db) },
   // The login routes need the browser service. Without its address and token the API has no login routes.
   loginSessions:
     config.browserServiceUrl && config.browserControlToken
