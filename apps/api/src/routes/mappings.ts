@@ -1,8 +1,9 @@
 import type { FastifyInstance, RawReplyDefaultExpression, RawRequestDefaultExpression, RawServerDefault } from "fastify";
 import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
-import type { createImportPreviewRepository, createMappingRepository, createSupplierRepository } from "@stock-monitor/db";
-import { sameSite } from "@stock-monitor/mapping";
+import type { createImportPreviewRepository, createMappingRepository, createSupplierRepository, createSupplierSessionRepository, MappingRow } from "@stock-monitor/db";
+import type { Queue } from "@stock-monitor/queue";
+import { isUnavailableCandidate, sameSite, whyNotChecked } from "@stock-monitor/mapping";
 import { validateSupplierUrl, verifyPublicHost, type HostLookup } from "@stock-monitor/supplier-session";
 import { AppError } from "../errors.js";
 import { registerMappingImportRoutes } from "./mapping-import.js";
@@ -15,6 +16,9 @@ export type MappingRoutesDeps = {
   suppliers: ReturnType<typeof createSupplierRepository>;
   /** Import from the Shopify export. Left out, there are no /api/mappings/import routes. */
   previews?: ReturnType<typeof createImportPreviewRepository>;
+  /** Link checks. Both are needed. Left out, there are no check routes. */
+  supplierSessions?: ReturnType<typeof createSupplierSessionRepository>;
+  queue?: Pick<Queue, "enqueue">;
   /** Test only: replaces the real DNS lookup. */
   lookup?: HostLookup;
 };
@@ -37,6 +41,15 @@ const noteOf = (value: unknown): string | null => {
   return value.trim() || null;
 };
 
+/** Adds what a screen needs and the row does not store: whether the link is an "unavailable candidate". */
+const present = (row: MappingRow) => ({
+  ...row,
+  unavailableCandidate: isUnavailableCandidate(
+    { status: row.linkStatus, lastWorkedAt: row.lastWorkedAt, workedTitle: row.workedTitle, workedHeading: row.workedHeading, missingChecks: row.missingChecks, firstMissingAt: row.firstMissingAt, checkedAt: row.lastLinkCheckAt },
+    false,
+  ),
+});
+
 export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: Audit): void {
   const { mappings, suppliers } = deps;
   if (deps.previews) registerMappingImportRoutes(app, { mappings, suppliers, previews: deps.previews }, audit);
@@ -57,7 +70,7 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
 
   app.get<{ Querystring: { supplierId?: string; status?: string; search?: string } }>("/api/mappings", async (request) => {
     const { supplierId, status, search } = request.query;
-    return { mappings: await mappings.list({ supplierId, linkStatus: status as never, search }) };
+    return { mappings: (await mappings.list({ supplierId, linkStatus: status as never, search })).map(present) };
   });
 
   app.post("/api/mappings", async (request, reply) => {
@@ -82,7 +95,7 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
   app.get<{ Params: { id: string } }>("/api/mappings/:id", async (request) => {
     const mapping = await mappings.get(request.params.id);
     if (!mapping) throw MAPPING_NOT_FOUND();
-    return { mapping };
+    return { mapping: present(mapping) };
   });
 
   app.patch<{ Params: { id: string } }>("/api/mappings/:id", async (request) => {
@@ -103,7 +116,7 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
     }
     if (!(await mappings.update(current.id, patch))) throw MAPPING_NOT_FOUND();
     await record(request, "mapping.updated", "mapping", current.id, { changed: Object.keys(patch) });
-    return { mapping: await mappings.get(current.id) };
+    return { mapping: present((await mappings.get(current.id)) as MappingRow) };
   });
 
   app.delete<{ Params: { id: string } }>("/api/mappings/:id", async (request) => {
@@ -132,5 +145,45 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
     if (!supplier) throw SUPPLIER_NOT_FOUND();
     await record(request, "supplier.permission_set", "supplier", supplier.id, { status: supplier.automationPermission, pauseSeconds: supplier.checkPauseSeconds });
     return { supplier };
+  });
+
+  const { supplierSessions, queue } = deps;
+  if (!supplierSessions || !queue) return;
+
+  /** A supplier whose links may be checked now, or the plain reason they may not. */
+  async function readySupplier(supplierId: string) {
+    const supplier = await suppliers.get(supplierId);
+    if (!supplier) throw SUPPLIER_NOT_FOUND();
+    const refused = whyNotChecked(supplier, (await supplierSessions!.getSealed(supplierId)) !== null);
+    if (refused) throw new AppError(409, refused.reason, refused.message);
+    return supplier;
+  }
+  const NOT_STARTED = () => new AppError(503, "check_not_started", "The check could not be started. Please try again in a minute.");
+
+  app.post<{ Params: { id: string } }>("/api/mappings/:id/check-link", async (request, reply) => {
+    const mapping = await mappings.get(request.params.id);
+    if (!mapping) throw MAPPING_NOT_FOUND();
+    if (!mapping.enabled) throw new AppError(409, "link_off", "This link is switched off. Switch it on to check it.");
+    await readySupplier(mapping.supplierId);
+    try {
+      await queue.enqueue("mapping.link.check", { mappingId: mapping.id });
+    } catch {
+      throw NOT_STARTED();
+    }
+    await record(request, "mapping.check_requested", "mapping", mapping.id);
+    return reply.status(202).send({ queued: true });
+  });
+
+  app.post<{ Params: { id: string } }>("/api/suppliers/:id/check-links", async (request, reply) => {
+    const supplier = await readySupplier(request.params.id);
+    const links = (await mappings.forSupplier(supplier.id)).filter((m) => m.enabled).length;
+    if (links === 0) throw new AppError(409, "no_links", "This supplier has no links to check yet.");
+    try {
+      await queue.enqueue("mapping.links.check", { supplierId: supplier.id });
+    } catch {
+      throw NOT_STARTED();
+    }
+    await record(request, "mapping.supplier_check_requested", "supplier", supplier.id, { links });
+    return reply.status(202).send({ queued: true, links });
   });
 }

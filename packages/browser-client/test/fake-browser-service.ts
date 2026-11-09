@@ -14,6 +14,12 @@ export type FakeBrowserService = {
     finish: "ok" | "gone" | "fail" | "garbage";
     cancel: "ok" | "gone" | "fail";
     verify: "ok" | "fail" | "garbage";
+    /** How a page check behaves, and what page it reports when "ok". */
+    checkPage: "ok" | "fail" | "garbage";
+    /** Lets a test give each address its own page. Falls back to `page`. */
+    pageFor?: (url: string) => FakeBrowserService["behaviour"]["page"] | undefined;
+    /** A page with no `finalUrl` ends on the address that was asked for. */
+    page: { result: string; status: number | null; finalUrl?: string | null; title: string | null; heading: string | null; softNotFound: boolean };
     /** What a check says the page was, when verify is "ok". */
     verifyResult: string;
     state: unknown;
@@ -27,7 +33,7 @@ export type FakeBrowserService = {
 export async function createFakeBrowserService(): Promise<FakeBrowserService> {
   const requests: FakeBrowserService["requests"] = [];
   const behaviour: FakeBrowserService["behaviour"] = {
-    open: "ok", finish: "ok", cancel: "ok", verify: "ok", verifyResult: "ok", state: { cookies: [], origins: [] }, vncPassword: "Ab3dE6gH", delayMs: 0,
+    open: "ok", finish: "ok", cancel: "ok", verify: "ok", verifyResult: "ok", checkPage: "ok", page: { result: "ok", status: 200, finalUrl: "https://shop.acme.example/p", title: "Blue Widget", heading: "Blue Widget", softNotFound: false }, state: { cookies: [], origins: [] }, vncPassword: "Ab3dE6gH", delayMs: 0,
   };
   let counter = 0;
 
@@ -64,6 +70,13 @@ export async function createFakeBrowserService(): Promise<FakeBrowserService> {
       if (behaviour.verify === "fail") return reply(500, { error: "verify_failed" });
       if (behaviour.verify === "garbage") return reply(200, { result: "maybe" });
       return reply(200, { result: behaviour.verifyResult, status: behaviour.verifyResult === "unreachable" ? null : 200, blockedRequests: 0 });
+    }
+    if (req.method === "POST" && path === "/check-page") {
+      if (behaviour.checkPage === "fail") return reply(500, { error: "check_failed" });
+      if (behaviour.checkPage === "garbage") return reply(200, { result: "maybe" });
+      const asked = (body as { url?: string } | undefined)?.url ?? "";
+      const page = behaviour.pageFor?.(asked) ?? behaviour.page;
+      return reply(200, { ...page, finalUrl: page.finalUrl === undefined ? asked : page.finalUrl, blockedRequests: 0 });
     }
     const finish = /^\/sessions\/([^/]+)\/finish$/.exec(path);
     if (req.method === "POST" && finish) {

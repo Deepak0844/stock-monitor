@@ -8,6 +8,10 @@ export type FinishOutcome = { ok: true; state: SessionState } | { ok: false; rea
 export type VerifyOutcome =
   | { ok: true; result: PageClass; status: number | null; blockedRequests: number }
   | { ok: false; reason: "failed" | "unavailable" };
+/** What a link check saw: the page's address (no query string), title and first heading, never its text. */
+export type CheckPageOutcome =
+  | { ok: true; result: PageClass; status: number | null; finalUrl: string | null; title: string | null; heading: string | null; softNotFound: boolean; blockedRequests: number }
+  | { ok: false; reason: "failed" | "unavailable" };
 export type CancelOutcome = { ok: true } | { ok: false; reason: "not_found" | "unavailable" };
 
 export type BrowserClient = {
@@ -16,6 +20,8 @@ export type BrowserClient = {
   /** Saves the login as it is now and closes the window. */
   finishSession(id: string): Promise<FinishOutcome>;
   cancelSession(id: string): Promise<CancelOutcome>;
+  /** Loads one page with a saved session and says what happened to it: the status, where it ended, its title and heading. */
+  checkPage(request: { url: string; loginUrl?: string; state: SessionState }): Promise<CheckPageOutcome>;
   /** Loads a page with a saved session in a throw-away browser and says what it was. */
   verify(request: { url: string; loginUrl?: string; state: SessionState }): Promise<VerifyOutcome>;
 };
@@ -90,6 +96,24 @@ export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, fetchI
         ok: true,
         result: j.result as PageClass,
         status: typeof j.status === "number" ? j.status : null,
+        blockedRequests: typeof j.blockedRequests === "number" ? j.blockedRequests : 0,
+      };
+    },
+
+    async checkPage({ url, loginUrl, state }) {
+      const r = await call("POST", "/check-page", { url, ...(loginUrl ? { loginUrl } : {}), state });
+      if (!r) return { ok: false, reason: "unavailable" };
+      const j = r.json;
+      if (r.status !== 200 || !isObject(j) || typeof j.result !== "string" || !PAGE_CLASSES.includes(j.result)) return { ok: false, reason: "failed" };
+      const text = (v: unknown) => (typeof v === "string" ? v : null);
+      return {
+        ok: true,
+        result: j.result as PageClass,
+        status: typeof j.status === "number" ? j.status : null,
+        finalUrl: text(j.finalUrl),
+        title: text(j.title),
+        heading: text(j.heading),
+        softNotFound: j.softNotFound === true,
         blockedRequests: typeof j.blockedRequests === "number" ? j.blockedRequests : 0,
       };
     },

@@ -35,7 +35,7 @@ const app = buildApp({
   webRoot,
   suppliers: { repo: createSupplierRepository(db) },
   notifications: { repo: createNotificationRepository(db) },
-  mappings: { mappings: createMappingRepository(db), suppliers: createSupplierRepository(db), previews: createImportPreviewRepository(db) },
+  mappings: { mappings: createMappingRepository(db), suppliers: createSupplierRepository(db), previews: createImportPreviewRepository(db), supplierSessions: createSupplierSessionRepository(db), queue },
   // The login routes need the browser service. Without its address and token the API has no login routes.
   loginSessions:
     config.browserServiceUrl && config.browserControlToken

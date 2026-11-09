@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import { createControlServer, type SessionsApi, type VerifyFn } from "./server.js";
+import { createControlServer, type CheckPageFn, type SessionsApi, type VerifyFn } from "./server.js";
 
 const TOKEN = "t".repeat(40);
 const MARKER = "SESSION-COOKIE-MARKER-4c1e";
@@ -11,6 +11,7 @@ const body = { url: "https://shop.acme.example/account", state };
 let server: Server;
 let base: string;
 let verify: ReturnType<typeof vi.fn<VerifyFn>>;
+let checkPage: ReturnType<typeof vi.fn<CheckPageFn>>;
 let sessions: { [K in keyof SessionsApi]: ReturnType<typeof vi.fn<SessionsApi[K]>> };
 const ID = "11111111-1111-4111-8111-111111111111";
 const logs: string[] = [];
@@ -18,12 +19,13 @@ const logs: string[] = [];
 beforeEach(async () => {
   logs.length = 0;
   verify = vi.fn<VerifyFn>().mockResolvedValue({ result: "ok", status: 200, blockedRequests: 0 });
+  checkPage = vi.fn<CheckPageFn>().mockResolvedValue({ result: "ok", status: 200, blockedRequests: 0, finalUrl: "https://shop.acme.example/p", title: "P", heading: "P", softNotFound: false });
   sessions = {
     open: vi.fn<SessionsApi["open"]>().mockResolvedValue({ ok: true, id: ID, expiresAt: "2026-11-08T12:00:00.000Z" }),
     finish: vi.fn<SessionsApi["finish"]>().mockResolvedValue(state),
     cancel: vi.fn<SessionsApi["cancel"]>().mockResolvedValue(true),
   };
-  server = createControlServer({ token: TOKEN, verify, sessions, log: (line) => logs.push(line), maxBodyBytes: 100_000 });
+  server = createControlServer({ token: TOKEN, verify, checkPage, sessions, log: (line) => logs.push(line), maxBodyBytes: 100_000 });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
@@ -209,6 +211,36 @@ describe("the live window routes", () => {
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: "session_failed" });
     expect(logs.join("\n")).toContain("TargetClosedError");
+    expect(logs.join("\n")).not.toContain(MARKER);
+  });
+});
+
+describe("POST /check-page", () => {
+  const call = (token: string | null = TOKEN, payload: unknown = body) =>
+    fetch(`${base}/check-page`, { method: "POST", headers: { "content-type": "application/json", ...(token === null ? {} : { authorization: `Bearer ${token}` }) }, body: JSON.stringify(payload) });
+
+  it("needs the control token and does nothing without it", async () => {
+    expect((await call(null)).status).toBe(401);
+    expect(checkPage).not.toHaveBeenCalled();
+  });
+
+  it("answers with what the page was", async () => {
+    const res = await call();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ result: "ok", status: 200, finalUrl: "https://shop.acme.example/p", softNotFound: false });
+    expect(checkPage).toHaveBeenCalledWith(expect.objectContaining({ url: body.url }));
+  });
+
+  it("refuses a request that is not an address and a session", async () => {
+    expect((await call(TOKEN, { url: "ftp://x.test", state })).status).toBe(400);
+    expect(checkPage).not.toHaveBeenCalled();
+  });
+
+  it("logs only the error name when the check fails, never the session", async () => {
+    checkPage.mockRejectedValue(new Error(`boom ${MARKER}`));
+    const res = await call();
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "check_failed" });
     expect(logs.join("\n")).not.toContain(MARKER);
   });
 });

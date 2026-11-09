@@ -152,6 +152,13 @@ export async function createFakeSupplier(options: { host?: string } = {}): Promi
         page(`${item.name} | Fake Supplier`, `<h1>${item.name}</h1>${detail}${ABOUT}`),
       );
     }
+    // Link-check cases: a page that is gone in each of the ways a real shop does it.
+    if (path === "/gone410") return send(410, page("410 Gone", "<h1>410 Gone</h1><p>This product was removed.</p>"));
+    if (path === "/soft404") return send(200, page("Page not found | Fake Supplier", `<h1>Page not found</h1><p>Try our home page.</p>${ABOUT}`));
+    if (path === "/redirect-home") return redirect("/");
+    if (path === "/redirect-category") return redirect("/collections/widgets");
+    if (path === "/collections/widgets") return send(200, page("Widgets | Fake Supplier", `<h1>Widgets</h1>${ABOUT}`));
+    if (path === "/renamed") return send(200, page("Red Gadget | Fake Supplier", `<h1>Red Gadget</h1>${ABOUT}`));
     if (path === "/captcha") {
       const widget = WIDGETS[url.searchParams.get("widget") ?? "recaptcha"] ?? WIDGETS.recaptcha;
       return send(

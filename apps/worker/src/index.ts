@@ -4,6 +4,7 @@ import { KEY_ID } from "@stock-monitor/crypto";
 import { createAuditWriter } from "@stock-monitor/audit";
 import { createBrowserClient } from "@stock-monitor/browser-client";
 import {
+  createMappingRepository,
   createNotificationRepository,
   createShopifyRepository,
   createSupplierRepository,
@@ -36,6 +37,18 @@ await registerHandlers(queue, logger, {
           suppliers: createSupplierRepository(db),
           supplierSessions: createSupplierSessionRepository(db),
           notifications: createNotificationRepository(db),
+          audit: createAuditWriter(db),
+          browser: createBrowserClient({ baseUrl: config.browserServiceUrl, token: config.browserControlToken }),
+          key: config.encryptionKey,
+        }
+      : undefined,
+  // Link checks need the same browser service as session checks.
+  mappingLinks:
+    config.browserServiceUrl && config.browserControlToken
+      ? {
+          mappings: createMappingRepository(db),
+          suppliers: createSupplierRepository(db),
+          supplierSessions: createSupplierSessionRepository(db),
           audit: createAuditWriter(db),
           browser: createBrowserClient({ baseUrl: config.browserServiceUrl, token: config.browserControlToken }),
           key: config.encryptionKey,
