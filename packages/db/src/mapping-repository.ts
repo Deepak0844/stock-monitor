@@ -171,6 +171,12 @@ export function createMappingRepository<S extends Record<string, unknown>>(db: N
       return result;
     },
 
+    /** The link a variant already has, if any. One link per variant is a rule of the app. */
+    async linkForVariant(variantId: string): Promise<{ id: string; supplierId: string } | null> {
+      const [row] = await db.select({ id: mappings.id, supplierId: mappings.supplierId }).from(mappings).where(eq(mappings.variantId, variantId)).limit(1);
+      return row ?? null;
+    },
+
     /** Every existing link, for the import preview to compare against. */
     async linksByVariant(): Promise<{ variantId: string; supplierId: string; url: string }[]> {
       return db.select({ variantId: mappings.variantId, supplierId: mappings.supplierId, url: mappings.url }).from(mappings);
