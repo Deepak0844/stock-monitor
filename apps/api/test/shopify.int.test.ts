@@ -84,7 +84,7 @@ afterAll(async () => {
 });
 
 const fresh = async () => {
-  await t.pool.query("truncate shopify_connection, shopify_variants, shopify_sync_runs, audit_events");
+  await t.pool.query("truncate shopify_connection, shopify_variants, shopify_sync_runs, audit_events cascade");
   queued.length = 0;
   logLines.length = 0;
   bodies.length = 0;

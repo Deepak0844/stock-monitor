@@ -133,11 +133,20 @@ export const suppliers = pgTable(
     sessionStatus: text("session_status").notNull().default("not_connected"),
     pausedReason: text("paused_reason"),
     lastSessionCheckAt: timestamp("last_session_check_at", { withTimezone: true }),
+    // The owner's record of whether this supplier allows automatic checks. Link checks need `granted`.
+    // A reminder and a record, not a legal control: the owner sets it.
+    automationPermission: text("automation_permission").notNull().default("unknown"),
+    permissionNote: text("permission_note"),
+    permissionSetAt: timestamp("permission_set_at", { withTimezone: true }),
+    /** Seconds to wait between two pages of this supplier. At least the supplier's own crawl delay. */
+    checkPauseSeconds: integer("check_pause_seconds").notNull().default(10),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     check("suppliers_session_status", sql`${t.sessionStatus} in ('not_connected', 'connected', 'needs_reconnect', 'blocked')`),
+    check("suppliers_automation_permission", sql`${t.automationPermission} in ('unknown', 'granted', 'not_granted')`),
+    check("suppliers_check_pause", sql`${t.checkPauseSeconds} >= 1`),
     check("suppliers_check_interval", sql`${t.checkIntervalMinutes} between 15 and 1440`),
     check(
       "suppliers_pause_reason",
@@ -221,3 +230,48 @@ export const notifications = pgTable(
     uniqueIndex("notifications_one_open").on(t.kind, t.supplierId).where(sql`${t.resolvedAt} is null`),
   ],
 );
+
+// One link: this Shopify variant is the same item as this supplier page. The variant keeps its row when Shopify
+// removes it, so a link is never orphaned (no cascade). Deleting a supplier deletes its links. "One link per
+// variant" is a rule in the app, not here, so it can be lifted without a migration. Holds the link's history only:
+// never stock, prices, page text, cookies or sessions.
+export const mappings = pgTable(
+  "mappings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    variantId: text("variant_id")
+      .notNull()
+      .references(() => shopifyVariants.variantId),
+    supplierId: uuid("supplier_id")
+      .notNull()
+      .references(() => suppliers.id, { onDelete: "cascade" }),
+    url: text("url").notNull(),
+    note: text("note"),
+    enabled: boolean("enabled").notNull().default(true),
+    linkStatus: text("link_status").notNull().default("not_checked"),
+    lastLinkCheckAt: timestamp("last_link_check_at", { withTimezone: true }),
+    lastWorkedAt: timestamp("last_worked_at", { withTimezone: true }),
+    workedTitle: text("worked_title"),
+    workedHeading: text("worked_heading"),
+    missingChecks: integer("missing_checks").notNull().default(0),
+    firstMissingAt: timestamp("first_missing_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check(
+      "mappings_link_status",
+      sql`${t.linkStatus} in ('not_checked', 'works', 'never_worked', 'page_missing', 'moved', 'looks_different', 'needs_login', 'could_not_check')`,
+    ),
+    uniqueIndex("mappings_variant_supplier_unique").on(t.variantId, t.supplierId),
+    index("mappings_supplier_idx").on(t.supplierId),
+  ],
+);
+
+// A parsed upload waiting for the owner to confirm, so the preview and the import are the same rows. Only the
+// checked rows (variant, supplier, address) are kept: never descriptions or other columns. Deleted after use or an hour.
+export const importPreviews = pgTable("import_previews", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  rows: jsonb("rows").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});

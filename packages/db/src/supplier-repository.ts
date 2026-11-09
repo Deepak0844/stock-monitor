@@ -12,6 +12,10 @@ export type SupplierRecord = {
   sessionStatus: "not_connected" | "connected" | "needs_reconnect" | "blocked";
   pausedReason: "owner" | "session" | null;
   lastSessionCheckAt: Date | null;
+  automationPermission: "unknown" | "granted" | "not_granted";
+  permissionNote: string | null;
+  permissionSetAt: Date | null;
+  checkPauseSeconds: number;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -107,6 +111,10 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
     /** A check was tried but the supplier could not be reached. Nothing else changes. */
     touchChecked: (id: string) => set(id, { lastSessionCheckAt: sql`now()` }),
     markNotConnected: (id: string) => set(id, { sessionStatus: "not_connected" }),
+
+    /** The owner's record of whether the supplier allows automatic checks. */
+    setPermission: (id: string, input: { status: SupplierRecord["automationPermission"]; note: string | null }) =>
+      set(id, { automationPermission: input.status, permissionNote: input.note, permissionSetAt: sql`now()` }),
 
     pause: (id: string) => set(id, { enabled: false, pausedReason: "owner" }),
     resume: (id: string) => set(id, { enabled: true, pausedReason: null }),
