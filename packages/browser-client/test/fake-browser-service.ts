@@ -20,6 +20,8 @@ export type FakeBrowserService = {
     capture: "ok" | "fail" | "garbage";
     description: { sections: { heading: string | null; level: number; lines: string[] }[]; buttons: { label: string; enabled: boolean; section: string | null }[] };
     picture: string | null;
+    /** Lets a test give each address its own description. Falls back to `description`. */
+    descriptionFor?: (url: string) => FakeBrowserService["behaviour"]["description"] | undefined;
     /** Lets a test give each address its own page. Falls back to `page`. */
     pageFor?: (url: string) => FakeBrowserService["behaviour"]["page"] | undefined;
     /** A page with no `finalUrl` ends on the address that was asked for. */
@@ -87,7 +89,7 @@ export async function createFakeBrowserService(): Promise<FakeBrowserService> {
       if (behaviour.capture === "garbage") return reply(200, { result: "maybe" });
       const asked = body as { url?: string; picture?: boolean } | undefined;
       const page = behaviour.pageFor?.(asked?.url ?? "") ?? behaviour.page;
-      return reply(200, { ...page, finalUrl: page.finalUrl === undefined ? (asked?.url ?? null) : page.finalUrl, blockedRequests: 0, description: behaviour.description, picture: asked?.picture ? behaviour.picture : null });
+      return reply(200, { ...page, finalUrl: page.finalUrl === undefined ? (asked?.url ?? null) : page.finalUrl, blockedRequests: 0, description: behaviour.descriptionFor?.(asked?.url ?? "") ?? behaviour.description, picture: asked?.picture ? behaviour.picture : null });
     }
     const finish = /^\/sessions\/([^/]+)\/finish$/.exec(path);
     if (req.method === "POST" && finish) {

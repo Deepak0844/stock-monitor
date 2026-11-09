@@ -6,6 +6,8 @@ import { createBrowserClient } from "@stock-monitor/browser-client";
 import {
   createCaptureRepository,
   createMappingRepository,
+  createObservationRepository,
+  createRecipeRepository,
   createNotificationRepository,
   createShopifyRepository,
   createSupplierRepository,
@@ -51,6 +53,22 @@ await registerHandlers(queue, logger, {
           mappings: createMappingRepository(db),
           suppliers: createSupplierRepository(db),
           supplierSessions: createSupplierSessionRepository(db),
+          browser: createBrowserClient({ baseUrl: config.browserServiceUrl, token: config.browserControlToken }),
+          key: config.encryptionKey,
+        }
+      : undefined,
+  // Stock checks need the same browser service.
+  extractionChecks:
+    config.browserServiceUrl && config.browserControlToken
+      ? {
+          mappings: createMappingRepository(db),
+          suppliers: createSupplierRepository(db),
+          supplierSessions: createSupplierSessionRepository(db),
+          recipes: createRecipeRepository(db),
+          observations: createObservationRepository(db),
+          captures: createCaptureRepository(db),
+          notifications: createNotificationRepository(db),
+          audit: createAuditWriter(db),
           browser: createBrowserClient({ baseUrl: config.browserServiceUrl, token: config.browserControlToken }),
           key: config.encryptionKey,
         }

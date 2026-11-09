@@ -24,7 +24,7 @@ export type SupplierRunOutcome = { kind: "skipped"; reason: SkipReason } | { kin
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-const toState = (m: MappingRow): LinkState => ({
+export const toState = (m: MappingRow): LinkState => ({
   status: m.linkStatus,
   lastWorkedAt: m.lastWorkedAt,
   workedTitle: m.workedTitle,
