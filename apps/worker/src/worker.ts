@@ -1,11 +1,12 @@
 import type { Logger } from "pino";
 import type { Queue } from "@stock-monitor/queue";
 import { createShopifySyncHandler, type ShopifySyncDeps } from "./shopify-sync.js";
+import { createCaptureHandler, type CaptureDeps } from "./extraction-capture.js";
 import { createLinkCheckHandlers, type LinkCheckDeps } from "./mapping-link-check.js";
 import { createSupplierVerifyHandler, type SupplierVerifyDeps } from "./supplier-verify.js";
 
 // Later modules register their job handlers here.
-export type WorkerDeps = { shopify?: Omit<ShopifySyncDeps, "logger">; supplierVerify?: Omit<SupplierVerifyDeps, "logger">; mappingLinks?: Omit<LinkCheckDeps, "logger"> };
+export type WorkerDeps = { shopify?: Omit<ShopifySyncDeps, "logger">; supplierVerify?: Omit<SupplierVerifyDeps, "logger">; mappingLinks?: Omit<LinkCheckDeps, "logger">; extractionCapture?: Omit<CaptureDeps, "logger"> };
 
 export async function registerHandlers(queue: Queue, logger: Logger, deps: WorkerDeps = {}): Promise<void> {
   await queue.work("health.ping", async ({ message }) => {
@@ -26,5 +27,10 @@ export async function registerHandlers(queue: Queue, logger: Logger, deps: Worke
     const handlers = createLinkCheckHandlers({ ...deps.mappingLinks, logger });
     await queue.work("mapping.link.check", async (payload) => handlers.link(payload));
     await queue.work("mapping.links.check", async (payload) => handlers.links(payload));
+  }
+
+  if (deps.extractionCapture) {
+    const handle = createCaptureHandler({ ...deps.extractionCapture, logger });
+    await queue.work("extraction.capture", async (payload) => handle(payload));
   }
 }
