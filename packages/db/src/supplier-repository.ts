@@ -113,8 +113,13 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
     markNotConnected: (id: string) => set(id, { sessionStatus: "not_connected" }),
 
     /** The owner's record of whether the supplier allows automatic checks. */
-    setPermission: (id: string, input: { status: SupplierRecord["automationPermission"]; note: string | null }) =>
-      set(id, { automationPermission: input.status, permissionNote: input.note, permissionSetAt: sql`now()` }),
+    setPermission: (id: string, input: { status: SupplierRecord["automationPermission"]; note: string | null; pauseSeconds?: number }) =>
+      set(id, {
+        automationPermission: input.status,
+        permissionNote: input.note,
+        permissionSetAt: sql`now()`,
+        ...(input.pauseSeconds !== undefined ? { checkPauseSeconds: input.pauseSeconds } : {}),
+      }),
 
     pause: (id: string) => set(id, { enabled: false, pausedReason: "owner" }),
     resume: (id: string) => set(id, { enabled: true, pausedReason: null }),
