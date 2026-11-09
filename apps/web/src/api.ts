@@ -88,6 +88,8 @@ export type Supplier = {
   permissionSetAt: string | null;
   /** Seconds to wait between two pages of this supplier. */
   checkPauseSeconds: number;
+  /** The region label stock checks look for on this supplier's pages, unless a link has its own. */
+  defaultRegion: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -107,6 +109,8 @@ export type SuppliersApi = {
   resume(id: string): Promise<Supplier>;
   /** Asks for a check of the supplier's saved login. The answer arrives later, as the supplier's status. */
   checkSession(id: string): Promise<void>;
+  /** The region stock checks look for. null clears it. */
+  setRegion(id: string, region: string | null): Promise<Supplier>;
   /** Records whether the supplier allows automatic checks, and the pause between pages. */
   setPermission(id: string, input: PermissionInput): Promise<Supplier>;
 };
@@ -120,6 +124,8 @@ export type Mapping = {
   supplierId: string;
   url: string;
   note: string | null;
+  /** The region to look for on this page. null means the supplier's default region. */
+  region: string | null;
   enabled: boolean;
   linkStatus: LinkStatus;
   lastLinkCheckAt: string | null;
@@ -133,6 +139,75 @@ export type Mapping = {
   variantRemoved: boolean;
   /** Worked before and the page is missing on two checks at least 6 hours apart. */
   unavailableCandidate: boolean;
+  /** What the latest stock check said, or null when none has run. */
+  latestStock: LatestStock | null;
+};
+
+export type StockAnswer = "in_stock" | "out_of_stock" | "cannot_tell";
+export type StockReason = "page_changed" | "both_matched" | "neither_matched" | "quantity_text_disagree" | "not_listed" | "check_failed" | "page_missing" | "never_worked";
+export type LatestStock = { answer: StockAnswer; reason: StockReason | null; quantity: number | null; matchedText: string | null; observedAt: string };
+export type Observation = LatestStock & { id: number; quantityMismatch: boolean; recipeVersion: number | null; checkResult: string };
+
+/** One saved page, without its text or picture. */
+export type Capture = {
+  id: string;
+  supplierId: string;
+  mappingId: string | null;
+  name: string;
+  expectedAnswer: StockAnswer | null;
+  status: "pending" | "ready" | "failed";
+  /** A fixed code, never a message. */
+  failureReason: string | null;
+  pageClass: string | null;
+  keptReason: "example" | "page_changed";
+  createdAt: string;
+  hasPicture: boolean;
+};
+export type PageDescription = {
+  url: string;
+  title: string;
+  status: number | null;
+  pageClass: string;
+  sections: { heading: string | null; level: number; lines: string[] }[];
+  buttons: { label: string; enabled: boolean; section: string | null }[];
+};
+export type CaptureDetail = Capture & { description: PageDescription | null };
+
+export type StockRule = { type: "text"; text: string; under?: string } | { type: "button"; label: string; enabled?: boolean; under?: string };
+export type Recipe = {
+  pageChecks: StockRule[];
+  inStock: StockRule[];
+  outOfStock: StockRule[];
+  quantity?: { label: string; under?: string };
+  region?: { under: string };
+};
+export type RecipeVersion = { id: string; supplierId: string; version: number; rules: Recipe; active: boolean; createdAt: string; activatedAt: string | null };
+export type ExampleResult = { id: string; name: string; expected: StockAnswer; passed: boolean; got: { answer: StockAnswer; reason: StockReason | null; quantity: number | null; matchedText: string | null } };
+export type RecipeTest = { results: ExampleResult[]; passed: boolean };
+
+export type CapturesApi = {
+  list(supplierId: string): Promise<Capture[]>;
+  get(id: string): Promise<CaptureDetail>;
+  /** Asks for a saved copy of one link's page. It arrives later, as a capture that is pending, then ready or failed. */
+  request(supplierId: string, input: { mappingId: string; name?: string }): Promise<Capture>;
+  label(id: string, patch: { name?: string; expected?: StockAnswer | null }): Promise<Capture>;
+  remove(id: string): Promise<void>;
+  /** The address of the capture's picture, for an image. Private: only the signed-in owner can load it. */
+  pictureUrl(id: string): string;
+};
+export type RecipesApi = {
+  list(supplierId: string): Promise<RecipeVersion[]>;
+  /** Saves the next version. Nothing is turned on by saving. */
+  save(supplierId: string, recipe: Recipe): Promise<{ id: string; version: number }>;
+  /** Runs a draft on the labelled saved pages and saves nothing. */
+  test(supplierId: string, recipe: Recipe): Promise<RecipeTest>;
+  activate(id: string): Promise<RecipeVersion>;
+};
+export type StockApi = {
+  checkLink(mappingId: string): Promise<void>;
+  /** Asks for a stock check of all of a supplier's links. Returns how many are queued. */
+  checkSupplier(supplierId: string): Promise<number>;
+  observations(mappingId: string): Promise<Observation[]>;
 };
 export type MappingFilter = { supplierId?: string; status?: LinkStatus; search?: string };
 export type MappingInput = { variantId: string; supplierId: string; url: string; note?: string | null };
@@ -218,6 +293,9 @@ export type Api = {
   shopify: ShopifyApi;
   suppliers: SuppliersApi;
   mappings: MappingsApi;
+  captures: CapturesApi;
+  recipes: RecipesApi;
+  stock: StockApi;
   loginSessions: LoginSessionsApi;
   notifications: NotificationsApi;
 };
@@ -320,10 +398,52 @@ const suppliers: SuppliersApi = {
   async checkSession(id) {
     await request(`/api/suppliers/${encodeURIComponent(id)}/check-session`, { method: "POST" });
   },
+  setRegion: (id, region) => supplier(`/api/suppliers/${encodeURIComponent(id)}/region`, { method: "PATCH", json: { region } }),
   setPermission: (id, input) => supplier(`/api/suppliers/${encodeURIComponent(id)}/permission`, { method: "PATCH", json: input }),
 };
 
 const enc = encodeURIComponent;
+const captures: CapturesApi = {
+  async list(supplierId) {
+    return (await request<{ captures: Capture[] }>(`/api/suppliers/${enc(supplierId)}/captures`, { method: "GET" })).captures;
+  },
+  async get(id) {
+    return (await request<{ capture: CaptureDetail }>(`/api/captures/${enc(id)}`, { method: "GET" })).capture;
+  },
+  async request(supplierId, input) {
+    return (await request<{ capture: Capture }>(`/api/suppliers/${enc(supplierId)}/captures`, { method: "POST", json: input })).capture;
+  },
+  async label(id, patch) {
+    return (await request<{ capture: Capture }>(`/api/captures/${enc(id)}`, { method: "PATCH", json: patch })).capture;
+  },
+  async remove(id) {
+    await request(`/api/captures/${enc(id)}`, { method: "DELETE" });
+  },
+  pictureUrl: (id) => `/api/captures/${enc(id)}/picture`,
+};
+const recipes: RecipesApi = {
+  async list(supplierId) {
+    return (await request<{ recipes: RecipeVersion[] }>(`/api/suppliers/${enc(supplierId)}/recipes`, { method: "GET" })).recipes;
+  },
+  async save(supplierId, recipe) {
+    return (await request<{ recipe: { id: string; version: number } }>(`/api/suppliers/${enc(supplierId)}/recipes`, { method: "POST", json: { recipe } })).recipe;
+  },
+  test: (supplierId, recipe) => request(`/api/suppliers/${enc(supplierId)}/recipes/test`, { method: "POST", json: { recipe } }),
+  async activate(id) {
+    return (await request<{ recipe: RecipeVersion }>(`/api/recipes/${enc(id)}/activate`, { method: "POST" })).recipe;
+  },
+};
+const stock: StockApi = {
+  async checkLink(mappingId) {
+    await request(`/api/mappings/${enc(mappingId)}/check-stock`, { method: "POST" });
+  },
+  async checkSupplier(supplierId) {
+    return (await request<{ links: number }>(`/api/suppliers/${enc(supplierId)}/check-stock`, { method: "POST" })).links;
+  },
+  async observations(mappingId) {
+    return (await request<{ observations: Observation[] }>(`/api/mappings/${enc(mappingId)}/observations`, { method: "GET" })).observations;
+  },
+};
 const mappings: MappingsApi = {
   async list(filter = {}) {
     const params = new URLSearchParams();
@@ -389,6 +509,9 @@ export const api: Api = {
   shopify,
   suppliers,
   mappings,
+  captures,
+  recipes,
+  stock,
   loginSessions,
   notifications,
 };

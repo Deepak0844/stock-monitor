@@ -210,6 +210,9 @@ export function SuppliersPage({ api }: { api: Api }) {
                           Reconnect supplier
                         </Link>
                       )}
+                      <Link to={`/suppliers/${s.id}/rules`} className="button secondary" aria-label={`Stock rules ${s.name}`}>
+                        Stock rules
+                      </Link>
                       <Link to={`/suppliers/${s.id}/edit`} className="button secondary" aria-label={`Edit ${s.name}`}>
                         Edit
                       </Link>

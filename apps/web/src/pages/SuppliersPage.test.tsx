@@ -259,3 +259,10 @@ describe("checking a connection", () => {
     }
   });
 });
+
+describe("stock rules link", () => {
+  it("each supplier row links to its stock rules", async () => {
+    setup([acme]);
+    expect(await screen.findByRole("link", { name: "Stock rules Acme Supply" })).toHaveAttribute("href", `/suppliers/${acme.id}/rules`);
+  });
+});

@@ -7,6 +7,7 @@ import { ConnectSupplierPage } from "./pages/ConnectSupplierPage.js";
 import { ImportMappingsPage } from "./pages/ImportMappingsPage.js";
 import { MappingFormPage } from "./pages/MappingFormPage.js";
 import { MappingsPage } from "./pages/MappingsPage.js";
+import { StockRulesPage } from "./pages/StockRulesPage.js";
 import { SupplierFormPage } from "./pages/SupplierFormPage.js";
 import { SuppliersPage } from "./pages/SuppliersPage.js";
 import { SettingsShopifyPage } from "./pages/SettingsShopifyPage.js";
@@ -28,6 +29,7 @@ export function App({ api = realApi }: { api?: Api }) {
   const path = usePath();
   const editId = /^\/suppliers\/([^/]+)\/edit$/.exec(path)?.[1];
   const mappingEditId = /^\/mappings\/([^/]+)\/edit$/.exec(path)?.[1];
+  const rulesId = /^\/suppliers\/([^/]+)\/rules$/.exec(path)?.[1];
   const connectId = /^\/suppliers\/([^/]+)\/connect$/.exec(path)?.[1];
 
   const checkSession = useCallback(() => {
@@ -100,6 +102,8 @@ export function App({ api = realApi }: { api?: Api }) {
         <ImportMappingsPage api={api} />
       ) : mappingEditId ? (
         <MappingFormPage key={mappingEditId} api={api} id={mappingEditId} />
+      ) : rulesId ? (
+        <StockRulesPage key={rulesId} api={api} supplierId={rulesId} />
       ) : connectId ? (
         <ConnectSupplierPage key={connectId} api={api} supplierId={connectId} />
       ) : editId ? (
