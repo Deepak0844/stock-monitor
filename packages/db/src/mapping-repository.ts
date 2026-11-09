@@ -24,7 +24,7 @@ export type MappingRecord = {
   updatedAt: Date;
 };
 export type MappingRow = MappingRecord & { productTitle: string; variantTitle: string; sku: string | null; supplierName: string; variantRemoved: boolean };
-export type MappingInput = { variantId: string; supplierId: string; url: string; note: string | null };
+export type MappingInput = { variantId: string; supplierId: string; url: string; note: string | null; region?: string | null };
 export type MappingWrite = { ok: true; mapping: MappingRecord } | { ok: false; reason: "duplicate" | "unknown_variant" | "unknown_supplier" };
 /** What a link check decided. Matches the link-status rules in the mapping package. */
 export type LinkCheckResult = {
