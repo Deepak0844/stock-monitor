@@ -17,6 +17,7 @@ describe("loadConfig", () => {
       allowHosts: undefined,
       vncPassword: VNC,
       loginWindowMode: "controlled",
+      language: undefined,
     });
   });
   it.each([[undefined], [""], ["short"], ["x".repeat(31)]])(
@@ -86,5 +87,20 @@ describe("loadConfig", () => {
         );
       },
     );
+  });
+
+  describe("the owner's own timezone and language", () => {
+    it("reads the language, and treats blank as not set", () => {
+      expect(loadConfig({ ...base, BROWSER_LANGUAGE: "en-IN" }).language).toBe("en-IN");
+      expect(loadConfig({ ...base, BROWSER_LANGUAGE: "" }).language).toBeUndefined();
+    });
+    it.each([["english"], ["en_IN"], ["en-"], ["--no-sandbox"]])("refuses the language %j", (v) => {
+      expect(() => loadConfig({ ...base, BROWSER_LANGUAGE: v })).toThrow(/BROWSER_LANGUAGE/);
+    });
+    it("accepts a real timezone and refuses an invented one, because Chromium would quietly use UTC", () => {
+      expect(() => loadConfig({ ...base, TZ: "Asia/Kolkata" })).not.toThrow();
+      expect(() => loadConfig({ ...base, TZ: "Mars/Olympus" })).toThrow(/TZ/);
+      expect(() => loadConfig({ ...base, TZ: "" })).not.toThrow();
+    });
   });
 });

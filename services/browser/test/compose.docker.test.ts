@@ -169,6 +169,17 @@ describe("the resolved configuration", () => {
   it("passes the login window mode to the browser container, controlled unless the owner chose plain", () => {
     expect(config.services.browser?.environment?.LOGIN_WINDOW_MODE).toBe("controlled");
   });
+  it("keeps UTC and no language for the browser container unless the owner sets them", () => {
+    expect(config.services.browser?.environment?.TZ).toBe("UTC");
+    expect(config.services.browser?.environment?.BROWSER_LANGUAGE ?? "").toBe("");
+  });
+  it("passes the owner's timezone and language to the browser container", async () => {
+    const mine = join(dir, "env-locale");
+    writeFileSync(mine, envLines({ BROWSER_TIMEZONE: "Asia/Kolkata", BROWSER_LANGUAGE: "en-IN" }));
+    const out = await compose(["config", "--format", "json"], { project: false, envFile: mine });
+    const resolved = JSON.parse(out) as { services: Record<string, { environment?: Record<string, string> }> };
+    expect(resolved.services.browser?.environment).toMatchObject({ TZ: "Asia/Kolkata", BROWSER_LANGUAGE: "en-IN" });
+  });
   it("passes plain to the browser container when the env file says so", async () => {
     const plainEnv = join(dir, "env-plain");
     writeFileSync(plainEnv, envLines({ LOGIN_WINDOW_MODE: "plain" }));

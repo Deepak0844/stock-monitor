@@ -16,6 +16,8 @@ export type Config = {
    * Chromium that nothing controls while the owner logs in, read only at the end.
    */
   loginWindowMode: "controlled" | "plain";
+  /** The owner's real browser language, for example en-IN. Not set means Chromium's own default. */
+  language: string | undefined;
 };
 
 const MIN_TOKEN = 32;
@@ -61,6 +63,18 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
   if (mode !== "controlled" && mode !== "plain")
     throw new Error("LOGIN_WINDOW_MODE must be controlled or plain.");
 
+  const language = env.BROWSER_LANGUAGE === "" ? undefined : env.BROWSER_LANGUAGE;
+  if (language !== undefined && !/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(language))
+    throw new Error("BROWSER_LANGUAGE must look like en-IN or en-US.");
+  // Chromium reads TZ itself and falls back to UTC without a word for a name it does not know.
+  if (env.TZ) {
+    try {
+      new Intl.DateTimeFormat(undefined, { timeZone: env.TZ });
+    } catch {
+      throw new Error("TZ must be a real timezone name such as Asia/Kolkata.");
+    }
+  }
+
   return {
     token,
     port: whole("PORT", env.PORT, 8080, 1, 65535),
@@ -71,5 +85,6 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     allowHosts: allow && allow.length > 0 ? allow : undefined,
     vncPassword: headed ? vncPassword : undefined,
     loginWindowMode: mode,
+    language,
   };
 }

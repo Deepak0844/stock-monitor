@@ -23,6 +23,8 @@ export type BrowserServiceOptions = {
   loginWindowMode?: "controlled" | "plain";
   /** Test only: attach a test to a plain window as soon as it opens. A person's window is never attached until they finish. */
   exposePageForTests?: boolean;
+  /** The owner's real browser language, passed to plain windows. */
+  language?: string;
   /** The VNC password to give callers who open a window. */
   vncPassword?: string;
   /** false opens login windows with no display, for a machine that has none (tests). The container shows them on its virtual screen. */
@@ -66,9 +68,10 @@ export async function startBrowserService(options: BrowserServiceOptions): Promi
     sandbox: options.sandbox ?? true,
     headless: !(options.headedWindows ?? true),
   };
+  const plainOptions = { ...windowOptions, language: options.language };
   const openWindow =
     options.loginWindowMode === "plain"
-      ? createPlainWindowOpener({ ...windowOptions, exposePage: options.exposePageForTests })
+      ? createPlainWindowOpener({ ...plainOptions, exposePage: options.exposePageForTests })
       : createWindowOpener(windowOptions);
   const sessions = createSessions({
     timeoutMs: options.sessionTimeoutMs,

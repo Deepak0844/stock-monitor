@@ -93,6 +93,10 @@ You have 15 minutes. The clock is shown. If time runs out, or you press **Cancel
 - **Keys only reach the supplier's page while you have clicked into the window.** The app does not log or store anything you type.
 - **If something looks wrong,** note the exact message and tell the developer. The messages are written to be read, for example "The login window could not be opened. Please try again."
 
+### Your timezone and language
+
+The browser container runs in UTC with no language set, which can look odd next to your real address and can make a supplier's puzzle (CAPTCHA) reject a login. Set `BROWSER_TIMEZONE` (for example `Asia/Kolkata`) and `BROWSER_LANGUAGE` (for example `en-IN`) in `.env` to your real ones, then run `docker compose up -d browser`. They only say where and how you really browse. Nothing is faked, and blank keeps the old behaviour. An unknown timezone or a badly written language stops the service from starting, with a plain message.
+
 ### Login window mode
 
 `LOGIN_WINDOW_MODE` in `.env` chooses how the live login window is run. After changing it, run `docker compose up -d browser` to recreate the browser container.

@@ -100,4 +100,13 @@ describe("seedProfile", () => {
     expect(prefs.browser.check_default_browser).toBe(false);
     expect(prefs.profile.password_manager_leak_detection).toBe(false);
   });
+
+  it("sets the owner's real language as the browser's language, and sets nothing when none is given", async () => {
+    await seedProfile(dir, "en-IN");
+    const prefs = JSON.parse(await readFile(join(dir, "Default", "Preferences"), "utf8"));
+    expect(prefs.intl.accept_languages).toBe("en-IN,en");
+    await seedProfile(dir);
+    const plain = JSON.parse(await readFile(join(dir, "Default", "Preferences"), "utf8"));
+    expect(plain.intl).toBeUndefined();
+  });
 });
