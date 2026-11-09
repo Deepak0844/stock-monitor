@@ -24,7 +24,7 @@ User: the store owner, who is not technical. Success: the owner can map a suppli
 | Record permission in the app? | **Yes**, the per-supplier permission field. |
 | Unavailable-candidate timing | **Yes** to two page-missing checks at least 6 hours apart, and 5 links and 30% for a supplier-wide problem. |
 | SKU unique per variant? | **Yes.** Each `Variant SKU` is unique. |
-| Redirect to the home page | **Not a stock status.** It says nothing about stock. See "Link status". |
+| Redirect to the home page | **Counts as the product being gone**, the same as a 404. Same safeguards apply. See "Link status". |
 | Shopify store | **Not connected yet.** The owner connects it after the app is built and tested. Until then the module is built and tested with made-up variants. |
 
 ## What exists today that this builds on
@@ -76,15 +76,15 @@ Each mapping has a status in words. The status says what happened to the **link*
 | Not checked yet | **Not checked** | |
 | The page loaded and looks like a normal page | **Works** | |
 | The **first** checks never loaded a normal page (typo, wrong page) | **Never worked** | "This address never loaded the right page. Check it." |
-| It worked before and now answers 404 or 410, or loads a page saying "not found" or "no longer available" | **Page missing**, with "Worked until 5 Nov" | "The page is gone. The product may be discontinued." |
-| The address redirects to another page, such as the home page, a category or a search page | **Moved** | "The supplier sends this address somewhere else." This is **not a stock status**: it never counts as page missing and never makes an unavailable candidate, even when the target is the home page. |
+| It worked before and now answers 404 or 410, loads a page saying "not found" or "no longer available", or **redirects to the supplier's home page** | **Page missing**, with "Worked until 5 Nov" | "The page is gone. The product may be discontinued." |
+| The address redirects to another page that is **not** the home page, such as a category or a search page | **Moved** | "The supplier sends this address somewhere else." Not a stock status: never counts as page missing. |
 | The page loads but its title or main heading is not what it was when it first worked | **Looks different** | "The page changed. Check it is still the same product." |
 | The supplier asked for a login, a puzzle, or blocked the check | **Needs login** | The supplier's own status and notification are used. **The link is not marked broken.** |
 | The supplier could not be reached, or the browser service is down | **Could not check** | Nothing is concluded. |
 
 What the app stores to do this, and nothing more: the status, when each check ran, **when the link last worked**, the page's **title and main heading as they were when it first worked** (not stock, not prices), and the number and time of **consecutive page-missing checks**.
 
-**Soft 404s.** A "not found" page served with a 200, or a redirect to the home page, is recognised from the final address and the page wording, not from the status code alone. A supplier that serves a normal-looking page for every unknown address cannot be told apart by any check; the stored title and heading are the protection, and the owner's approval is the last one.
+**Soft 404s.** A "not found" page served with a 200, or a redirect to the home page (which the owner treats as the product being gone), is recognised from the final address and the page wording, not from the status code alone. A supplier that serves a normal-looking page for every unknown address cannot be told apart by any check; the stored title and heading are the protection, and the owner's approval is the last one.
 
 **Supplier-wide problems.** If a large share of one supplier's links go missing in the same run (proposed: at least 5 links and at least 30%), the app calls it a **supplier-wide problem**, such as a site change, an outage or a block. Those results do not count towards any link's missing total and nothing is proposed about stock.
 
@@ -153,7 +153,7 @@ Test-first throughout. Automated tests never visit a real supplier.
 
 **Unit:** the Shopify export reader (quoted cells with commas and line breaks, a long description, byte order mark, wrong encoding, huge files, formula cells, image-only rows, a product's first row carrying values for its later rows, a header with the app id in it); column suggestion; address cleaning (the four tracking parts, `?variant=` kept, list and plain forms, no address); row validation messages; matching by SKU (none, one, several, duplicate in file); the link-status rules.
 
-**Link-status cases (fake supplier pages):** a correct URL; a wrong URL that never worked; a URL that worked and then returns 404; a 410; a "not found" page served with 200; a redirect to the home page; a redirect to a category; a page whose title changed to another product; a login redirect; a puzzle; a block; a supplier that cannot be reached; a slow page; a whole supplier's links going missing at once; a page missing twice less than six hours apart and twice more than six hours apart.
+**Link-status cases (fake supplier pages):** a correct URL; a wrong URL that never worked; a URL that worked and then returns 404; a 410; a "not found" page served with 200; a redirect to the home page on a link that worked before (page missing) and on a link that never worked (never worked); a redirect to a category (moved); a page whose title changed to another product; a login redirect; a puzzle; a block; a supplier that cannot be reached; a slow page; a whole supplier's links going missing at once; a page missing twice less than six hours apart and twice more than six hours apart.
 
 **Integration (real PostgreSQL):** one mapping per variant, re-importing the same file changes nothing, deleting a supplier removes its mappings, a removed variant keeps its mapping, preview then confirm saves exactly the previewed rows, an import never stores descriptions or other unused columns, a supplier without recorded permission is refused.
 
@@ -171,7 +171,7 @@ Test-first throughout. Automated tests never visit a real supplier.
 2. The Unmapped view counts and lists unmapped variants, searchable, with removed variants kept apart.
 3. Uploading the owner's Shopify product export shows the suggested columns, then a preview, saves only good rows after confirming, skips other suppliers' rows, explains every bad row in plain words, and importing the same file twice leaves one mapping per variant.
 4. A formula-looking cell is stored as plain text, descriptions are never stored, and the four tracking parts are removed from addresses while `?variant=` is kept.
-5. A link check reports each case in the status table correctly, including **Never worked** for a wrong address, **Page missing** only for a link that worked before, **Moved** for a redirect to the home page, and **Needs login** without marking the link broken.
+5. A link check reports each case in the status table correctly, including **Never worked** for a wrong address, **Page missing** only for a link that worked before, **Page missing** for a redirect to the home page on a link that worked before, **Moved** for a redirect to a category or search page, and **Needs login** without marking the link broken.
 6. Two page-missing checks at least six hours apart on a link that worked before make an **unavailable candidate**, and no other combination does. A supplier-wide problem makes none.
 7. A supplier that is not connected, is paused or has no recorded permission is not checked, and the screen says why.
 8. A link check never changes a supplier's status itself, never produces a stock figure, never contains a session or cookie, and never goes faster than the supplier's pause.
@@ -185,4 +185,4 @@ Test-first throughout. Automated tests never visit a real supplier.
 2. Permission field: yes. It is a reminder and a record the owner sets, not a legal control.
 3. Timing: two page-missing checks at least 6 hours apart, and 5 links and 30% for a supplier-wide problem.
 4. `Variant SKU` is unique per variant.
-5. A link that redirects to the home page has no stock status.
+5. A link that redirects to the home page is treated as the product being gone, like a 404, with the same safeguards (worked before, two checks 6 hours apart, not supplier-wide, owner approval). A link that never worked and redirects home is **Never worked**.
