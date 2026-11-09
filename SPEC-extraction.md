@@ -2,11 +2,11 @@
 
 Module id: `extraction`. Depends on: `foundation` (done), `supplier-session` (done), `mapping` (done: links, link status, permission gate, pause between pages). Map: `CAPABILITY-MAP.md`. Intent: `docs/intent/stock-monitor.md`.
 
-Status: **draft for owner review.** Not approved. No plan and no code until it is.
+Status: **draft v2, owner review answers received (2026-11-10).** Not yet approved. No plan and no code until it is.
 
 ## Objective
 
-For each linked supplier page, work out **whether the item appears in stock, appears out of stock, is not listed for the chosen region, or cannot be told**, using rules the owner sets in the app. The app stores what it saw as an **observation** and never decides anything about Shopify (that is `proposals`).
+For each linked supplier page, work out **whether the item appears in stock, appears out of stock (including not listed for the chosen region), or cannot be told**, using rules the owner sets in the app. The app stores what it saw as an **observation** and never decides anything about Shopify (that is `proposals`).
 
 User: the store owner, not technical. Success: the owner can set up a supplier's rules from a saved picture of a real page, test them on saved examples, run a check, and read the answer in plain words. When the supplier changes its layout, the owner is told that the rules need a look, and the app never reports "out of stock" for a page it no longer understands.
 
@@ -18,6 +18,13 @@ User: the store owner, not technical. Success: the owner can set up a supplier's
 | How are rules built? | **Option A:** fixed rule types picked from a list (text on the page, button on the page, number next to a label, product page looks right). Read-only: no clicking, typing or scrolling. The recipe keeps the step-list shape so click steps can be added later for a supplier that needs one. |
 | Region | Some suppliers list stock per region on the same product page (a table of names with numbers). The owner chooses the region in the app. The app finds the label and reads the number next to it. |
 | Layout changes | Suppliers can change their layout at any time. The rules must say "cannot tell" and tell the owner, never "out of stock". |
+| Region label not on the page | **Out of stock.** Shown as "Out of stock: not listed for <region>", so the owner can see why. It counts only when the rest of the region table is still on the page (see "The answers"). |
+| Each supplier differs | Yes. Every supplier has its own recipe, and nothing is assumed about how a supplier shows stock. The real rules are written from a real capture. |
+| Region setting | A supplier default region, overridable on each link. |
+| One visit for link status and stock | Yes. |
+| Turning on needs passing examples | Yes. |
+| Quantity and text disagree | **Cannot tell, and flagged** (my recommendation, adopted: contradictory data should not drive a Shopify change). |
+| When checks run | Only when the owner asks, until `scheduling` exists. |
 
 ## What exists today that this builds on
 
@@ -31,23 +38,38 @@ User: the store owner, not technical. Success: the owner can set up a supplier's
 2. **One recipe per supplier**, applied to all that supplier's links, with a version number. A recipe never changes in place: saving makes a new version, and each observation records which version produced it.
 3. **Matching is by wording, not by position.** The app stores what it was pointed at as visible words, so a supplier moving a block around does not break a rule. If wording is renamed or removed, the answer is "cannot tell".
 4. **Capture is taken by the app, on request.** The owner presses Capture on one link. The app loads the page with the saved login and stores a picture and a plain description of the page (see "What a capture holds"). Captures stay in the database and are shown only to the owner.
-5. **Region is a label on the page.** A link has an optional region (the label to look for), with a supplier default. A region that is not on the page is "Not listed".
+5. **Region is a label on the page.** A link has an optional region (the label to look for), with a supplier default. A region that is not on the page, while the rest of the region table is, means out of stock (shown "Not listed for <region>"). If the whole table is gone, it is cannot tell.
 6. **One visit does two jobs.** A stock check loads the page once and also updates the link status (works, page missing, moved...), so the supplier is visited once, not twice. The mapping rules for page missing and the unavailable candidate are reused unchanged.
 7. **Checks run when the owner asks** (one link, or all of a supplier's links). Regular checks come with `scheduling`.
 8. Notifications stay in the dashboard only (earlier decision).
 
-## The four answers
+## How the app reads a page (it does not read the picture)
 
-Every observation has one answer, in words, plus a reason when needed:
+The app does **not** read the picture. The picture is only for you, so you can see what the page looked like when you set the rules. The rules run on the page's **text and structure**: the browser already knows the words it is showing (headings, rows, button labels), and the app takes those words directly. That is exact, fast and does not depend on how the page looks.
+
+- It does not use image reading (OCR) or AI: both are out of scope (intent).
+- If a supplier ever draws its stock as a picture instead of text, the app cannot read it, and the answer is **Cannot tell**, never a guess.
+
+## The answers
+
+Every observation has one of three answers, in words, plus a reason when needed:
 
 | Answer | Meaning |
 |---|---|
 | **In stock** | The in-stock rules matched, the out-of-stock rules did not, and the page passed its page check. |
-| **Out of stock** | The out-of-stock rules matched, the in-stock rules did not, and the page passed its page check. Or the region row is there and its number is 0. |
-| **Not listed** | The chosen region's label is not on the page, and the page passed its page check. |
+| **Out of stock** | The out-of-stock rules matched, the in-stock rules did not, and the page passed its page check. Or the region row is there and its number is 0. Or the chosen region's label is **not on the page** while the rest of the region table is (reason shown: "Not listed for <region>"). |
 | **Cannot tell** | Anything else. The reason is shown: the page changed (page check failed), both rules matched, neither matched, quantity and text disagree, or the check itself did not work (login needed, puzzle, blocked, supplier unreachable, page missing). |
 
-**Cannot tell never counts as out of stock, anywhere.** A login redirect, puzzle, block, timeout or changed page can never become "out of stock" (intent rule). A missing page (404, redirect to the home page) is not an answer here: it stays a link status in `mapping`, which `proposals` reads with its own safeguards.
+**Cannot tell never counts as out of stock, anywhere.** A login redirect, puzzle, block, timeout or changed page can never become "out of stock" (intent rule).
+
+**A missing page (404, or a redirect to the home page).** The answer is **Cannot tell**, with the reason "page missing" or "address never worked". It is not decided here, because a 404 can mean two different things: a **wrong address** (a typo, never loaded the right page) or a **product the supplier has removed**. The `mapping` rules tell them apart, and the stock check updates the same link status from the same visit:
+
+| What the link did before | What the visit finds | Link status | What follows |
+|---|---|---|---|
+| **Worked before** | 404, or redirected to the home page | **Page missing** (shown "Worked until <date>") | After **two such checks at least 6 hours apart**, and not a supplier-wide run, the link is an **unavailable candidate**. `proposals` may then suggest "unavailable" for you to approve. Nothing changes in Shopify without your approval. |
+| **Never worked** | 404, or redirected to the home page | **Never worked** | Treated as a wrong address for you to fix. Never a candidate, never "out of stock". |
+
+One case cannot be told apart by any rule: a link whose first-ever check already finds the page removed. It shows as **Never worked** and waits for you to look.
 
 ## Rule types (version one)
 
@@ -69,7 +91,7 @@ A stock recipe has:
 - an optional **quantity rule** (a number next to a label), and
 - an optional **region rule** (a number next to the chosen region's label, under a heading such as "Click and collect availability").
 
-Reading the answer: page checks first. If one fails, **cannot tell: the page changed**. Then, if the link has a region: label missing is **Not listed**, a number above 0 is **In stock** with that quantity, 0 is **Out of stock**. Without a region: if only in-stock rules match, **In stock**; only out-of-stock rules, **Out of stock**; both or neither, **cannot tell**. A quantity found but disagreeing with the text (quantity 0 with an in-stock match, or above 0 with an out-of-stock match) is **cannot tell: quantity and text disagree**, and it is flagged.
+Reading the answer: page checks first. If one fails, **cannot tell: the page changed**. Then, if the link has a region: the app first looks for the **region table** (the heading the rule is limited to, and at least one other row with a label and a number). If the table is not there, it is **cannot tell: the page changed**. If the table is there and the region's label is not, it is **Out of stock: not listed for <region>**. If the label is there, a number above 0 is **In stock** with that quantity and 0 is **Out of stock**. Without a region: if only in-stock rules match, **In stock**; only out-of-stock rules, **Out of stock**; both or neither, **cannot tell**. A quantity found but disagreeing with the text (quantity 0 with an in-stock match, or above 0 with an out-of-stock match) is **cannot tell: quantity and text disagree**, and it is flagged.
 
 ## What a capture holds
 
@@ -122,7 +144,7 @@ When a check gives **cannot tell: the page changed**, the app keeps that page's 
 - **Stock rules** (per supplier, from the supplier's row and the sidebar): captures, picture and text, rule editor, **Test all examples**, version list, **Turn on**.
 - **Links** gains the latest stock answer and the **Check stock** buttons, and the history of observations.
 - **Supplier edit** gains the default region. The link form gains an optional region.
-- **Dashboard** shows the "pages changed" notification and a card with how many links are in stock, out of stock, not listed and cannot tell.
+- **Dashboard** shows the "pages changed" notification and a card with how many links are in stock, out of stock and cannot tell.
 
 ## Project structure
 
@@ -155,7 +177,7 @@ export function decide(page: PageDescription, recipe: Recipe, region: string | n
 
 Test-first throughout. Automated tests never visit a real supplier, and the fixtures are made-up pages.
 
-**Unit (pure):** the rule evaluator and `decide` on made-up page descriptions: in stock; out of stock; "Sold out" only on a related product (scoped rule ignores it); region listed with a number; region listed with 0; region label missing (Not listed); label renamed (cannot tell); page check failing; both rule sets matching; neither matching; quantity 0 with an in-stock button; extra spaces and different capitals; a label and its number on the same row and on the next line; a heading that appears twice; rule validation (limits, no patterns); supplier-wide change (5 links and 30%).
+**Unit (pure):** the rule evaluator and `decide` on made-up page descriptions: in stock; out of stock; "Sold out" only on a related product (scoped rule ignores it); region listed with a number; region listed with 0; region label missing while the table is there (Out of stock, not listed); region table gone (cannot tell, not out of stock); label renamed (cannot tell); page check failing; both rule sets matching; neither matching; quantity 0 with an in-stock button; extra spaces and different capitals; a label and its number on the same row and on the next line; a heading that appears twice; rule validation (limits, no patterns); supplier-wide change (5 links and 30%).
 
 **Browser (real Chromium, fake supplier):** capture reads the picture, headings, sections, rows and button states; never cookies, form values, scripts or hidden fields; a password field's contents are never read; large pages are capped; a private address is never visited; fake pages for in stock, sold out, region table, layout changed, related-product "Sold out" badge, login, puzzle, blocked, 404.
 
@@ -177,7 +199,7 @@ Test-first throughout. Automated tests never visit a real supplier, and the fixt
 
 1. The owner can capture a page of a connected, allowed supplier and see its picture and text, and delete it.
 2. The owner can build a recipe from the four rule types, with "only under this heading", and test it on every labelled capture before turning it on. Turning on is refused if any example fails.
-3. A check of a made-up in-stock page, sold-out page, region table (listed, zero, not listed) and layout-changed page gives In stock, Out of stock, In stock or Out of stock with the right quantity, Not listed, and Cannot tell: the page changed.
+3. A check of a made-up in-stock page, sold-out page, region table (listed, zero, label missing) and layout-changed page gives In stock, Out of stock, In stock or Out of stock with the right quantity, Out of stock (not listed for the region), and Cannot tell: the page changed. A region label missing while the whole region table is also gone gives Cannot tell, not Out of stock.
 4. A "Sold out" badge on a related product does not change the answer when the rule is scoped to the right heading.
 5. Quantity and text disagreeing gives Cannot tell and is flagged.
 6. A login redirect, puzzle, block, timeout or changed page is never Out of stock, in any test.
@@ -187,11 +209,16 @@ Test-first throughout. Automated tests never visit a real supplier, and the fixt
 10. Recipes and observations are append only; a supplier delete removes them; the history of a link's observations can be read.
 11. `npm run check`, the browser tests and the browser journeys pass, including the accessibility scan of the new screens.
 
+## Resolved questions (owner, 2026-11-10)
+
+1. Each supplier shows stock differently, so each has its own recipe. The pilot's real rules come from a real capture.
+2. A supplier default region, overridable on each link.
+3. One visit updates the stock answer and the link status. A 404 or a redirect to the home page is "page missing" on a link that worked before (a candidate after two checks 6 hours apart, for your approval) and "never worked" on a link that never did (a wrong address to fix).
+4. A recipe turns on only when it passes every labelled example.
+5. Quantity and text disagreeing is Cannot tell and flagged.
+6. Checks only on request.
+
 ## Still open for the owner
 
-1. **The pilot supplier's pages.** Does the pilot supplier show a number, wording, a button, or a region table? I can write and test everything with made-up pages, but the rules can only be confirmed by capturing a real page, which needs the pilot supplier connected and allowed (it is).
-2. **Region.** Is "a default region for the supplier, optionally overridden per link" right, or should every link have its own region?
-3. **One visit for both link status and stock.** Are you happy that a stock check also updates the link status?
-4. **Turning on needs passing examples.** Are you happy that a recipe cannot be turned on until it passes every labelled example?
-5. **Quantity disagreeing with text.** Is "cannot tell, and flagged" the right result?
-6. **Checks only on request** until `scheduling` exists. Agreed?
+1. **Approve this version?** If anything above is not what you want, say what to change.
+2. **First capture.** After the module is built, the first real job is capturing one of the pilot supplier's product pages and writing its rules together. Nothing in the spec depends on what that page shows.
