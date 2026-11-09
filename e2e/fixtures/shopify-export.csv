@@ -1,0 +1,8 @@
+Handle,Title,Body (HTML),Variant SKU,Image Src,Product metafield (app--1--supplier_name),Conversation starters
+blue-tee,Blue Tee,"<p>Soft, comfy tee.
+Second line with ""quotes"" and, commas.</p>",B0361,https://cdn.example/a.jpg,Acme Supply,"[""https://shop.acme.example/p/blue-tee?_pos=1&_psq=tee&variant=1""]"
+blue-tee,,,B0362,,,
+blue-tee,,,,https://cdn.example/b.jpg,,
+mug,Mug,,B9999,,Other Supplier,"[""https://other.example/mug""]"
+cap,Cap,,B0363,,Acme Supply,"[""https://elsewhere.example/cap""]"
+hat,Hat,,NOPE,,Acme Supply,"[""https://shop.acme.example/p/hat""]"

@@ -7,7 +7,9 @@ import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { startTestDb } from "../packages/db/test/harness.js";
 import {
+  createImportPreviewRepository,
   createLoginSessionRepository,
+  createMappingRepository,
   createNotificationRepository,
   createShopifyRepository,
   createSupplierRepository,
@@ -18,6 +20,7 @@ import { createBrowserClient } from "../packages/browser-client/src/index.js";
 import { createFakeBrowserService, FAKE_CONTROL_TOKEN } from "../packages/browser-client/test/fake-browser-service.js";
 import { createQueue } from "../packages/queue/src/index.js";
 import { createLogger } from "../packages/shared/src/index.js";
+import { sealSessionState } from "../packages/supplier-session/src/index.js";
 import { createFakeCatalog, createFakeShopify, withFakeShop } from "../packages/shopify/test/testing.js";
 import { buildApp } from "../apps/api/src/app.js";
 import { createOwner } from "../apps/api/src/owner.js";
@@ -70,11 +73,12 @@ const loginSessions = createLoginSessionRepository(db.appDb);
 const supplierSessions = createSupplierSessionRepository(db.appDb);
 const notifications = createNotificationRepository(db.appDb);
 const E2E_SESSION = { cookies: [{ name: "session", value: "e2e-session-value", domain: "shop.acme.example", path: "/" }], origins: [] };
-const resetBrowser = () => Object.assign(browser.behaviour, { open: "ok", finish: "ok", cancel: "ok", verify: "ok", verifyResult: "ok", vncPassword: "Ab3dE6gH", state: E2E_SESSION, delayMs: 0 });
+const resetBrowser = () => Object.assign(browser.behaviour, { open: "ok", finish: "ok", cancel: "ok", verify: "ok", verifyResult: "ok", checkPage: "ok", pageFor: undefined, page: { result: "ok", status: 200, title: "Blue Tee", heading: "Blue Tee", softNotFound: false }, vncPassword: "Ab3dE6gH", state: E2E_SESSION, delayMs: 0 });
 resetBrowser();
 
 await registerHandlers(queue, logger, {
   shopify: { repo, baseUrl, clientOptions: { sleep: async () => {} } },
+  mappingLinks: { mappings: createMappingRepository(db.appDb), suppliers, supplierSessions, audit: createAuditWriter(db.appDb), browser: browserClient, key: encryption.key, sleep: async () => {} },
   supplierVerify: { suppliers, supplierSessions, notifications, audit: createAuditWriter(db.appDb), browser: browserClient, key: encryption.key, retryDelaysMs: [], sleep: async () => {} },
 });
 
@@ -87,6 +91,7 @@ const app = buildApp({
   logger,
   webRoot,
   suppliers: { repo: suppliers, lookup },
+  mappings: { mappings: createMappingRepository(db.appDb), suppliers, previews: createImportPreviewRepository(db.appDb), supplierSessions, queue, lookup },
   notifications: { repo: notifications },
   loginSessions: { suppliers, loginSessions, supplierSessions, browser: browserClient, key: encryption, notifications, queue },
   loginScreen: { allowedOrigins: [BASE_URL], vnc: { host: "127.0.0.1", port: vnc.port }, firstMessageTimeoutMs: 5000 },
@@ -116,6 +121,24 @@ const control = createServer(async (req, res) => {
       await db.pool.query("truncate suppliers cascade");
       resetBrowser();
       await vnc.setAvailable(true);
+      return reply(200);
+    }
+    if (req.method === "POST" && req.url === "/control/reset-mappings") {
+      // A clean slate for the link journeys: three variants Shopify has, one it removed, and one connected supplier
+      // whose permission is not recorded yet. They run in their own projects, after every other journey.
+      await db.pool.query("truncate suppliers, shopify_variants, import_previews, audit_events cascade");
+      resetBrowser();
+      for (const [id, sku, title, removed] of [["v1", "B0361", "Large", false], ["v2", "B0362", "Small", false], ["v3", "B0363", "Medium", false], ["old", "B0000", "Retired", true]] as const) {
+        await db.pool.query(
+          `insert into shopify_variants (variant_id, product_id, product_title, variant_title, options, sku, inventory_item_id, tracked, inventory_policy, removed_at)
+           values ($1, 'p1', 'Blue Tee', $2, '[]', $3, $4, true, 'DENY', ${removed ? "now()" : "null"})`,
+          [id, title, sku, `inv-${id}`],
+        );
+      }
+      const made = await suppliers.create({ name: "Acme Supply", websiteUrl: "https://shop.acme.example/", loginUrl: null, checkIntervalMinutes: 60 });
+      if (!made.ok) return reply(500, { error: "seed failed" });
+      await supplierSessions.save(made.supplier.id, sealSessionState(E2E_SESSION, encryption.key, encryption.keyId), E2E_SESSION);
+      await suppliers.markConnected(made.supplier.id);
       return reply(200);
     }
     if (req.method === "POST" && req.url === "/control/vnc") {

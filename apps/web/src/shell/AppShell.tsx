@@ -9,7 +9,7 @@ import {
   IconMenu,
   IconProducts,
   IconSettings,
-  IconSuppliers,
+  IconSuppliers, IconLinks,
 } from "../components/icons.js";
 
 type Props = { email: string; onSignOut: () => void; children: ReactNode };
@@ -20,6 +20,7 @@ type NavItem = { label: string; icon: ReactNode; to?: string; current?: (path: s
 const NAV: NavItem[] = [
   { label: "Dashboard", icon: <IconDashboard />, to: "/", current: (p) => p === "/" },
   { label: "Suppliers", icon: <IconSuppliers />, to: "/suppliers", current: (p) => p.startsWith("/suppliers") },
+  { label: "Links", icon: <IconLinks />, to: "/mappings", current: (p) => p.startsWith("/mappings") },
   { label: "Products", icon: <IconProducts />, to: "/products", current: (p) => p.startsWith("/products") },
   { label: "Approvals", icon: <IconApprovals /> },
   { label: "History", icon: <IconHistory /> },

@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { Api, ConnectionCheck, ShopifyApi, ShopifyConnection, Supplier, SuppliersApi, LoginSession, LoginSessionsApi, AppNotification, NotificationsApi, VariantItem, VariantPage } from "../api.js";
+import type { Api, ConnectionCheck, ShopifyApi, ShopifyConnection, Supplier, SuppliersApi, Mapping, MappingsApi, LoginSession, LoginSessionsApi, AppNotification, NotificationsApi, VariantItem, VariantPage } from "../api.js";
 
 export const aCheck = (over: Partial<ConnectionCheck> = {}): ConnectionCheck => ({
   shopName: "Acme Supplies",
@@ -54,8 +54,32 @@ export const aSupplier = (over: Partial<Supplier> = {}): Supplier => ({
   sessionStatus: "not_connected",
   pausedReason: null,
   lastSessionCheckAt: null,
+  automationPermission: "unknown",
+  permissionNote: null,
+  permissionSetAt: null,
+  checkPauseSeconds: 10,
   createdAt: "2026-11-08T10:00:00.000Z",
   updatedAt: "2026-11-08T10:00:00.000Z",
+  ...over,
+});
+
+export const aMapping = (over: Partial<Mapping> = {}): Mapping => ({
+  id: "44444444-4444-4444-8444-444444444444",
+  variantId: "v1",
+  supplierId: "11111111-1111-4111-8111-111111111111",
+  url: "https://shop.acme.example/p/blue",
+  note: null,
+  enabled: true,
+  linkStatus: "not_checked",
+  lastLinkCheckAt: null,
+  lastWorkedAt: null,
+  missingChecks: 0,
+  productTitle: "Blue Tee",
+  variantTitle: "Large",
+  sku: "B0361",
+  supplierName: "Acme Supply",
+  variantRemoved: false,
+  unavailableCandidate: false,
   ...over,
 });
 
@@ -84,14 +108,15 @@ export const aNotification = (over: Partial<AppNotification> = {}): AppNotificat
 
 /** A fake API for screen tests. Every method is a spy with a sensible default. */
 export function fakeApi(
-  over: Partial<Omit<Api, "shopify" | "suppliers" | "loginSessions">> & {
+  over: Partial<Omit<Api, "shopify" | "suppliers" | "loginSessions" | "mappings">> & {
     shopify?: Partial<ShopifyApi>;
     suppliers?: Partial<SuppliersApi>;
     loginSessions?: Partial<LoginSessionsApi>;
     notifications?: Partial<NotificationsApi>;
+    mappings?: Partial<MappingsApi>;
   } = {},
 ): Api {
-  const { shopify, suppliers, loginSessions, notifications, ...rest } = over;
+  const { shopify, suppliers, loginSessions, notifications, mappings, ...rest } = over;
   return {
     getMe: vi.fn().mockResolvedValue(null),
     login: vi.fn().mockResolvedValue({ email: "owner@example.com" }),
@@ -114,7 +139,22 @@ export function fakeApi(
       pause: vi.fn().mockImplementation(async () => aSupplier({ enabled: false, pausedReason: "owner" })),
       resume: vi.fn().mockImplementation(async () => aSupplier()),
       checkSession: vi.fn().mockResolvedValue(undefined),
+      setPermission: vi.fn().mockImplementation(async (_id, input) => aSupplier({ automationPermission: input.status, permissionNote: input.note })),
       ...suppliers,
+    },
+    mappings: {
+      list: vi.fn().mockResolvedValue([]),
+      get: vi.fn().mockResolvedValue(aMapping()),
+      create: vi.fn().mockImplementation(async (input) => aMapping({ ...input })),
+      update: vi.fn().mockImplementation(async (_id, patch) => aMapping({ ...patch })),
+      remove: vi.fn().mockResolvedValue(undefined),
+      checkLink: vi.fn().mockResolvedValue(undefined),
+      checkSupplierLinks: vi.fn().mockResolvedValue(1),
+      unmapped: vi.fn().mockResolvedValue({ total: 0, unmapped: 0, items: [] }),
+      importColumns: vi.fn(),
+      importPreview: vi.fn(),
+      importConfirm: vi.fn(),
+      ...mappings,
     },
     shopify: {
       getConnection: vi.fn().mockResolvedValue(null),

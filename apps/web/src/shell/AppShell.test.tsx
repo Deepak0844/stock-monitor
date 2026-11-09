@@ -68,7 +68,7 @@ describe("AppShell", () => {
     setup();
     const nav = screen.getByRole("navigation", { name: "Main" });
     const labels = within(nav).getAllByRole("listitem").map((li) => li.textContent?.replace("Soon", "").trim());
-    expect(labels).toEqual(["Dashboard", "Suppliers", "Products", "Approvals", "History", "Settings"]);
+    expect(labels).toEqual(["Dashboard", "Suppliers", "Links", "Products", "Approvals", "History", "Settings"]);
   });
 
   it("makes Settings a real link to the Shopify settings page", () => {

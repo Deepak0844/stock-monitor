@@ -180,3 +180,45 @@ describe("editing a supplier", () => {
     expect(name).toHaveFocus();
   });
 });
+
+describe("permission to check automatically", () => {
+  const setupEdit = (supplier = aSupplier(), over: Parameters<typeof fakeApi>[0] = {}) => {
+    const api = fakeApi({ ...over, suppliers: { get: vi.fn().mockResolvedValue(supplier), ...over.suppliers } });
+    render(<SupplierFormPage api={api} id={supplier.id} />);
+    return { api, user: userEvent.setup() };
+  };
+
+  it("is not shown when adding a supplier", () => {
+    render(<SupplierFormPage api={fakeApi()} />);
+    expect(screen.queryByRole("group", { name: "Permission to check automatically" })).toBeNull();
+  });
+
+  it("starts as not recorded and says what that means", async () => {
+    setupEdit();
+    const group = await screen.findByRole("group", { name: "Permission to check automatically" });
+    expect(group).toHaveTextContent("Not recorded");
+    expect(group).toHaveTextContent(/Link checks stay off/);
+  });
+
+  it("records the decision, a note and the pause between pages", async () => {
+    const { api, user } = setupEdit();
+    await user.selectOptions(await screen.findByLabelText("Permission"), "granted");
+    await user.type(screen.getByLabelText("Note about the permission (optional)"), "Emailed 10 Nov");
+    const pause = screen.getByLabelText("Pause between pages (seconds)");
+    await user.clear(pause);
+    await user.type(pause, "15");
+    await user.click(screen.getByRole("button", { name: "Save permission" }));
+    await waitFor(() => expect(api.suppliers.setPermission).toHaveBeenCalledWith(aSupplier().id, { status: "granted", note: "Emailed 10 Nov", pauseSeconds: 15 }));
+    expect(await screen.findByText("Permission saved.")).toBeInTheDocument();
+  });
+
+  it("refuses a pause that is not a whole number of seconds, beside the field", async () => {
+    const { api, user } = setupEdit();
+    const pause = await screen.findByLabelText("Pause between pages (seconds)");
+    await user.clear(pause);
+    await user.type(pause, "0");
+    await user.click(screen.getByRole("button", { name: "Save permission" }));
+    expect(screen.getByText("Enter a whole number of seconds from 1 to 3600.")).toBeInTheDocument();
+    expect(api.suppliers.setPermission).not.toHaveBeenCalled();
+  });
+});

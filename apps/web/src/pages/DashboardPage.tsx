@@ -5,7 +5,7 @@ import { Notice } from "../components/Notice.js";
 import { Link } from "../router.js";
 import { useTitle } from "../useTitle.js";
 
-function SummaryCard(props: { icon: ReactNode; title: string; value: string; note: string }) {
+function SummaryCard(props: { icon: ReactNode; title: string; value: string; note: string; action?: ReactNode }) {
   const id = `card-${props.title.replace(/\s+/g, "-").toLowerCase()}`;
   return (
     <section className="summary" aria-labelledby={id}>
@@ -15,9 +15,13 @@ function SummaryCard(props: { icon: ReactNode; title: string; value: string; not
       </h2>
       <p className="summary-value">{props.value}</p>
       <p className="summary-note">{props.note}</p>
+      {props.action}
     </section>
   );
 }
+
+// A link in one of these states is wrong, moved or gone, so the owner should look at it.
+const NEEDS_ATTENTION = new Set(["never_worked", "page_missing", "moved", "looks_different"]);
 
 const STEPS = [
   ["Check suppliers", "Stock is read from each supplier's website on a schedule you choose."],
@@ -33,6 +37,7 @@ export function DashboardPage({ api }: { api: Api }) {
   const [notes, setNotes] = useState<AppNotification[] | null>(null);
   const [notesError, setNotesError] = useState<string | null>(null);
   const [suppliers, setSuppliers] = useState<Supplier[] | "error" | null>(null);
+  const [links, setLinks] = useState<{ unmapped: number; total: number; attention: number } | "error" | null>(null);
 
   const loadNotes = useCallback(() => {
     setNotesError(null);
@@ -46,6 +51,12 @@ export function DashboardPage({ api }: { api: Api }) {
     api.suppliers.list().then(setSuppliers).catch(() => setSuppliers("error"));
   }, [api]);
 
+  useEffect(() => {
+    Promise.all([api.mappings.unmapped(), api.mappings.list({})])
+      .then(([u, all]) => setLinks({ unmapped: u.unmapped, total: u.total, attention: all.filter((m) => NEEDS_ATTENTION.has(m.linkStatus)).length }))
+      .catch(() => setLinks("error"));
+  }, [api]);
+
   const connected = Array.isArray(suppliers) ? suppliers.filter((s) => s.sessionStatus === "connected").length : 0;
   const total = Array.isArray(suppliers) ? suppliers.length : 0;
   const supplierCard =
@@ -56,6 +67,15 @@ export function DashboardPage({ api }: { api: Api }) {
         : total === 0
           ? { value: "0", note: "No suppliers yet." }
           : { value: `${connected} of ${total}`, note: "suppliers connected." };
+
+  const linkCard =
+    links === null
+      ? { value: "…", note: "Loading…" }
+      : links === "error"
+        ? { value: "–", note: "Could not load links." }
+        : links.total === 0
+          ? { value: "0", note: "No variants from Shopify yet." }
+          : { value: `${links.unmapped} of ${links.total}`, note: `variants not mapped. ${links.attention} ${links.attention === 1 ? "link needs" : "links need"} attention.` };
 
   return (
     <>
@@ -100,6 +120,19 @@ export function DashboardPage({ api }: { api: Api }) {
 
       <div className="summary-grid">
         <SummaryCard icon={<IconLink />} title="Supplier connections" value={supplierCard.value} note={supplierCard.note} />
+        <SummaryCard
+          icon={<IconLink />}
+          title="Supplier links"
+          value={linkCard.value}
+          note={linkCard.note}
+          action={
+            links !== null && links !== "error" && links.total > 0 ? (
+              <Link to="/mappings" className="button secondary">
+                See links
+              </Link>
+            ) : undefined
+          }
+        />
         <SummaryCard icon={<IconRefresh />} title="Stock checks" value="None" note="No checks scheduled." />
         <SummaryCard
           icon={<IconApprovals />}

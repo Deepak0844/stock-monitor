@@ -82,9 +82,17 @@ export type Supplier = {
   /** Who paused it: the owner, or the app because the session needs attention. null when it is not paused. */
   pausedReason: "owner" | "session" | null;
   lastSessionCheckAt: string | null;
+  /** The owner's record of whether this supplier allows automatic checks. Link checks need `granted`. */
+  automationPermission: "unknown" | "granted" | "not_granted";
+  permissionNote: string | null;
+  permissionSetAt: string | null;
+  /** Seconds to wait between two pages of this supplier. */
+  checkPauseSeconds: number;
   createdAt: string;
   updatedAt: string;
 };
+
+export type PermissionInput = { status: Supplier["automationPermission"]; note: string | null; pauseSeconds?: number };
 
 export type SupplierInput = { name: string; websiteUrl: string; loginUrl: string | null; checkIntervalMinutes: number };
 
@@ -99,6 +107,68 @@ export type SuppliersApi = {
   resume(id: string): Promise<Supplier>;
   /** Asks for a check of the supplier's saved login. The answer arrives later, as the supplier's status. */
   checkSession(id: string): Promise<void>;
+  /** Records whether the supplier allows automatic checks, and the pause between pages. */
+  setPermission(id: string, input: PermissionInput): Promise<Supplier>;
+};
+
+export type LinkStatus = "not_checked" | "works" | "never_worked" | "page_missing" | "moved" | "looks_different" | "needs_login" | "could_not_check";
+
+/** A link: this Shopify variant is the same item as this supplier page. */
+export type Mapping = {
+  id: string;
+  variantId: string;
+  supplierId: string;
+  url: string;
+  note: string | null;
+  enabled: boolean;
+  linkStatus: LinkStatus;
+  lastLinkCheckAt: string | null;
+  lastWorkedAt: string | null;
+  missingChecks: number;
+  productTitle: string;
+  variantTitle: string;
+  sku: string | null;
+  supplierName: string;
+  /** Shopify no longer has the variant. The link is kept. */
+  variantRemoved: boolean;
+  /** Worked before and the page is missing on two checks at least 6 hours apart. */
+  unavailableCandidate: boolean;
+};
+export type MappingFilter = { supplierId?: string; status?: LinkStatus; search?: string };
+export type MappingInput = { variantId: string; supplierId: string; url: string; note?: string | null };
+export type UnmappedVariant = { variantId: string; productTitle: string; variantTitle: string; sku: string | null };
+export type UnmappedList = { total: number; unmapped: number; items: UnmappedVariant[] };
+
+export type ImportColumnChoice = { handle: number; sku: number; supplier: number; address: number };
+export type ImportColumns = { header: string[]; suggested: { [K in keyof ImportColumnChoice]: number | null }; rowCount: number };
+export type RowNote = { line: number; sku: string; message: string };
+export type ImportPreview = {
+  previewId: string;
+  goodCount: number;
+  sample: { line: number; sku: string; url: string }[];
+  skippedSuppliers: number;
+  counts: { new: number; replace: number; unchanged: number };
+  problems: RowNote[];
+  problemCount: number;
+  warnings: RowNote[];
+};
+export type ImportResult = { created: number; updated: number; unchanged: number; skipped: number };
+
+export type MappingsApi = {
+  list(filter?: MappingFilter): Promise<Mapping[]>;
+  get(id: string): Promise<Mapping>;
+  create(input: MappingInput): Promise<Mapping>;
+  update(id: string, patch: { url?: string; note?: string | null; enabled?: boolean }): Promise<Mapping>;
+  remove(id: string): Promise<void>;
+  /** Asks for a check of one link. The answer arrives later, as the link's status. */
+  checkLink(id: string): Promise<void>;
+  /** Asks for a check of all of a supplier's links. Returns how many are queued. */
+  checkSupplierLinks(supplierId: string): Promise<number>;
+  unmapped(search?: string): Promise<UnmappedList>;
+  /** The file is the text of the CSV the owner chose. Nothing is saved. */
+  importColumns(file: string): Promise<ImportColumns>;
+  importPreview(file: string, columns: ImportColumnChoice): Promise<ImportPreview>;
+  importConfirm(previewId: string): Promise<ImportResult>;
 };
 
 export type LoginStatus = "starting" | "ready" | "connected" | "saving" | "finished" | "cancelled" | "expired" | "failed";
@@ -147,6 +217,7 @@ export type Api = {
   logout(): Promise<void>;
   shopify: ShopifyApi;
   suppliers: SuppliersApi;
+  mappings: MappingsApi;
   loginSessions: LoginSessionsApi;
   notifications: NotificationsApi;
 };
@@ -166,15 +237,17 @@ export class ApiError extends Error {
 const NETWORK_MESSAGE = "Can't reach the server. Check your connection and try again.";
 const GENERIC_MESSAGE = "Something went wrong. Please try again.";
 
-async function send(path: string, init: { method: string; json?: unknown }): Promise<Response> {
+async function send(path: string, init: { method: string; json?: unknown; csv?: string }): Promise<Response> {
   try {
     return await fetch(path, {
       method: init.method,
       credentials: "same-origin",
       // Only declare a JSON body when there is one, or the server rejects the empty body.
-      ...(init.json === undefined
-        ? {}
-        : { headers: { "content-type": "application/json" }, body: JSON.stringify(init.json) }),
+      ...(init.csv !== undefined
+        ? { headers: { "content-type": "text/csv" }, body: init.csv }
+        : init.json === undefined
+          ? {}
+          : { headers: { "content-type": "application/json" }, body: JSON.stringify(init.json) }),
     });
   } catch {
     throw new ApiError(NETWORK_MESSAGE, 0);
@@ -190,7 +263,7 @@ async function failure(res: Response): Promise<ApiError> {
   }
 }
 
-async function request<T>(path: string, init: { method: string; json?: unknown }): Promise<T> {
+async function request<T>(path: string, init: { method: string; json?: unknown; csv?: string }): Promise<T> {
   const res = await send(path, init);
   if (!res.ok) throw await failure(res);
   try {
@@ -247,6 +320,41 @@ const suppliers: SuppliersApi = {
   async checkSession(id) {
     await request(`/api/suppliers/${encodeURIComponent(id)}/check-session`, { method: "POST" });
   },
+  setPermission: (id, input) => supplier(`/api/suppliers/${encodeURIComponent(id)}/permission`, { method: "PATCH", json: input }),
+};
+
+const enc = encodeURIComponent;
+const mappings: MappingsApi = {
+  async list(filter = {}) {
+    const params = new URLSearchParams();
+    if (filter.supplierId) params.set("supplierId", filter.supplierId);
+    if (filter.status) params.set("status", filter.status);
+    if (filter.search) params.set("search", filter.search);
+    return (await request<{ mappings: Mapping[] }>(`/api/mappings?${params}`, { method: "GET" })).mappings;
+  },
+  async get(id) {
+    return (await request<{ mapping: Mapping }>(`/api/mappings/${enc(id)}`, { method: "GET" })).mapping;
+  },
+  async create(input) {
+    return (await request<{ mapping: Mapping }>("/api/mappings", { method: "POST", json: input })).mapping;
+  },
+  async update(id, patch) {
+    return (await request<{ mapping: Mapping }>(`/api/mappings/${enc(id)}`, { method: "PATCH", json: patch })).mapping;
+  },
+  async remove(id) {
+    await request(`/api/mappings/${enc(id)}`, { method: "DELETE" });
+  },
+  async checkLink(id) {
+    await request(`/api/mappings/${enc(id)}/check-link`, { method: "POST" });
+  },
+  async checkSupplierLinks(supplierId) {
+    return (await request<{ links: number }>(`/api/suppliers/${enc(supplierId)}/check-links`, { method: "POST" })).links;
+  },
+  unmapped: (search) => request(`/api/variants?${new URLSearchParams({ mapped: "false", ...(search ? { search } : {}) })}`, { method: "GET" }),
+  importColumns: (file) => request("/api/mappings/import/columns", { method: "POST", csv: file }),
+  importPreview: (file, c) =>
+    request(`/api/mappings/import/preview?${new URLSearchParams({ handle: String(c.handle), sku: String(c.sku), supplier: String(c.supplier), address: String(c.address) })}`, { method: "POST", csv: file }),
+  importConfirm: (previewId) => request(`/api/mappings/import/${enc(previewId)}/confirm`, { method: "POST" }),
 };
 
 const notifications: NotificationsApi = {
@@ -280,6 +388,7 @@ export const api: Api = {
   },
   shopify,
   suppliers,
+  mappings,
   loginSessions,
   notifications,
 };
