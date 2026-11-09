@@ -13,6 +13,7 @@ import { registerShopifyRoutes, type ShopifyRoutesDeps } from "./routes/shopify.
 import { registerNotificationRoutes, type NotificationRoutesDeps } from "./routes/notifications.js";
 import { createScreenRegistry, registerLoginScreen, type LoginScreenDeps } from "./routes/login-screen.js";
 import { registerLoginSessionRoutes, type LoginSessionRoutesDeps } from "./routes/login-sessions.js";
+import { registerCaptureRoutes, type CaptureRoutesDeps } from "./routes/captures.js";
 import { registerMappingRoutes, type MappingRoutesDeps } from "./routes/mappings.js";
 import { registerSupplierRoutes, type SupplierRoutesDeps } from "./routes/suppliers.js";
 import { AppError, unauthenticated } from "./errors.js";
@@ -56,6 +57,8 @@ export type AppDeps = {
   notifications?: NotificationRoutesDeps;
   /** Mapping routes and the supplier permission record. Left out, there are no /api/mappings routes. */
   mappings?: MappingRoutesDeps;
+  /** Saved supplier pages for writing stock rules. Left out, there are no /api/captures routes. */
+  captures?: CaptureRoutesDeps;
 };
 
 const SECURITY_HEADERS = {
@@ -74,7 +77,7 @@ const isApiPath = (path: string) => path === "/api" || path.startsWith("/api/");
 
 const loginBody = z.object({ email: z.string().min(1), password: z.string().min(1) });
 
-export function buildApp({ db, logger, secureCookies = false, webRoot, trustProxy = false, shopify, suppliers, loginSessions, loginScreen, notifications, mappings }: AppDeps) {
+export function buildApp({ db, logger, secureCookies = false, webRoot, trustProxy = false, shopify, suppliers, loginSessions, loginScreen, notifications, mappings, captures }: AppDeps) {
   const app = Fastify({
     loggerInstance: logger,
     genReqId: () => randomUUID(),
@@ -197,6 +200,7 @@ export function buildApp({ db, logger, secureCookies = false, webRoot, trustProx
   if (shopify) registerShopifyRoutes(app, shopify, audit);
   if (notifications) registerNotificationRoutes(app, notifications);
   if (mappings) registerMappingRoutes(app, mappings, audit);
+  if (captures) registerCaptureRoutes(app, captures, audit);
   const screens = createScreenRegistry();
   const logins = loginSessions ? registerLoginSessionRoutes(app, { ...loginSessions, onEnded: screens.closeFor }, audit) : null;
   if (logins && loginSessions && loginScreen) {

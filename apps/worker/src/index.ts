@@ -4,6 +4,7 @@ import { KEY_ID } from "@stock-monitor/crypto";
 import { createAuditWriter } from "@stock-monitor/audit";
 import { createBrowserClient } from "@stock-monitor/browser-client";
 import {
+  createCaptureRepository,
   createMappingRepository,
   createNotificationRepository,
   createShopifyRepository,
@@ -38,6 +39,18 @@ await registerHandlers(queue, logger, {
           supplierSessions: createSupplierSessionRepository(db),
           notifications: createNotificationRepository(db),
           audit: createAuditWriter(db),
+          browser: createBrowserClient({ baseUrl: config.browserServiceUrl, token: config.browserControlToken }),
+          key: config.encryptionKey,
+        }
+      : undefined,
+  // Page captures for stock rules need the same browser service.
+  extractionCapture:
+    config.browserServiceUrl && config.browserControlToken
+      ? {
+          captures: createCaptureRepository(db),
+          mappings: createMappingRepository(db),
+          suppliers: createSupplierRepository(db),
+          supplierSessions: createSupplierSessionRepository(db),
           browser: createBrowserClient({ baseUrl: config.browserServiceUrl, token: config.browserControlToken }),
           key: config.encryptionKey,
         }
