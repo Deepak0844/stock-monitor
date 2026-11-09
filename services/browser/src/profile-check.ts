@@ -48,9 +48,11 @@ export function lastVisited(profile: string): { url: string; title: string } | n
   }
 }
 
-export type ProfileCheckOptions = { proxy: GuardProxy; sandbox: boolean; headless: boolean; baseDir?: string; settleMs?: number };
+export type ProfileCheckOptions = { proxy: GuardProxy; sandbox: boolean; headless: boolean; baseDir?: string; settleMs?: number;
+  /** The screen the browser opens on. Not the one VNC shows, or a check would appear in the owner's login window. */
+  display?: string };
 
-export function createProfileChecker({ proxy, sandbox, headless, baseDir = join(tmpdir(), "sm-profiles"), settleMs = 12_000 }: ProfileCheckOptions) {
+export function createProfileChecker({ proxy, sandbox, headless, baseDir = join(tmpdir(), "sm-profiles"), settleMs = 12_000, display }: ProfileCheckOptions) {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
   /** Starts the browser on `profile`. Returns once it is running; `stop` quits it the way a person would. */
@@ -58,7 +60,11 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = join(
     const id = randomUUID();
     const tracker = proxy.track(id);
     const listener = await proxy.openListener(id);
-    const child = spawn(chromium.executablePath(), plainLaunchArgs({ profile, proxyPort: listener.port, url, headless, sandbox, debuggable }), { stdio: "ignore", detached: true });
+    const child = spawn(chromium.executablePath(), plainLaunchArgs({ profile, proxyPort: listener.port, url, headless, sandbox, debuggable }), {
+      stdio: "ignore",
+      detached: true,
+      env: display ? { ...process.env, DISPLAY: display } : process.env,
+    });
     return {
       child,
       blocked: () => tracker.blocked().count,

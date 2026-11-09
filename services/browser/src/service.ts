@@ -89,7 +89,7 @@ export async function startBrowserService(options: BrowserServiceOptions): Promi
 
   const checkInProfile =
     options.verifyMode === "profile"
-      ? createProfileChecker({ ...windowOptions, baseDir: options.profileDir, settleMs: options.profileSettleMs })
+      ? createProfileChecker({ ...windowOptions, baseDir: options.profileDir, settleMs: options.profileSettleMs, display: process.env.CHECK_DISPLAY })
       : null;
 
   const server = createControlServer({
