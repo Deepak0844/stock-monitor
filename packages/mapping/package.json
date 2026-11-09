@@ -1,0 +1,13 @@
+{
+  "name": "@stock-monitor/mapping",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "dependencies": {
+    "@stock-monitor/supplier-session": "*"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}
