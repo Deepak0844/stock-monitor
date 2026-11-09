@@ -8,6 +8,8 @@ import { createPlainWindowOpener } from "./plain-window.js";
 import { createWindowOpener, type OpenedWindow } from "./window.js";
 import type { Page } from "playwright";
 import { verifyPage } from "./verify.js";
+import { createProfileChecker } from "./profile-check.js";
+import { PROFILE_ROOT } from "./profile-store.js";
 
 export type BrowserServiceOptions = {
   token: string;
@@ -23,6 +25,14 @@ export type BrowserServiceOptions = {
   loginWindowMode?: "controlled" | "plain";
   /** Test only: attach a test to a plain window as soon as it opens. A person's window is never attached until they finish. */
   exposePageForTests?: boolean;
+  /** SPIKE: `profile` checks from a persistent, uncontrolled, headed Chromium. Default `headless`. */
+  verifyMode?: "headless" | "profile";
+  /** SPIKE: `persistent` keeps one login-window profile per supplier site between logins. Default `fresh`. */
+  loginProfile?: "fresh" | "persistent";
+  /** Test only: how long the profile check lets the page load. */
+  profileSettleMs?: number;
+  /** Test only: where the profile check keeps its profiles. */
+  profileDir?: string;
   /** The owner's real browser language, passed to plain windows. */
   language?: string;
   /** The VNC password to give callers who open a window. */
@@ -68,7 +78,11 @@ export async function startBrowserService(options: BrowserServiceOptions): Promi
     sandbox: options.sandbox ?? true,
     headless: !(options.headedWindows ?? true),
   };
-  const plainOptions = { ...windowOptions, language: options.language };
+  const plainOptions = {
+    ...windowOptions,
+    language: options.language,
+    persistent: options.loginProfile === "persistent" ? { baseDir: options.profileDir ?? PROFILE_ROOT } : undefined,
+  };
   const openWindow =
     options.loginWindowMode === "plain"
       ? createPlainWindowOpener({ ...plainOptions, exposePage: options.exposePageForTests })
@@ -83,12 +97,18 @@ export async function startBrowserService(options: BrowserServiceOptions): Promi
     },
   });
 
+  const checkInProfile =
+    options.verifyMode === "profile"
+      ? createProfileChecker({ ...plainOptions, baseDir: options.profileDir, settleMs: options.profileSettleMs, display: process.env.CHECK_DISPLAY })
+      : null;
+
   const server = createControlServer({
     token: options.token,
     log: options.log,
     sessions,
     vncPassword: options.vncPassword,
     verify: async (request) =>
+      checkInProfile?.(request) ??
       verifyPage(await getBrowser(), request, {
         navigationTimeoutMs: options.navigationTimeoutMs,
         proxy,

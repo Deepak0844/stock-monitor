@@ -101,6 +101,10 @@ services:
       CONTROL_TOKEN: ${BROWSER_CONTROL_TOKEN:?Set BROWSER_CONTROL_TOKEN in .env (openssl rand -hex 24)}
       # How the live login window starts: `controlled` (the default) or `plain`, an ordinary browser nothing controls while you log in.
       LOGIN_WINDOW_MODE: ${LOGIN_WINDOW_MODE:-controlled}
+      # SPIKE: profile checks from a persistent, uncontrolled, headed Chromium. headless is the normal check.
+      VERIFY_MODE: ${VERIFY_MODE:-headless}
+      # SPIKE: `persistent` keeps one login-window profile per supplier site while the container runs (needs LOGIN_WINDOW_MODE=plain).
+      LOGIN_PROFILE: ${LOGIN_PROFILE:-fresh}
       # Your real timezone and browser language (for example Asia/Kolkata and en-IN), so the login window does not report UTC from
       # an Indian address. Blank keeps UTC and the browser's own default.
       TZ: ${BROWSER_TIMEZONE:-UTC}

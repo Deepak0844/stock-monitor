@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import type { SessionState } from "@stock-monitor/supplier-session";
 import { readCookies } from "./chromium-cookies.js";
+import { cookieHash, holdProfile, profileDirFor, releaseProfile } from "./profile-store.js";
 import type { GuardProxy } from "./proxy.js";
 import type { LiveWindow } from "./sessions.js";
 
@@ -19,6 +20,8 @@ export type PlainWindowOptions = {
   /** true only for a machine with no display. The container shows the window on its virtual screen. */
   headless: boolean;
   language?: string;
+  /** SPIKE: keep one profile per site in this folder, between logins, instead of a new one each time. */
+  persistent?: { baseDir: string };
   /** Test only: attach to the browser straight away so a test can type into it. A person's window is never attached early. */
   exposePage?: boolean;
   startupTimeoutMs?: number;
@@ -39,6 +42,8 @@ export function plainLaunchArgs(o: {
   headless: boolean;
   sandbox: boolean;
   debuggable?: boolean;
+  /** A kept profile would grow without limit in memory, so its cache is capped. */
+  smallCache?: boolean;
 }): string[] {
   return [
     `--user-data-dir=${o.profile}`,
@@ -49,6 +54,7 @@ export function plainLaunchArgs(o: {
     "--no-default-browser-check",
     "--password-store=basic",
     "--disable-dev-shm-usage",
+    ...(o.smallCache ? ["--disk-cache-size=33554432"] : []),
     "--window-position=0,0",
     `--window-size=${SCREEN.width},${SCREEN.height}`,
     ...(o.headless ? ["--headless=new"] : []),
@@ -75,7 +81,7 @@ export async function seedProfile(profile: string, language?: string): Promise<v
 }
 
 /** The port Chromium chose for its debugging channel, once it has written it. */
-async function waitForDebuggingPort(
+export async function waitForDebuggingPort(
   profile: string,
   child: ChildProcess,
   timeoutMs: number,
@@ -106,7 +112,7 @@ const signalGroup = (child: ChildProcess, signal: NodeJS.Signals) => {
 };
 
 /** Asks the browser to quit the way a person closing it would, which makes it write its profile to disk. */
-const quitCleanly = async (child: ChildProcess, timeoutMs: number) => {
+export const quitCleanly = async (child: ChildProcess, timeoutMs: number) => {
   if (child.exitCode !== null) return;
   const gone = new Promise<void>((resolve) => child.once("exit", () => resolve()));
   child.kill("SIGINT"); // a graceful shutdown, which writes the cookies to the profile. SIGTERM exits without writing them.
@@ -138,6 +144,7 @@ export function createPlainWindowOpener({
   sandbox,
   headless,
   language,
+  persistent,
   exposePage = false,
   startupTimeoutMs = 20_000,
 }: PlainWindowOptions): (url: string) => Promise<PlainOpenedWindow> {
@@ -146,7 +153,19 @@ export function createPlainWindowOpener({
     const id = randomUUID();
     const tracker = proxy.track(id);
     const listener = await proxy.openListener(id);
-    const profile = await mkdtemp(join(tmpdir(), "sm-plain-"));
+    let profile: string;
+    if (persistent) {
+      // A check may be using this site's profile. Checks are short, so wait for it rather than refuse the owner.
+      profile = profileDirFor(persistent.baseDir, url);
+      for (let i = 0; !holdProfile(profile); i++) {
+        if (i >= 120) throw new Error("This supplier's profile is in use.");
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      await mkdir(profile, { recursive: true });
+      await rm(join(profile, "DevToolsActivePort"), { force: true });
+    } else {
+      profile = await mkdtemp(join(tmpdir(), "sm-plain-"));
+    }
     let child: ChildProcess | null = null;
     let requested = false;
     let onClosed: (() => void) | null = null;
@@ -158,7 +177,8 @@ export function createPlainWindowOpener({
       if (child) await quitCleanly(child, 5000);
       tracker.stop();
       await listener.close().catch(() => {});
-      await rm(profile, { recursive: true, force: true }); // takes the profile and everything in it
+      if (persistent) releaseProfile(profile); // the profile stays, with its history, for the next login or check
+      else await rm(profile, { recursive: true, force: true }); // takes the profile and everything in it
     };
 
     try {
@@ -171,6 +191,7 @@ export function createPlainWindowOpener({
           url,
           headless,
           sandbox,
+          smallCache: persistent !== undefined,
           debuggable: exposePage,
         }),
         { stdio: "ignore", detached: true },
@@ -195,10 +216,10 @@ export function createPlainWindowOpener({
           await early?.close().catch(() => {});
           early = null;
           await quitCleanly(child as ChildProcess, 10_000); // a clean quit writes the cookies to the profile
-          return {
-            cookies: readCookies(cookieStore(profile)),
-            origins: [],
-          } as unknown as SessionState;
+          const cookies = readCookies(cookieStore(profile));
+          // The check keeps a profile that holds the session it is given, so say which session this profile holds.
+          if (persistent) await writeFile(join(profile, "seeded"), cookieHash(cookies));
+          return { cookies, origins: [] } as unknown as SessionState;
         },
         close: cleanup,
         onClosed: (callback) => void (onClosed = callback),

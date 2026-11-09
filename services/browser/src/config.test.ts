@@ -17,7 +17,9 @@ describe("loadConfig", () => {
       allowHosts: undefined,
       vncPassword: VNC,
       loginWindowMode: "controlled",
+      verifyMode: "headless",
       language: undefined,
+      loginProfile: "fresh",
     });
   });
   it.each([[undefined], [""], ["short"], ["x".repeat(31)]])(
@@ -89,6 +91,17 @@ describe("loadConfig", () => {
     );
   });
 
+  describe("VERIFY_MODE (spike)", () => {
+    it("is headless unless asked, and accepts profile", () => {
+      expect(loadConfig({ ...base, VERIFY_MODE: "" }).verifyMode).toBe("headless");
+      expect(loadConfig({ ...base, VERIFY_MODE: "profile" }).verifyMode).toBe("profile");
+    });
+    it("refuses anything else, and profile without a display", () => {
+      expect(() => loadConfig({ ...base, VERIFY_MODE: "stealth" })).toThrow(/VERIFY_MODE/);
+      expect(() => loadConfig({ ...base, VERIFY_MODE: "profile", HEADLESS_WINDOWS: "1" })).toThrow(/display/);
+    });
+  });
+
   describe("the owner's own timezone and language", () => {
     it("reads the language, and treats blank as not set", () => {
       expect(loadConfig({ ...base, BROWSER_LANGUAGE: "en-IN" }).language).toBe("en-IN");
@@ -101,6 +114,17 @@ describe("loadConfig", () => {
       expect(() => loadConfig({ ...base, TZ: "Asia/Kolkata" })).not.toThrow();
       expect(() => loadConfig({ ...base, TZ: "Mars/Olympus" })).toThrow(/TZ/);
       expect(() => loadConfig({ ...base, TZ: "" })).not.toThrow();
+    });
+  });
+
+  describe("LOGIN_PROFILE (spike)", () => {
+    it("is fresh unless asked, and accepts persistent in plain mode", () => {
+      expect(loadConfig({ ...base, LOGIN_PROFILE: "" }).loginProfile).toBe("fresh");
+      expect(loadConfig({ ...base, LOGIN_WINDOW_MODE: "plain", LOGIN_PROFILE: "persistent" }).loginProfile).toBe("persistent");
+    });
+    it("refuses anything else, and persistent without the plain window", () => {
+      expect(() => loadConfig({ ...base, LOGIN_PROFILE: "forever" })).toThrow(/LOGIN_PROFILE/);
+      expect(() => loadConfig({ ...base, LOGIN_PROFILE: "persistent" })).toThrow(/plain/);
     });
   });
 });

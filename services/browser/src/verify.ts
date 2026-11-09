@@ -9,9 +9,9 @@ export type VerifyOutcome = { result: PageClass; status: number | null; blockedR
 export type VerifyOptions = { navigationTimeoutMs?: number; proxy: GuardProxy };
 
 const DEFAULT_TIMEOUT_MS = 20_000;
-const MAX_TEXT = 20_000;
+export const MAX_TEXT = 20_000;
 // Visible challenge widgets only: a challenge frame, or the widget boxes the big three use.
-const CHALLENGE_WIDGET =
+export const CHALLENGE_WIDGET =
   '.g-recaptcha, .h-captcha, .cf-turnstile, iframe[src*="recaptcha/api2/bframe"], iframe[src*="hcaptcha.com/captcha"], iframe[src*="challenges.cloudflare.com"]';
 
 /**
