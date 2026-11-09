@@ -47,6 +47,7 @@ User: the store owner, not technical. Success: the owner can set up a supplier's
 
 The app does **not** read the picture. The picture is only for you, so you can see what the page looked like when you set the rules. The rules run on the page's **text and structure**: the browser already knows the words it is showing (headings, rows, button labels), and the app takes those words directly. That is exact, fast and does not depend on how the page looks.
 
+- The browser loads the page like any browser, runs its scripts, and the app asks it for what it is **showing**: the visible text (hidden text is left out), the headings, the table rows (a row's label and number stay together) and the buttons and links with their labels and whether each is enabled. It does **not** use the raw HTML, class names or selectors, so a supplier changing colours or inner structure does not matter while the words stay the same. A stock table that the supplier fills in after the page loads is already filled in when the app reads it.
 - It does not use image reading (OCR) or AI: both are out of scope (intent).
 - If a supplier ever draws its stock as a picture instead of text, the app cannot read it, and the answer is **Cannot tell**, never a guess.
 
@@ -102,6 +103,12 @@ Captured by the browser service, with the saved session, through the guard. Neve
 - The **HTTP status** and the page class the session check already uses (normal, login, puzzle, blocked...).
 
 The owner can give each saved capture a **name and an expected answer** (for example "Blue Tee, in stock, expected In stock"). These are the test examples. A recipe version can only be turned on when it gives the expected answer on **every** labelled capture of that supplier, and at least one capture exists. Captures are limited (50 per supplier, oldest unlabelled removed first) and the owner can delete any of them.
+
+**How long captures are kept (owner, 2026-11-10).** A capture is private page content, and its picture can show account names or wholesale prices, so it does not live forever:
+- **Unlabelled captures** are deleted automatically after **30 days**.
+- **"Page changed" captures** (kept so the owner can see what changed) are deleted after **30 days**, and straight away once a later check on that link works. At most three are kept per link.
+- **Labelled examples** are kept until the owner deletes them or deletes the supplier, because the tests need them. They carry the note "Contains a picture of the page. Delete it when you no longer need it."
+- Deleting a supplier deletes all its captures. A capture's picture is never in a log, audit event or job.
 
 When a check gives **cannot tell: the page changed**, the app keeps that page's capture (last three per link) so the owner can open it, see what changed beside the rules, fix the rules and test again.
 
@@ -205,7 +212,7 @@ Test-first throughout. Automated tests never visit a real supplier, and the fixt
 6. A login redirect, puzzle, block, timeout or changed page is never Out of stock, in any test.
 7. At least 5 links and 30% cannot-tell in one run raises one Dashboard notification, and a later good run resolves it.
 8. One visit updates both the stock answer and the link status, and the pause between pages is honoured.
-9. Capture content never appears in a log, audit event, job or error; cookies, form values and password contents are never captured.
+9. Capture content never appears in a log, audit event, job or error; cookies, form values and password contents are never captured. Unlabelled and page-changed captures older than 30 days are deleted automatically.
 10. Recipes and observations are append only; a supplier delete removes them; the history of a link's observations can be read.
 11. `npm run check`, the browser tests and the browser journeys pass, including the accessibility scan of the new screens.
 
