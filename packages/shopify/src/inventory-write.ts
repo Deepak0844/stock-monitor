@@ -49,11 +49,11 @@ export async function setAvailableQuantity(args: WriteArgs): Promise<WriteResult
       schema: writeReply,
       variables: {
         idempotencyKey: args.idempotencyKey,
+        // No ignoreCompareQuantity: Shopify removed that field in 2026-04, and sending it fails the whole request. The check is changeFromQuantity.
         input: {
           name: "available",
           reason: "correction",
           referenceDocumentUri: args.referenceDocumentUri,
-          ignoreCompareQuantity: false,
           quantities: [
             { inventoryItemId: args.inventoryItemId, locationId: args.locationId, quantity: args.quantity, changeFromQuantity: args.changeFromQuantity },
           ],
