@@ -26,6 +26,15 @@ export const control = {
     if (!res.ok) throw new Error(`Control call /control/tick failed with ${res.status}`);
     return (await res.json()) as { started: string[]; skipped: { supplierId: string; reason: string }[] };
   },
+  /** A clean slate for the suggestion journeys: three variants stocked at 4 and synced, linked to one allowed supplier with rules on. `scopes` are the permissions the store has given the app. */
+  resetProposals: (scopes?: string[]) => post("/control/reset-proposals", scopes ? { scopes } : undefined),
+  /** Changes a number in the fake store behind the app's back. `item` is 1, 2 or 3. */
+  setShopifyStock: (item: number, quantity: number) => post("/control/shopify-stock", { item, quantity }),
+  /** What the fake store holds now, and how many stock writes it has accepted. */
+  shopifyStock: async (item: number): Promise<{ quantity: number | null; writes: number }> => {
+    const res = await fetch(`${CONTROL_URL}/control/shopify-stock?item=${item}`);
+    return (await res.json()) as { quantity: number | null; writes: number };
+  },
   /** Turns the stand-in VNC screen off or on, to test a screen the proxy cannot reach. */
   vnc: (available: boolean) => post("/control/vnc", { available }),
   /** Steer the stand-in browser service: whether a window opens, what a finished login holds, what a check finds. */

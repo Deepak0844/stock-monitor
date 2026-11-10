@@ -27,7 +27,7 @@ import { createFakeBrowserService, FAKE_CONTROL_TOKEN } from "../packages/browse
 import { createQueue } from "../packages/queue/src/index.js";
 import { createLogger } from "../packages/shared/src/index.js";
 import { sealSessionState } from "../packages/supplier-session/src/index.js";
-import { createFakeCatalog, createFakeShopify, withFakeShop } from "../packages/shopify/test/testing.js";
+import { createFakeCatalog, createFakeShopify, LOC_A, makeVariant, withFakeShop } from "../packages/shopify/test/testing.js";
 import { buildApp } from "../apps/api/src/app.js";
 import { createOwner } from "../apps/api/src/owner.js";
 import { registerHandlers } from "../apps/worker/src/worker.js";
@@ -180,6 +180,45 @@ const control = createServer(async (req, res) => {
       }
       return reply(200);
     }
+    if (req.method === "POST" && req.url === "/control/reset-proposals") {
+      // A clean slate for the suggestion journeys: three variants, stocked at 4 in the fake store and synced, each linked to one
+      // connected, allowed supplier with stock rules on, and a Shopify connection that may or may not change stock.
+      const { scopes = ["read_products", "read_inventory", "write_inventory"] } = (body ? JSON.parse(body) : {}) as { scopes?: string[] };
+      await db.pool.query("truncate suppliers, shopify_variants, shopify_connection, shopify_sync_runs, import_previews, audit_events, app_settings cascade");
+      resetBrowser();
+      catalog.setVariants([1, 2, 3].map((n) => makeVariant(n, { productTitle: "Blue Tee", title: `Size ${n}`, sku: `B036${n}`, stock: { [LOC_A]: 4 } })));
+      catalog.writes.length = 0; // the count of accepted stock writes starts again with each journey
+      catalog.setCanWrite(scopes.includes("write_inventory"));
+      serve(scopes);
+      await repo.saveConnection({ shop: "e2e-store.myshopify.com", credentials: { type: "client_credentials", clientId: CLIENT_ID, clientSecret: CLIENT_SECRET }, scopes, location: { id: LOC_A, name: "Shop floor" } });
+      const made = await suppliers.create({ name: "Acme Supply", websiteUrl: "https://shop.acme.example/", loginUrl: null, checkIntervalMinutes: 60 });
+      if (!made.ok) return reply(500, { error: "seed failed" });
+      await supplierSessions.save(made.supplier.id, sealSessionState(E2E_SESSION, encryption.key, encryption.keyId), E2E_SESSION);
+      await suppliers.markConnected(made.supplier.id);
+      await suppliers.setPermission(made.supplier.id, { status: "granted", note: null });
+      for (const n of [1, 2, 3]) {
+        await db.pool.query(
+          `insert into shopify_variants (variant_id, product_id, product_title, variant_title, options, sku, inventory_item_id, tracked, inventory_policy, available)
+           values ($1, 'gid://shopify/Product/1', 'Blue Tee', $2, '[]', $3, $4, true, 'DENY', 4)`,
+          [`gid://shopify/ProductVariant/${n}`, `Size ${n}`, `B036${n}`, `gid://shopify/InventoryItem/${n}`],
+        );
+        await createMappingRepository(db.appDb).create({ variantId: `gid://shopify/ProductVariant/${n}`, supplierId: made.supplier.id, url: `https://shop.acme.example/p/${n}`, note: null });
+      }
+      const recipes = createRecipeRepository(db.appDb);
+      const saved = await recipes.create(made.supplier.id, { pageChecks: [{ type: "text", text: "Blue Tee" }], inStock: [{ type: "button", label: "Add to cart", enabled: true }], outOfStock: [{ type: "text", text: "Sold out" }] });
+      await recipes.activate(saved.id);
+      return reply(200);
+    }
+    if (req.method === "POST" && req.url === "/control/shopify-stock") {
+      // Change a number in the fake store behind the app's back, as a sale or a staff edit would.
+      const { item, quantity } = JSON.parse(body) as { item: number; quantity: number };
+      catalog.setStock(`gid://shopify/InventoryItem/${item}`, LOC_A, quantity);
+      return reply(200);
+    }
+    if (req.method === "GET" && req.url?.startsWith("/control/shopify-stock")) {
+      const item = Number(new URL(req.url, "http://x").searchParams.get("item"));
+      return reply(200, { quantity: catalog.stockOf(`gid://shopify/InventoryItem/${item}`, LOC_A) ?? null, writes: catalog.writes.length });
+    }
     if (req.method === "POST" && req.url === "/control/seed-recipe") {
       // Turns rules on directly, so a journey about checking stock does not have to build them first.
       const [row] = (await db.pool.query("select id from suppliers limit 1")).rows as { id: string }[];
@@ -192,7 +231,7 @@ const control = createServer(async (req, res) => {
       // One pass of the scheduler, as if `advanceMinutes` had gone by. The cron that does this every minute is not running here.
       const { advanceMinutes = 0 } = (body ? JSON.parse(body) : {}) as { advanceMinutes?: number };
       const result = await runTick({
-        suppliers, supplierSessions, recipes: createRecipeRepository(db.appDb), mappings: createMappingRepository(db.appDb), checkRuns: createCheckRunRepository(db.appDb),
+        suppliers, supplierSessions, recipes: createRecipeRepository(db.appDb), mappings: createMappingRepository(db.appDb), checkRuns: createCheckRunRepository(db.appDb), proposals: createProposalRepository(db.appDb),
         queue, audit: createAuditWriter(db.appDb), logger, timezone: "UTC", now: () => new Date(Date.now() + advanceMinutes * 60_000),
       });
       return reply(200, result);
