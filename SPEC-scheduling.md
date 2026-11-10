@@ -2,7 +2,7 @@
 
 Module id: `scheduling`. Depends on: `foundation`, `supplier-session`, `mapping` (link status, permission gate, pause between pages), `extraction` (stock checks, observations). Map: `CAPABILITY-MAP.md`.
 
-Status: **draft v1, not yet reviewed by the owner.** No plan and no code until it is approved.
+Status: **draft v2, all open questions answered (2026-11-10); awaiting approval.** No plan and no code until it is approved.
 
 ## Objective
 
@@ -31,7 +31,7 @@ User: the store owner, not technical. Success: the owner sets "every 6 hours" on
 
 ## Behaviour
 
-1. **Setting.** Each supplier has an interval (off, or one of the allowed values) and a **next check** time. Saving an interval sets the next check to one interval from now, with a small random spread (up to 10% of the interval) so suppliers do not all start together.
+1. **Setting.** Each supplier has an interval (off, or one of the allowed values) and a **next check** time. Saving an interval sets the next check (moved into the quiet-hours window if it falls outside) to one interval from now, with a small random spread (up to 10% of the interval) so suppliers do not all start together.
 2. **Due runs.** A tick in the worker runs every minute, finds suppliers whose next check has passed and that pass the gate, and starts a run for each, up to the limit at once. A supplier that fails the gate (paused, not connected, not allowed, no active rules) is skipped, its next check is **not** moved forward, and the supplier row says why it is not being checked. Skipping writes nothing to the supplier's site.
 3. **Check now.** The existing buttons stay. A manual run does not change the schedule, except that when it finishes the next scheduled check moves to one interval after it ended, so the supplier is not visited again right away.
 4. **Progress.** While a run is going, the Suppliers screen and the Links page show "Checking 12 of 40 links", from the run row. When it ends: "Checked 40 links, 3 cannot tell" (plain words), with the time.
@@ -58,7 +58,7 @@ The backoff steps are per supplier and are never shorter than the supplier's own
 | Table | Purpose |
 |---|---|
 | `check_runs` | One per run: `id`, `supplier_id`, `trigger` (`scheduled` or `manual`), `started_at`, `ended_at` (nullable), `links_total`, `links_done`, `in_stock`, `out_of_stock`, `cannot_tell`, `outcome` (`running`, `finished`, `stopped`, `failed`), `stop_reason` (nullable, plain code). Kept 30 days, then deleted. |
-| `suppliers` (existing) | Gains `check_interval_minutes` (nullable, null = off, checked against the allowed list), `next_check_at` (nullable), `failure_count` (integer, backoff step). |
+| `suppliers` (existing) | Gains `check_window_start` and `check_window_end` (local time, nullable = all day), `check_interval_minutes` (nullable, null = off, checked against the allowed list), `next_check_at` (nullable), `failure_count` (integer, backoff step). |
 
 One running run per supplier is enforced by a partial unique index on `check_runs` (`supplier_id` where `outcome = 'running'`), so the refusal holds even with two workers.
 
@@ -130,7 +130,9 @@ Same as today: `npm run check`, `npm run test:browser`, `npm run test:e2e`.
 5. Run history is kept **30 days**.
 6. Built for all suppliers, **turned on for the pilot supplier only**, after its permission is recorded.
 
+2. **Quiet hours:** each supplier has an allowed window, default **07:00 to 22:00** in the owner's timezone (recommended value, adopted). A check that falls due outside it waits until the window opens. The owner can change the window or set all day in the app.
+4. **Login problem:** option A. Stop, notify on the Dashboard, wait for the owner. No automatic retry (captcha and block are never retried either).
+
 ## Still open for the owner
 
-2. **Quiet hours.** A window of the day in which checks may run (for example 07:00 to 22:00). Outside it, a due check waits until the window opens. Default: all day.
-4. **After a login problem:** stop and wait for the owner (proposed), or one automatic retry after a few hours.
+1. **Approve this version?** If anything is not what you want, say what to change.
