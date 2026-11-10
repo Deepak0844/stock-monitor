@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { startTestDb } from "../packages/db/test/harness.js";
 import {
   createCaptureRepository,
+  createCheckRunRepository,
   createImportPreviewRepository,
   createLoginSessionRepository,
   createMappingRepository,
@@ -85,7 +86,7 @@ await registerHandlers(queue, logger, {
   extractionCapture: { captures: createCaptureRepository(db.appDb), mappings: createMappingRepository(db.appDb), suppliers, supplierSessions, browser: browserClient, key: encryption.key },
   extractionChecks: {
     mappings: createMappingRepository(db.appDb), suppliers, supplierSessions, recipes: createRecipeRepository(db.appDb), observations: createObservationRepository(db.appDb),
-    captures: createCaptureRepository(db.appDb), notifications, audit: createAuditWriter(db.appDb), browser: browserClient, key: encryption.key, sleep: async () => {},
+    captures: createCaptureRepository(db.appDb), notifications, audit: createAuditWriter(db.appDb), checkRuns: createCheckRunRepository(db.appDb), timezone: "UTC", browser: browserClient, key: encryption.key, sleep: async () => {},
   },
   mappingLinks: { mappings: createMappingRepository(db.appDb), suppliers, supplierSessions, audit: createAuditWriter(db.appDb), browser: browserClient, key: encryption.key, sleep: async () => {} },
   supplierVerify: { suppliers, supplierSessions, notifications, audit: createAuditWriter(db.appDb), browser: browserClient, key: encryption.key, retryDelaysMs: [], sleep: async () => {} },
@@ -103,7 +104,7 @@ const app = buildApp({
   mappings: { mappings: createMappingRepository(db.appDb), suppliers, previews: createImportPreviewRepository(db.appDb), supplierSessions, queue, lookup, observations: createObservationRepository(db.appDb) },
   captures: { captures: createCaptureRepository(db.appDb), mappings: createMappingRepository(db.appDb), suppliers, supplierSessions, queue },
   recipes: { recipes: createRecipeRepository(db.appDb), captures: createCaptureRepository(db.appDb), mappings: createMappingRepository(db.appDb), suppliers },
-  stockChecks: { mappings: createMappingRepository(db.appDb), suppliers, supplierSessions, recipes: createRecipeRepository(db.appDb), observations: createObservationRepository(db.appDb), queue },
+  stockChecks: { mappings: createMappingRepository(db.appDb), suppliers, supplierSessions, recipes: createRecipeRepository(db.appDb), observations: createObservationRepository(db.appDb), checkRuns: createCheckRunRepository(db.appDb), queue },
   notifications: { repo: notifications },
   loginSessions: { suppliers, loginSessions, supplierSessions, browser: browserClient, key: encryption, notifications, queue },
   loginScreen: { allowedOrigins: [BASE_URL], vnc: { host: "127.0.0.1", port: vnc.port }, firstMessageTimeoutMs: 5000 },
