@@ -85,7 +85,7 @@ describe("apply", () => {
     await handler()({ proposalId: p.id });
     expect(await state(p.id)).toMatchObject({ state: "applied", resultCode: "applied", resultQuantity: 0 });
     expect(stock()).toBe(0);
-    expect(catalog.writes).toEqual([{ inventoryItemId: ITEM, locationId: LOC_A, quantity: 0, changeFromQuantity: 4, key: p.idempotencyKey }]);
+    expect(catalog.writes).toEqual([{ inventoryItemId: ITEM, locationId: LOC_A, quantity: 0, changeFromQuantity: 4, key: p.idempotencyKey, referenceDocumentUri: `gid://stock-monitor/Proposal/${p.id}` }]);
     expect((await t.pool.query("select available from shopify_variants where variant_id = $1", [VARIANT])).rows[0].available).toBe(0);
     const audit = (await t.pool.query("select action, entity_id, details from audit_events where action like 'proposal.%'")).rows;
     expect(audit).toEqual([{ action: "proposal.applied", entity_id: p.id, details: { variantId: VARIANT, from: 4, to: 0 } }]);
@@ -187,34 +187,86 @@ describe("refusals", () => {
   });
 });
 
-describe("unknown outcome", () => {
-  it("stays approved, retries after 10 seconds with the same key, and then does not apply twice or call it a conflict", async () => {
+describe("unknown outcome: the app looks at Shopify's number, as the spec says", () => {
+  it("the change happened but the reply was lost: it is recorded as applied at once, written once, no retry", async () => {
     const p = await approved();
     catalog.failNextWrite("apply_then_fail");
     await handler()({ proposalId: p.id });
+    expect(await state(p.id)).toMatchObject({ state: "applied", resultQuantity: 0 });
+    expect(catalog.writes).toHaveLength(1);
+    expect(enqueued).toEqual([]);
+  });
+
+  it("the change did not happen: it stays approved and is retried with the same key after 10 seconds, and then applies once", async () => {
+    const p = await approved();
+    catalog.failNextWrite("fail_before_apply");
+    await handler()({ proposalId: p.id });
     expect(await state(p.id)).toMatchObject({ state: "approved", attempts: 1 });
     expect(enqueued).toEqual([{ name: "proposals.apply", payload: { proposalId: p.id }, options: { startAfter: 10, retryLimit: 0 } }]);
-    expect(stock()).toBe(0); // Shopify did apply it
-
+    expect(stock()).toBe(4);
     catalog.recover();
     await handler()({ proposalId: p.id });
-    expect(await state(p.id)).toMatchObject({ state: "applied", resultQuantity: 0 });
+    expect(await state(p.id)).toMatchObject({ state: "applied" });
     expect(catalog.writes).toHaveLength(1);
     expect(catalog.writes[0]!.key).toBe(p.idempotencyKey);
   });
 
-  it("retries after 10 seconds, 1 minute and 5 minutes, then stops and says it could not confirm", async () => {
+  it("Shopify holds some other number afterwards: a conflict, never a retry", async () => {
     const p = await approved();
-    catalog.failNextWrite("apply_then_fail");
+    catalog.failNextWrite("fail_before_apply");
+    await handler()({ proposalId: p.id });
+    catalog.setStock(ITEM, LOC_A, 2); // a sale while the reply was lost
+    catalog.recover();
+    await handler()({ proposalId: p.id });
+    expect(await state(p.id)).toMatchObject({ state: "conflict", resultQuantity: 2 });
+    expect(catalog.writes).toEqual([]);
+  });
+
+  it("a retry that Shopify answers 'changed' because the number is already the target is recorded as applied, not as a conflict", async () => {
+    const p = await approved();
+    await proposals().bumpAttempts(p.id); // an earlier send already happened
+    catalog.setStock(ITEM, LOC_A, 0); // and Shopify has no memory of its key
+    await handler()({ proposalId: p.id });
+    expect(await state(p.id)).toMatchObject({ state: "applied", resultQuantity: 0 });
+  });
+
+  it("when Shopify cannot be read either, it retries after 10 seconds, 1 minute and 5 minutes, then says it could not confirm", async () => {
+    const p = await approved();
+    catalog.failNextWrite("apply_then_fail", { readsToo: true });
     for (let i = 0; i < 4; i++) await handler()({ proposalId: p.id });
     expect(enqueued.map((e) => e.options?.startAfter)).toEqual([10, 60, 300]);
     expect(await state(p.id)).toMatchObject({ state: "failed", resultCode: "unconfirmed", attempts: 4 });
     expect(new Set(catalog.writes.map((w) => w.key)).size).toBe(1);
   });
 
-  it("a queue that is down, or a worker killed after Shopify accepted, leaves it approved; running it again later applies it once and is not a conflict", async () => {
+  it("when Shopify can be read again, the next attempt records what happened", async () => {
     const p = await approved();
-    catalog.failNextWrite("apply_then_fail");
+    catalog.failNextWrite("apply_then_fail", { readsToo: true });
+    for (let i = 0; i < 3; i++) await handler()({ proposalId: p.id });
+    expect(await state(p.id)).toMatchObject({ state: "approved" });
+    catalog.setReadsDown(false);
+    await handler()({ proposalId: p.id });
+    expect(await state(p.id)).toMatchObject({ state: "applied" });
+  });
+
+  it("Shopify cannot be reached before anything was sent: it stays approved, no attempt is used up, and it is tried again later", async () => {
+    const p = await approved();
+    catalog.setReadsDown(true);
+    await handler()({ proposalId: p.id });
+    expect(await state(p.id)).toMatchObject({ state: "approved", attempts: 0 });
+    expect(enqueued).toEqual([{ name: "proposals.apply", payload: { proposalId: p.id }, options: { startAfter: 300, retryLimit: 0 } }]);
+    expect(catalog.writes).toEqual([]);
+    // however long the outage lasts, it is never turned into "could not confirm"
+    for (let i = 0; i < 6; i++) await handler()({ proposalId: p.id });
+    expect(await state(p.id)).toMatchObject({ state: "approved", attempts: 0 });
+    catalog.setReadsDown(false);
+    await handler()({ proposalId: p.id });
+    expect(await state(p.id)).toMatchObject({ state: "applied" });
+  });
+
+  it("a queue that is down leaves it approved for the tick to pick up, and running it again later applies it once", async () => {
+    const p = await approved();
+    catalog.failNextWrite("fail_before_apply");
     enqueueFails = true;
     await expect(handler()({ proposalId: p.id })).resolves.toBeUndefined();
     expect(await state(p.id)).toMatchObject({ state: "approved" });
@@ -222,6 +274,41 @@ describe("unknown outcome", () => {
     await handler()({ proposalId: p.id });
     expect(await state(p.id)).toMatchObject({ state: "applied" });
     expect(catalog.writes).toHaveLength(1);
+  });
+});
+
+describe("one worker at a time", () => {
+  it("a second job for the same suggestion does nothing while the first holds it, and goes ahead once the lease has run out", async () => {
+    const p = await approved();
+    await proposals().claimApply(p.id, NOW, 120_000); // the first job is working on it
+    await handler()({ proposalId: p.id });
+    expect(fake.graphqlRequests()).toEqual([]);
+    expect(await state(p.id)).toMatchObject({ state: "approved" });
+    const later = createProposalsApplyHandler({
+      proposals: proposals(), shopify: shopify(), audit: createAuditWriter(t.appDb), logger, now: () => new Date(NOW.getTime() + 121_000),
+      queue: { enqueue: async () => {} } as never, baseUrl: () => fake.url, clientOptions: { sleep: async () => {} },
+    });
+    await later({ proposalId: p.id });
+    expect(await state(p.id)).toMatchObject({ state: "applied" });
+  });
+});
+
+describe("a link that was turned off", () => {
+  it("is not written: the suggestion fails with a fixed code and Shopify is not called", async () => {
+    const p = await approved();
+    await t.pool.query("update mappings set enabled = false");
+    await handler()({ proposalId: p.id });
+    expect(await state(p.id)).toMatchObject({ state: "failed", resultCode: "link_off" });
+    expect(fake.graphqlRequests()).toEqual([]);
+  });
+});
+
+describe("the write is traceable from Shopify", () => {
+  it("carries the reason correction and a reference to the suggestion", async () => {
+    const p = await approved();
+    await handler()({ proposalId: p.id });
+    expect(catalog.writes[0]).toMatchObject({ referenceDocumentUri: `gid://stock-monitor/Proposal/${p.id}` });
+    expect(catalog.reasons).toEqual(["correction"]);
   });
 });
 

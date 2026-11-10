@@ -49,8 +49,12 @@ export function createFakeCatalog(init: { locations: FakeLocation[]; variants: F
   // Writing stock. Follows the 2026-10 reference: inventorySetQuantities needs write_inventory, an @idempotent
   // key, and refuses a change when changeFromQuantity is not the number Shopify holds now.
   let canWrite = true;
-  let nextWrite: "refuse" | "apply_then_fail" | null = null;
-  const writes: { inventoryItemId: string; locationId: string; quantity: number; changeFromQuantity: number | null; key: string }[] = [];
+  let nextWrite: "refuse" | "apply_then_fail" | "fail_before_apply" | null = null;
+  let readsDown = false;
+  let readsDownAfterWrite = false;
+  let dropWrites = false;
+  const reasons: string[] = [];
+  const writes: { inventoryItemId: string; locationId: string; quantity: number; changeFromQuantity: number | null; key: string; referenceDocumentUri: string | null }[] = [];
   const replies = new Map<string, unknown>();
   let failAllReplies = false;
 
@@ -99,6 +103,7 @@ export function createFakeCatalog(init: { locations: FakeLocation[]; variants: F
     }
 
     if (/\binventoryItem\s*\(/.test(request.query)) {
+      if (readsDown) return { status: 500, body: { errors: "boom" } };
       const v = variants.find((x) => x.inventoryItemId === request.variables?.itemId);
       const quantity = v?.stock[request.variables?.locationId as string];
       const level = quantity === undefined ? null : { quantities: [{ name: "available", quantity }] };
@@ -111,14 +116,20 @@ export function createFakeCatalog(init: { locations: FakeLocation[]; variants: F
       if (typeof key !== "string" || !/@idempotent\(\s*key\s*:\s*\$idempotencyKey\s*\)/.test(request.query)) {
         return { body: { errors: [{ message: "idempotency key required", extensions: { code: "BAD_REQUEST" } }] } };
       }
+      if (dropWrites) return { status: 500, body: { errors: "boom" } }; // the request never reached the store
       if (replies.has(key)) return failAllReplies ? { status: 500, body: { errors: "boom" } } : { body: replies.get(key) };
-      const input = request.variables?.input as { name?: string; ignoreCompareQuantity?: boolean; quantities?: { inventoryItemId: string; locationId: string; quantity: number; changeFromQuantity?: number | null }[] };
+      const input = request.variables?.input as { name?: string; reason?: string; referenceDocumentUri?: string; ignoreCompareQuantity?: boolean; quantities?: { inventoryItemId: string; locationId: string; quantity: number; changeFromQuantity?: number | null }[] };
       const row = input?.quantities?.[0];
       const v = variants.find((x) => x.inventoryItemId === row?.inventoryItemId);
       const answer = (userErrors: { field: string[]; message: string; code: string }[]) => ({
         data: { inventorySetQuantities: { inventoryAdjustmentGroup: userErrors.length ? null : { id: "gid://shopify/InventoryAdjustmentGroup/1" }, userErrors } },
         extensions: { cost },
       });
+      if (nextWrite === "fail_before_apply") {
+        nextWrite = null;
+        dropWrites = true;
+        return { status: 500, body: { errors: "boom" } };
+      }
       if (nextWrite === "refuse") {
         nextWrite = null;
         return { body: answer([{ field: ["input"], message: "refused", code: "INVALID_QUANTITY_NEGATIVE" }]) };
@@ -132,12 +143,14 @@ export function createFakeCatalog(init: { locations: FakeLocation[]; variants: F
         return { body };
       }
       v.stock[row.locationId] = row.quantity;
-      writes.push({ inventoryItemId: row.inventoryItemId, locationId: row.locationId, quantity: row.quantity, changeFromQuantity: row.changeFromQuantity ?? null, key });
+      reasons.push(input.reason ?? "");
+      writes.push({ inventoryItemId: row.inventoryItemId, locationId: row.locationId, quantity: row.quantity, changeFromQuantity: row.changeFromQuantity ?? null, key, referenceDocumentUri: input.referenceDocumentUri ?? null });
       const body = answer([]);
       replies.set(key, body);
       if (nextWrite === "apply_then_fail") {
         nextWrite = null;
         failAllReplies = true;
+        if (readsDownAfterWrite) readsDown = true;
       }
       return failAllReplies ? { status: 500, body: { errors: "boom" } } : { body };
     }
@@ -152,10 +165,22 @@ export function createFakeCatalog(init: { locations: FakeLocation[]; variants: F
     /** Whether the app has write_inventory. */
     setCanWrite: (next: boolean) => void (canWrite = next),
     /** The next write is refused with a user error, or is applied but its reply (and every retry's reply) is a server error. A retry with the same key is answered from the first result. */
-    failNextWrite: (how: "refuse" | "apply_then_fail" | null) => void (nextWrite = how),
-    /** Stop failing replies after an "apply_then_fail". */
-    recover: () => void (failAllReplies = false),
+    failNextWrite: (how: "refuse" | "apply_then_fail" | "fail_before_apply" | null, options: { readsToo?: boolean } = {}) => {
+      nextWrite = how;
+      readsDownAfterWrite = Boolean(options.readsToo); // reads stop working once the write has gone through
+    },
+    /** Stop failing replies after "apply_then_fail" or "fail_before_apply", and let reads work again. */
+    recover: () => {
+      failAllReplies = false;
+      dropWrites = false;
+      readsDown = false;
+      readsDownAfterWrite = false;
+    },
+    /** Stock reads answer with a server error, as if the store could not be reached. */
+    setReadsDown: (down: boolean) => void (readsDown = down),
     writes,
+    /** The reason sent with each accepted write. */
+    reasons,
     /** What Shopify holds now, for assertions. */
     stockOf: (inventoryItemId: string, locationId: string) => variants.find((v) => v.inventoryItemId === inventoryItemId)?.stock[locationId],
     /** Change the number behind the app's back, as another sale or a staff edit would. */

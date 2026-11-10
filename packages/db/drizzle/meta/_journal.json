@@ -78,6 +78,13 @@
       "when": 1794306765496,
       "tag": "0010_proposals",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794315970742,
+      "tag": "0011_proposals_lease",
+      "breakpoints": true
     }
   ]
 }
