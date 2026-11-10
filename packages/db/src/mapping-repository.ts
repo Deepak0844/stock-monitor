@@ -23,7 +23,8 @@ export type MappingRecord = {
   createdAt: Date;
   updatedAt: Date;
 };
-export type MappingRow = MappingRecord & { productTitle: string; variantTitle: string; sku: string | null; supplierName: string; variantRemoved: boolean };
+/** `shopifyManaged`: the variant's product has a supplier name and page address in Shopify, so the next sync sets this link from them. */
+export type MappingRow = MappingRecord & { productTitle: string; variantTitle: string; sku: string | null; supplierName: string; variantRemoved: boolean; shopifyManaged: boolean };
 export type MappingInput = { variantId: string; supplierId: string; url: string; note: string | null; region?: string | null };
 export type MappingWrite = { ok: true; mapping: MappingRecord } | { ok: false; reason: "duplicate" | "unknown_variant" | "unknown_supplier" };
 /** What a link check decided. Matches the link-status rules in the mapping package. */
@@ -67,6 +68,7 @@ export function createMappingRepository<S extends Record<string, unknown>>(db: N
         missingChecks: mappings.missingChecks, firstMissingAt: mappings.firstMissingAt, createdAt: mappings.createdAt, updatedAt: mappings.updatedAt,
         productTitle: shopifyVariants.productTitle, variantTitle: shopifyVariants.variantTitle, sku: shopifyVariants.sku,
         supplierName: suppliers.name, variantRemoved: sql<boolean>`${shopifyVariants.removedAt} is not null`,
+        shopifyManaged: sql<boolean>`(${shopifyVariants.supplierName} is not null and ${shopifyVariants.supplierUrl} is not null and ${shopifyVariants.removedAt} is null)`,
       })
       .from(mappings)
       .innerJoin(shopifyVariants, eq(shopifyVariants.variantId, mappings.variantId))
@@ -166,6 +168,39 @@ export function createMappingRepository<S extends Record<string, unknown>>(db: N
             result.unchanged++;
           } else {
             await tx.update(mappings).set({ url: row.url, ...RESET, updatedAt: new Date() }).where(eq(mappings.id, current.id));
+            result.updated++;
+          }
+        }
+      });
+      return result;
+    },
+
+    /** Live variants whose product has both a supplier name and a page address in Shopify. */
+    async shopifyLinkSources(): Promise<{ variantId: string; productTitle: string; variantTitle: string; sku: string | null; supplierName: string; supplierUrl: string }[]> {
+      const rows = await db
+        .select({ variantId: shopifyVariants.variantId, productTitle: shopifyVariants.productTitle, variantTitle: shopifyVariants.variantTitle, sku: shopifyVariants.sku, supplierName: shopifyVariants.supplierName, supplierUrl: shopifyVariants.supplierUrl })
+        .from(shopifyVariants)
+        .where(and(isNull(shopifyVariants.removedAt), sql`${shopifyVariants.supplierName} is not null`, sql`${shopifyVariants.supplierUrl} is not null`))
+        .orderBy(asc(shopifyVariants.productTitle), asc(shopifyVariants.variantTitle));
+      return rows as { variantId: string; productTitle: string; variantTitle: string; sku: string | null; supplierName: string; supplierUrl: string }[];
+    },
+
+    /**
+     * Sets each variant's one link from what Shopify holds: Shopify is the one source, so a different address, or a different
+     * supplier, replaces what was there and starts the link's history again. The same again changes nothing.
+     */
+    async upsertFromShopify(rows: { variantId: string; supplierId: string; url: string }[]): Promise<{ created: number; updated: number; unchanged: number }> {
+      const result = { created: 0, updated: 0, unchanged: 0 };
+      await db.transaction(async (tx) => {
+        for (const row of rows) {
+          const [current] = await tx.select({ id: mappings.id, supplierId: mappings.supplierId, url: mappings.url }).from(mappings).where(eq(mappings.variantId, row.variantId)).limit(1);
+          if (!current) {
+            await tx.insert(mappings).values(row);
+            result.created++;
+          } else if (current.supplierId === row.supplierId && current.url === row.url) {
+            result.unchanged++;
+          } else {
+            await tx.update(mappings).set({ supplierId: row.supplierId, url: row.url, ...RESET, updatedAt: new Date() }).where(eq(mappings.id, current.id));
             result.updated++;
           }
         }

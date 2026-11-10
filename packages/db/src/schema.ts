@@ -92,6 +92,9 @@ export const shopifyVariants = pgTable(
     tracked: boolean("tracked").notNull(),
     inventoryPolicy: text("inventory_policy").notNull(),
     available: integer("available"),
+    // The product's supplier-name and supplier-page-address metafields, as Shopify holds them. null when the product has none.
+    supplierName: text("supplier_name"),
+    supplierUrl: text("supplier_url"),
     quantityReadAt: timestamp("quantity_read_at", { withTimezone: true }),
     syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
     removedAt: timestamp("removed_at", { withTimezone: true }),
@@ -115,6 +118,8 @@ export const shopifySyncRuns = pgTable(
     removed: integer("removed"),
     total: integer("total"),
     error: text("error"),
+    // What the link step did after the sync: { added, updated, skipped, problems: [{ product, sku, message }] }.
+    links: jsonb("links"),
   },
   (t) => [
     check("shopify_sync_runs_status", sql`${t.status} in ('running', 'succeeded', 'failed')`),

@@ -11,11 +11,11 @@ const suppliers = () => createSupplierRepository(t.appDb);
 let acme = "";
 let globex = "";
 
-const addVariant = (id: string, sku: string | null, removed = false) =>
+const addVariant = (id: string, sku: string | null, removed = false, shopify: { name: string | null; url: string | null } = { name: null, url: null }) =>
   t.pool.query(
-    `insert into shopify_variants (variant_id, product_id, product_title, variant_title, options, sku, inventory_item_id, tracked, inventory_policy, removed_at)
-     values ($1, 'p1', 'Tee', $2, '[]', $3, $4, true, 'DENY', ${removed ? "now()" : "null"})`,
-    [id, `Variant ${id}`, sku, `inv-${id}`],
+    `insert into shopify_variants (variant_id, product_id, product_title, variant_title, options, sku, inventory_item_id, tracked, inventory_policy, removed_at, supplier_name, supplier_url)
+     values ($1, 'p1', 'Tee', $2, '[]', $3, $4, true, 'DENY', ${removed ? "now()" : "null"}, $5, $6)`,
+    [id, `Variant ${id}`, sku, `inv-${id}`, shopify.name, shopify.url],
   );
 
 beforeAll(async () => {
@@ -157,5 +157,47 @@ describe("import previews", () => {
   });
   it("treats a made-up id as not found", async () => {
     expect(await previews().take("not-an-id")).toBeNull();
+  });
+});
+
+describe("links that come from Shopify's metafields", () => {
+  const both = { name: "Acme", url: "https://acme.example/p/1" };
+
+  it("lists only live variants that have both a supplier name and a page address", async () => {
+    await addVariant("s-both", "SB", false, both);
+    await addVariant("s-name", "SN", false, { name: "Acme", url: null });
+    await addVariant("s-url", "SU", false, { name: null, url: "https://acme.example/p/2" });
+    await addVariant("s-gone", "SG", true, both);
+    const found = await maps().shopifyLinkSources();
+    expect(found.map((v) => v.variantId)).toEqual(["s-both"]);
+    expect(found[0]).toMatchObject({ productTitle: "Tee", sku: "SB", supplierName: "Acme", supplierUrl: "https://acme.example/p/1" });
+  });
+
+  it("creates a link, leaves an identical one alone, and replaces a different one, starting its history again", async () => {
+    const created = await maps().upsertFromShopify([{ variantId: "v1", supplierId: acme, url: "https://acme.example/a" }]);
+    expect(created).toEqual({ created: 1, updated: 0, unchanged: 0 });
+    expect(await maps().upsertFromShopify([{ variantId: "v1", supplierId: acme, url: "https://acme.example/a" }])).toEqual({ created: 0, updated: 0, unchanged: 1 });
+
+    const [link] = await maps().list({});
+    await maps().recordCheck(link!.id, { status: "works", lastWorkedAt: new Date(), workedTitle: "T", workedHeading: "H", missingChecks: 0, firstMissingAt: null, checkedAt: new Date() });
+    expect(await maps().upsertFromShopify([{ variantId: "v1", supplierId: acme, url: "https://acme.example/b" }])).toEqual({ created: 0, updated: 1, unchanged: 0 });
+    expect((await maps().list({}))[0]).toMatchObject({ url: "https://acme.example/b", linkStatus: "not_checked", lastWorkedAt: null });
+  });
+
+  it("moves a link to another supplier when Shopify says so (Shopify is the one source)", async () => {
+    await maps().create({ variantId: "v1", supplierId: globex, url: "https://globex.example/a", note: "mine" });
+    expect(await maps().upsertFromShopify([{ variantId: "v1", supplierId: acme, url: "https://acme.example/a" }])).toEqual({ created: 0, updated: 1, unchanged: 0 });
+    const links = await maps().list({});
+    expect(links).toHaveLength(1);
+    expect(links[0]).toMatchObject({ supplierId: acme, url: "https://acme.example/a" });
+  });
+
+  it("marks a link as managed by Shopify when its variant has both fields, and not otherwise", async () => {
+    await addVariant("s-both", "SB", false, both);
+    await maps().create({ variantId: "s-both", supplierId: acme, url: "https://acme.example/p/1", note: null });
+    await maps().create({ variantId: "v1", supplierId: acme, url: "https://acme.example/a", note: null });
+    const byVariant = new Map((await maps().list({})).map((m) => [m.variantId, m.shopifyManaged]));
+    expect(byVariant.get("s-both")).toBe(true);
+    expect(byVariant.get("v1")).toBe(false);
   });
 });
