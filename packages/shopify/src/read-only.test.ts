@@ -1,5 +1,6 @@
-// Phase A is read-only. This fails if any non-test source file contains a GraphQL mutation or
-// names one of Shopify's inventory write operations.
+// Shopify is read-only except for one file. This fails if any non-test source file other than
+// packages/shopify/src/inventory-write.ts contains a GraphQL mutation or names one of Shopify's write
+// operations, and if that one file does anything but set the `available` quantity.
 import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -16,16 +17,21 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-const files = [...sourceFiles(join(root, "packages")), ...sourceFiles(join(root, "apps"))];
+const WRITER = "packages/shopify/src/inventory-write.ts";
+const allFiles = [...sourceFiles(join(root, "packages")), ...sourceFiles(join(root, "apps"))];
+const files = allFiles.filter((f) => relative(root, f) !== WRITER);
 
 // A GraphQL mutation operation: the keyword followed by an optional name and then ( or {.
 const MUTATION = /\bmutation\s+[A-Za-z_]*\s*[({]/;
 const WRITE_OPERATIONS = /\b(inventorySetQuantities|inventoryAdjustQuantities|inventorySetOnHandQuantities|inventoryActivate|inventoryDeactivate|productUpdate|productVariantsBulkUpdate)\b/;
 
-describe("Phase A is read-only", () => {
+const WRITE_OPERATIONS_GLOBAL = new RegExp(WRITE_OPERATIONS.source, "g");
+
+describe("Shopify is read-only except the one stock write", () => {
   it("scans a real set of source files", () => {
     expect(files.length).toBeGreaterThan(30);
     expect(files.some((f) => f.endsWith("packages/shopify/src/client.ts"))).toBe(true);
+    expect(files.some((f) => f.endsWith("inventory-write.ts"))).toBe(false); // the one writer is checked on its own below
   });
 
   it("contains no GraphQL mutation", () => {
@@ -36,6 +42,16 @@ describe("Phase A is read-only", () => {
   it("does not name any Shopify write operation", () => {
     const offenders = files.filter((f) => WRITE_OPERATIONS.test(readFileSync(f, "utf8"))).map((f) => relative(root, f));
     expect(offenders).toEqual([]);
+  });
+
+  it("the one writer exists and only sets available stock", () => {
+    const writer = allFiles.find((f) => relative(root, f) === WRITER);
+    expect(writer).toBeDefined();
+    const text = readFileSync(writer!, "utf8");
+    expect(text.match(/\bmutation\s+\w*\s*[({]/g)).toHaveLength(1);
+    expect(text.match(WRITE_OPERATIONS_GLOBAL)?.every((m) => m === "inventorySetQuantities")).toBe(true);
+    expect(text).toContain('name: "available"');
+    expect(text).not.toMatch(/inventoryAdjustQuantities|inventorySetOnHandQuantities|inventoryActivate|inventoryDeactivate|productUpdate|productVariantsBulkUpdate/);
   });
 
   it("recognises a mutation when there is one", () => {

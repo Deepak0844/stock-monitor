@@ -46,6 +46,13 @@ export function createFakeCatalog(init: { locations: FakeLocation[]; variants: F
   const pageSizes: number[] = [];
   const queries: string[] = [];
   let variantPages = 0;
+  // Writing stock. Follows the 2026-10 reference: inventorySetQuantities needs write_inventory, an @idempotent
+  // key, and refuses a change when changeFromQuantity is not the number Shopify holds now.
+  let canWrite = true;
+  let nextWrite: "refuse" | "apply_then_fail" | null = null;
+  const writes: { inventoryItemId: string; locationId: string; quantity: number; changeFromQuantity: number | null; key: string }[] = [];
+  const replies = new Map<string, unknown>();
+  let failAllReplies = false;
 
   const paged = <T>(items: T[], first: number, after: string | null) => {
     const start = after ? Number(after.replace("cursor-", "")) + 1 : 0;
@@ -91,6 +98,50 @@ export function createFakeCatalog(init: { locations: FakeLocation[]; variants: F
       return { body: { data: { productVariants: { nodes, pageInfo } }, extensions: { cost } } };
     }
 
+    if (/\binventoryItem\s*\(/.test(request.query)) {
+      const v = variants.find((x) => x.inventoryItemId === request.variables?.itemId);
+      const quantity = v?.stock[request.variables?.locationId as string];
+      const level = quantity === undefined ? null : { quantities: [{ name: "available", quantity }] };
+      return { body: { data: { inventoryItem: v ? { inventoryLevel: level } : null }, extensions: { cost } } };
+    }
+
+    if (/\binventorySetQuantities\b/.test(request.query)) {
+      if (!canWrite) return { body: { errors: [{ message: "denied", extensions: { code: "ACCESS_DENIED" } }] } };
+      const key = request.variables?.idempotencyKey;
+      if (typeof key !== "string" || !/@idempotent\(\s*key\s*:\s*\$idempotencyKey\s*\)/.test(request.query)) {
+        return { body: { errors: [{ message: "idempotency key required", extensions: { code: "BAD_REQUEST" } }] } };
+      }
+      if (replies.has(key)) return failAllReplies ? { status: 500, body: { errors: "boom" } } : { body: replies.get(key) };
+      const input = request.variables?.input as { name?: string; ignoreCompareQuantity?: boolean; quantities?: { inventoryItemId: string; locationId: string; quantity: number; changeFromQuantity?: number | null }[] };
+      const row = input?.quantities?.[0];
+      const v = variants.find((x) => x.inventoryItemId === row?.inventoryItemId);
+      const answer = (userErrors: { field: string[]; message: string; code: string }[]) => ({
+        data: { inventorySetQuantities: { inventoryAdjustmentGroup: userErrors.length ? null : { id: "gid://shopify/InventoryAdjustmentGroup/1" }, userErrors } },
+        extensions: { cost },
+      });
+      if (nextWrite === "refuse") {
+        nextWrite = null;
+        return { body: answer([{ field: ["input"], message: "refused", code: "INVALID_QUANTITY_NEGATIVE" }]) };
+      }
+      if (!row || !v || input.name !== "available" || v.stock[row.locationId] === undefined) {
+        return { body: answer([{ field: ["input"], message: "no such item", code: "ITEM_NOT_FOUND" }]) };
+      }
+      if (!input.ignoreCompareQuantity && row.changeFromQuantity !== v.stock[row.locationId]) {
+        const body = answer([{ field: ["input", "quantities", "0", "changeFromQuantity"], message: "stale", code: "CHANGE_FROM_QUANTITY_STALE" }]);
+        replies.set(key, body);
+        return { body };
+      }
+      v.stock[row.locationId] = row.quantity;
+      writes.push({ inventoryItemId: row.inventoryItemId, locationId: row.locationId, quantity: row.quantity, changeFromQuantity: row.changeFromQuantity ?? null, key });
+      const body = answer([]);
+      replies.set(key, body);
+      if (nextWrite === "apply_then_fail") {
+        nextWrite = null;
+        failAllReplies = true;
+      }
+      return failAllReplies ? { status: 500, body: { errors: "boom" } } : { body };
+    }
+
     return { body: { errors: [{ message: "unknown query", extensions: { code: "UNKNOWN" } }] } };
   };
 
@@ -98,6 +149,20 @@ export function createFakeCatalog(init: { locations: FakeLocation[]; variants: F
     handler,
     setLocations: (next: FakeLocation[]) => void (locations = next),
     setVariants: (next: FakeVariant[]) => void (variants = next),
+    /** Whether the app has write_inventory. */
+    setCanWrite: (next: boolean) => void (canWrite = next),
+    /** The next write is refused with a user error, or is applied but its reply (and every retry's reply) is a server error. A retry with the same key is answered from the first result. */
+    failNextWrite: (how: "refuse" | "apply_then_fail" | null) => void (nextWrite = how),
+    /** Stop failing replies after an "apply_then_fail". */
+    recover: () => void (failAllReplies = false),
+    writes,
+    /** What Shopify holds now, for assertions. */
+    stockOf: (inventoryItemId: string, locationId: string) => variants.find((v) => v.inventoryItemId === inventoryItemId)?.stock[locationId],
+    /** Change the number behind the app's back, as another sale or a staff edit would. */
+    setStock: (inventoryItemId: string, locationId: string, quantity: number) => {
+      const v = variants.find((x) => x.inventoryItemId === inventoryItemId);
+      if (v) v.stock[locationId] = quantity;
+    },
     /** From the nth productVariants request onward (counting from 1), answer with a server error. */
     failAtVariantPage: (n: number | null) => {
       failFromVariantRequest = n;
