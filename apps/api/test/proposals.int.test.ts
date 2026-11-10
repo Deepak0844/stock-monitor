@@ -286,6 +286,13 @@ describe("refresh", () => {
     expect(queued).toEqual([]);
   });
 
+  it("refreshing closes the Dashboard notice for that supplier", async () => {
+    const p = await decided("conflict");
+    await createNotificationRepository(t.appDb).raise({ kind: "proposal_needs_attention", supplierId: acme, message: "x", reason: "unknown" });
+    await call("POST", `/api/proposals/${p.id}/refresh`, {});
+    expect((await createNotificationRepository(t.appDb).listOpen()).filter((n) => n.kind === "proposal_needs_attention")).toEqual([]);
+  });
+
   it("says plainly when the suggestion does not exist, and takes no body fields", async () => {
     expect((await call("POST", "/api/proposals/11111111-1111-4111-8111-111111111111/refresh", {})).status).toBe(404);
     const p = await decided("conflict");

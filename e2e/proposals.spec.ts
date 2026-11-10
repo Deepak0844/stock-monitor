@@ -118,6 +118,15 @@ test("if Shopify's number changed after the suggestion, Approve writes nothing a
   await expect(table.getByRole("row", { name: /Size 1/ })).toContainText("Not applied: Shopify changed");
   await expect(table.getByRole("row", { name: /Size 1/ })).toContainText("Shopify now shows 3, so nothing was changed.");
 
+  // The Dashboard says a change was not applied, and the Links page says what became of the link's suggestion.
+  await page.goto("/");
+  await expect(page.getByText(/A stock change was not applied because Shopify's number changed/)).toBeVisible();
+  await expect(page.getByRole("link", { name: "See proposals" })).toHaveAttribute("href", "/proposals");
+  await page.goto("/mappings");
+  await expect(page.getByRole("row", { name: /Size 1/ })).toContainText("Suggestion: Out of stock, not applied: Shopify changed");
+  await page.goto("/proposals");
+  await page.getByRole("button", { name: "History" }).click();
+
   // Refresh reads Shopify again and makes a new suggestion from the number it shows now. Nothing was overwritten.
   await table.getByRole("button", { name: "Refresh Blue Tee, Size 1" }).click();
   await expect(page.getByText(/Reading Shopify again/)).toBeVisible();
@@ -127,6 +136,8 @@ test("if Shopify's number changed after the suggestion, Approve writes nothing a
   }).toPass({ timeout: 20_000 });
   await expect(card(page, 1)).toContainText("Suggested: set to 0");
   expect(await control.shopifyStock(1)).toEqual({ quantity: 3, writes: 0 });
+  await page.goto("/");
+  await expect(page.getByText(/A stock change was not applied/)).toHaveCount(0); // refreshing closed the notice
 });
 
 test("Reject needs no reason, changes nothing in Shopify, and the same answer does not come back", async ({ page }) => {

@@ -151,6 +151,7 @@ export function registerProposalRoutes(app: App, deps: ProposalRoutesDeps, audit
     } catch {
       throw new AppError(503, "queue_unavailable", "Could not start that. Try again in a minute.");
     }
+    await deps.notifications?.resolve("proposal_needs_attention", current.supplierId);
     await record(request, "proposal.refresh_requested", current.id, { variantId: current.variantId });
     return reply.status(202).send({ queued: true });
   });
