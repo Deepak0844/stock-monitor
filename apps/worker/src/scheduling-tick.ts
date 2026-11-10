@@ -26,6 +26,7 @@ export const MAX_RUNS_AT_ONCE = 2;
 // A run is stopped if it has gone longer than the queue allows (6 hours) plus a margin, so a lost job cannot hold a supplier forever.
 const STUCK_AFTER_SECONDS = 6 * 3600 + 5 * 60;
 const KEEP_RUNS_DAYS = 30;
+const STUCK_APPROVED_MS = 15 * 60_000;
 
 /**
  * Starts the supplier runs that are due. Every minute. It uses the same gate as the checker, so a supplier that is paused, not
@@ -37,7 +38,13 @@ export async function runTick(deps: TickDeps): Promise<{ started: string[]; skip
   const now = (deps.now ?? (() => new Date()))();
   await checkRuns.stopOlderThan(STUCK_AFTER_SECONDS, "expired");
   await checkRuns.purge(KEEP_RUNS_DAYS);
-  await deps.proposals?.expireDue(now);
+  if (deps.proposals) {
+    await deps.proposals.expireDue(now);
+    // An approved suggestion that nobody finished (a lost job, a crash, a queue that was down) is applied again. The stored key makes that safe.
+    for (const proposalId of await deps.proposals.stuckApproved(new Date(now.getTime() - STUCK_APPROVED_MS))) {
+      await queue.enqueue("proposals.apply", { proposalId }, { retryLimit: 0 }).catch(() => logger.warn({ proposalId }, "could not queue a stuck suggestion"));
+    }
+  }
 
   const going = await checkRuns.running();
   const busy = new Set(going.map((r) => r.supplierId));

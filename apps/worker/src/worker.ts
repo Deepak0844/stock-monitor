@@ -4,12 +4,13 @@ import { createShopifySyncHandler, type ShopifySyncDeps } from "./shopify-sync.j
 import { createCaptureHandler, type CaptureDeps } from "./extraction-capture.js";
 import { createStockCheckHandlers, type StockCheckDeps } from "./extraction-check.js";
 import { createLinkCheckHandlers, type LinkCheckDeps } from "./mapping-link-check.js";
+import { createProposalsApplyHandler, type ProposalsApplyDeps } from "./proposals-apply.js";
 import { createProposalsEvaluateHandler, type ProposalsEvaluateDeps } from "./proposals-evaluate.js";
 import { reapStaleRuns, runTick, type TickDeps } from "./scheduling-tick.js";
 import { createSupplierVerifyHandler, type SupplierVerifyDeps } from "./supplier-verify.js";
 
 // Later modules register their job handlers here.
-export type WorkerDeps = { shopify?: Omit<ShopifySyncDeps, "logger">; supplierVerify?: Omit<SupplierVerifyDeps, "logger">; mappingLinks?: Omit<LinkCheckDeps, "logger">; extractionCapture?: Omit<CaptureDeps, "logger">; extractionChecks?: Omit<StockCheckDeps, "logger">; scheduling?: Omit<TickDeps, "logger">; proposals?: Omit<ProposalsEvaluateDeps, "logger"> };
+export type WorkerDeps = { shopify?: Omit<ShopifySyncDeps, "logger">; supplierVerify?: Omit<SupplierVerifyDeps, "logger">; mappingLinks?: Omit<LinkCheckDeps, "logger">; extractionCapture?: Omit<CaptureDeps, "logger">; extractionChecks?: Omit<StockCheckDeps, "logger">; scheduling?: Omit<TickDeps, "logger">; proposals?: Omit<ProposalsEvaluateDeps, "logger">; proposalsApply?: Omit<ProposalsApplyDeps, "logger"> };
 
 export async function registerHandlers(queue: Queue, logger: Logger, deps: WorkerDeps = {}): Promise<void> {
   await queue.work("health.ping", async ({ message }) => {
@@ -30,6 +31,11 @@ export async function registerHandlers(queue: Queue, logger: Logger, deps: Worke
   if (deps.proposals) {
     const evaluate = createProposalsEvaluateHandler({ ...deps.proposals, logger });
     await queue.work("proposals.evaluate", async (payload) => void (await evaluate(payload)));
+  }
+
+  if (deps.proposalsApply) {
+    const apply = createProposalsApplyHandler({ ...deps.proposalsApply, logger });
+    await queue.work("proposals.apply", async (payload) => apply(payload));
   }
 
   if (deps.shopify) {

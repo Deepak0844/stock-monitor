@@ -40,6 +40,13 @@ describe("queue", () => {
     await q.stop();
   }, 40_000);
 
+  it("holds a job back until startAfter seconds have passed", async () => {
+    const q = await started();
+    await q.enqueue("health.ping", { message: "later" }, { startAfter: 3600 });
+    const { rows } = await t.pool.query("select start_after > now() + interval '59 minutes' as held from pgboss.job where name = 'health.ping' and data->>'message' = 'later'");
+    expect(rows).toEqual([{ held: true }]);
+  });
+
   it("runs the handler with the validated payload when a job is enqueued", async () => {
     const q = await started();
     const received = new Promise<{ message: string }>((resolve) => {

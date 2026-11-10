@@ -36,6 +36,15 @@ describe("suggestions are evaluated after the data they depend on changes", () =
     expect(b.handlers.has("proposals.evaluate")).toBe(true);
   });
 
+  it("registers the apply job only when the Shopify write is set up", async () => {
+    const a = fakeQueue();
+    await registerHandlers(a.queue, logger, deps());
+    expect(a.handlers.has("proposals.apply")).toBe(false);
+    const b = fakeQueue();
+    await registerHandlers(b.queue, logger, { proposalsApply: { proposals: {} as never, shopify: {} as never, audit: {} as never, queue: b.queue } });
+    expect(b.handlers.has("proposals.apply")).toBe(true);
+  });
+
   it("queues one evaluation for every link after a Shopify sync, with no data", async () => {
     const q = fakeQueue();
     await registerHandlers(q.queue, logger, deps());

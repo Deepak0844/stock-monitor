@@ -79,6 +79,21 @@ describe("the tick and suggestions", () => {
   });
 });
 
+describe("the tick and approved suggestions nobody finished", () => {
+  it("queues the apply job again for an approved suggestion older than 15 minutes, and not for a recent one", async () => {
+    const id = await ready("Acme");
+    const link = (await createMappingRepository(t.appDb).forSupplier(id))[0]!;
+    const proposals = createProposalRepository(t.appDb);
+    const made = (await proposals.evaluateFor({ variantId: link.variantId, mappingId: link.id, supplierId: id, observationId: null, shopifyQuantitySeen: 4, wanted: { kind: "set_zero_out_of_stock", proposedQuantity: 0 }, expiresAt: new Date(now.getTime() + 60 * MIN) })).proposal!;
+    await proposals.markApproved(made.id, 0, "owner", new Date(now.getTime() - 5 * MIN));
+    await runTick(deps({ proposals }));
+    expect(enqueued.filter((e) => e.name === "proposals.apply")).toEqual([]);
+    now = new Date(now.getTime() + 11 * MIN);
+    await runTick(deps({ proposals }));
+    expect(enqueued.filter((e) => e.name === "proposals.apply")).toEqual([{ name: "proposals.apply", payload: { proposalId: made.id }, options: { retryLimit: 0 } }]);
+  });
+});
+
 describe("the tick", () => {
   it("starts a due supplier once: a scheduled run row, then one job with only the ids and time to finish", async () => {
     const id = await ready("Acme");
