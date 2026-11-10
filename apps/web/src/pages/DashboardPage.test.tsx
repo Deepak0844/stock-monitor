@@ -34,6 +34,14 @@ describe("DashboardPage", () => {
     expect(within(card(heading)).getByText(message)).toBeInTheDocument();
   });
 
+  it("shows how many suggestions are waiting and links to them", async () => {
+    setup({ proposals: { count: vi.fn().mockResolvedValue(3) } });
+    await screen.findByText("Nothing needs your attention.");
+    const c = card("Waiting for your approval");
+    expect(await within(c).findByText("3")).toBeInTheDocument();
+    expect(within(c).getByRole("link", { name: "Review suggestions" })).toHaveAttribute("href", "/proposals");
+  });
+
   it("explains the four steps of how it works, in order", async () => {
     setup();
     await screen.findByText("Nothing needs your attention.");

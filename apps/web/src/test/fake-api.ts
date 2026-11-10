@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { Api, ConnectionCheck, ShopifyApi, ShopifyConnection, Supplier, SuppliersApi, ScheduleApi, CheckRun, Mapping, MappingsApi, Capture, CapturesApi, RecipesApi, RecipeVersion, StockApi, LoginSession, LoginSessionsApi, AppNotification, NotificationsApi, VariantItem, VariantPage } from "../api.js";
+import type { Api, ConnectionCheck, ShopifyApi, ShopifyConnection, Supplier, SuppliersApi, ScheduleApi, CheckRun, Mapping, MappingsApi, Capture, CapturesApi, RecipesApi, RecipeVersion, StockApi, LoginSession, LoginSessionsApi, AppNotification, NotificationsApi, Proposal, ProposalsApi, VariantItem, VariantPage } from "../api.js";
 
 export const aCheck = (over: Partial<ConnectionCheck> = {}): ConnectionCheck => ({
   shopName: "Acme Supplies",
@@ -19,6 +19,33 @@ export const aConnection = (over: Partial<ShopifyConnection> = {}): ShopifyConne
   status: "connected",
   connectedAt: "2026-11-08T10:00:00.000Z",
   lastSuccessfulCallAt: null,
+  ...over,
+});
+
+export const aProposal = (over: Partial<Proposal> = {}): Proposal => ({
+  id: "p1",
+  state: "open",
+  kind: "set_zero_out_of_stock",
+  productTitle: "Blue Tee",
+  variantTitle: "Large",
+  sku: "S-1",
+  supplierName: "Acme Supply",
+  shopifyQuantitySeen: 4,
+  proposedQuantity: 0,
+  approvedQuantity: null,
+  edited: false,
+  createdAt: "2026-11-10T08:00:00.000Z",
+  expiresAt: "2026-11-11T08:00:00.000Z",
+  decidedAt: null,
+  appliedAt: null,
+  note: null,
+  closedReason: null,
+  resultCode: null,
+  resultQuantity: null,
+  observed: { answer: "out_of_stock", reason: null, at: "2026-11-10T07:30:00.000Z" },
+  tracked: true,
+  continueSelling: false,
+  blockedReason: null,
   ...over,
 });
 
@@ -157,25 +184,36 @@ export const aNotification = (over: Partial<AppNotification> = {}): AppNotificat
 
 /** A fake API for screen tests. Every method is a spy with a sensible default. */
 export function fakeApi(
-  over: Partial<Omit<Api, "shopify" | "suppliers" | "schedule" | "loginSessions" | "mappings" | "captures" | "recipes" | "stock">> & {
+  over: Partial<Omit<Api, "shopify" | "suppliers" | "schedule" | "loginSessions" | "mappings" | "captures" | "recipes" | "stock" | "proposals">> & {
     shopify?: Partial<ShopifyApi>;
     suppliers?: Partial<SuppliersApi>;
     schedule?: Partial<ScheduleApi>;
     loginSessions?: Partial<LoginSessionsApi>;
     notifications?: Partial<NotificationsApi>;
+    proposals?: Partial<ProposalsApi>;
     mappings?: Partial<MappingsApi>;
     captures?: Partial<CapturesApi>;
     recipes?: Partial<RecipesApi>;
     stock?: Partial<StockApi>;
   } = {},
 ): Api {
-  const { shopify, suppliers, schedule, loginSessions, notifications, mappings, captures, recipes, stock, ...rest } = over;
+  const { shopify, suppliers, schedule, loginSessions, notifications, proposals, mappings, captures, recipes, stock, ...rest } = over;
   return {
     getMe: vi.fn().mockResolvedValue(null),
     login: vi.fn().mockResolvedValue({ email: "owner@example.com" }),
     logout: vi.fn().mockResolvedValue(undefined),
     ...rest,
     notifications: { list: vi.fn().mockResolvedValue([]), ...notifications },
+    proposals: {
+      open: vi.fn().mockResolvedValue({ proposals: [], writePermission: { state: "ready", message: "Shopify allows this app to change stock." } }),
+      history: vi.fn().mockResolvedValue({ proposals: [], hasMore: false, page: 1 }),
+      count: vi.fn().mockResolvedValue(0),
+      approve: vi.fn().mockImplementation(async (_id, quantity) => aProposal({ state: "approved", approvedQuantity: quantity ?? 0 })),
+      reject: vi.fn().mockImplementation(async () => aProposal({ state: "rejected" })),
+      settings: vi.fn().mockResolvedValue({ settings: { defaultQuantity: 5, expiryHours: 24 }, writePermission: { state: "ready", message: "Shopify allows this app to change stock." } }),
+      saveSettings: vi.fn().mockImplementation(async (settings) => ({ settings, writePermission: { state: "ready", message: "Shopify allows this app to change stock." } })),
+      ...proposals,
+    },
     loginSessions: {
       start: vi.fn().mockResolvedValue({ loginSession: aLoginSession(), token: "t".repeat(64) }),
       finish: vi.fn().mockResolvedValue({ loginSession: aLoginSession({ status: "finished" }), session: null }),

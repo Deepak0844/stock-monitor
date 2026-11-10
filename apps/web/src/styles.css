@@ -1183,3 +1183,37 @@ fieldset[role="group"] legend {
 .capture-text .plain-list li {
   white-space: pre-wrap;
 }
+
+/* Proposals: a list of suggestions, each with its own buttons, and the two tabs above it. */
+.tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+.tabs .button[aria-pressed="true"] {
+  background: var(--tint);
+  color: var(--tint-fg);
+  border-color: transparent;
+}
+.proposal-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 1rem;
+}
+.proposal-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.proposal-head h2 {
+  margin: 0;
+  font-size: 1.125rem;
+}
+.proposal-change {
+  font-size: 1.125rem;
+  font-weight: 650;
+}

@@ -324,6 +324,48 @@ export type NotificationsApi = {
   list(): Promise<AppNotification[]>;
 };
 
+export type ProposalState = "open" | "approved" | "applied" | "conflict" | "failed" | "rejected" | "expired" | "replaced";
+export type ProposalKind = "set_zero_out_of_stock" | "set_zero_not_listed" | "set_zero_page_missing" | "restock";
+/** One suggested change to a Shopify stock number. Words, numbers and times only. */
+export type Proposal = {
+  id: string;
+  state: ProposalState;
+  kind: ProposalKind;
+  productTitle: string;
+  variantTitle: string;
+  sku: string | null;
+  supplierName: string;
+  shopifyQuantitySeen: number;
+  proposedQuantity: number;
+  approvedQuantity: number | null;
+  edited: boolean;
+  createdAt: string;
+  expiresAt: string;
+  decidedAt: string | null;
+  appliedAt: string | null;
+  note: string | null;
+  closedReason: "could_not_tell" | "no_longer_needed" | "link_off" | "newer_answer" | null;
+  resultCode: string | null;
+  resultQuantity: number | null;
+  observed: { answer: StockAnswer; reason: StockReason | null; at: string | null } | null;
+  tracked: boolean;
+  continueSelling: boolean;
+  blockedReason: string | null;
+};
+export type WritePermission = { state: "ready" | "missing" | "not_connected"; message: string };
+export type ProposalSettings = { defaultQuantity: number; expiryHours: number };
+export type ProposalsApi = {
+  /** Suggestions waiting for the owner, and ones approved and waiting for Shopify. */
+  open(): Promise<{ proposals: Proposal[]; writePermission: WritePermission }>;
+  history(page: number): Promise<{ proposals: Proposal[]; hasMore: boolean; page: number }>;
+  count(): Promise<number>;
+  /** Approves one suggestion. Pass a number to change it first. */
+  approve(id: string, quantity?: number): Promise<Proposal>;
+  reject(id: string): Promise<Proposal>;
+  settings(): Promise<{ settings: ProposalSettings; writePermission: WritePermission }>;
+  saveSettings(settings: ProposalSettings): Promise<{ settings: ProposalSettings; writePermission: WritePermission }>;
+};
+
 export type Api = {
   /** The signed-in owner, or null when nobody is signed in. */
   getMe(): Promise<Owner | null>;
@@ -338,6 +380,7 @@ export type Api = {
   stock: StockApi;
   loginSessions: LoginSessionsApi;
   notifications: NotificationsApi;
+  proposals: ProposalsApi;
 };
 
 /** A failed request. The message is plain English from the server. The code says which kind of problem. */
@@ -532,6 +575,22 @@ const notifications: NotificationsApi = {
   },
 };
 
+const proposals: ProposalsApi = {
+  open: () => request("/api/proposals?tab=open", { method: "GET" }),
+  history: (page) => request(`/api/proposals?${new URLSearchParams({ tab: "history", page: String(page) })}`, { method: "GET" }),
+  async count() {
+    return (await request<{ open: number }>("/api/proposals/count", { method: "GET" })).open;
+  },
+  async approve(id, quantity) {
+    return (await request<{ proposal: Proposal }>(`/api/proposals/${enc(id)}/approve`, { method: "POST", json: quantity === undefined ? {} : { quantity } })).proposal;
+  },
+  async reject(id) {
+    return (await request<{ proposal: Proposal }>(`/api/proposals/${enc(id)}/reject`, { method: "POST", json: {} })).proposal;
+  },
+  settings: () => request("/api/settings/proposals", { method: "GET" }),
+  saveSettings: (settings) => request("/api/settings/proposals", { method: "PUT", json: settings }),
+};
+
 const loginSessions: LoginSessionsApi = {
   start: (supplierId) => request(`/api/suppliers/${encodeURIComponent(supplierId)}/login-session`, { method: "POST" }),
   finish: (id) => request(`/api/login-sessions/${encodeURIComponent(id)}/finish`, { method: "POST" }),
@@ -564,4 +623,5 @@ export const api: Api = {
   stock,
   loginSessions,
   notifications,
+  proposals,
 };
