@@ -166,6 +166,42 @@ describe("outcomes", () => {
   });
 });
 
+describe("the apply lease", () => {
+  it("lets one worker at a time send an approved suggestion, until the lease runs out or is released", async () => {
+    const a = (await repo().evaluateFor(input())).proposal!;
+    expect(await repo().claimApply(a.id, NOW, 120_000)).toBeNull(); // not approved yet
+    await repo().markApproved(a.id, 0, "owner", NOW);
+    expect(await repo().claimApply(a.id, NOW, 120_000)).toMatchObject({ id: a.id, state: "approved" });
+    expect(await repo().claimApply(a.id, new Date(NOW.getTime() + 60_000), 120_000)).toBeNull(); // still leased
+    expect(await repo().claimApply(a.id, new Date(NOW.getTime() + 121_000), 120_000)).not.toBeNull(); // lease ran out
+    await repo().releaseApply(a.id);
+    expect(await repo().claimApply(a.id, NOW, 120_000)).not.toBeNull();
+  });
+
+  it("two claims at the same moment give one winner", async () => {
+    const a = (await repo().evaluateFor(input())).proposal!;
+    await repo().markApproved(a.id, 0, "owner", NOW);
+    const both = await Promise.all([repo().claimApply(a.id, NOW, 120_000), repo().claimApply(a.id, NOW, 120_000)]);
+    expect(both.filter(Boolean)).toHaveLength(1);
+  });
+
+  it("a decided suggestion cannot be claimed", async () => {
+    const a = (await repo().evaluateFor(input())).proposal!;
+    await repo().markApproved(a.id, 0, "owner", NOW);
+    await repo().markApplied(a.id, 0, NOW);
+    expect(await repo().claimApply(a.id, NOW, 120_000)).toBeNull();
+  });
+});
+
+describe("the view carries whether the link is still on", () => {
+  it("says so for an open suggestion", async () => {
+    const a = (await repo().evaluateFor(input())).proposal!;
+    expect(await repo().getView(a.id)).toMatchObject({ mappingEnabled: true });
+    await t.pool.query("update mappings set enabled = false");
+    expect(await repo().getView(a.id)).toMatchObject({ mappingEnabled: false });
+  });
+});
+
 describe("reject and expire", () => {
   it("rejects an open suggestion with an optional note, once", async () => {
     const a = (await repo().evaluateFor(input())).proposal!;

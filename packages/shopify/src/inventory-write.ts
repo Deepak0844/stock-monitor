@@ -22,6 +22,8 @@ export type WriteArgs = {
   changeFromQuantity: number;
   /** Stored on the suggestion when it was approved, so a retry can never apply twice. */
   idempotencyKey: string;
+  /** Points back to the suggestion in this app, so the change can be traced from Shopify's inventory history. */
+  referenceDocumentUri: string;
 };
 
 export const WRITE_MUTATION = `mutation SetAvailable($input: InventorySetQuantitiesInput!, $idempotencyKey: String!) {
@@ -50,6 +52,7 @@ export async function setAvailableQuantity(args: WriteArgs): Promise<WriteResult
         input: {
           name: "available",
           reason: "correction",
+          referenceDocumentUri: args.referenceDocumentUri,
           ignoreCompareQuantity: false,
           quantities: [
             { inventoryItemId: args.inventoryItemId, locationId: args.locationId, quantity: args.quantity, changeFromQuantity: args.changeFromQuantity },

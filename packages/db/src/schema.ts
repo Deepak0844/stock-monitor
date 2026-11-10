@@ -434,6 +434,8 @@ export const proposals = pgTable(
     closedReason: text("closed_reason"),
     idempotencyKey: text("idempotency_key"),
     attempts: integer("attempts").notNull().default(0),
+    /** While set and in the future, one apply job is working on this suggestion and no other may send it. */
+    applyLeaseUntil: timestamp("apply_lease_until", { withTimezone: true }),
     appliedAt: timestamp("applied_at", { withTimezone: true }),
     resultCode: text("result_code"),
     resultQuantity: integer("result_quantity"),

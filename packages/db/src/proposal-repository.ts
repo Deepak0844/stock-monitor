@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, gt, inArray, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
-import { appSettings, proposals, shopifyVariants, stockObservations, suppliers } from "./schema.js";
+import { appSettings, mappings, proposals, shopifyVariants, stockObservations, suppliers } from "./schema.js";
 
 export type ProposalState = "open" | "approved" | "applied" | "conflict" | "failed" | "rejected" | "expired" | "replaced";
 export type Proposal = typeof proposals.$inferSelect;
@@ -13,6 +13,8 @@ export type ProposalView = Proposal & {
   supplierName: string;
   tracked: boolean;
   inventoryPolicy: string;
+  /** False when the owner has turned the link off since the suggestion was made. */
+  mappingEnabled: boolean;
   observedAnswer: string | null;
   observedReason: string | null;
   observedAt: Date | null;
@@ -53,6 +55,7 @@ export function createProposalRepository<S extends Record<string, unknown>>(db: 
         supplierName: suppliers.name,
         tracked: shopifyVariants.tracked,
         inventoryPolicy: shopifyVariants.inventoryPolicy,
+        mappingEnabled: mappings.enabled,
         observedAnswer: stockObservations.answer,
         observedReason: stockObservations.reason,
         observedAt: stockObservations.observedAt,
@@ -60,6 +63,7 @@ export function createProposalRepository<S extends Record<string, unknown>>(db: 
       .from(proposals)
       .innerJoin(shopifyVariants, eq(shopifyVariants.variantId, proposals.variantId))
       .innerJoin(suppliers, eq(suppliers.id, proposals.supplierId))
+      .innerJoin(mappings, eq(mappings.id, proposals.mappingId))
       .leftJoin(stockObservations, eq(stockObservations.id, proposals.observationId));
   type ViewRow = Awaited<ReturnType<ReturnType<typeof viewQuery>["limit"]>>[number];
   const toView = ({ proposal, ...rest }: ViewRow): ProposalView => ({ ...proposal, ...rest });
@@ -165,6 +169,24 @@ export function createProposalRepository<S extends Record<string, unknown>>(db: 
         .where(and(eq(proposals.id, id), eq(proposals.state, "open"), gt(proposals.expiresAt, now)))
         .returning();
       return row ?? null;
+    },
+
+    /**
+     * Takes the right to send one approved suggestion for `leaseMs`. Returns null when it is not approved or another job holds it,
+     * so a retry, the tick and a restart can never send the same suggestion at the same time.
+     */
+    async claimApply(id: string, now: Date, leaseMs: number): Promise<Proposal | null> {
+      if (!UUID.test(id)) return null;
+      const [row] = await db
+        .update(proposals)
+        .set({ applyLeaseUntil: new Date(now.getTime() + leaseMs) })
+        .where(and(eq(proposals.id, id), eq(proposals.state, "approved"), or(isNull(proposals.applyLeaseUntil), lt(proposals.applyLeaseUntil, now))))
+        .returning();
+      return row ?? null;
+    },
+
+    async releaseApply(id: string): Promise<void> {
+      await db.update(proposals).set({ applyLeaseUntil: null }).where(eq(proposals.id, id));
     },
 
     async markApplied(id: string, resultQuantity: number, now: Date): Promise<boolean> {

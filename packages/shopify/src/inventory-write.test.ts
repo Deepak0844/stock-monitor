@@ -16,8 +16,9 @@ const locations = [
 ];
 const item = "gid://shopify/InventoryItem/4"; // makeVariant(4) is stocked with 4 at LOC_A
 const start = async () => (store = await startFakeStore({ locations, variants: [makeVariant(4)] }));
+const REF = "gid://stock-monitor/Proposal/abc";
 const write = (s: Store, over: Partial<Parameters<typeof setAvailableQuantity>[0]> = {}) =>
-  setAvailableQuantity({ client: s.client, inventoryItemId: item, locationId: LOC_A, quantity: 0, changeFromQuantity: 4, idempotencyKey: "key-1", ...over });
+  setAvailableQuantity({ client: s.client, inventoryItemId: item, locationId: LOC_A, quantity: 0, changeFromQuantity: 4, idempotencyKey: "key-1", referenceDocumentUri: REF, ...over });
 
 describe("setAvailableQuantity", () => {
   it("sets the number and says applied", async () => {
@@ -30,7 +31,14 @@ describe("setAvailableQuantity", () => {
   it("sends only the available quantity of one item at one location, with the key", async () => {
     const s = await start();
     await write(s, { quantity: 7 });
-    expect(s.catalog.writes).toEqual([{ inventoryItemId: item, locationId: LOC_A, quantity: 7, changeFromQuantity: 4, key: "key-1" }]);
+    expect(s.catalog.writes).toEqual([{ inventoryItemId: item, locationId: LOC_A, quantity: 7, changeFromQuantity: 4, key: "key-1", referenceDocumentUri: REF }]);
+  });
+
+  it("sends the reason correction and a reference back to the suggestion, so the change can be traced from Shopify", async () => {
+    const s = await start();
+    await write(s);
+    expect(s.catalog.writes[0]).toMatchObject({ referenceDocumentUri: REF });
+    expect(s.catalog.reasons).toEqual(["correction"]);
   });
 
   it("says changed and writes nothing when Shopify no longer holds the number we saw", async () => {
