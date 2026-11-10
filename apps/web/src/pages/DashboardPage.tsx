@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import type { Api, AppNotification, Supplier } from "../api.js";
+import type { Api, AppNotification, ScheduleRow, Supplier } from "../api.js";
+import { whenWords } from "../components/scheduleWords.js";
 import { IconApprovals, IconLink, IconRefresh } from "../components/icons.js";
 import { Notice } from "../components/Notice.js";
 import { Link } from "../router.js";
@@ -52,6 +53,10 @@ export function DashboardPage({ api }: { api: Api }) {
     api.suppliers.list().then(setSuppliers).catch(() => setSuppliers("error"));
   }, [api]);
 
+  const [schedule, setSchedule] = useState<ScheduleRow[] | "error" | null>(null);
+  useEffect(() => {
+    api.schedule.overview().then(setSchedule).catch(() => setSchedule("error"));
+  }, [api]);
   useEffect(() => {
     api.proposals.count().then(setWaiting).catch(() => {});
   }, [api]);
@@ -101,6 +106,20 @@ export function DashboardPage({ api }: { api: Api }) {
         : answered === 0
           ? { value: "None", note: "No stock checks yet." }
           : { value: `${links.answers.in} in stock`, note: `${links.answers.out} out of stock, ${links.answers.unsure} cannot tell.` };
+
+  const on = Array.isArray(schedule) ? schedule.filter((r) => r.intervalMinutes !== null) : [];
+  const nextAt = on.map((r) => r.nextCheckAt).filter((t): t is string => t !== null).sort()[0] ?? null;
+  const checksCard =
+    schedule === null
+      ? { value: "…", note: "Loading…" }
+      : schedule === "error"
+        ? { value: "–", note: "Could not load the schedule." }
+        : on.length === 0
+          ? { value: "None", note: "No checks scheduled." }
+          : {
+              value: `${on.length} ${on.length === 1 ? "supplier" : "suppliers"}`,
+              note: on.some((r) => r.status.state === "running") ? "Checking now." : nextAt ? `Next check: ${whenWords(nextAt)}.` : "Automatic checks are on.",
+            };
 
   return (
     <>
@@ -169,7 +188,7 @@ export function DashboardPage({ api }: { api: Api }) {
           }
         />
         <SummaryCard icon={<IconRefresh />} title="Stock answers" value={stockCard.value} note={stockCard.note} />
-        <SummaryCard icon={<IconRefresh />} title="Stock checks" value="None" note="No checks scheduled." />
+        <SummaryCard icon={<IconRefresh />} title="Stock checks" value={checksCard.value} note={checksCard.note} />
         <SummaryCard
           icon={<IconApprovals />}
           title="Waiting for your approval"

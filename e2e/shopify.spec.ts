@@ -62,7 +62,7 @@ async function connectedAndSynced(page: Page) {
 test("connect, test, choose a location, sync, and see the products", async ({ page }) => {
   await signIn(page);
   await goTo(page, "Settings");
-  await expect(page.getByRole("heading", { level: 1, name: "Shopify settings" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeVisible();
 
   await fillConnectForm(page);
   await page.getByRole("button", { name: "Test connection" }).click();

@@ -14,7 +14,7 @@ type Load =
   | { kind: "ready"; connection: ShopifyConnection | null };
 
 export function SettingsShopifyPage({ api }: { api: Api }) {
-  useTitle("Shopify settings");
+  useTitle("Settings");
   const [load, setLoad] = useState<Load>({ kind: "loading" });
   const [welcome, setWelcome] = useState<ConnectionCheck | null>(null);
 
@@ -47,8 +47,8 @@ export function SettingsShopifyPage({ api }: { api: Api }) {
   return (
     <>
       <div className="page-header">
-        <h1>Shopify settings</h1>
-        <p className="muted">Connect your store so this app can read your products and stock.</p>
+        <h1>Settings</h1>
+        <p className="muted">Your Shopify store and how stock suggestions work.</p>
       </div>
 
       {load.kind === "loading" && (

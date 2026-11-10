@@ -55,7 +55,7 @@ describe("loading", () => {
   it("says it is loading, then shows the page heading", async () => {
     setup();
     expect(screen.getByRole("status")).toHaveTextContent("Loading…");
-    expect(await screen.findByRole("heading", { level: 1, name: "Shopify settings" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
   });
 
   it("explains a failure plainly and offers to try again", async () => {

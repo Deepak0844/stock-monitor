@@ -4,7 +4,6 @@ import { Link, usePath } from "../router.js";
 import {
   IconApprovals,
   IconDashboard,
-  IconHistory,
   IconLogout,
   IconMenu,
   IconProducts,
@@ -12,22 +11,21 @@ import {
   IconSuppliers, IconLinks,
 } from "../components/icons.js";
 
-type Props = { email: string; onSignOut: () => void; children: ReactNode; /** Suggestions waiting for the owner. Shown beside Proposals when above 0. */ proposalCount?: number };
+type Props = { email: string; onSignOut: () => void; children: ReactNode; /** Suggestions waiting for the owner. Shown beside Proposals when above 0. */ proposalCount?: number; /** Open notices (reconnect, review rules). Shown beside Dashboard when above 0. */ attentionCount?: number };
 
-type NavItem = { label: string; icon: ReactNode; to?: string; current?: (path: string) => boolean; count?: "proposals" };
+type NavItem = { label: string; icon: ReactNode; to?: string; current?: (path: string) => boolean; count?: "proposals" | "attention" };
 
 // Pages that do not exist yet have no address and show "Soon", never a link that goes nowhere.
 const NAV: NavItem[] = [
-  { label: "Dashboard", icon: <IconDashboard />, to: "/", current: (p) => p === "/" },
+  { label: "Dashboard", icon: <IconDashboard />, to: "/", current: (p) => p === "/", count: "attention" },
   { label: "Suppliers", icon: <IconSuppliers />, to: "/suppliers", current: (p) => p.startsWith("/suppliers") },
   { label: "Links", icon: <IconLinks />, to: "/mappings", current: (p) => p.startsWith("/mappings") },
   { label: "Products", icon: <IconProducts />, to: "/products", current: (p) => p.startsWith("/products") },
   { label: "Proposals", icon: <IconApprovals />, to: "/proposals", current: (p) => p.startsWith("/proposals"), count: "proposals" },
-  { label: "History", icon: <IconHistory /> },
   { label: "Settings", icon: <IconSettings />, to: "/settings/shopify", current: (p) => p.startsWith("/settings") },
 ];
 
-export function AppShell({ email, onSignOut, children, proposalCount }: Props) {
+export function AppShell({ email, onSignOut, children, proposalCount, attentionCount }: Props) {
   const [open, setOpen] = useState(false);
   const path = usePath();
   const mainRef = useRef<HTMLElement>(null);
@@ -74,6 +72,7 @@ export function AppShell({ email, onSignOut, children, proposalCount }: Props) {
           <ul className="nav-list">
             {NAV.map((item) => {
               const isCurrent = item.current?.(path) ?? false;
+              const n = item.count === "proposals" ? proposalCount : item.count === "attention" ? attentionCount : 0;
               return (
                 <li key={item.label}>
                   {item.to ? (
@@ -81,11 +80,11 @@ export function AppShell({ email, onSignOut, children, proposalCount }: Props) {
                       to={item.to}
                       className={isCurrent ? "nav-item is-current" : "nav-item"}
                       aria-current={isCurrent ? "page" : undefined}
-                      aria-label={item.count === "proposals" && proposalCount ? `${item.label}, ${proposalCount} waiting` : undefined}
+                      aria-label={n ? `${item.label}, ${n} ${item.count === "proposals" ? "waiting" : n === 1 ? "needs attention" : "need attention"}` : undefined}
                     >
                       {item.icon}
                       {item.label}
-                      {item.count === "proposals" && proposalCount ? <span className="badge" aria-hidden="true">{proposalCount}</span> : null}
+                      {n ? <span className="badge" aria-hidden="true">{n}</span> : null}
                     </Link>
                   ) : (
                     <span className="nav-item is-disabled" aria-disabled="true">

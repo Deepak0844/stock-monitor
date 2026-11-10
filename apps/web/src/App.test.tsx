@@ -63,8 +63,8 @@ describe("App", () => {
     it("opens the Shopify settings page at its own address, so it can be bookmarked or reloaded", async () => {
       window.history.replaceState(null, "", "/settings/shopify");
       render(<App api={signedIn()} />);
-      expect(await screen.findByRole("heading", { level: 1, name: "Shopify settings" })).toBeInTheDocument();
-      await waitFor(() => expect(document.title).toBe("Shopify settings · Stock Monitor")); // set after render, so wait for it
+      expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
+      await waitFor(() => expect(document.title).toBe("Settings · Stock Monitor")); // set after render, so wait for it
     });
 
     it("opens the products page at its own address", async () => {
@@ -77,7 +77,7 @@ describe("App", () => {
     it("treats /settings as the Shopify settings page", async () => {
       window.history.replaceState(null, "", "/settings");
       render(<App api={signedIn()} />);
-      expect(await screen.findByRole("heading", { level: 1, name: "Shopify settings" })).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
     });
 
     it("moves between pages from the sidebar without reloading", async () => {
@@ -85,7 +85,7 @@ describe("App", () => {
       render(<App api={signedIn()} />);
       expect(await screen.findByRole("heading", { level: 1, name: "Dashboard" })).toBeInTheDocument();
       await user.click(screen.getByRole("link", { name: "Settings" }));
-      expect(await screen.findByRole("heading", { level: 1, name: "Shopify settings" })).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
       expect(window.location.pathname).toBe("/settings/shopify");
       await user.click(screen.getByRole("link", { name: "Dashboard" }));
       expect(await screen.findByRole("heading", { level: 1, name: "Dashboard" })).toBeInTheDocument();
