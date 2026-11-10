@@ -120,6 +120,28 @@ What the pilot supplier showed when it was connected by hand (2026-11), with its
 
 Earlier trials with other suppliers showed that a supplier's bot protection can accept a login by hand and still refuse the app's automated check (the check then shows **Blocked**, never a broken link or "out of stock"). If that happens, the options are to ask the supplier for a price list or feed, or to leave that supplier paused.
 
+## Links from Shopify
+
+A Shopify sync can also set each variant's link, from two **product metafields**: the supplier's name and the supplier's page address (the SPU). **Shopify is the one source** for every variant whose product has both.
+
+### Setting it up
+
+1. In Shopify admin, **Settings > Custom data > Products**, find the two metafields and note their names in the form `namespace.key` (for example `custom.supplier_name` and `custom.spu`).
+2. If they are not those two names, set `SHOPIFY_SUPPLIER_NAME_METAFIELD` and `SHOPIFY_SPU_METAFIELD` in `.env` (see `.env.example`), then run `docker compose up -d`. Blank keeps the defaults.
+3. The supplier must already exist in the app, with a **name** that matches the metafield (capitals and spaces around it do not matter) and a **website address** that the SPU is on.
+4. **Settings > Sync from Shopify**. Afterwards the Sync card says "Links from Shopify: 12 added, 3 updated, 2 skipped" and lists each skipped product with the reason.
+
+### The rules
+
+- **Both fields present:** the sync sets the variant's one link. A different address, or a different supplier, replaces what was there, and the link's history starts again. The same again changes nothing.
+- **A field missing:** the sync leaves that variant's link alone. Add it with the **Import links** CSV or by hand.
+- **Skipped and listed, never guessed:** the supplier name matches no supplier in the app, the address is not a web address, or the address is not on the supplier's website. Fix it in Shopify and sync again.
+- **A hand edit on a link set from Shopify is undone by the next sync.** The edit page warns about it. Change the metafields in Shopify instead.
+- **The CSV import leaves those variants out** and says how many rows it skipped. A variant that Shopify supplies is never changed by an import.
+- The Products page shows each product's supplier name and address, so you can see what Shopify holds.
+- Emptying a metafield in Shopify does not delete the link. Delete it on **Links** if you no longer want it.
+- The metafields are read at product level and apply to every variant of the product.
+
 ## Stock rules
 
 Stock rules tell the app how one supplier's product pages show stock, so it can say whether an item is **In stock**, **Out of stock** or **Cannot tell**. You build them in the app, from a saved copy of a real page. Nothing is clicked, typed or scrolled on the supplier's site, and nothing is written to Shopify.
