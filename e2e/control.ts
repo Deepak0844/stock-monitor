@@ -20,6 +20,12 @@ export const control = {
   resetExtraction: () => post("/control/reset-extraction"),
   /** Turns a set of stock rules on directly, for a journey that is about checking, not about building rules. */
   seedRecipe: (rules: unknown) => post("/control/seed-recipe", { rules }),
+  /** One pass of the scheduler, as if this many minutes had gone by. Returns which suppliers it started and which it skipped. */
+  tick: async (advanceMinutes = 0): Promise<{ started: string[]; skipped: { supplierId: string; reason: string }[] }> => {
+    const res = await fetch(`${CONTROL_URL}/control/tick`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ advanceMinutes }) });
+    if (!res.ok) throw new Error(`Control call /control/tick failed with ${res.status}`);
+    return (await res.json()) as { started: string[]; skipped: { supplierId: string; reason: string }[] };
+  },
   /** Turns the stand-in VNC screen off or on, to test a screen the proxy cannot reach. */
   vnc: (available: boolean) => post("/control/vnc", { available }),
   /** Steer the stand-in browser service: whether a window opens, what a finished login holds, what a check finds. */

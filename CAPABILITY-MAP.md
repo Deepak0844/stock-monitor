@@ -9,7 +9,7 @@ Approved by the owner on 2026-11-08. Intent: `docs/intent/stock-monitor.md`.
 | `supplier-session` | Supplier records, isolated browser service, noVNC login, encrypted session storage, expiry and CAPTCHA detection, reconnect | foundation |
 | `mapping` | Mappings from Shopify variants to supplier pages, metafield sync, CSV import, broken-link checks | foundation, shopify (read), supplier-session (supplier records) |
 | `extraction` | Recipe step list and editor, page capture, check runner, observations (quantity, text, page state) | foundation, supplier-session |
-| `scheduling` | Intervals, "Check now", per-supplier concurrency, retries and backoff, progress | extraction, mapping |
+| `scheduling` | Intervals, "Check now", per-supplier concurrency, retries and backoff, progress (**built**, see `SPEC-scheduling.md`) | extraction, mapping |
 | `proposals` | Proposal rules, approval inbox, approve/reject/edit, expiry, conflict handling, history | extraction, mapping, shopify |
 | `ui-shell` | Dashboard, notifications, settings, responsive layout | all, built progressively |
 
