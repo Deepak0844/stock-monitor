@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Api, LinkStatus, Mapping, Observation, Supplier, UnmappedList } from "../api.js";
 import { LINK_STATUS_OPTIONS, linkStatusOf } from "../components/linkStatus.js";
+import { isStale } from "@stock-monitor/scheduling";
 import { Notice } from "../components/Notice.js";
 import { ANSWER_TONE, reasonWords, stockSentence } from "../components/stockWords.js";
 import { formatDay, formatWhen } from "../format.js";
@@ -292,6 +293,9 @@ export function MappingsPage({ api }: { api: Api }) {
                       </td>
                       <td role="cell" data-label="Last checked">
                         {m.lastLinkCheckAt ? formatWhen(m.lastLinkCheckAt) : <span className="muted">Never</span>}
+                        {isStale(m.lastLinkCheckAt ? new Date(m.lastLinkCheckAt) : null, suppliers.find((x) => x.id === m.supplierId)?.scheduleIntervalMinutes ?? null, new Date()) && (
+                          <div className="status-badge warn">Not checked recently</div>
+                        )}
                       </td>
                       <td role="cell" data-label="Actions">
                         <div className="row-actions">

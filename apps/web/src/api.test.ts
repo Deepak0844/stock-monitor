@@ -172,7 +172,7 @@ describe("suppliers api", () => {
 
   it("creates a supplier by posting JSON and returns it", async () => {
     const f = stub(201, { supplier });
-    const input = { name: "Acme", websiteUrl: "https://acme.example/", loginUrl: null, checkIntervalMinutes: 60 };
+    const input = { name: "Acme", websiteUrl: "https://acme.example/", loginUrl: null };
     expect(await api.suppliers.create(input)).toEqual(supplier);
     const [url, init] = f.mock.calls[0]!;
     expect([url, init.method, JSON.parse(init.body)]).toEqual(["/api/suppliers", "POST", input]);
@@ -199,7 +199,7 @@ describe("suppliers api", () => {
 
   it("keeps the server's message and error code, so a screen can show it beside the right field", async () => {
     stub(400, { error: { code: "invalid_website", message: "Enter the supplier's website address starting with https://" } });
-    await expect(api.suppliers.create({ name: "A", websiteUrl: "x", loginUrl: null, checkIntervalMinutes: 60 })).rejects.toMatchObject({
+    await expect(api.suppliers.create({ name: "A", websiteUrl: "x", loginUrl: null })).rejects.toMatchObject({
       code: "invalid_website",
       status: 400,
       message: expect.stringMatching(/https/),

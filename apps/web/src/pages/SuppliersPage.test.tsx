@@ -3,8 +3,8 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
-import { ApiError, type Supplier } from "../api.js";
-import { aSupplier, fakeApi } from "../test/fake-api.js";
+import { ApiError, type ScheduleRow, type Supplier } from "../api.js";
+import { aRun, aSupplier, fakeApi } from "../test/fake-api.js";
 import { SuppliersPage } from "./SuppliersPage.js";
 
 beforeEach(() => window.history.replaceState(null, "", "/suppliers"));
@@ -48,7 +48,7 @@ describe("the table", () => {
   it("lists each supplier with its name, website and last-checked time, and one Add supplier link", async () => {
     setup([acme, globex]);
     const table = await screen.findByRole("table", { name: "Suppliers" });
-    expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Name", "Website", "Status", "Last checked", "Actions"]);
+    expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Name", "Website", "Status", "Last checked", "Automatic checks", "Actions"]);
     expect(within(rowOf("Acme Supply")).getByText("shop.acme.example")).toBeInTheDocument();
     expect(within(rowOf("Globex")).getByText("globex.example")).toBeInTheDocument();
     expect(within(rowOf("Acme Supply")).getByText("Never")).toBeInTheDocument();
@@ -264,5 +264,71 @@ describe("stock rules link", () => {
   it("each supplier row links to its stock rules", async () => {
     setup([acme]);
     expect(await screen.findByRole("link", { name: "Stock rules Acme Supply" })).toHaveAttribute("href", `/suppliers/${acme.id}/rules`);
+  });
+});
+
+describe("automatic checks", () => {
+  const sid = acme.id;
+  const scheduleRow = (over: Partial<ScheduleRow> = {}): ScheduleRow => ({ supplierId: sid, status: { state: "off" }, intervalMinutes: null, window: null, nextCheckAt: null, run: null, lastRun: null, ...over });
+  const cellOf = (name: string) => within(rowOf(name)).getByRole("cell", { name: /Automatic checks/ });
+  const withSchedule = (rows: ScheduleRow[]) => setup([acme], { schedule: { overview: vi.fn().mockResolvedValue(rows) } });
+
+  it("says automatic checks are off", async () => {
+    withSchedule([scheduleRow()]);
+    expect(await within(await screen.findByRole("table")).findByText("Automatic checks off")).toBeInTheDocument();
+  });
+
+  it("says how often and when the next check is", async () => {
+    withSchedule([scheduleRow({ status: { state: "waiting" }, intervalMinutes: 1440, nextCheckAt: "2026-11-11T03:30:00.000Z" })]);
+    expect(await screen.findByText(/Every day, next check/)).toBeInTheDocument();
+  });
+
+  it("says why a supplier is not being checked", async () => {
+    withSchedule([scheduleRow({ status: { state: "not_checked", reason: "paused", message: "This supplier is paused. Resume it first." }, intervalMinutes: 360 })]);
+    expect(await screen.findByText(/Not being checked/)).toBeInTheDocument();
+    expect(screen.getByText(/This supplier is paused/)).toBeInTheDocument();
+  });
+
+  it("shows the last run's summary when nothing is running", async () => {
+    withSchedule([scheduleRow({ status: { state: "waiting" }, intervalMinutes: 1440, nextCheckAt: "2026-11-11T03:30:00.000Z", lastRun: aRun() })]);
+    expect(await screen.findByText("Checked 40 links, 3 cannot tell")).toBeInTheDocument();
+  });
+
+  it("shows progress while a run is going, reads it again every few seconds, then shows the summary", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    try {
+      const running = scheduleRow({ status: { state: "running" }, intervalMinutes: 1440, run: aRun({ outcome: "running", endedAt: null, linksDone: 12, linksTotal: 40 }) });
+      const done = scheduleRow({ status: { state: "waiting" }, intervalMinutes: 1440, nextCheckAt: "2026-11-11T03:30:00.000Z", lastRun: aRun() });
+      const overview = vi.fn().mockResolvedValueOnce([running]).mockResolvedValue([done]);
+      setup([acme], { schedule: { overview } });
+      expect(await screen.findByText("Checking 12 of 40 links")).toBeInTheDocument();
+      await act(async () => void vi.advanceTimersByTime(5_500));
+      expect(overview).toHaveBeenCalledTimes(2);
+      expect(await screen.findByText("Checked 40 links, 3 cannot tell")).toBeInTheDocument();
+      await act(async () => void vi.advanceTimersByTime(20_000));
+      expect(overview).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops reading the schedule when the page is left", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    try {
+      const overview = vi.fn().mockResolvedValue([scheduleRow({ status: { state: "running" }, run: aRun({ outcome: "running", endedAt: null }) })]);
+      const { unmount } = setup([acme], { schedule: { overview } });
+      await screen.findByText(/Checking/);
+      unmount();
+      await act(async () => void vi.advanceTimersByTime(20_000));
+      expect(overview).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still shows the suppliers when the schedule cannot be read", async () => {
+    setup([acme], { schedule: { overview: vi.fn().mockRejectedValue(new ApiError("No.", 500)) } });
+    expect(await screen.findByRole("table")).toBeInTheDocument();
+    expect(cellOf("Acme Supply")).toBeInTheDocument();
   });
 });

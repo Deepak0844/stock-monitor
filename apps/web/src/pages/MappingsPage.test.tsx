@@ -212,3 +212,28 @@ describe("stock answers", () => {
     expect(items[1]).toHaveTextContent("Out of stock");
   });
 });
+
+describe("answers that are out of date", () => {
+  const ago = (hours: number) => new Date(Date.now() - hours * 3600_000).toISOString();
+  const daily = aSupplier({ scheduleIntervalMinutes: 1440 });
+  const run = (supplier: ReturnType<typeof aSupplier>, lastLinkCheckAt: string | null) => setup([aMapping({ lastLinkCheckAt })], { suppliers: { list: vi.fn().mockResolvedValue([supplier]) } });
+
+  it("marks a link not checked for more than twice the supplier's interval", async () => {
+    run(daily, ago(49));
+    expect(await screen.findByText("Not checked recently")).toBeInTheDocument();
+  });
+  it("does not mark one checked within twice the interval", async () => {
+    run(daily, ago(47));
+    await screen.findByText("Blue Tee");
+    expect(screen.queryByText("Not checked recently")).toBeNull();
+  });
+  it("does not mark anything when automatic checks are off, or the link was never checked", async () => {
+    run(aSupplier(), ago(999));
+    await screen.findByText("Blue Tee");
+    expect(screen.queryByText("Not checked recently")).toBeNull();
+    cleanup();
+    run(daily, null);
+    await screen.findByText("Blue Tee");
+    expect(screen.queryByText("Not checked recently")).toBeNull();
+  });
+});
