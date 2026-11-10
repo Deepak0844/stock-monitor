@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   bigserial,
   boolean,
   check,
@@ -398,5 +399,51 @@ export const checkRuns = pgTable(
     check("check_runs_outcome", sql`${t.outcome} in ('running', 'finished', 'stopped', 'failed')`),
     uniqueIndex("check_runs_one_running").on(t.supplierId).where(sql`${t.outcome} = 'running'`),
     index("check_runs_supplier_started").on(t.supplierId, t.startedAt),
+  ],
+);
+
+// One suggested change to one Shopify quantity. At most one open or approved suggestion per variant: the database
+// enforces it, so two evaluations at once or two Approve presses cannot both win. Numbers, states and fixed codes
+// only: never page text, addresses or session data. Rows go with their link or supplier.
+export const proposals = pgTable(
+  "proposals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    variantId: text("variant_id")
+      .notNull()
+      .references(() => shopifyVariants.variantId),
+    mappingId: uuid("mapping_id")
+      .notNull()
+      .references(() => mappings.id, { onDelete: "cascade" }),
+    supplierId: uuid("supplier_id")
+      .notNull()
+      .references(() => suppliers.id, { onDelete: "cascade" }),
+    observationId: bigint("observation_id", { mode: "number" }).references(() => stockObservations.id, { onDelete: "set null" }),
+    kind: text("kind").notNull(),
+    shopifyQuantitySeen: integer("shopify_quantity_seen").notNull(),
+    proposedQuantity: integer("proposed_quantity").notNull(),
+    approvedQuantity: integer("approved_quantity"),
+    edited: boolean("edited").notNull().default(false),
+    state: text("state").notNull().default("open"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decidedBy: text("decided_by"),
+    note: text("note"),
+    /** Why it was closed without the owner deciding: could_not_tell, no_longer_needed, link_off. */
+    closedReason: text("closed_reason"),
+    idempotencyKey: text("idempotency_key"),
+    attempts: integer("attempts").notNull().default(0),
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
+    resultCode: text("result_code"),
+    resultQuantity: integer("result_quantity"),
+  },
+  (t) => [
+    check("proposals_state", sql`${t.state} in ('open', 'approved', 'applied', 'conflict', 'failed', 'rejected', 'expired', 'replaced')`),
+    check("proposals_kind", sql`${t.kind} in ('set_zero_out_of_stock', 'set_zero_not_listed', 'set_zero_page_missing', 'restock')`),
+    check("proposals_quantities", sql`${t.proposedQuantity} >= 0 and (${t.approvedQuantity} is null or ${t.approvedQuantity} >= 0)`),
+    uniqueIndex("proposals_one_live_per_variant").on(t.variantId).where(sql`${t.state} in ('open', 'approved')`),
+    index("proposals_state_created").on(t.state, t.createdAt),
+    index("proposals_supplier_idx").on(t.supplierId),
   ],
 );
