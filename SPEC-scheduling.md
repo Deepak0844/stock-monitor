@@ -19,7 +19,7 @@ User: the store owner, not technical. Success: the owner sets "every 6 hours" on
 
 ## Assumptions (correct me now)
 
-1. **One interval per supplier**, chosen from a short list (see open questions). Default: **off**. A supplier is never checked on a schedule until the owner turns it on.
+1. **One interval per supplier**, chosen from a short list (see open questions). Default: **off**. A supplier is never checked on a schedule until the owner turns it on; when turned on, the interval starts at daily.
 2. **A scheduled run is the same run as "Check all stock"**: same gate, same one-page-at-a-time, same pause. Scheduling only decides *when* it starts. No second way of visiting a supplier.
 3. **One run per supplier at a time.** A second start (scheduled or Check now) while one is running is refused with a plain message, never queued behind it.
 4. **A small limit on suppliers running at once** (see open questions), because each live page costs the browser service memory.
@@ -123,11 +123,14 @@ Same as today: `npm run check`, `npm run test:browser`, `npm run test:e2e`.
 9. No run row, log, audit event or job holds page content or session data. Runs older than 30 days are deleted.
 10. `npm run check`, the browser tests and the browser journeys pass, including the accessibility scan of the new screens.
 
+## Resolved questions (owner, 2026-11-10)
+
+1. Default interval is **daily**, and the owner can change it in the app at any time (list: 1 hour, 3 hours, 6 hours, 12 hours, daily).
+3. **At most 2 suppliers run at once** (recommended value, adopted).
+5. Run history is kept **30 days**.
+6. Built for all suppliers, **turned on for the pilot supplier only**, after its permission is recorded.
+
 ## Still open for the owner
 
-1. **Which intervals?** My proposal: every 1 hour, 3 hours, 6 hours, 12 hours, daily. Default off. Short intervals mean more visits to a supplier that may not want them; the pilot supplier's terms matter here. Is that list right, and what interval do you want for the pilot?
-2. **Quiet hours?** Should checks only run between certain hours (for example 07:00 to 22:00 in your timezone)? My proposal: yes, a per-supplier window, default all day.
-3. **How many suppliers at once?** My proposal: 2. Each live page uses about 900 MB in the browser service.
-4. **After a block or login problem**, my proposal is: stop, tell you on the Dashboard, and wait for you. Is that right, or do you want one automatic retry after a few hours for a login problem?
-5. **Run history length.** My proposal: 30 days. Enough?
-6. **Pilot first?** My proposal: build for all suppliers but turn it on for the pilot supplier only, after its permission is recorded.
+2. **Quiet hours.** A window of the day in which checks may run (for example 07:00 to 22:00). Outside it, a due check waits until the window opens. Default: all day.
+4. **After a login problem:** stop and wait for the owner (proposed), or one automatic retry after a few hours.
