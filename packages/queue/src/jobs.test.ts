@@ -41,4 +41,21 @@ describe("parseJob", () => {
       expect(() => parseJob("supplier.session.verify", { supplierId: id, cookie: "x" })).toThrow();
     });
   });
+
+  describe("scheduling.tick", () => {
+    it("carries no data", () => {
+      expect(parseJob("scheduling.tick", {})).toEqual({});
+      expect(() => parseJob("scheduling.tick", { x: 1 })).toThrow();
+    });
+  });
+
+  describe("extraction.checks", () => {
+    const supplierId = "11111111-1111-4111-8111-111111111111";
+    const runId = "22222222-2222-4222-8222-222222222222";
+    it("carries the supplier's id and the run's id, and nothing else", () => {
+      expect(parseJob("extraction.checks", { supplierId, runId })).toEqual({ supplierId, runId });
+      expect(() => parseJob("extraction.checks", { supplierId })).toThrow(/extraction\.checks/);
+      expect(() => parseJob("extraction.checks", { supplierId, runId, cookie: "x" })).toThrow();
+    });
+  });
 });

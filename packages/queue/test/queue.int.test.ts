@@ -22,6 +22,14 @@ const started = async () => {
 };
 
 describe("queue", () => {
+  it("keeps one cron schedule however many times it is set", async () => {
+    const q = await started();
+    await q.schedule("scheduling.tick", "* * * * *");
+    await q.schedule("scheduling.tick", "* * * * *");
+    const { rows } = await t.pool.query("select count(*)::int as n from pgboss.schedule where name = 'scheduling.tick'");
+    expect(rows[0].n).toBe(1);
+  });
+
   it("accepts how long a job may run and that it must not be retried, and still runs it once", async () => {
     const q = createQueue({ connectionString: t.appUrl });
     await q.start();

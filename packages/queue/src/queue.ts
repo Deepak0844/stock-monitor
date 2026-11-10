@@ -8,6 +8,8 @@ export type Queue = {
   start(): Promise<void>;
   stop(): Promise<void>;
   enqueue<N extends JobName>(name: N, payload: JobPayload<N>, options?: JobOptions): Promise<void>;
+  /** Runs the job on a cron schedule (one schedule per job name, however often this is called). */
+  schedule(name: JobName, cron: string): Promise<void>;
   work<N extends JobName>(name: N, handler: (payload: JobPayload<N>) => Promise<void>): Promise<void>;
 };
 
@@ -29,6 +31,9 @@ export function createQueue(opts: {
     },
     async enqueue(name, payload, options) {
       await boss.send(name, parseJob(name, payload), options ?? {});
+    },
+    async schedule(name, cron) {
+      await boss.schedule(name, cron, {});
     },
     async work(name, handler) {
       await boss.work(name, async (jobs) => {
