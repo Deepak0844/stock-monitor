@@ -47,9 +47,16 @@ export function assessScopes(scopes: string[] | null): ScopeAssessment {
   const missing = NEEDED.filter((n) => !scopes.includes(n.read) && !scopes.includes(n.write));
 
   const warnings: string[] = [];
-  if (writeScopes.length > 0) {
+  // Changing stock numbers is the one write the app uses, and only when the owner approves a suggestion.
+  if (writeScopes.includes("write_inventory")) {
     warnings.push(
-      `This connection can change your store (${writeScopes.join(", ")}). This app only needs to read, so for extra safety remove the write permissions in Shopify.`,
+      "This connection can change stock numbers (write_inventory). The app only does that when you approve a suggestion. If you want it to only read for now, remove that permission in Shopify.",
+    );
+  }
+  const otherWrites = writeScopes.filter((s) => s !== "write_inventory");
+  if (otherWrites.length > 0) {
+    warnings.push(
+      `This connection can ${writeScopes.includes("write_inventory") ? "also " : ""}change more of your store (${otherWrites.join(", ")}). This app does not need that, so for extra safety remove those permissions in Shopify.`,
     );
   }
   if (missing.length > 0) {

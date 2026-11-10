@@ -184,7 +184,7 @@ test("a connection that can change the store is flagged in plain words", async (
   await page.goto("/settings/shopify");
   await fillConnectForm(page);
   await page.getByRole("button", { name: "Test connection" }).click();
-  await expect(page.getByText(/This connection can change your store \(write_inventory\)/)).toBeVisible();
+  await expect(page.getByText(/This connection can change stock numbers \(write_inventory\)/)).toBeVisible();
 });
 
 test("the products page asks the owner to connect, then to sync", async ({ page }) => {

@@ -74,8 +74,7 @@ export function SettingsShopifyPage({ api }: { api: Api }) {
         <section className="panel" aria-labelledby="connect-heading">
           <h2 id="connect-heading">Connect your Shopify store</h2>
           <p className="muted">
-            Connecting lets this app read your products and stock. It never changes anything in Shopify. In your Shopify
-            admin, create an app with read access to products and inventory, then copy its client ID and secret here.
+            Connecting lets this app read your products and stock. It only changes a stock number when you approve a suggestion, and only if you have given the app permission to change inventory. In your Shopify admin, create an app with read access to products and inventory, then copy its client ID and secret here.
           </p>
           <ShopifyConnectForm onTest={(details) => api.shopify.test(details)} onConnect={connect} />
         </section>

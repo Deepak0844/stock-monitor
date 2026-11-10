@@ -132,7 +132,7 @@ describe("POST /api/shopify/test", () => {
     serve({ scopes: ["read_products", "read_inventory", "write_inventory"] });
     const res = await call(app(), "POST", "/api/shopify/test", connectBody);
     expect(at(res.body, "writeScopes")).toEqual(["write_inventory"]);
-    expect(at(res.body, "warnings.0")).toMatch(/can change your store/);
+    expect(at(res.body, "warnings.0")).toMatch(/can change stock numbers/);
   });
 
   it("names a missing read permission", async () => {

@@ -10,7 +10,7 @@ Approved by the owner on 2026-11-08. Intent: `docs/intent/stock-monitor.md`.
 | `mapping` | Mappings from Shopify variants to supplier pages, metafield sync, CSV import, broken-link checks | foundation, shopify (read), supplier-session (supplier records) |
 | `extraction` | Recipe step list and editor, page capture, check runner, observations (quantity, text, page state) | foundation, supplier-session |
 | `scheduling` | Intervals, "Check now", per-supplier concurrency, retries and backoff, progress (**built**, see `SPEC-scheduling.md`) | extraction, mapping |
-| `proposals` | Proposal rules, approval inbox, approve/reject/edit, expiry, conflict handling, history | extraction, mapping, shopify |
+| `proposals` | Proposal rules, approval inbox, approve/reject/edit, expiry, conflict handling, history (**built against a stand-in Shopify; real-store contract check still to do**, see `SPEC-proposals.md` and `docs/deployment.md`) | extraction, mapping, shopify |
 | `ui-shell` | Dashboard, notifications, settings, responsive layout | all, built progressively |
 
 Build order: foundation, shopify (read), **supplier-session**, mapping, extraction, scheduling, proposals + shopify (write), ui-shell polish.

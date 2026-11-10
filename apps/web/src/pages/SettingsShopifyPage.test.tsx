@@ -68,10 +68,10 @@ describe("loading", () => {
 });
 
 describe("not connected yet", () => {
-  it("invites the owner to connect and promises it only reads", async () => {
+  it("invites the owner to connect and says a stock number only changes when they approve", async () => {
     setup();
     expect(await screen.findByRole("heading", { level: 2, name: "Connect your Shopify store" })).toBeInTheDocument();
-    expect(screen.getByText(/never changes anything in shopify/i)).toBeInTheDocument();
+    expect(screen.getByText(/only changes a stock number when you approve a suggestion/i)).toBeInTheDocument();
     expect(screen.getByLabelText("Store address")).toBeInTheDocument();
   });
 

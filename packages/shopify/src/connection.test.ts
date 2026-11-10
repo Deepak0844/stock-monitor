@@ -54,7 +54,16 @@ describe("assessScopes", () => {
     expect(result.ok).toBe(true);
     expect(result.writeScopes).toEqual(["write_inventory"]);
     expect(result.warnings).toEqual([
-      "This connection can change your store (write_inventory). This app only needs to read, so for extra safety remove the write permissions in Shopify.",
+      "This connection can change stock numbers (write_inventory). The app only does that when you approve a suggestion. If you want it to only read for now, remove that permission in Shopify.",
+    ]);
+  });
+
+  it("keeps the stronger warning for any other write permission", () => {
+    const result = assessScopes(["read_products", "read_inventory", "write_inventory", "write_products"]);
+    expect(result.writeScopes).toEqual(["write_inventory", "write_products"]);
+    expect(result.warnings).toEqual([
+      "This connection can change stock numbers (write_inventory). The app only does that when you approve a suggestion. If you want it to only read for now, remove that permission in Shopify.",
+      "This connection can also change more of your store (write_products). This app does not need that, so for extra safety remove those permissions in Shopify.",
     ]);
   });
 

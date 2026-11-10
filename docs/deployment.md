@@ -197,6 +197,61 @@ A supplier is only checked automatically when it is connected, running (not paus
 - Run records hold only counts and a reason. They never hold page text, addresses, or login details, and are deleted after 30 days.
 - The old "Check every (minutes)" box on the supplier form is gone: it never did anything. Use **Automatic checks** instead.
 
+## Stock suggestions
+
+After a supplier check, the app compares what the supplier said with the number Shopify shows. When they disagree in a way that matters, it adds a **suggestion** to **Proposals**. Nothing changes in Shopify until you press **Approve** on that one suggestion.
+
+### What the app suggests
+
+| The supplier said | Shopify shows | Suggestion |
+|---|---|---|
+| Out of stock (or not listed for your region) | more than 0 | Set to 0 |
+| Page missing, on a link that has been missing on two checks at least 6 hours apart | more than 0 | Set to 0 ("Page missing") |
+| In stock | 0 | Set to your back-in-stock quantity ("Back in stock") |
+| In stock | more than 0 | Nothing |
+| Out of stock | 0 | Nothing |
+| Cannot tell, for any reason | any | Nothing, ever |
+
+The app only ever suggests changing the **available** number at the location you chose in the Shopify settings. It never changes prices, tracking, "continue selling", or another location.
+
+### Using Proposals
+
+- Each suggestion shows the product, what the supplier said and when, what Shopify shows, and the suggested number.
+- **Approve** is one press on one suggestion. There is no "approve all". It then says **Waiting for Shopify** until the result arrives, and the result appears under **History**.
+- **Edit number** lets you type a different whole number first. An edited suggestion is marked in History.
+- **Reject** needs no reason. The same supplier answer will not bring the suggestion back; only a newer check can.
+- A suggestion nobody decides expires (24 hours to start with) and can no longer be approved. The next check makes a new one if it still applies.
+- A warning appears when Shopify is set to keep selling at 0. **Approve is turned off, with the reason,** when Shopify is not tracking that item, or when the app has no permission to change stock.
+
+### Settings
+
+On **Settings** you can change the **quantity for back-in-stock suggestions** (5 to start with) and the **hours a suggestion stays open**. The same page shows whether Shopify allows the app to change stock.
+
+### If Shopify's number changed
+
+Before it writes, the app reads the number again. If it is not the number the suggestion was made from (a sale, or a staff edit), **nothing is written**: the suggestion is marked "Not applied: Shopify changed" and the next check makes a new one. The app never retries or overwrites in that case.
+
+If the app cannot tell whether Shopify made a change (for example the connection dropped), it tries again after 10 seconds, 1 minute and 5 minutes with the same request key, so the change can never be made twice. If it still cannot tell, the suggestion says so: check the number in Shopify before trying again.
+
+### Giving the app permission to change stock
+
+Until you do, Approve is refused and nothing is ever sent. The permission is `write_inventory`, added to the app you created in Shopify; then **Connect** again in the app's Shopify settings. **Do this on a development store first, not your real store** (see the checklist below). The app only uses it when you press Approve.
+
+### Checking it against a real Shopify store (still to do)
+
+All of this has been built and tested against a stand-in Shopify. Shopify's own behaviour has not yet been confirmed on a real store, so this module is **not finished until you run this check**, on a **development store** (free, from your Shopify Partners account) with a few test products:
+
+1. Create the app in the development store with read and `write_inventory` access, and connect it in the app's Shopify settings. Choose a location and **Sync**.
+2. Pick a test product with stock 4. Set the supplier's stand-in answer to out of stock (or edit a suggestion by hand) so a suggestion "set to 0" appears. **Approve** it. Open the product in Shopify: **available** must now show 0 at that location.
+3. Make another suggestion. Before pressing Approve, change that product's number in Shopify yourself. Press Approve: the suggestion must say **Not applied: Shopify changed** and Shopify must still show your number.
+4. Press Approve on a suggestion with the app's permission removed (remove `write_inventory`, reconnect): it must refuse in plain words.
+5. Tell me the results. Two details are confirmed here: Shopify's current rule for the "request key" and the exact wording of its "number is stale" refusal. If either differs, the app is fixed before anything is used on your real store.
+
+### Things to know
+
+- Suggestion records hold numbers and fixed reasons only: never page text, addresses or login details. They are kept as history.
+- If the app restarts while a suggestion is waiting for Shopify, it finishes it by itself within about 15 minutes, still without applying it twice.
+
 ## Server hardening (the checklist from the design discussion)
 
 Saved supplier sessions are decrypted in memory while a check runs, so anyone who controls the server could use them. Encryption protects the database and backups, not a compromised server.
