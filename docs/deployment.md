@@ -161,6 +161,42 @@ When many of a supplier's pages change at once, you get one message on the Dashb
 - **A 404 or a redirect to the home page** is not decided by the stock rules. On a link that worked before it is "Page missing" (a candidate for "unavailable" after two checks at least 6 hours apart, for your approval later); on a link that never worked it is "Never worked", a wrong address to fix.
 - **If stock only appears after a click or a scroll,** version one cannot read it. The answer is Cannot tell.
 
+## Automatic checks
+
+By default nothing is checked until you press a button. **Automatic checks** make the app check a supplier by itself. They are **off** for every supplier until you turn them on.
+
+### Turning them on
+
+Open **Suppliers**, choose **Edit** on a supplier and find **Automatic checks**:
+
+- **How often:** every hour, 3 hours, 6 hours, 12 hours, or every day. Start with every day. A shorter interval means more visits to a supplier that may not want them, so check its terms first.
+- **Hours of the day when a check may start:** 07:00 to 22:00 by default, in your timezone. A check that comes due outside those hours waits until they start. Tick **Any time of day** to remove the limit. The hours follow `BROWSER_TIMEZONE` in `.env` (the same setting as the login window), so there is nothing more to set. Restart with `docker compose up -d` after changing it.
+
+Each run is the same as **Check all stock**: one page at a time, with the supplier's pause between pages. The next check is set one interval after the last one ended, plus a small random spread (up to 10%) so suppliers are not all visited together.
+
+### When a supplier is not checked
+
+A supplier is only checked automatically when it is connected, running (not paused), recorded as allowed, and has stock rules turned on. When it is not, the Suppliers list says why ("Not being checked. This supplier is paused...") and its next check is not moved: it is picked up again as soon as it is ready. At most 2 suppliers are checked at the same time.
+
+### What stops a run
+
+- **The supplier asks you to log in again, shows a puzzle (CAPTCHA), or refuses the check:** the run stops at once, you get a message on the Dashboard, and the supplier is not checked again until you reconnect it. The app **never retries a puzzle or a block by itself**.
+- **The supplier cannot be reached** (3 pages in a row): the run stops. The next try is after 15 minutes, then 1 hour, then 4 hours, then every 4 hours until it works. A good run puts it back on its normal interval.
+- **The app restarted during a run:** the run is marked "Stopped: the app restarted" and the supplier is picked up again when its next check is due.
+- **After the app was switched off for a while,** a supplier that is due is checked once, not once for every check it missed.
+
+### Reading it
+
+- The **Suppliers** list shows the schedule, the next check, progress while a run is going ("Checking 12 of 40 links") and the last result ("Checked 40 links, 3 cannot tell").
+- The supplier's **Edit** page lists the last 30 days of runs: when, whether you started it or the schedule did, and how it ended.
+- On **Links**, a link that has not been checked for more than twice the supplier's interval says **Not checked recently**. Its answer may be out of date.
+- **Check all stock** while a run is going is refused: "A check for this supplier is already running."
+
+### Things to know
+
+- Run records hold only counts and a reason. They never hold page text, addresses, or login details, and are deleted after 30 days.
+- The old "Check every (minutes)" box on the supplier form is gone: it never did anything. Use **Automatic checks** instead.
+
 ## Server hardening (the checklist from the design discussion)
 
 Saved supplier sessions are decrypted in memory while a check runs, so anyone who controls the server could use them. Encryption protects the database and backups, not a compromised server.

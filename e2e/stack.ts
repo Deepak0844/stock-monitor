@@ -20,6 +20,7 @@ import {
   createSupplierSessionRepository,
 } from "../packages/db/src/index.js";
 import { createAuditWriter } from "../packages/audit/src/index.js";
+import { runTick } from "../apps/worker/src/scheduling-tick.js";
 import { createBrowserClient } from "../packages/browser-client/src/index.js";
 import { createFakeBrowserService, FAKE_CONTROL_TOKEN } from "../packages/browser-client/test/fake-browser-service.js";
 import { createQueue } from "../packages/queue/src/index.js";
@@ -182,6 +183,15 @@ const control = createServer(async (req, res) => {
       const saved = await recipes.create(row!.id, (JSON.parse(body) as { rules: unknown }).rules);
       await recipes.activate(saved.id);
       return reply(200);
+    }
+    if (req.method === "POST" && req.url === "/control/tick") {
+      // One pass of the scheduler, as if `advanceMinutes` had gone by. The cron that does this every minute is not running here.
+      const { advanceMinutes = 0 } = (body ? JSON.parse(body) : {}) as { advanceMinutes?: number };
+      const result = await runTick({
+        suppliers, supplierSessions, recipes: createRecipeRepository(db.appDb), mappings: createMappingRepository(db.appDb), checkRuns: createCheckRunRepository(db.appDb),
+        queue, audit: createAuditWriter(db.appDb), logger, timezone: "UTC", now: () => new Date(Date.now() + advanceMinutes * 60_000),
+      });
+      return reply(200, result);
     }
     if (req.method === "POST" && req.url === "/control/vnc") {
       await vnc.setAvailable((JSON.parse(body) as { available: boolean }).available);

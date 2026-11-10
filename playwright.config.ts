@@ -10,16 +10,19 @@ export default defineConfig({
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: { baseURL: BASE_URL, trace: "retain-on-failure" },
   projects: [
-    { name: "desktop", testIgnore: /(mappings|extraction)\.spec/, use: { ...devices["Desktop Chrome"] } },
+    { name: "desktop", testIgnore: /(mappings|extraction|scheduling)\.spec/, use: { ...devices["Desktop Chrome"] } },
     // The phone run starts after the desktop run has finished. The Shopify tests share one connection
     // and one fake store, so the two sizes must not run at the same time.
-    { name: "phone", testIgnore: /(mappings|extraction)\.spec/, use: { ...devices["Pixel 7"] }, dependencies: ["desktop"] },
+    { name: "phone", testIgnore: /(mappings|extraction|scheduling)\.spec/, use: { ...devices["Pixel 7"] }, dependencies: ["desktop"] },
     // The link journeys reset the suppliers and the variants, which the journeys above also use, so they run on their own, after them.
     { name: "mappings-desktop", testMatch: /mappings\.spec/, use: { ...devices["Desktop Chrome"] }, dependencies: ["phone"] },
     { name: "mappings-phone", testMatch: /mappings\.spec/, use: { ...devices["Pixel 7"] }, dependencies: ["mappings-desktop"] },
     // The stock rule journeys also reset the suppliers and variants, so they run last, one after another.
     { name: "extraction-desktop", testMatch: /extraction\.spec/, use: { ...devices["Desktop Chrome"] }, dependencies: ["mappings-phone"] },
     { name: "extraction-phone", testMatch: /extraction\.spec/, use: { ...devices["Pixel 7"] }, dependencies: ["extraction-desktop"] },
+    // The automatic check journeys also reset the suppliers and variants, so they run last, one after another.
+    { name: "scheduling-desktop", testMatch: /scheduling\.spec/, use: { ...devices["Desktop Chrome"] }, dependencies: ["extraction-phone"] },
+    { name: "scheduling-phone", testMatch: /scheduling\.spec/, use: { ...devices["Pixel 7"] }, dependencies: ["scheduling-desktop"] },
   ],
   webServer: {
     command: "npx tsx e2e/stack.ts",
