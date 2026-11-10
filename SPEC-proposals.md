@@ -2,7 +2,7 @@
 
 Module id: `proposals`. Depends on: `foundation`, `shopify` (read: variants, quantities, location, scopes), `supplier-session`, `mapping` (links, link status, "may be unavailable" test), `extraction` (observations), `scheduling` (regular checks). Map: `CAPABILITY-MAP.md`. Intent: `docs/intent/stock-monitor.md`. Shopify contract: `SPEC-shopify.md` ("Phase B contract").
 
-Status: **draft v1.1, three of six questions answered (2026-11-10); awaiting the rest.** No plan and no code until it is approved.
+Status: **draft v2, all six questions answered (2026-11-10); awaiting approval.** No plan and no code until it is approved.
 
 ## Objective
 
@@ -38,7 +38,7 @@ Never, by the intent: automatic Shopify updates. Not in this module either.
 3. **One open suggestion per variant.** A newer check that changes the answer replaces the open suggestion (the old one is kept in the history as "Replaced"). A newer check with the same answer leaves it alone.
 4. **The owner can edit the number** before approving (a whole number from 0 up). An edited suggestion is marked "Edited by you".
 5. **Approving is one press on one suggestion.** There is no "approve all" in this module (the intent defers bulk approval until after the pilot).
-6. **Suggestions expire.** An open suggestion not decided within the expiry time is marked "Expired" and cannot be approved. The next check makes a fresh one if it still applies.
+6. **Suggestions expire.** An open suggestion not decided within the expiry time is marked "Expired" and cannot be approved. The expiry time is a setting and starts at 24 hours (the owner asked for shorter than my proposed 3 days; with daily checks, a stale suggestion is replaced by the next check anyway). The next check makes a fresh one if it still applies.
 7. **Tracking off or "continue selling" on** are shown on the suggestion as warnings, as in the variants list. Tracking off blocks Approve with the plain reason ("Shopify is not tracking stock for this item, so changing the quantity would have no effect"). Continue selling is a warning only; the app never changes either setting.
 
 ## The Shopify write (the careful part)
@@ -135,8 +135,10 @@ Numbers and codes only: no page text, no addresses, no session or credential dat
 4. **Missing pages:** suggest 0 only after the link has been flagged "may be unavailable" (two checks 6+ hours apart). Confirmed.
 5. **Development store:** later. Everything is built and tested against the fake Shopify server first. The `write_inventory` permission is **not** added to any real store, and the manual contract check against a development store waits until the owner has one. The module is not called done before that check.
 
+2. **When to suggest:** set to 0 only when Shopify shows more than 0; suggest the default quantity only when Shopify shows 0. Confirmed.
+3. **Expiry:** shorter than 3 days. I chose **24 hours** as the starting value (my call, since the owner gave no number); it is a setting the owner can change in the app.
+6. **Approving:** one suggestion at a time, no "approve all", for the pilot. Confirmed.
+
 ## Still open for the owner
 
-2. **When to suggest.** Suggest 0 only when Shopify shows more than 0; suggest the default only when Shopify shows 0.
-3. **How long a suggestion stays open.** Proposed: 3 days.
-6. **Approving.** One suggestion at a time (no "approve all") for the pilot.
+1. **Approve this version?** If anything is not what you want, say what to change.
