@@ -23,7 +23,7 @@ export type SupplierVerifyDeps = {
  * about stock, and nothing here could be mistaken for a stock figure.
  */
 /** The reasons a session check can raise. (The other reason, page_changed, belongs to stock rules.) */
-type SessionReason = Exclude<NotificationReason, "page_changed">;
+export type SessionReason = Exclude<NotificationReason, "page_changed">;
 
 export type CheckOutcome =
   | { kind: "skipped"; reason: "no_supplier" | "no_session" }
@@ -45,6 +45,16 @@ const MESSAGES: Record<SessionReason, (name: string) => string> = {
 /** A challenge or a block is shown as Blocked. A login or an unclear page as Needs reconnecting. */
 const STATUS = { login_required: "needs_reconnect", unknown: "needs_reconnect", captcha: "blocked", blocked: "blocked" } as const;
 
+/** Marks the supplier as needing attention and tells the owner on the dashboard. Used by session checks and by stock runs that meet a login, puzzle or block. */
+export async function raiseNeedsAttention(
+  deps: Pick<SupplierVerifyDeps, "suppliers" | "notifications">,
+  supplier: { id: string; name: string },
+  result: SessionReason,
+): Promise<void> {
+  await deps.suppliers.markNeedsAttention(supplier.id, STATUS[result]);
+  await deps.notifications.raise({ kind: "supplier_needs_reconnect", supplierId: supplier.id, message: MESSAGES[result](supplier.name), reason: result });
+}
+
 /**
  * Checks that one supplier's saved session still works: opens it in a throw-away browser, and acts on
  * what the page was. A supplier that cannot be reached is tried again before anything is decided, and an
@@ -61,8 +71,7 @@ export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId
   let httpStatus: number | null = null;
   const record = (result: string) => audit.record({ action: "supplier.session_checked", entityType: "supplier", entityId: supplierId, details: { result, httpStatus } });
   const needsAttention = async (result: SessionReason): Promise<CheckOutcome> => {
-    await suppliers.markNeedsAttention(supplierId, STATUS[result]);
-    await notifications.raise({ kind: "supplier_needs_reconnect", supplierId, message: MESSAGES[result](supplier.name), reason: result });
+    await raiseNeedsAttention(deps, supplier, result);
     await record(result);
     return { kind: "needs_attention", result };
   };

@@ -5,6 +5,7 @@ import { createAuditWriter } from "@stock-monitor/audit";
 import { createBrowserClient } from "@stock-monitor/browser-client";
 import {
   createCaptureRepository,
+  createCheckRunRepository,
   createMappingRepository,
   createObservationRepository,
   createRecipeRepository,
@@ -69,6 +70,8 @@ await registerHandlers(queue, logger, {
           captures: createCaptureRepository(db),
           notifications: createNotificationRepository(db),
           audit: createAuditWriter(db),
+          checkRuns: createCheckRunRepository(db),
+          timezone: config.timezone,
           browser: createBrowserClient({ baseUrl: config.browserServiceUrl, token: config.browserControlToken }),
           key: config.encryptionKey,
         }

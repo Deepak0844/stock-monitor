@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { Writable } from "node:stream";
 import { startTestDb, type TestDb } from "@stock-monitor/db/test-harness";
 import {
-  createCaptureRepository, createMappingRepository, createNotificationRepository, createObservationRepository, createRecipeRepository,
+  createCaptureRepository, createCheckRunRepository, createMappingRepository, createNotificationRepository, createObservationRepository, createRecipeRepository,
   createSupplierRepository, createSupplierSessionRepository,
 } from "@stock-monitor/db";
 import { createAuditWriter } from "@stock-monitor/audit";
@@ -32,6 +32,7 @@ const notes = () => createNotificationRepository(t.appDb);
 const deps = (over: Partial<StockCheckDeps> = {}): StockCheckDeps => ({
   mappings: maps(), suppliers: suppliers(), supplierSessions: createSupplierSessionRepository(t.appDb), recipes: createRecipeRepository(t.appDb),
   observations: observations(), captures: createCaptureRepository(t.appDb), notifications: notes(), audit: createAuditWriter(t.appDb),
+  checkRuns: createCheckRunRepository(t.appDb), timezone: "UTC", random: () => 0,
   browser: createBrowserClient({ baseUrl: fake.url, token: FAKE_CONTROL_TOKEN, timeoutMs: 2000 }), key, logger,
   sleep: async (ms) => { sleeps.push(ms); await onSleep(); }, now: () => now, ...over,
 });
@@ -60,6 +61,12 @@ const turnOn = async (r: unknown = rules) => {
   const saved = await createRecipeRepository(t.appDb).create(acme, r);
   await createRecipeRepository(t.appDb).activate(saved.id);
   return saved.version;
+};
+const runs = () => createCheckRunRepository(t.appDb);
+/** A whole-supplier run, the way the API or the tick starts one: the run row first, then the job. */
+const runAll = async (over: Partial<StockCheckDeps> = {}, supplierId = acme) => {
+  const row = supplierId === acme ? await runs().start(acme, "manual", 0) : null;
+  return checkSupplierStock(deps(over), supplierId, row?.id ?? randomUUID());
 };
 const requests = (path: string) => fake.requests.filter((r) => r.path === path);
 const latest = async (id: string) => (await observations().listFor(id))[0]!;
@@ -209,7 +216,7 @@ describe("all of a supplier's links", () => {
     await suppliers().setPermission(acme, { status: "granted", note: null, pauseSeconds: 7 });
     await turnOn();
     for (const n of ["v1", "v2", "v3"]) await link(n);
-    expect(await checkSupplierStock(deps(), acme)).toMatchObject({ kind: "done", checked: 3, supplierWide: false });
+    expect(await runAll()).toMatchObject({ kind: "done", checked: 3, supplierWide: false });
     expect(sleeps).toEqual([7000, 7000]);
     expect(requests("/capture")).toHaveLength(3);
     expect(Number((await t.pool.query("select count(*) from stock_observations")).rows[0].count)).toBe(3);
@@ -219,7 +226,7 @@ describe("all of a supplier's links", () => {
     await turnOn();
     for (const n of ["a", "b", "c", "d", "e", "f"]) await link(n);
     fake.behaviour.description = changed;
-    expect(await checkSupplierStock(deps(), acme)).toMatchObject({ checked: 6, supplierWide: true });
+    expect(await runAll()).toMatchObject({ checked: 6, supplierWide: true });
     const open = await notes().listOpen();
     expect(open).toHaveLength(1);
     expect(open[0]).toMatchObject({ kind: "recipe_needs_review", supplierId: acme, reason: "page_changed" });
@@ -231,9 +238,9 @@ describe("all of a supplier's links", () => {
     await turnOn();
     for (const n of ["a", "b", "c", "d", "e", "f"]) await link(n);
     fake.behaviour.description = changed;
-    await checkSupplierStock(deps(), acme);
+    await runAll();
     fake.behaviour.description = inStock;
-    await checkSupplierStock(deps(), acme);
+    await runAll();
     expect(await notes().listOpen()).toHaveLength(0);
   });
 
@@ -241,7 +248,7 @@ describe("all of a supplier's links", () => {
     await turnOn();
     for (const n of ["a", "b", "c", "d", "e"]) await link(n);
     fake.behaviour.descriptionFor = (url) => (url.endsWith("/a") ? changed : undefined);
-    expect(await checkSupplierStock(deps(), acme)).toMatchObject({ supplierWide: false });
+    expect(await runAll()).toMatchObject({ supplierWide: false });
     expect(await notes().listOpen()).toHaveLength(0);
   });
 
@@ -258,17 +265,17 @@ describe("all of a supplier's links", () => {
     await link("v1");
     await link("v2");
     onSleep = async () => void (await suppliers().pause(acme));
-    expect(await checkSupplierStock(deps(), acme)).toMatchObject({ kind: "done", checked: 1 });
+    expect(await runAll()).toMatchObject({ kind: "done", checked: 1 });
     expect(requests("/capture")).toHaveLength(1);
   });
 
   it("is refused for a supplier that is not allowed or has no active recipe, and for one that was deleted", async () => {
     await link("v1");
-    expect(await checkSupplierStock(deps(), acme)).toEqual({ kind: "skipped", reason: "no_recipe" });
+    expect(await runAll()).toEqual({ kind: "skipped", reason: "no_recipe" });
     await turnOn();
     await suppliers().setPermission(acme, { status: "unknown", note: null });
-    expect(await checkSupplierStock(deps(), acme)).toEqual({ kind: "skipped", reason: "no_permission" });
-    expect(await checkSupplierStock(deps(), "00000000-0000-4000-8000-000000000000")).toEqual({ kind: "skipped", reason: "no_supplier" });
+    expect(await runAll()).toEqual({ kind: "skipped", reason: "no_permission" });
+    expect(await runAll({}, "00000000-0000-4000-8000-000000000000")).toEqual({ kind: "skipped", reason: "no_supplier" });
     expect(requests("/capture")).toHaveLength(0);
   });
 
@@ -277,7 +284,7 @@ describe("all of a supplier's links", () => {
     const off = await link("v1");
     await link("v2");
     await maps().update(off, { enabled: false });
-    expect(await checkSupplierStock(deps(), acme)).toMatchObject({ checked: 1 });
+    expect(await runAll()).toMatchObject({ checked: 1 });
   });
 
   it("deletes old unlabelled captures when a run starts", async () => {
@@ -285,7 +292,137 @@ describe("all of a supplier's links", () => {
     const id = await link("v1");
     const old = await createCaptureRepository(t.appDb).create({ supplierId: acme, mappingId: id, name: "old" });
     await t.pool.query("update page_captures set created_at = now() - interval '31 days' where id = $1", [old.id]);
-    await checkSupplierStock(deps(), acme);
+    await runAll();
     expect(await createCaptureRepository(t.appDb).get(old.id)).toBeNull();
+  });
+});
+
+describe("run records and stop rules", () => {
+  const MIN = 60_000;
+  const useSchedule = () => suppliers().setSchedule(acme, { intervalMinutes: 1440, window: null, nextCheckAt: null });
+  const lastRun = async () => (await runs().recent(acme, 1))[0]!;
+  const supplier = async () => (await suppliers().get(acme))!;
+  const unreachable = { result: "unreachable", status: null, finalUrl: null, title: null, heading: null, softNotFound: false };
+  const links = async (n: number) => {
+    for (let i = 1; i <= n; i++) await link(`r${i}`);
+  };
+
+  it("counts what the pages said, and the counts match the observations", async () => {
+    await turnOn();
+    await links(3);
+    fake.behaviour.descriptionFor = (url) => (url.endsWith("/r1") ? soldOut : url.endsWith("/r2") ? changed : undefined);
+    expect(await runAll()).toMatchObject({ kind: "done", checked: 3, stopped: null });
+    expect(await lastRun()).toMatchObject({ outcome: "finished", stopReason: null, linksDone: 3, inStock: 1, outOfStock: 1, cannotTell: 1 });
+  });
+
+  it("records progress after each page", async () => {
+    await turnOn();
+    await links(3);
+    const seen: number[] = [];
+    onSleep = async () => void seen.push((await runs().current(acme))!.linksDone);
+    await runAll();
+    expect(seen).toEqual([1, 2]);
+  });
+
+  it("a login page stops the run at once, asks for a reconnect, and moves nothing else", async () => {
+    await turnOn();
+    await useSchedule();
+    await links(4);
+    fake.behaviour.pageFor = (url) => (url.endsWith("/r2") ? { result: "login_required", status: 200, finalUrl: null, title: null, heading: null, softNotFound: false } : undefined);
+    expect(await runAll()).toMatchObject({ kind: "done", checked: 2, stopped: "login_required" });
+    expect(requests("/capture")).toHaveLength(2);
+    expect(await lastRun()).toMatchObject({ outcome: "stopped", stopReason: "login_required" });
+    expect(await supplier()).toMatchObject({ sessionStatus: "needs_reconnect", enabled: false, pausedReason: "session", failureCount: 0, nextCheckAt: null });
+    expect(await notes().listOpen()).toMatchObject([{ kind: "supplier_needs_reconnect", supplierId: acme, reason: "login_required" }]);
+    expect(await runAll()).toEqual({ kind: "skipped", reason: "needs_attention" });
+  });
+
+  it.each(["captcha", "blocked"])("a %s page stops the run, blocks the supplier, and is never tried again", async (result) => {
+    await turnOn();
+    await links(3);
+    fake.behaviour.page = { result, status: 403, finalUrl: null, title: null, heading: null, softNotFound: false };
+    expect(await runAll()).toMatchObject({ checked: 1, stopped: result });
+    expect(requests("/capture")).toHaveLength(1);
+    expect(await supplier()).toMatchObject({ sessionStatus: "blocked", enabled: false });
+    expect(await runAll()).toMatchObject({ kind: "skipped" });
+    expect(requests("/capture")).toHaveLength(1);
+  });
+
+  it("stops after three unreachable pages in a row, then backs off 15 minutes, 1 hour, 4 hours, 4 hours", async () => {
+    await turnOn();
+    await useSchedule();
+    await links(5);
+    fake.behaviour.page = unreachable;
+    const waits: number[] = [];
+    for (const expected of [15, 60, 240, 240]) {
+      expect(await runAll()).toMatchObject({ checked: 3, stopped: "unreachable" });
+      waits.push(((await supplier()).nextCheckAt!.getTime() - now.getTime()) / MIN);
+      expect(waits.at(-1)).toBe(expected);
+    }
+    expect(await supplier()).toMatchObject({ failureCount: 4, sessionStatus: "connected", enabled: true });
+    expect(await lastRun()).toMatchObject({ outcome: "stopped", stopReason: "unreachable" });
+  });
+
+  it("a success after failures resets the backoff and schedules one interval ahead", async () => {
+    await turnOn();
+    await useSchedule();
+    await links(5);
+    fake.behaviour.page = unreachable;
+    await runAll();
+    fake.behaviour.page = normal;
+    expect(await runAll()).toMatchObject({ checked: 5, stopped: null });
+    expect(await supplier()).toMatchObject({ failureCount: 0, nextCheckAt: new Date(now.getTime() + 1440 * MIN) });
+  });
+
+  it("two unreachable pages and then a good one do not stop the run", async () => {
+    await turnOn();
+    await links(5);
+    fake.behaviour.pageFor = (url) => (/\/r[12]$/.test(url) ? unreachable : undefined);
+    expect(await runAll()).toMatchObject({ checked: 5, stopped: null });
+  });
+
+  it("a supplier with no enabled links ends at once with zero counts, and still moves the next check", async () => {
+    await turnOn();
+    await useSchedule();
+    expect(await runAll()).toMatchObject({ kind: "done", checked: 0, stopped: null });
+    expect(await lastRun()).toMatchObject({ outcome: "finished", linksDone: 0 });
+    expect((await supplier()).nextCheckAt).toEqual(new Date(now.getTime() + 1440 * MIN));
+  });
+
+  it("a manual run with automatic checks off leaves the next check empty", async () => {
+    await turnOn();
+    await links(1);
+    await runAll();
+    expect((await supplier()).nextCheckAt).toBeNull();
+  });
+
+  it("a supplier paused between pages ends the run as stopped, without visiting again", async () => {
+    await turnOn();
+    await links(2);
+    onSleep = async () => void (await suppliers().pause(acme));
+    expect(await runAll()).toMatchObject({ checked: 1, stopped: "supplier_not_ready" });
+    expect(await lastRun()).toMatchObject({ outcome: "stopped", stopReason: "supplier_not_ready" });
+  });
+
+  it("an unexpected error ends the run as failed with a code, backs off, and puts nothing from the page in the record", async () => {
+    await turnOn();
+    await useSchedule();
+    await links(2);
+    const broken = { ...maps(), forSupplier: async () => { throw new Error(`boom https://shop.acme.example/p ${COOKIE}`); } } as never;
+    expect(await runAll({ mappings: broken })).toEqual({ kind: "failed" });
+    expect(await lastRun()).toMatchObject({ outcome: "failed", stopReason: "error" });
+    expect(await supplier()).toMatchObject({ failureCount: 1, nextCheckAt: new Date(now.getTime() + 15 * MIN) });
+    const everything = JSON.stringify([(await t.pool.query("select * from check_runs")).rows, (await t.pool.query("select details from audit_events")).rows, logLines]);
+    expect(everything).not.toContain(COOKIE);
+    expect(everything).not.toContain("shop.acme.example/p");
+  });
+
+  it("run rows hold counts and a code, never an address or session", async () => {
+    await turnOn();
+    await links(2);
+    await runAll();
+    const rows = JSON.stringify((await t.pool.query("select * from check_runs")).rows);
+    expect(rows).not.toContain("acme.example");
+    expect(rows).not.toContain(COOKIE);
   });
 });

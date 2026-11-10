@@ -19,6 +19,18 @@ const schema = z.object({
   BROWSER_VNC_PORT: z.coerce.number().int().min(1).max(65535).default(5900),
   // The address people open the app at, for example https://stock.example.com. The live screen only accepts connections from this origin.
   APP_ORIGIN: z.url().optional(),
+  // The owner's timezone (an IANA name such as Asia/Kolkata): automatic checks keep to the quiet-hours window in this zone.
+  APP_TIMEZONE: z
+    .string()
+    .default("UTC")
+    .refine((zone) => {
+      try {
+        new Intl.DateTimeFormat("en", { timeZone: zone });
+        return true;
+      } catch {
+        return false;
+      }
+    }, "must be a timezone name such as Asia/Kolkata"),
 });
 
 export type Config = {
@@ -41,11 +53,13 @@ export type Config = {
   browserVncPort: number;
   /** The origin pages are served from, as a browser sends it in the Origin header. Left unset, only localhost on the API's own port is accepted. */
   appOrigin: string | undefined;
+  /** The owner's timezone, for the quiet-hours window of automatic checks. */
+  timezone: string;
 };
 
 // An env file with `NAME=` and nothing after it sets the variable to an empty string. For a setting that is optional,
 // that means "not set", not "set to nothing".
-const BLANK_MEANS_UNSET = ["APP_ORIGIN", "BROWSER_SERVICE_URL", "BROWSER_CONTROL_TOKEN", "BROWSER_VNC_PORT", "SHOPIFY_BASE_URL_OVERRIDE"];
+const BLANK_MEANS_UNSET = ["APP_ORIGIN", "BROWSER_SERVICE_URL", "BROWSER_CONTROL_TOKEN", "BROWSER_VNC_PORT", "SHOPIFY_BASE_URL_OVERRIDE", "APP_TIMEZONE"];
 
 export function loadConfig(input: Record<string, string | undefined>): Config {
   const env = Object.fromEntries(Object.entries(input).filter(([name, value]) => !(value === "" && BLANK_MEANS_UNSET.includes(name))));
@@ -81,5 +95,6 @@ export function loadConfig(input: Record<string, string | undefined>): Config {
     browserControlToken: c.BROWSER_CONTROL_TOKEN,
     browserVncPort: c.BROWSER_VNC_PORT,
     appOrigin: c.APP_ORIGIN ? new URL(c.APP_ORIGIN).origin : undefined,
+    timezone: c.APP_TIMEZONE,
   };
 }

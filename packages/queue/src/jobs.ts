@@ -14,7 +14,10 @@ export const jobSchemas = {
   // Stock rules. Ids only: the worker reads the saved session, the address and the recipe from the database.
   "extraction.capture": z.object({ captureId: z.uuid() }).strict(),
   "extraction.check": z.object({ mappingId: z.uuid() }).strict(),
-  "extraction.checks": z.object({ supplierId: z.uuid() }).strict(),
+  // A run for a whole supplier: the supplier and the run record that tracks it.
+  "extraction.checks": z.object({ supplierId: z.uuid(), runId: z.uuid() }).strict(),
+  // Every minute: starts the supplier runs that are due. No data: the worker reads everything from the database.
+  "scheduling.tick": z.object({}).strict(),
   "mapping.link.check": z.object({ mappingId: z.uuid() }).strict(),
   "mapping.links.check": z.object({ supplierId: z.uuid() }).strict(),
 } as const;

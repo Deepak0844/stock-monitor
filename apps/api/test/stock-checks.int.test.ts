@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createHash, randomBytes } from "node:crypto";
 import { Writable } from "node:stream";
 import { startTestDb, type TestDb } from "@stock-monitor/db/test-harness";
-import { createMappingRepository, createObservationRepository, createRecipeRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
+import { createCheckRunRepository, createMappingRepository, createObservationRepository, createRecipeRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
 import { createLogger } from "@stock-monitor/shared";
 import { sealSessionState } from "@stock-monitor/supplier-session";
 import { buildApp } from "../src/app.js";
@@ -26,6 +26,7 @@ const app = () =>
       supplierSessions: createSupplierSessionRepository(t.appDb),
       recipes: createRecipeRepository(t.appDb),
       observations: createObservationRepository(t.appDb),
+      checkRuns: createCheckRunRepository(t.appDb),
       queue: {
         enqueue: async (name: string, payload: unknown, options?: unknown) => {
           if (enqueueFails) throw new Error("queue down");
@@ -120,10 +121,34 @@ describe("check one link", () => {
 });
 
 describe("check all of a supplier's links", () => {
-  it("queues one job with only the supplier's id, with time to finish and no retry", async () => {
+  it("starts a manual run and queues one job with only the supplier's and the run's id, with time to finish and no retry", async () => {
     const r = await call("POST", `/api/suppliers/${acme}/check-stock`);
     expect(r).toMatchObject({ status: 202, body: { queued: true, links: 1 } });
-    expect(queued).toEqual([{ name: "extraction.checks", payload: { supplierId: acme }, options: { expireInSeconds: 900, retryLimit: 0 } }]);
+    const run = await createCheckRunRepository(t.appDb).current(acme);
+    expect(run).toMatchObject({ trigger: "manual", linksTotal: 1, outcome: "running" });
+    expect(r.body.runId).toBe(run?.id);
+    expect(queued).toEqual([{ name: "extraction.checks", payload: { supplierId: acme, runId: run?.id }, options: { expireInSeconds: 900, retryLimit: 0 } }]);
+  });
+  it("refuses a second run while one is going, with a plain message, and queues nothing more", async () => {
+    await call("POST", `/api/suppliers/${acme}/check-stock`);
+    const second = await call("POST", `/api/suppliers/${acme}/check-stock`);
+    expect(second.status).toBe(409);
+    expect(second.body.error.code).toBe("run_in_progress");
+    expect(second.body.error.message).toMatch(/already running/);
+    expect(queued).toHaveLength(1);
+  });
+  it("two presses at the same moment start one run", async () => {
+    const both = await Promise.all([call("POST", `/api/suppliers/${acme}/check-stock`), call("POST", `/api/suppliers/${acme}/check-stock`)]);
+    expect(both.map((r) => r.status).sort()).toEqual([202, 409]);
+    expect(queued).toHaveLength(1);
+  });
+  it("ends the run as failed when the queue is down, so the next press is not refused", async () => {
+    enqueueFails = true;
+    expect((await call("POST", `/api/suppliers/${acme}/check-stock`)).status).toBe(503);
+    expect(await createCheckRunRepository(t.appDb).current(acme)).toBeNull();
+    expect((await createCheckRunRepository(t.appDb).recent(acme, 1))[0]).toMatchObject({ outcome: "failed", stopReason: "not_queued" });
+    enqueueFails = false;
+    expect((await call("POST", `/api/suppliers/${acme}/check-stock`)).status).toBe(202);
   });
   it("sizes the job for a long run", async () => {
     await suppliers().setPermission(acme, { status: "granted", note: null, pauseSeconds: 60 });

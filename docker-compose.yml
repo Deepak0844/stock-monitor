@@ -64,6 +64,8 @@ services:
       # The address you open the app at. The live login screen only accepts pages from this exact origin.
       # Left blank, it accepts http://localhost:3000 and http://127.0.0.1:3000.
       APP_ORIGIN: ${APP_ORIGIN:-}
+      # Your timezone for the quiet hours of automatic checks. Follows BROWSER_TIMEZONE, so there is nothing more to set.
+      APP_TIMEZONE: ${BROWSER_TIMEZONE:-UTC}
     networks: [default, control]
     # Bound to this machine only. Put an HTTPS reverse proxy in front for anything else.
     ports:
@@ -82,6 +84,7 @@ services:
     command: ["node", "--import", "tsx", "apps/worker/src/index.ts"]
     environment:
       <<: [*app-env, *browser-link]
+      APP_TIMEZONE: ${BROWSER_TIMEZONE:-UTC}
     networks: [default, control]
     depends_on:
       migrate:

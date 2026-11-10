@@ -154,4 +154,15 @@ describe("loadConfig", () => {
       expect(() => loadConfig({ ...valid, APP_ENCRYPTION_KEY: "" })).toThrow(/APP_ENCRYPTION_KEY/);
     });
   });
+
+  describe("the owner's timezone", () => {
+    it("defaults to UTC and reads an IANA name", () => {
+      expect(loadConfig(valid).timezone).toBe("UTC");
+      expect(loadConfig({ ...valid, APP_TIMEZONE: "Asia/Kolkata" }).timezone).toBe("Asia/Kolkata");
+    });
+    it("treats a blank value as not set and refuses a name that is not a timezone", () => {
+      expect(loadConfig({ ...valid, APP_TIMEZONE: "" }).timezone).toBe("UTC");
+      expect(() => loadConfig({ ...valid, APP_TIMEZONE: "Mars/Base" })).toThrow(/APP_TIMEZONE/);
+    });
+  });
 });
