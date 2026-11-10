@@ -88,6 +88,11 @@ export function createProposalRepository<S extends Record<string, unknown>>(db: 
       if (existing && existing.kind === i.wanted.kind && existing.proposedQuantity === i.wanted.proposedQuantity && existing.shopifyQuantitySeen === i.shopifyQuantitySeen) {
         return { change: "kept", proposal: existing };
       }
+      if (!existing && i.observationId !== null) {
+        // One answer gets one suggestion: after the owner rejected it, or it expired, only a newer check may suggest again.
+        const [used] = await tx.select({ id: proposals.id }).from(proposals).where(and(eq(proposals.mappingId, i.mappingId), eq(proposals.observationId, i.observationId))).limit(1);
+        if (used) return { change: "none", proposal: null };
+      }
       if (existing) await tx.update(proposals).set({ state: "replaced", closedReason: "newer_answer" }).where(eq(proposals.id, existing.id));
       const [created] = await tx
         .insert(proposals)

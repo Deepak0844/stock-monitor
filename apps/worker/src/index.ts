@@ -8,6 +8,7 @@ import {
   createCheckRunRepository,
   createMappingRepository,
   createObservationRepository,
+  createProposalRepository,
   createRecipeRepository,
   createNotificationRepository,
   createShopifyRepository,
@@ -85,11 +86,19 @@ await registerHandlers(queue, logger, {
           recipes: createRecipeRepository(db),
           mappings: createMappingRepository(db),
           checkRuns: createCheckRunRepository(db),
+          proposals: createProposalRepository(db),
           queue,
           audit: createAuditWriter(db),
           timezone: config.timezone,
         }
       : undefined,
+  // Suggestions come from the stored answers and the synced Shopify numbers: no browser, no Shopify call.
+  proposals: {
+    mappings: createMappingRepository(db),
+    observations: createObservationRepository(db),
+    shopify: createShopifyRepository(db, { key: config.encryptionKey, keyId: KEY_ID }),
+    proposals: createProposalRepository(db),
+  },
   // Link checks need the same browser service as session checks.
   mappingLinks:
     config.browserServiceUrl && config.browserControlToken

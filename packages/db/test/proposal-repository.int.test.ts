@@ -76,6 +76,17 @@ describe("evaluateFor", () => {
     expect(await repo().evaluateFor(input({ wanted: null }))).toEqual({ change: "none", proposal: null });
   });
 
+  it("does not suggest again from an observation that already had a suggestion decided, expired or closed", async () => {
+    const obs = (await t.pool.query(`insert into stock_observations (mapping_id, answer, check_result) values ($1, 'out_of_stock', 'ok') returning id`, [mapping])).rows[0].id as number;
+    const a = (await repo().evaluateFor(input({ observationId: obs }))).proposal!;
+    await repo().reject(a.id, null, "owner", NOW);
+    expect(await repo().evaluateFor(input({ observationId: obs }))).toEqual({ change: "none", proposal: null });
+    expect(await repo().open()).toEqual([]);
+    // a newer check is a new observation, so it may suggest again
+    const newer = (await t.pool.query(`insert into stock_observations (mapping_id, answer, check_result) values ($1, 'out_of_stock', 'ok') returning id`, [mapping])).rows[0].id as number;
+    expect((await repo().evaluateFor(input({ observationId: newer }))).change).toBe("created");
+  });
+
   it("two evaluations at the same moment give one open suggestion", async () => {
     const both = await Promise.all([repo().evaluateFor(input()), repo().evaluateFor(input())]);
     expect(await repo().open()).toHaveLength(1);

@@ -218,6 +218,16 @@ export function createShopifyRepository<S extends Record<string, unknown>>(db: N
 
   const variants = {
     /** One page of variants that still exist in Shopify, with the total that match. */
+    /** What the suggestions need of some variants: the item to change, the last synced number, and whether it is gone. */
+    async variantStock(variantIds: string[]): Promise<Map<string, { inventoryItemId: string; available: number | null; tracked: boolean; removed: boolean }>> {
+      if (variantIds.length === 0) return new Map();
+      const rows = await db
+        .select({ id: shopifyVariants.variantId, inventoryItemId: shopifyVariants.inventoryItemId, available: shopifyVariants.available, tracked: shopifyVariants.tracked, removedAt: shopifyVariants.removedAt })
+        .from(shopifyVariants)
+        .where(inArray(shopifyVariants.variantId, variantIds));
+      return new Map(rows.map((r) => [r.id, { inventoryItemId: r.inventoryItemId, available: r.available, tracked: r.tracked, removed: r.removedAt !== null }]));
+    },
+
     async listVariants(opts: { page: number; pageSize: number; search?: string; warningsOnly?: boolean }): Promise<VariantPage> {
       const conditions: (SQL | undefined)[] = [isNull(shopifyVariants.removedAt)];
       if (opts.search) {

@@ -1,6 +1,6 @@
 import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
-import type { createCheckRunRepository, createMappingRepository, createRecipeRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
+import type { createCheckRunRepository, createMappingRepository, createProposalRepository, createRecipeRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
 import type { Queue } from "@stock-monitor/queue";
 import { pickDue, runExpirySeconds } from "@stock-monitor/scheduling";
 import { stockGate, type SkipReason } from "./extraction-check.js";
@@ -11,6 +11,8 @@ export type TickDeps = {
   recipes: ReturnType<typeof createRecipeRepository>;
   mappings: ReturnType<typeof createMappingRepository>;
   checkRuns: ReturnType<typeof createCheckRunRepository>;
+  /** When set, open suggestions past their time are expired on every tick. */
+  proposals?: ReturnType<typeof createProposalRepository>;
   queue: Pick<Queue, "enqueue">;
   audit: ReturnType<typeof createAuditWriter>;
   logger: Logger;
@@ -35,6 +37,7 @@ export async function runTick(deps: TickDeps): Promise<{ started: string[]; skip
   const now = (deps.now ?? (() => new Date()))();
   await checkRuns.stopOlderThan(STUCK_AFTER_SECONDS, "expired");
   await checkRuns.purge(KEEP_RUNS_DAYS);
+  await deps.proposals?.expireDue(now);
 
   const going = await checkRuns.running();
   const busy = new Set(going.map((r) => r.supplierId));

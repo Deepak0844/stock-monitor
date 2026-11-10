@@ -18,6 +18,10 @@ export const jobSchemas = {
   "extraction.checks": z.object({ supplierId: z.uuid(), runId: z.uuid() }).strict(),
   // Every minute: starts the supplier runs that are due. No data: the worker reads everything from the database.
   "scheduling.tick": z.object({}).strict(),
+  // Suggestions. Evaluate looks at the latest answers: for one link, for one supplier, or (no fields) for every link. Apply writes
+  // one approved suggestion to Shopify. Ids only: the worker reads numbers and the idempotency key from the database.
+  "proposals.evaluate": z.object({ supplierId: z.uuid().optional(), mappingId: z.uuid().optional() }).strict(),
+  "proposals.apply": z.object({ proposalId: z.uuid() }).strict(),
   "mapping.link.check": z.object({ mappingId: z.uuid() }).strict(),
   "mapping.links.check": z.object({ supplierId: z.uuid() }).strict(),
 } as const;
