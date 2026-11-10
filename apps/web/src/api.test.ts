@@ -276,4 +276,28 @@ describe("checking a connection and reading messages", () => {
     expect(await api.notifications.list()).toEqual([note]);
     expect(f.mock.calls[0]![0]).toBe("/api/notifications");
   });
+
+  it("proposals: lists open ones, pages history, counts, approves with or without a number, rejects, and reads and saves settings", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => respond(200, { proposals: [], writePermission: {}, open: 2, proposal: { id: "p1" }, settings: {} }));
+    vi.stubGlobal("fetch", fetchMock);
+    await api.proposals.open();
+    await api.proposals.history(2);
+    expect(await api.proposals.count()).toBe(2);
+    await api.proposals.approve("p1");
+    await api.proposals.approve("p/1", 7);
+    await api.proposals.reject("p1");
+    await api.proposals.settings();
+    await api.proposals.saveSettings({ defaultQuantity: 8, expiryHours: 12 });
+    const calls = fetchMock.mock.calls.map(([url, init]) => [init.method, url, init.body]);
+    expect(calls).toEqual([
+      ["GET", "/api/proposals?tab=open", undefined],
+      ["GET", "/api/proposals?tab=history&page=2", undefined],
+      ["GET", "/api/proposals/count", undefined],
+      ["POST", "/api/proposals/p1/approve", "{}"],
+      ["POST", "/api/proposals/p%2F1/approve", '{"quantity":7}'],
+      ["POST", "/api/proposals/p1/reject", "{}"],
+      ["GET", "/api/settings/proposals", undefined],
+      ["PUT", "/api/settings/proposals", '{"defaultQuantity":8,"expiryHours":12}'],
+    ]);
+  });
 });

@@ -14,6 +14,7 @@ import {
   createMappingRepository,
   createNotificationRepository,
   createObservationRepository,
+  createProposalRepository,
   createRecipeRepository,
   createShopifyRepository,
   createSupplierRepository,
@@ -90,6 +91,8 @@ await registerHandlers(queue, logger, {
     captures: createCaptureRepository(db.appDb), notifications, audit: createAuditWriter(db.appDb), checkRuns: createCheckRunRepository(db.appDb), timezone: "UTC", browser: browserClient, key: encryption.key, sleep: async () => {},
   },
   mappingLinks: { mappings: createMappingRepository(db.appDb), suppliers, supplierSessions, audit: createAuditWriter(db.appDb), browser: browserClient, key: encryption.key, sleep: async () => {} },
+  proposals: { mappings: createMappingRepository(db.appDb), observations: createObservationRepository(db.appDb), shopify: repo, proposals: createProposalRepository(db.appDb) },
+  proposalsApply: { proposals: createProposalRepository(db.appDb), shopify: repo, audit: createAuditWriter(db.appDb), queue, baseUrl, clientOptions: { sleep: async () => {} } },
   supplierVerify: { suppliers, supplierSessions, notifications, audit: createAuditWriter(db.appDb), browser: browserClient, key: encryption.key, retryDelaysMs: [], sleep: async () => {} },
 });
 
@@ -111,6 +114,7 @@ const app = buildApp({
   loginSessions: { suppliers, loginSessions, supplierSessions, browser: browserClient, key: encryption, notifications, queue },
   loginScreen: { allowedOrigins: [BASE_URL], vnc: { host: "127.0.0.1", port: vnc.port }, firstMessageTimeoutMs: 5000 },
   shopify: { repo, queue, baseUrl, clientOptions: { sleep: async () => {} } },
+  proposals: { proposals: createProposalRepository(db.appDb), shopify: repo, queue },
 });
 
 // Control channel for the tests. Listens on this machine only.

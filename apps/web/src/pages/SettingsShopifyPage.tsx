@@ -5,6 +5,7 @@ import { useTitle } from "../useTitle.js";
 import { ConnectionCard } from "./settings/ConnectionCard.js";
 import { LocationCard } from "./settings/LocationCard.js";
 import { ShopifyConnectForm } from "./settings/ShopifyConnectForm.js";
+import { ProposalSettingsCard } from "./settings/ProposalSettingsCard.js";
 import { SyncCard } from "./settings/SyncCard.js";
 
 type Load =
@@ -106,6 +107,7 @@ export function SettingsShopifyPage({ api }: { api: Api }) {
             />
           )}
           <SyncCard api={api} connection={load.connection} onFinished={refresh} />
+          <ProposalSettingsCard api={api} />
         </div>
       )}
     </>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api as realApi, type Api } from "./api.js";
 import { DashboardPage } from "./pages/DashboardPage.js";
 import { NotFoundPage } from "./pages/NotFoundPage.js";
+import { ProposalsPage } from "./pages/ProposalsPage.js";
 import { ProductsPage } from "./pages/ProductsPage.js";
 import { ConnectSupplierPage } from "./pages/ConnectSupplierPage.js";
 import { ImportMappingsPage } from "./pages/ImportMappingsPage.js";
@@ -31,6 +32,16 @@ export function App({ api = realApi }: { api?: Api }) {
   const mappingEditId = /^\/mappings\/([^/]+)\/edit$/.exec(path)?.[1];
   const rulesId = /^\/suppliers\/([^/]+)\/rules$/.exec(path)?.[1];
   const connectId = /^\/suppliers\/([^/]+)\/connect$/.exec(path)?.[1];
+
+  const [proposalCount, setProposalCount] = useState(0);
+  const signedIn = state.kind === "signedIn";
+  // How many suggestions are waiting, for the menu. Read again whenever the owner moves to another page.
+  const refreshCount = useCallback(() => {
+    api.proposals.count().then(setProposalCount).catch(() => {});
+  }, [api]);
+  useEffect(() => {
+    if (signedIn) refreshCount();
+  }, [signedIn, path, refreshCount]);
 
   const checkSession = useCallback(() => {
     setState({ kind: "loading" });
@@ -79,6 +90,7 @@ export function App({ api = realApi }: { api?: Api }) {
   return (
     <AppShell
       email={state.email}
+      proposalCount={proposalCount}
       onSignOut={() =>
         api
           .logout()
@@ -90,6 +102,8 @@ export function App({ api = realApi }: { api?: Api }) {
         <DashboardPage api={api} />
       ) : path === "/products" ? (
         <ProductsPage api={api} />
+      ) : path === "/proposals" ? (
+        <ProposalsPage api={api} onChange={refreshCount} />
       ) : path === "/suppliers" ? (
         <SuppliersPage api={api} />
       ) : path === "/suppliers/new" ? (

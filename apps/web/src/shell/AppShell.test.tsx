@@ -9,9 +9,9 @@ import { navigate } from "../router.js";
 beforeEach(() => window.history.replaceState(null, "", "/"));
 afterEach(cleanup);
 
-const setup = (onSignOut = vi.fn()) => {
+const setup = (onSignOut = vi.fn(), proposalCount?: number) => {
   render(
-    <AppShell email="owner@example.com" onSignOut={onSignOut}>
+    <AppShell email="owner@example.com" onSignOut={onSignOut} proposalCount={proposalCount}>
       <h1>Page title</h1>
     </AppShell>,
   );
@@ -32,7 +32,7 @@ describe("AppShell", () => {
     expect(within(nav).getByRole("link", { name: "Dashboard" })).toHaveAttribute("aria-current", "page");
   });
 
-  it.each(["Approvals", "History"])(
+  it.each(["History"])(
     "shows %s as not available yet instead of a dead link",
     (label) => {
       setup();
@@ -68,7 +68,23 @@ describe("AppShell", () => {
     setup();
     const nav = screen.getByRole("navigation", { name: "Main" });
     const labels = within(nav).getAllByRole("listitem").map((li) => li.textContent?.replace("Soon", "").trim());
-    expect(labels).toEqual(["Dashboard", "Suppliers", "Links", "Products", "Approvals", "History", "Settings"]);
+    expect(labels).toEqual(["Dashboard", "Suppliers", "Links", "Products", "Proposals", "History", "Settings"]);
+  });
+
+  it("makes Proposals a real link, with no badge when nothing is waiting", () => {
+    setup(vi.fn(), 0);
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    const link = within(nav).getByRole("link", { name: "Proposals" });
+    expect(link).toHaveAttribute("href", "/proposals");
+    expect(link.querySelector(".badge")).toBeNull();
+  });
+
+  it("shows how many suggestions are waiting, and says so to a screen reader", () => {
+    setup(vi.fn(), 3);
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    const link = within(nav).getByRole("link", { name: "Proposals, 3 waiting" });
+    expect(link).toHaveTextContent("3");
+    expect(link).toHaveAttribute("href", "/proposals");
   });
 
   it("makes Settings a real link to the Shopify settings page", () => {

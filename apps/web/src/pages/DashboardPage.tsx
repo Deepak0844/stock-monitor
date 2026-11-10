@@ -37,6 +37,7 @@ export function DashboardPage({ api }: { api: Api }) {
   const [notes, setNotes] = useState<AppNotification[] | null>(null);
   const [notesError, setNotesError] = useState<string | null>(null);
   const [suppliers, setSuppliers] = useState<Supplier[] | "error" | null>(null);
+  const [waiting, setWaiting] = useState(0);
   const [links, setLinks] = useState<{ unmapped: number; total: number; attention: number; answers: { in: number; out: number; unsure: number } } | "error" | null>(null);
 
   const loadNotes = useCallback(() => {
@@ -51,6 +52,9 @@ export function DashboardPage({ api }: { api: Api }) {
     api.suppliers.list().then(setSuppliers).catch(() => setSuppliers("error"));
   }, [api]);
 
+  useEffect(() => {
+    api.proposals.count().then(setWaiting).catch(() => {});
+  }, [api]);
   useEffect(() => {
     Promise.all([api.mappings.unmapped(), api.mappings.list({})])
       .then(([u, all]) =>
@@ -165,8 +169,15 @@ export function DashboardPage({ api }: { api: Api }) {
         <SummaryCard
           icon={<IconApprovals />}
           title="Waiting for your approval"
-          value="0"
-          note="Nothing to review. Proposed Shopify changes will appear here."
+          value={String(waiting)}
+          note={waiting > 0 ? "Suggested changes to your Shopify stock are waiting for you." : "Nothing to review. Proposed Shopify changes will appear here."}
+          action={
+            waiting > 0 ? (
+              <Link to="/proposals" className="button secondary">
+                Review suggestions
+              </Link>
+            ) : undefined
+          }
         />
       </div>
 
