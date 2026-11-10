@@ -14,6 +14,9 @@ export type FakeVariant = {
   productId: string;
   productTitle: string;
   inventoryItemId: string;
+  /** The product's supplier-name and supplier-page-address metafields. Missing or null means the product has none. */
+  supplierName?: string | null;
+  supplierUrl?: string | null;
   /** location id to available quantity. A location that is missing means "not stocked there". */
   stock: Record<string, number>;
 };
@@ -45,6 +48,7 @@ export function createFakeCatalog(init: { locations: FakeLocation[]; variants: F
   let failFromVariantRequest: number | null = null;
   const pageSizes: number[] = [];
   const queries: string[] = [];
+  const variantVariables: Record<string, unknown>[] = [];
   let variantPages = 0;
   // Writing stock. Follows the 2026-10 reference: inventorySetQuantities needs write_inventory, an @idempotent
   // key, and refuses a change when changeFromQuantity is not the number Shopify holds now.
@@ -80,6 +84,7 @@ export function createFakeCatalog(init: { locations: FakeLocation[]; variants: F
     if (/\bproductVariants\s*\(/.test(request.query)) {
       variantPages += 1;
       pageSizes.push(first);
+      variantVariables.push(request.variables ?? {});
       if (failFromVariantRequest !== null && variantPages >= failFromVariantRequest) {
         return { body: { errors: [{ message: "internal", extensions: { code: "INTERNAL_SERVER_ERROR" } }] } };
       }
@@ -91,7 +96,12 @@ export function createFakeCatalog(init: { locations: FakeLocation[]; variants: F
         sku: v.sku,
         selectedOptions: v.options,
         inventoryPolicy: v.policy,
-        product: { id: v.productId, title: v.productTitle },
+        product: {
+          id: v.productId,
+          title: v.productTitle,
+          supplierName: v.supplierName == null ? null : { value: v.supplierName },
+          supplierUrl: v.supplierUrl == null ? null : { value: v.supplierUrl },
+        },
         inventoryItem: {
           id: v.inventoryItemId,
           tracked: v.tracked,
@@ -198,6 +208,7 @@ export function createFakeCatalog(init: { locations: FakeLocation[]; variants: F
       variantPages = 0;
     },
     pageSizes,
+    variantVariables,
     queries,
   };
 }

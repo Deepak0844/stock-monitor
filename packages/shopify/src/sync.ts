@@ -1,4 +1,4 @@
-import { fetchVariantPages, type CatalogVariant } from "./catalog.js";
+import { fetchVariantPages, type CatalogVariant, type SupplierMetafields } from "./catalog.js";
 import type { ShopifyClient } from "./client.js";
 
 export type StoredVariant = CatalogVariant & { removed: boolean };
@@ -23,6 +23,8 @@ const same = (a: CatalogVariant, b: CatalogVariant) =>
   a.tracked === b.tracked &&
   a.inventoryPolicy === b.inventoryPolicy &&
   a.available === b.available &&
+  a.supplierName === b.supplierName &&
+  a.supplierUrl === b.supplierUrl &&
   JSON.stringify(a.options) === JSON.stringify(b.options);
 
 /**
@@ -35,6 +37,8 @@ export async function syncCatalog(args: {
   client: ShopifyClient;
   locationId: string;
   store: CatalogStore;
+  /** Which product metafields hold the supplier's name and page address. Defaults to custom.supplier_name and custom.spu. */
+  metafields?: SupplierMetafields;
   onProgress?: (progress: SyncProgress) => void;
 }): Promise<SyncResult> {
   const known = new Map((await args.store.getAll()).map((v) => [v.variantId, v]));
@@ -44,7 +48,7 @@ export async function syncCatalog(args: {
   let unchanged = 0;
   let pagesFetched = 0;
 
-  for await (const page of fetchVariantPages(args.client, args.locationId)) {
+  for await (const page of fetchVariantPages(args.client, args.locationId, args.metafields)) {
     pagesFetched += 1;
     const toSave: CatalogVariant[] = [];
     for (const variant of page) {

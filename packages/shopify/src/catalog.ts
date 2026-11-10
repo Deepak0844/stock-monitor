@@ -16,7 +16,25 @@ export type CatalogVariant = {
   inventoryPolicy: "DENY" | "CONTINUE";
   /** `available` at the chosen location. Empty when the variant is not stocked there, which is not the same as 0. */
   available: number | null;
+  /** The product's supplier-name metafield, trimmed. null when the product has none or it is empty. */
+  supplierName: string | null;
+  /** The product's supplier-page-address metafield (the SPU), trimmed. null when none or empty. */
+  supplierUrl: string | null;
 };
+
+export type MetafieldName = { namespace: string; key: string };
+/** Which product metafields hold the supplier's name and the supplier's page address. */
+export type SupplierMetafields = { supplierName: MetafieldName; supplierUrl: MetafieldName };
+export const DEFAULT_SUPPLIER_METAFIELDS: SupplierMetafields = {
+  supplierName: { namespace: "custom", key: "supplier_name" },
+  supplierUrl: { namespace: "custom", key: "spu" },
+};
+
+/** "namespace.key" as Shopify shows it in Custom data, or null when it is not a name Shopify accepts. */
+export function parseMetafieldName(text: string): MetafieldName | null {
+  const match = /^([A-Za-z0-9_-]{3,255})\.([A-Za-z0-9_-]{2,64})$/.exec(text.trim());
+  return match ? { namespace: match[1] as string, key: match[2] as string } : null;
+}
 
 export const VARIANTS_PAGE_SIZE = 50;
 const LOCATIONS_PAGE_SIZE = 50;
@@ -30,7 +48,7 @@ const MAX_VARIANT_PAGES = 500; // 25,000 variants, the most Shopify lets a conne
  * product, inventory item, inventory level, quantities and options). Checked against a real store
  * in Task 11.
  */
-export const estimateVariantsPageCost = (pageSize: number) => 2 + pageSize * 8;
+export const estimateVariantsPageCost = (pageSize: number) => 2 + pageSize * 10;
 
 // Read-only: both are queries, there is no mutation anywhere in this package's Phase A.
 const LOCATIONS_QUERY = `query Locations($first: Int!, $after: String) {
@@ -40,7 +58,7 @@ const LOCATIONS_QUERY = `query Locations($first: Int!, $after: String) {
   }
 }`;
 
-const VARIANTS_QUERY = `query Variants($first: Int!, $after: String, $locationId: ID!) {
+const VARIANTS_QUERY = `query Variants($first: Int!, $after: String, $locationId: ID!, $nameNamespace: String!, $nameKey: String!, $urlNamespace: String!, $urlKey: String!) {
   productVariants(first: $first, after: $after) {
     nodes {
       id
@@ -48,7 +66,12 @@ const VARIANTS_QUERY = `query Variants($first: Int!, $after: String, $locationId
       sku
       selectedOptions { name value }
       inventoryPolicy
-      product { id title }
+      product {
+        id
+        title
+        supplierName: metafield(namespace: $nameNamespace, key: $nameKey) { value }
+        supplierUrl: metafield(namespace: $urlNamespace, key: $urlKey) { value }
+      }
       inventoryItem {
         id
         tracked
@@ -79,7 +102,12 @@ const variantsReply = z.object({
         sku: z.string().nullable(),
         selectedOptions: z.array(z.object({ name: z.string(), value: z.string() })),
         inventoryPolicy: z.enum(["DENY", "CONTINUE"]),
-        product: z.object({ id: z.string().min(1), title: z.string() }),
+        product: z.object({
+          id: z.string().min(1),
+          title: z.string(),
+          supplierName: z.object({ value: z.string() }).nullable().optional(),
+          supplierUrl: z.object({ value: z.string() }).nullable().optional(),
+        }),
         inventoryItem: z.object({
           id: z.string().min(1),
           tracked: z.boolean(),
@@ -127,13 +155,25 @@ export async function listLocations(client: ShopifyClient): Promise<ShopifyLocat
 }
 
 /** Yields the store's variants one page at a time, with stock at one location. */
-export async function* fetchVariantPages(client: ShopifyClient, locationId: string): AsyncGenerator<CatalogVariant[]> {
+export async function* fetchVariantPages(
+  client: ShopifyClient,
+  locationId: string,
+  metafields: SupplierMetafields = DEFAULT_SUPPLIER_METAFIELDS,
+): AsyncGenerator<CatalogVariant[]> {
   if (!/^gid:\/\/shopify\/Location\/\d+$/.test(locationId)) throw new Error("Invalid Shopify location id.");
 
   const pages = paged(MAX_VARIANT_PAGES, async (after) => {
     const data = await client.query(VARIANTS_QUERY, {
       schema: variantsReply,
-      variables: { first: VARIANTS_PAGE_SIZE, after, locationId },
+      variables: {
+        first: VARIANTS_PAGE_SIZE,
+        after,
+        locationId,
+        nameNamespace: metafields.supplierName.namespace,
+        nameKey: metafields.supplierName.key,
+        urlNamespace: metafields.supplierUrl.namespace,
+        urlKey: metafields.supplierUrl.key,
+      },
       estimatedCost: estimateVariantsPageCost(VARIANTS_PAGE_SIZE),
     });
     return { items: data.productVariants.nodes, ...data.productVariants.pageInfo };
@@ -152,6 +192,8 @@ export async function* fetchVariantPages(client: ShopifyClient, locationId: stri
         tracked: v.inventoryItem.tracked,
         inventoryPolicy: v.inventoryPolicy,
         available: v.inventoryItem.inventoryLevel?.quantities.find((q) => q.name === "available")?.quantity ?? null,
+        supplierName: v.product.supplierName?.value.trim() || null,
+        supplierUrl: v.product.supplierUrl?.value.trim() || null,
       }),
     );
   }

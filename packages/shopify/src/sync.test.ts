@@ -172,4 +172,22 @@ describe("syncCatalog", () => {
     expect(result).toEqual({ added: 0, updated: 0, unchanged: 0, removed: 2, total: 0 });
     expect([...rows.values()].every((r) => r.removed)).toBe(true);
   });
+
+  it("counts a variant as updated when only its supplier name or supplier address changed, and passes the metafield names on", async () => {
+    fakeStore = await start(2);
+    const { store } = memoryStore();
+    await syncCatalog({ client: fakeStore.client, locationId: LOC_A, store });
+    fakeStore.catalog.setVariants([
+      makeVariant(1, { supplierName: "Acme Foods", supplierUrl: "https://acme.example/p/1" }),
+      makeVariant(2),
+    ]);
+    const result = await syncCatalog({
+      client: fakeStore.client,
+      locationId: LOC_A,
+      store,
+      metafields: { supplierName: { namespace: "ops", key: "vendor" }, supplierUrl: { namespace: "ops", key: "vendor_url" } },
+    });
+    expect(result).toEqual({ added: 0, updated: 1, unchanged: 1, removed: 0, total: 2 });
+    expect(fakeStore.catalog.variantVariables.at(-1)).toMatchObject({ nameNamespace: "ops", urlKey: "vendor_url" });
+  });
 });
