@@ -1,10 +1,9 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { fileURLToPath } from "node:url";
+import { setupDatabase } from "../src/setup.js";
 
 export type TestDb = {
   url: string;
@@ -13,6 +12,7 @@ export type TestDb = {
   /** Connected as the restricted app role, the way the real API and worker connect. */
   appPool: pg.Pool;
   appDb: ReturnType<typeof drizzle>;
+  appUrl: string;
   stop: () => Promise<void>;
 };
 
@@ -22,29 +22,38 @@ if (!process.env.DOCKER_HOST && !existsSync("/var/run/docker.sock") && existsSyn
   process.env.DOCKER_HOST = `unix://${orbstackSocket}`;
 }
 
-export async function startTestDb(): Promise<TestDb> {
+export type RunningPostgres = { url: string; stop: () => Promise<void> };
+
+/** A bare PostgreSQL in Docker: no migrations, no roles. */
+export async function startPostgres(): Promise<RunningPostgres> {
   const container: StartedPostgreSqlContainer = await new PostgreSqlContainer("postgres:17-alpine").start();
-  const url = container.getConnectionUri();
+  return { url: container.getConnectionUri(), stop: async () => void (await container.stop()) };
+}
+
+export async function startTestDb(): Promise<TestDb> {
+  const postgres = await startPostgres();
+  const url = postgres.url;
+  await setupDatabase({ ownerUrl: url, appRole: "app_login", appPassword: "app_login_pw" });
   const pool = new pg.Pool({ connectionString: url });
+  // An idle connection reports an error when its container is stopped. That is expected at the end of a test file, so it must not crash the run.
+  pool.on("error", () => {});
   const db = drizzle(pool);
-  await migrate(db, {
-    migrationsFolder: fileURLToPath(new URL("../drizzle", import.meta.url)),
-  });
-  await pool.query("create role app_login login password 'app_login_pw' in role app_user");
   const appUrl = new URL(url);
   appUrl.username = "app_login";
   appUrl.password = "app_login_pw";
   const appPool = new pg.Pool({ connectionString: appUrl.toString() });
+  appPool.on("error", () => {});
   return {
     url,
     pool,
     db,
     appPool,
     appDb: drizzle(appPool),
+    appUrl: appUrl.toString(),
     stop: async () => {
       await appPool.end();
       await pool.end();
-      await container.stop();
+      await postgres.stop();
     },
   };
 }

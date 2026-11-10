@@ -2,25 +2,40 @@
   "name": "stock-monitor",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@12.18.0",
+  "packageManager": "npm@11.11.1",
   "engines": {
-    "node": ">=22"
+    "node": ">=22",
+    "npm": ">=10"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "test:unit": "vitest run --exclude '**/*.int.test.ts' --exclude '**/node_modules/**' --exclude '.claude/**'",
-    "test:integration": "vitest run --passWithNoTests --exclude '.claude/**' .int.test.ts",
-    "check": "pnpm typecheck && pnpm lint && pnpm test:unit && pnpm test:integration"
+    "test:unit": "vitest run --exclude '**/*.int.test.ts' --exclude '**/*.browser.test.ts' --exclude '**/*.docker.test.ts' --exclude '**/node_modules/**' --exclude '.claude/**' --exclude 'e2e/**'",
+    "test:integration": "vitest run --passWithNoTests --exclude '.claude/**' --exclude 'e2e/**' .int.test.ts",
+    "test:browser": "vitest run --no-file-parallelism --passWithNoTests --exclude '.claude/**' --exclude 'e2e/**' .browser.test.ts",
+    "test:container": "vitest run --passWithNoTests --exclude '.claude/**' --exclude 'e2e/**' .docker.test.ts",
+    "check": "npm run typecheck && npm run lint && npm run test:unit && npm run test:integration",
+    "create-owner": "npm run create-owner -w @stock-monitor/api",
+    "build": "npm run build --workspaces --if-present",
+    "test:e2e": "npm run build && playwright test",
+    "db:migrate": "npm run db:migrate -w @stock-monitor/db",
+    "db:generate": "npm run db:generate -w @stock-monitor/db"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.65.0",
     "@types/node": "^26.6.6",
     "eslint": "^10.14.0",
     "prettier": "^3.9.10",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.72.1",
     "vitest": "^5.1.0"
-  }
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "services/*"
+  ]
 }

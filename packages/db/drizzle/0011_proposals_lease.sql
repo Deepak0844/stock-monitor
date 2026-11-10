@@ -1,0 +1,1 @@
+ALTER TABLE "proposals" ADD COLUMN "apply_lease_until" timestamp with time zone;

@@ -9,7 +9,7 @@ User: the store owner, through every later module. Success means a later module 
 
 ## Tech Stack
 Versions are the latest stable at implementation time. Pin them in the lockfile and verify against official docs before use.
-- Node.js LTS, TypeScript (strict), pnpm workspaces.
+- Node.js LTS, TypeScript (strict), npm workspaces.
 - API: Fastify, Zod for validation (`fastify-type-provider-zod`).
 - Database: PostgreSQL, Drizzle ORM and drizzle-kit migrations.
 - Queue: pg-boss (uses the same PostgreSQL).
@@ -21,17 +21,17 @@ Versions are the latest stable at implementation time. Pin them in the lockfile 
 
 ## Commands
 ```
-Install:     pnpm install
-Dev (all):   pnpm dev
-Build:       pnpm build
-Typecheck:   pnpm typecheck
-Lint:        pnpm lint
-Unit:        pnpm test:unit
-Integration: pnpm test:integration
-E2E:         pnpm test:e2e
-All checks:  pnpm check            # typecheck, lint, unit, integration
-DB migrate:  pnpm db:migrate
-DB generate: pnpm db:generate
+Install:     npm install
+Dev (all):   npm run dev
+Build:       npm run build
+Typecheck:   npm run typecheck
+Lint:        npm run lint
+Unit:        npm run test:unit
+Integration: npm run test:integration
+E2E:         npm run test:e2e
+All checks:  npm run check            # typecheck, lint, unit, integration
+DB migrate:  npm run db:migrate
+DB generate: npm run db:generate
 ```
 
 ## Project Structure
@@ -64,7 +64,7 @@ pg-boss creates its own queue tables. Later modules add their own tables through
 
 ### Behaviour
 1. **Secrets.** `encrypt(plaintext) -> {ciphertext, iv, tag, keyId}` using AES-256-GCM, with the key loaded from the `APP_ENCRYPTION_KEY` environment variable and never stored in the database. `decrypt` fails loudly on tampering or a wrong key. Includes `keyId` so keys can be rotated later.
-2. **Login.** Email and password, argon2id. A session cookie is httpOnly, Secure in production and SameSite=Lax. Login failures are rate-limited. There is one owner, created by a CLI command (`pnpm create-owner`), with no public signup.
+2. **Login.** Email and password, argon2id. A session cookie is httpOnly, Secure in production and SameSite=Lax. Login failures are rate-limited. There is one owner, created by a CLI command (`npm run create-owner`), with no public signup.
 3. **Route protection.** A Fastify hook rejects any route not on an allow-list unless the session is valid.
 4. **Audit.** `audit.record()` writes an event. The table has no update or delete path in code, and the database role used by the app has no UPDATE or DELETE on it. `details` passes through a redactor that strips keys named like password, token, cookie, secret.
 5. **Logging.** Structured logs (pino) with a request id. The redactor config removes authorization headers, cookies and secret fields.
@@ -101,12 +101,12 @@ All work is test-first (red, green, refactor).
 - No test is skipped or weakened. Automated tests never use real secrets.
 
 ## Boundaries
-- **Always:** write a failing test first, validate all input with Zod, redact secrets in logs and audit details, keep `.env` out of git, run `pnpm check` before finishing a task.
+- **Always:** write a failing test first, validate all input with Zod, redact secrets in logs and audit details, keep `.env` out of git, run `npm run check` before finishing a task.
 - **Ask first:** adding a dependency beyond the stack above, changing a table design after it ships, changing CI.
 - **Never:** store a password or key in the database, log a secret, add a public signup route, add an update or delete path for `audit_events`, skip or delete a failing test to get green.
 
 ## Success Criteria
-1. `pnpm install && pnpm check` passes on a clean checkout.
+1. `npm install && npm run check` passes on a clean checkout.
 2. `docker compose up` starts PostgreSQL, API and worker, and `/health` returns OK.
 3. Migrations apply from an empty database and are reversible in dev.
 4. `encrypt` then `decrypt` returns the original text, and a changed ciphertext or key makes `decrypt` fail.

@@ -15,12 +15,81 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+          cache: npm
+      - run: npm ci
       # typecheck, lint, unit and integration tests. Integration tests start PostgreSQL in Docker,
       # which GitHub's Ubuntu runners provide.
-      - run: pnpm check
+      - run: npm run check
+
+  # The browser service against real Chromium and the fake supplier. Kept apart from `check`, which needs no browser.
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+
+  # The browser service inside its real container: Xvfb, VNC and a visible Chromium window.
+  browser-container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:container
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      # Builds the web app, starts a throwaway PostgreSQL and the API, then drives a real browser.
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the production image
+        run: docker build -t stock-monitor:ci .
+      # Loads the API and worker code inside the finished image, so a package missing from the
+      # image fails here and not on a real server.
+      - name: Check the image can load the API and the worker
+        run: >
+          docker run --rm --entrypoint node stock-monitor:ci --import tsx -e
+          "Promise.all([import('/app/apps/api/src/app.ts'), import('/app/apps/worker/src/worker.ts'), import('/app/packages/db/src/setup.ts')]).then(() => console.log('image ok'))"
+      # The browser service has its own image. Load its code the same way.
+      - name: Build the browser service image
+        run: docker build -f services/browser/Dockerfile -t stock-monitor-browser:ci .
+      - name: Check the browser service image can load its code
+        run: >
+          docker run --rm --entrypoint node stock-monitor-browser:ci --import tsx -e
+          "Promise.all([import('/app/services/browser/src/service.ts'), import('/app/services/browser/src/config.ts')]).then(() => console.log('browser image ok'))"

@@ -1,0 +1,31 @@
+{
+  "name": "@stock-monitor/worker",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "ping": "tsx src/cli/enqueue-ping.ts"
+  },
+  "dependencies": {
+    "@stock-monitor/audit": "*",
+    "@stock-monitor/browser-client": "*",
+    "@stock-monitor/crypto": "*",
+    "@stock-monitor/db": "*",
+    "@stock-monitor/extraction": "*",
+    "@stock-monitor/mapping": "*",
+    "@stock-monitor/proposals": "*",
+    "@stock-monitor/queue": "*",
+    "@stock-monitor/scheduling": "*",
+    "@stock-monitor/shared": "*",
+    "@stock-monitor/shopify": "*",
+    "@stock-monitor/supplier-session": "*",
+    "drizzle-orm": "^0.45.4",
+    "pg": "^8.23.1",
+    "pino": "^10.4.0",
+    "tsx": "^4.23.15"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1"
+  }
+}

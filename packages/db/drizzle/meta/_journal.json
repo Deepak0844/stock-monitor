@@ -15,6 +15,83 @@
       "when": 1794095023228,
       "tag": "0001_app_role",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794115025595,
+      "tag": "0002_queue_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794139284032,
+      "tag": "0003_stiff_red_wolf",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794150146229,
+      "tag": "0004_suppliers",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794154546404,
+      "tag": "0005_login_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794156478117,
+      "tag": "0006_notifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794254914683,
+      "tag": "0007_mappings",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794260386945,
+      "tag": "0008_extraction",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794296763669,
+      "tag": "0009_scheduling",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794306765496,
+      "tag": "0010_proposals",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794315970742,
+      "tag": "0011_proposals_lease",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794316969409,
+      "tag": "0012_notifications_proposals",
+      "breakpoints": true
     }
   ]
 }

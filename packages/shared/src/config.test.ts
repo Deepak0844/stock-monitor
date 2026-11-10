@@ -46,4 +46,123 @@ describe("loadConfig", () => {
   it("rejects a malformed DATABASE_URL", () => {
     expect(() => loadConfig({ ...valid, DATABASE_URL: "not a url" })).toThrow(/DATABASE_URL/);
   });
+
+  it("listens on 127.0.0.1 unless told otherwise", () => {
+    expect(loadConfig(valid).host).toBe("127.0.0.1");
+    expect(loadConfig({ ...valid, HOST: "0.0.0.0" }).host).toBe("0.0.0.0");
+  });
+
+  it("uses secure cookies by default only in production", () => {
+    expect(loadConfig({ ...valid, NODE_ENV: "production" }).cookieSecure).toBe(true);
+    expect(loadConfig({ ...valid, NODE_ENV: "development" }).cookieSecure).toBe(false);
+  });
+
+  it("lets COOKIE_SECURE override the default, for plain-http local runs", () => {
+    expect(loadConfig({ ...valid, NODE_ENV: "production", COOKIE_SECURE: "false" }).cookieSecure).toBe(false);
+    expect(loadConfig({ ...valid, NODE_ENV: "development", COOKIE_SECURE: "true" }).cookieSecure).toBe(true);
+  });
+
+  it("does not trust proxy headers unless TRUST_PROXY is true", () => {
+    expect(loadConfig(valid).trustProxy).toBe(false);
+    expect(loadConfig({ ...valid, TRUST_PROXY: "true" }).trustProxy).toBe(true);
+  });
+
+  it("rejects a boolean setting that is not true or false", () => {
+    expect(() => loadConfig({ ...valid, COOKIE_SECURE: "yes" })).toThrow(/COOKIE_SECURE/);
+    expect(() => loadConfig({ ...valid, TRUST_PROXY: "1" })).toThrow(/TRUST_PROXY/);
+  });
+
+  it("has no Shopify base URL override by default", () => {
+    expect(loadConfig(valid).shopifyBaseUrlOverride).toBeUndefined();
+  });
+
+  it("accepts a Shopify base URL override outside production, for tests against a fake Shopify", () => {
+    const c = loadConfig({ ...valid, NODE_ENV: "test", SHOPIFY_BASE_URL_OVERRIDE: "http://127.0.0.1:4999" });
+    expect(c.shopifyBaseUrlOverride).toBe("http://127.0.0.1:4999");
+  });
+
+  it("refuses to start in production with a Shopify base URL override, so credentials cannot be redirected", () => {
+    expect(() =>
+      loadConfig({ ...valid, NODE_ENV: "production", SHOPIFY_BASE_URL_OVERRIDE: "http://127.0.0.1:4999" }),
+    ).toThrow(/SHOPIFY_BASE_URL_OVERRIDE/);
+  });
+
+  it("rejects a Shopify base URL override that is not a URL", () => {
+    expect(() => loadConfig({ ...valid, SHOPIFY_BASE_URL_OVERRIDE: "not a url" })).toThrow(/SHOPIFY_BASE_URL_OVERRIDE/);
+  });
+
+  describe("the browser service", () => {
+    const token = "t".repeat(40);
+    it("is optional", () => {
+      const config = loadConfig(valid);
+      expect(config.browserServiceUrl).toBeUndefined();
+      expect(config.browserControlToken).toBeUndefined();
+    });
+    it("reads the address and the control token", () => {
+      const config = loadConfig({ ...valid, BROWSER_SERVICE_URL: "http://browser:8080", BROWSER_CONTROL_TOKEN: token });
+      expect(config.browserServiceUrl).toBe("http://browser:8080");
+      expect(config.browserControlToken).toBe(token);
+    });
+    it("needs both or neither, so a half setup cannot start", () => {
+      expect(() => loadConfig({ ...valid, BROWSER_SERVICE_URL: "http://browser:8080" })).toThrow(/BROWSER_CONTROL_TOKEN/);
+      expect(() => loadConfig({ ...valid, BROWSER_CONTROL_TOKEN: token })).toThrow(/BROWSER_SERVICE_URL/);
+    });
+    it("refuses a short control token, without printing it", () => {
+      try {
+        loadConfig({ ...valid, BROWSER_SERVICE_URL: "http://browser:8080", BROWSER_CONTROL_TOKEN: "short-secret" });
+        expect.unreachable();
+      } catch (error) {
+        expect(String(error)).toMatch(/BROWSER_CONTROL_TOKEN/);
+        expect(String(error)).not.toContain("short-secret");
+      }
+    });
+  });
+
+  describe("the live screen", () => {
+    it("defaults to the standard VNC port and no fixed origin", () => {
+      const config = loadConfig(valid);
+      expect(config.browserVncPort).toBe(5900);
+      expect(config.appOrigin).toBeUndefined();
+    });
+    it("reads the VNC port, and refuses nonsense", () => {
+      expect(loadConfig({ ...valid, BROWSER_VNC_PORT: "5901" }).browserVncPort).toBe(5901);
+      for (const port of ["abc", "0", "70000", "5900.5"]) expect(() => loadConfig({ ...valid, BROWSER_VNC_PORT: port }), port).toThrow(/BROWSER_VNC_PORT/);
+    });
+    it("reads the origin the app is served from, as a browser spells it", () => {
+      expect(loadConfig({ ...valid, APP_ORIGIN: "https://stock.example.com" }).appOrigin).toBe("https://stock.example.com");
+      expect(loadConfig({ ...valid, APP_ORIGIN: "https://Stock.Example.com/some/path?x=1" }).appOrigin).toBe("https://stock.example.com");
+      expect(loadConfig({ ...valid, APP_ORIGIN: "http://localhost:3000/" }).appOrigin).toBe("http://localhost:3000");
+    });
+    it("refuses an origin that is not an address", () => {
+      expect(() => loadConfig({ ...valid, APP_ORIGIN: "stock.example.com" })).toThrow(/APP_ORIGIN/);
+    });
+  });
+
+  describe("blank optional settings", () => {
+    it.each(["APP_ORIGIN", "BROWSER_SERVICE_URL", "BROWSER_CONTROL_TOKEN", "BROWSER_VNC_PORT", "SHOPIFY_BASE_URL_OVERRIDE"])(
+      "treats a blank %s as not set, as an env file with an empty line does",
+      (name) => {
+        const config = loadConfig({ ...valid, [name]: "" });
+        expect(config.appOrigin).toBeUndefined();
+        expect(config.browserServiceUrl).toBeUndefined();
+        expect(config.browserControlToken).toBeUndefined();
+        expect(config.browserVncPort).toBe(5900);
+        expect(config.shopifyBaseUrlOverride).toBeUndefined();
+      },
+    );
+    it("still refuses a blank required setting", () => {
+      expect(() => loadConfig({ ...valid, APP_ENCRYPTION_KEY: "" })).toThrow(/APP_ENCRYPTION_KEY/);
+    });
+  });
+
+  describe("the owner's timezone", () => {
+    it("defaults to UTC and reads an IANA name", () => {
+      expect(loadConfig(valid).timezone).toBe("UTC");
+      expect(loadConfig({ ...valid, APP_TIMEZONE: "Asia/Kolkata" }).timezone).toBe("Asia/Kolkata");
+    });
+    it("treats a blank value as not set and refuses a name that is not a timezone", () => {
+      expect(loadConfig({ ...valid, APP_TIMEZONE: "" }).timezone).toBe("UTC");
+      expect(() => loadConfig({ ...valid, APP_TIMEZONE: "Mars/Base" })).toThrow(/APP_TIMEZONE/);
+    });
+  });
 });

@@ -1,0 +1,14 @@
+{
+  "name": "@stock-monitor/browser-service",
+  "private": true,
+  "type": "module",
+  "main": "src/service.ts",
+  "scripts": {
+    "start": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "@stock-monitor/supplier-session": "*",
+    "playwright": "1.65.0",
+    "tsx": "^4.23.15"
+  }
+}

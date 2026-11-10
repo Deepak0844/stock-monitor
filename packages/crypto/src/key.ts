@@ -1,5 +1,8 @@
 const KEY_BYTES = 32;
 
+/** The id recorded with everything encrypted by the current key. Bump it when the key is rotated. */
+export const KEY_ID = "v1";
+
 // The only place the encryption key is read. Swap this for a secret manager later.
 export function loadKey(base64: string | undefined): Buffer {
   if (!base64) throw new Error("APP_ENCRYPTION_KEY is not set");

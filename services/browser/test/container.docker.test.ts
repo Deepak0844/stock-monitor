@@ -1,0 +1,235 @@
+// The browser service inside its real container: Xvfb, VNC, Chromium with its sandbox on, as a non-root
+// user. Builds the image under its own throw-away name and removes everything afterwards. Needs Docker.
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { execFile, spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import { createFakeSupplier, type FakeSupplier } from "@stock-monitor/supplier-session/testing";
+
+vi.setConfig({ testTimeout: 180_000 });
+const run = promisify(execFile);
+// An empty screen is black, plus the mouse pointer. A window with a page in it has many more colours.
+const EMPTY_SCREEN_MAX_COLOURS = 4;
+const ROOT = fileURLToPath(new URL("../../..", import.meta.url));
+const SUFFIX = randomBytes(4).toString("hex");
+const IMAGE = `sm-browser-test:${SUFFIX}`;
+const NAME = `sm-browser-test-${SUFFIX}`;
+const TOKEN = randomBytes(24).toString("hex");
+const PROBE = readFileSync(fileURLToPath(new URL("./rfb-probe.mjs", import.meta.url)), "utf8");
+
+let site: FakeSupplier;
+let loginUrl = "";
+let vncPassword = "";
+
+const docker = async (...args: string[]) => (await run("docker", args, { cwd: ROOT, maxBuffer: 50_000_000 })).stdout.trim();
+const inside = (...args: string[]) => docker("exec", ...args);
+const until = async (check: () => Promise<boolean>, ms: number, what: string) => {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    if (await check().catch(() => false)) return;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(`Timed out waiting for ${what}`);
+};
+const healthy = async () => (await docker("inspect", "--format", "{{.State.Health.Status}}", NAME)) === "healthy";
+
+/** A call to the control API from inside the container, because its port is not published. */
+const control = async (method: string, path: string, body?: unknown) => {
+  const script =
+    "const a=JSON.parse(process.env.ARGS);fetch('http://127.0.0.1:8080'+a.path,{method:a.method,headers:{authorization:'Bearer '+process.env.TOKEN,'content-type':'application/json'},body:a.body===undefined?undefined:JSON.stringify(a.body)})" +
+    ".then(async r=>console.log(JSON.stringify({status:r.status,body:await r.text()})))";
+  const out = await inside("-e", `TOKEN=${TOKEN}`, "-e", `ARGS=${JSON.stringify({ method, path, body })}`, NAME, "node", "-e", script);
+  const parsed = JSON.parse(out) as { status: number; body: string };
+  return { status: parsed.status, body: parsed.body ? (JSON.parse(parsed.body) as Record<string, any>) : {} }; // eslint-disable-line @typescript-eslint/no-explicit-any
+};
+
+/** Runs the stand-in VNC client inside the container, feeding it the script on stdin. */
+type Probe = { banner: string; securityTypes: number[]; width: number; height: number; colours: number; offeredNone?: boolean; authFailed?: boolean };
+const probe = (password?: string) =>
+  new Promise<Probe>((resolve, reject) => {
+    const env = password === undefined ? [] : ["-e", `PROBE_PASSWORD=${password}`];
+    const child = spawn("docker", ["exec", "-i", ...env, NAME, "node", "--openssl-legacy-provider", "--input-type=module", "-"], { cwd: ROOT });
+    let out = "";
+    child.stdout.on("data", (c) => (out += c));
+    child.on("close", () => {
+      try {
+        resolve(JSON.parse(out));
+      } catch {
+        reject(new Error(`The VNC probe said: ${out}`));
+      }
+    });
+    child.stdin.end(PROBE);
+  });
+const screen = () => probe(vncPassword);
+
+const headedChromium = async () =>
+  Number(await inside(NAME, "sh", "-c", "for p in /proc/[0-9]*; do tr '\\0' ' ' < $p/cmdline 2>/dev/null | grep -q '/ms-playwright/[c]hromium-[0-9]' && echo $p; done | wc -l"));
+const profileFolders = async () => Number(await inside(NAME, "sh", "-c", "ls /tmp | grep -c playwright_chromiumdev_profile || true"));
+
+async function startContainer(extraEnv: string[] = []) {
+  await docker(
+    "run", "-d", "--init", "--ipc=host",
+    "--security-opt", `seccomp=${ROOT}services/browser/seccomp_profile.json`,
+    "--add-host=host.docker.internal:host-gateway",
+    "--name", NAME,
+    "-e", `CONTROL_TOKEN=${TOKEN}`,
+    // The fake supplier runs on this machine, which the guard would refuse. Only a non-production container accepts this.
+    "-e", "NODE_ENV=test",
+    "-e", `TEST_ALLOW_HOSTS=host.docker.internal:${site.port}`,
+    ...extraEnv,
+    IMAGE,
+  );
+  await until(healthy, 90_000, "the container to be healthy");
+  // The password is made inside the container, so read it from the service's own environment.
+  const line = await inside(NAME, "sh", "-c", "for p in /proc/[0-9]*; do tr '\\0' '\\n' < $p/environ 2>/dev/null | grep -m1 '^VNC_PASSWORD=' && break; done");
+  vncPassword = line.replace("VNC_PASSWORD=", "");
+}
+
+beforeAll(async () => {
+  site = await createFakeSupplier({ host: "0.0.0.0" });
+  loginUrl = `http://host.docker.internal:${site.port}/login`;
+  await docker("build", "-f", "services/browser/Dockerfile", "-t", IMAGE, ".");
+  await startContainer();
+}, 600_000);
+afterAll(async () => {
+  await docker("rm", "-f", NAME).catch(() => {});
+  await docker("rmi", IMAGE).catch(() => {});
+  await site?.close();
+}, 60_000);
+
+describe("the container", () => {
+  it("runs as a user that is not root, with no port published and no database or key", async () => {
+    expect(await inside(NAME, "id", "-u")).not.toBe("0");
+    expect(await docker("inspect", "--format", "{{json .NetworkSettings.Ports}}", NAME)).not.toContain("HostPort");
+    expect(await docker("port", NAME)).toBe("");
+    expect(await inside(NAME, "env")).not.toMatch(/DATABASE|POSTGRES|ENCRYPTION/i);
+  });
+
+  it("refuses a request with no token", async () => {
+    const out = await inside(NAME, "node", "-e", "fetch('http://127.0.0.1:8080/sessions',{method:'POST'}).then(r=>console.log(r.status))");
+    expect(out).toBe("401");
+  });
+
+  it("protects VNC with a password: no 'none' login is offered, and a wrong password is refused", async () => {
+    expect(vncPassword).toMatch(/^[A-Za-z0-9]{8}$/);
+    expect(await probe()).toMatchObject({ offeredNone: false, securityTypes: [2] });
+    expect(await probe("WrongPw1")).toMatchObject({ authFailed: true });
+  });
+
+  it("never leaves the password in a file or in any process's command line", async () => {
+    expect(await inside(NAME, "sh", "-c", "test -e /tmp/vnc.pass && echo present || echo gone")).toBe("gone");
+    const found = await inside("-e", `PW=${vncPassword}`, NAME, "sh", "-c", 'for p in /proc/[0-9]*; do tr "\\0" " " < $p/cmdline 2>/dev/null | grep -qF "$PW" && echo $p; done | wc -l');
+    expect(found).toBe("0");
+  });
+
+  it("shares an empty virtual screen over VNC, readable by a stand-in client that knows the password", async () => {
+    const frame = await screen();
+    expect(frame.banner).toMatch(/^RFB 003\.\d{3}$/);
+    expect([frame.width, frame.height]).toEqual([1280, 800]);
+    expect(frame.colours).toBeLessThanOrEqual(EMPTY_SCREEN_MAX_COLOURS);
+  });
+});
+
+describe("a login window", () => {
+  let id = "";
+  let baseline = 0;
+
+  it("opens a headed Chromium that really appears on the shared screen", async () => {
+    baseline = await profileFolders();
+    expect(await headedChromium()).toBe(0);
+    const r = await control("POST", "/sessions", { url: loginUrl });
+    expect(r.status).toBe(201);
+    id = r.body.id as string;
+    expect(r.body.vncPassword).toBe(vncPassword); // so the API can pass it on to the owner's page
+    await until(async () => (await screen()).colours > 20, 20_000, "the window to be drawn on the screen");
+    expect(await headedChromium()).toBeGreaterThan(0);
+  });
+
+  it("refuses a second window with a plain message", async () => {
+    const r = await control("POST", "/sessions", { url: loginUrl });
+    expect(r.status).toBe(409);
+    expect(r.body.message).toBe("A login window is already open. Finish or cancel it first.");
+  });
+
+  it("finishes, returns a session, and leaves no Chromium, no profile and an empty screen", async () => {
+    const r = await control("POST", `/sessions/${id}/finish`);
+    expect(r.status).toBe(200);
+    expect(Array.isArray(r.body.state.cookies)).toBe(true);
+    await until(async () => (await headedChromium()) === 0, 15_000, "Chromium to exit");
+    expect(await profileFolders()).toBe(baseline);
+    expect((await screen()).colours).toBeLessThanOrEqual(EMPTY_SCREEN_MAX_COLOURS);
+  });
+
+  it("cancels another window the same clean way", async () => {
+    const r = await control("POST", "/sessions", { url: loginUrl });
+    expect(r.status).toBe(201);
+    expect((await control("DELETE", `/sessions/${r.body.id}`)).status).toBe(204);
+    await until(async () => (await headedChromium()) === 0, 15_000, "Chromium to exit");
+    expect(await profileFolders()).toBe(baseline);
+  });
+
+  it("works again after the container is restarted, because the stale X lock is cleared", async () => {
+    await docker("restart", NAME);
+    await until(healthy, 90_000, "the container to be healthy again");
+    const r = await control("POST", "/sessions", { url: loginUrl });
+    expect(r.status).toBe(201);
+    expect((await control("DELETE", `/sessions/${r.body.id}`)).status).toBe(204);
+  });
+});
+
+/** Every Chromium process's command line, one line each. */
+const chromiumCommandLines = () =>
+  inside(NAME, "sh", "-c", "for p in /proc/[0-9]*; do tr '\\0' ' ' < $p/cmdline 2>/dev/null | grep '/ms-playwright/chromium-[0-9]'; done; true");
+const plainProfiles = async () => Number(await inside(NAME, "sh", "-c", "ls /tmp | grep -c sm-plain- || true"));
+
+describe("a plain login window", () => {
+  beforeAll(async () => {
+    await docker("rm", "-f", NAME);
+    await startContainer(["-e", "LOGIN_WINDOW_MODE=plain"]);
+  }, 300_000);
+
+  it("is an ordinary Chromium: sandbox on, no debugging channel, no automation switch, and it appears on the shared screen", async () => {
+    const baseline = await profileFolders();
+    const r = await control("POST", "/sessions", { url: loginUrl });
+    expect(r.status).toBe(201);
+    try {
+      await until(async () => (await screen()).colours > 20, 20_000, "the window to be drawn on the screen");
+      const lines = await chromiumCommandLines();
+      expect(lines).toContain("--user-data-dir=/tmp/sm-plain-");
+      expect(lines).not.toMatch(/--remote-debugging|--enable-automation|--no-sandbox|--disable-blink-features/);
+      expect(await profileFolders()).toBe(baseline); // no profile made by Playwright: nothing is driving this window
+      expect(await plainProfiles()).toBe(1);
+    } finally {
+      await control("DELETE", `/sessions/${r.body.id}`);
+    }
+  });
+
+  it("tells a page that it is not being driven", async () => {
+    const r = await control("POST", "/sessions", { url: `http://host.docker.internal:${site.port}/webdriver-report` });
+    expect(r.status).toBe(201);
+    await until(async () => site.requests.some((q) => q.path.startsWith("/seen/")), 15_000, "the page to report");
+    expect(site.requests.filter((q) => q.path.startsWith("/seen/")).map((q) => q.path)).toEqual(["/seen/false"]);
+    expect((await control("DELETE", `/sessions/${r.body.id}`)).status).toBe(204);
+  });
+
+  it("returns an empty session when nothing was logged in, then leaves no Chromium, no profile and an empty screen", async () => {
+    const r = await control("POST", "/sessions", { url: loginUrl });
+    expect(r.status).toBe(201);
+    const done = await control("POST", `/sessions/${r.body.id}/finish`);
+    expect(done.status).toBe(200);
+    expect(done.body.state.cookies).toEqual([]);
+    await until(async () => (await headedChromium()) === 0, 15_000, "Chromium to exit");
+    expect(await plainProfiles()).toBe(0);
+    expect((await screen()).colours).toBeLessThanOrEqual(EMPTY_SCREEN_MAX_COLOURS);
+  });
+
+  it("still refuses a second window", async () => {
+    const r = await control("POST", "/sessions", { url: loginUrl });
+    expect(r.status).toBe(201);
+    expect((await control("POST", "/sessions", { url: loginUrl })).status).toBe(409);
+    expect((await control("DELETE", `/sessions/${r.body.id}`)).status).toBe(204);
+    await until(async () => (await plainProfiles()) === 0, 15_000, "the profile to be removed");
+  });
+});
