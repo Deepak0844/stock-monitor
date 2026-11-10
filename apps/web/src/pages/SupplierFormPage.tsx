@@ -2,22 +2,21 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ApiError, type Api, type Supplier, type SupplierInput } from "../api.js";
 import { Notice } from "../components/Notice.js";
 import { PermissionPanel, RegionPanel } from "../components/PermissionPanel.js";
+import { SchedulePanel } from "../components/SchedulePanel.js";
 import { Link, navigate } from "../router.js";
 import { useTitle } from "../useTitle.js";
 
-type Field = "name" | "websiteUrl" | "loginUrl" | "checkIntervalMinutes";
+type Field = "name" | "websiteUrl" | "loginUrl";
 type Errors = Partial<Record<Field, string>>;
 type Load = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; supplier: Supplier | null };
 
-const ORDER: Field[] = ["name", "websiteUrl", "loginUrl", "checkIntervalMinutes"];
-const INTERVAL_MESSAGE = "Enter a whole number of minutes from 15 to 1440.";
+const ORDER: Field[] = ["name", "websiteUrl", "loginUrl"];
 // The server says which field a problem belongs to. Anything else is shown above the buttons.
 const FIELD_OF_CODE: Record<string, Field> = {
   invalid_name: "name",
   name_taken: "name",
   invalid_website: "websiteUrl",
   invalid_login_url: "loginUrl",
-  invalid_interval: "checkIntervalMinutes",
 };
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong. Please try again.");
@@ -76,6 +75,11 @@ export function SupplierFormPage({ api, id }: { api: Api; id?: string }) {
               <RegionPanel api={api} supplier={load.supplier} />
             </section>
           )}
+          {load.supplier && (
+            <section className="panel">
+              <SchedulePanel api={api} supplier={load.supplier} />
+            </section>
+          )}
         </>
       )}
     </>
@@ -86,7 +90,6 @@ function SupplierForm({ api, supplier }: { api: Api; supplier: Supplier | null }
   const [name, setName] = useState(supplier?.name ?? "");
   const [websiteUrl, setWebsiteUrl] = useState(supplier?.websiteUrl ?? "");
   const [loginUrl, setLoginUrl] = useState(supplier?.loginUrl ?? "");
-  const [interval, setInterval] = useState(String(supplier?.checkIntervalMinutes ?? 60));
   const [errors, setErrors] = useState<Errors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -94,7 +97,6 @@ function SupplierForm({ api, supplier }: { api: Api; supplier: Supplier | null }
     name: useRef<HTMLInputElement>(null),
     websiteUrl: useRef<HTMLInputElement>(null),
     loginUrl: useRef<HTMLInputElement>(null),
-    checkIntervalMinutes: useRef<HTMLInputElement>(null),
   };
 
   const showErrors = (next: Errors) => {
@@ -106,15 +108,13 @@ function SupplierForm({ api, supplier }: { api: Api; supplier: Supplier | null }
   /** Returns the cleaned values, or null after showing what is wrong beside each field. */
   function validate(): SupplierInput | null {
     const next: Errors = {};
-    const minutes = Number(interval);
     if (!name.trim()) next.name = "Enter a name for the supplier.";
     if (!websiteUrl.trim()) next.websiteUrl = "Enter the supplier's website address, starting with https://.";
-    if (!/^\d+$/.test(interval.trim()) || minutes < 15 || minutes > 1440) next.checkIntervalMinutes = INTERVAL_MESSAGE;
     if (Object.keys(next).length > 0) {
       showErrors(next);
       return null;
     }
-    return { name: name.trim(), websiteUrl: websiteUrl.trim(), loginUrl: loginUrl.trim() || null, checkIntervalMinutes: minutes };
+    return { name: name.trim(), websiteUrl: websiteUrl.trim(), loginUrl: loginUrl.trim() || null };
   }
 
   async function submit(event: FormEvent) {
@@ -190,11 +190,6 @@ function SupplierForm({ api, supplier }: { api: Api; supplier: Supplier | null }
       {field("loginUrl", "Login address (optional)", loginUrl, setLoginUrl, {
         hint: "Where the supplier's login page is, if it is not the website above. You log in yourself: this app never asks for or stores a supplier password.",
         inputMode: "url",
-      })}
-      {field("checkIntervalMinutes", "Check every (minutes)", interval, setInterval, {
-        hint: "How often to check for stock, from 15 to 1440 minutes.",
-        type: "number",
-        inputMode: "numeric",
       })}
 
       {formError && (

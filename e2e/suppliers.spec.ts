@@ -73,7 +73,6 @@ test("the Suppliers page starts empty, then an owner can add, edit, pause, resum
   await page.getByRole("link", { name: "Edit Acme Supply" }).click();
   await expect(page.getByLabel("Name")).toHaveValue("Acme Supply");
   await page.getByLabel("Name").fill("Acme Ltd");
-  await page.getByLabel(/Check every/).fill("120");
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect(page.getByRole("row", { name: /Acme Ltd/ })).toBeVisible();
 
@@ -111,10 +110,6 @@ test("each problem with a supplier is explained in plain words beside its own fi
   await expect(page).toHaveURL(/\/suppliers\/new$/);
 
   await page.getByLabel("Website address").fill("https://ok.example/");
-  await page.getByLabel(/Check every/).fill("5");
-  await page.getByRole("button", { name: "Add supplier" }).click();
-  await expect(page.getByText("Enter a whole number of minutes from 15 to 1440.")).toBeVisible();
-  await page.getByLabel(/Check every/).fill("60");
   await page.getByLabel("Name").fill("First");
   await page.getByRole("button", { name: "Add supplier" }).click();
   await expect(page.getByRole("row", { name: /First/ })).toBeVisible();

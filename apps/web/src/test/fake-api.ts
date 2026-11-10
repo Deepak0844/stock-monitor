@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { Api, ConnectionCheck, ShopifyApi, ShopifyConnection, Supplier, SuppliersApi, Mapping, MappingsApi, Capture, CapturesApi, RecipesApi, RecipeVersion, StockApi, LoginSession, LoginSessionsApi, AppNotification, NotificationsApi, VariantItem, VariantPage } from "../api.js";
+import type { Api, ConnectionCheck, ShopifyApi, ShopifyConnection, Supplier, SuppliersApi, ScheduleApi, CheckRun, Mapping, MappingsApi, Capture, CapturesApi, RecipesApi, RecipeVersion, StockApi, LoginSession, LoginSessionsApi, AppNotification, NotificationsApi, VariantItem, VariantPage } from "../api.js";
 
 export const aCheck = (over: Partial<ConnectionCheck> = {}): ConnectionCheck => ({
   shopName: "Acme Supplies",
@@ -50,6 +50,10 @@ export const aSupplier = (over: Partial<Supplier> = {}): Supplier => ({
   websiteUrl: "https://shop.acme.example/",
   loginUrl: null,
   checkIntervalMinutes: 60,
+  scheduleIntervalMinutes: null,
+  scheduleWindowStart: null,
+  scheduleWindowEnd: null,
+  nextCheckAt: null,
   enabled: true,
   sessionStatus: "not_connected",
   pausedReason: null,
@@ -61,6 +65,22 @@ export const aSupplier = (over: Partial<Supplier> = {}): Supplier => ({
   defaultRegion: null,
   createdAt: "2026-11-08T10:00:00.000Z",
   updatedAt: "2026-11-08T10:00:00.000Z",
+  ...over,
+});
+
+export const aRun = (over: Partial<CheckRun> = {}): CheckRun => ({
+  id: "99999999-9999-4999-8999-999999999999",
+  supplierId: "11111111-1111-4111-8111-111111111111",
+  trigger: "scheduled",
+  startedAt: "2026-11-10T08:00:00.000Z",
+  endedAt: "2026-11-10T08:10:00.000Z",
+  linksTotal: 40,
+  linksDone: 40,
+  inStock: 30,
+  outOfStock: 7,
+  cannotTell: 3,
+  outcome: "finished",
+  stopReason: null,
   ...over,
 });
 
@@ -137,9 +157,10 @@ export const aNotification = (over: Partial<AppNotification> = {}): AppNotificat
 
 /** A fake API for screen tests. Every method is a spy with a sensible default. */
 export function fakeApi(
-  over: Partial<Omit<Api, "shopify" | "suppliers" | "loginSessions" | "mappings" | "captures" | "recipes" | "stock">> & {
+  over: Partial<Omit<Api, "shopify" | "suppliers" | "schedule" | "loginSessions" | "mappings" | "captures" | "recipes" | "stock">> & {
     shopify?: Partial<ShopifyApi>;
     suppliers?: Partial<SuppliersApi>;
+    schedule?: Partial<ScheduleApi>;
     loginSessions?: Partial<LoginSessionsApi>;
     notifications?: Partial<NotificationsApi>;
     mappings?: Partial<MappingsApi>;
@@ -148,7 +169,7 @@ export function fakeApi(
     stock?: Partial<StockApi>;
   } = {},
 ): Api {
-  const { shopify, suppliers, loginSessions, notifications, mappings, captures, recipes, stock, ...rest } = over;
+  const { shopify, suppliers, schedule, loginSessions, notifications, mappings, captures, recipes, stock, ...rest } = over;
   return {
     getMe: vi.fn().mockResolvedValue(null),
     login: vi.fn().mockResolvedValue({ email: "owner@example.com" }),
@@ -174,6 +195,12 @@ export function fakeApi(
       setRegion: vi.fn().mockImplementation(async (_id, region) => aSupplier({ defaultRegion: region })),
       setPermission: vi.fn().mockImplementation(async (_id, input) => aSupplier({ automationPermission: input.status, permissionNote: input.note })),
       ...suppliers,
+    },
+    schedule: {
+      overview: vi.fn().mockResolvedValue([]),
+      set: vi.fn().mockImplementation(async (_id, input) => aSupplier({ scheduleIntervalMinutes: input.intervalMinutes, scheduleWindowStart: input.window?.start ?? null, scheduleWindowEnd: input.window?.end ?? null })),
+      runs: vi.fn().mockResolvedValue([]),
+      ...schedule,
     },
     mappings: {
       list: vi.fn().mockResolvedValue([]),

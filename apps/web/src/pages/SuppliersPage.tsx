@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Api, Supplier } from "../api.js";
+import type { Api, ScheduleRow, Supplier } from "../api.js";
 import { Notice } from "../components/Notice.js";
+import { intervalWords, runSummary, whenWords } from "../components/scheduleWords.js";
 import { formatWhen } from "../format.js";
 import { Link } from "../router.js";
 import { useTitle } from "../useTitle.js";
 
 const CHECK_REFRESH_MS = 4000;
 const CHECK_REFRESHES = 3;
-const COLUMNS = ["Name", "Website", "Status", "Last checked", "Actions"];
+const COLUMNS = ["Name", "Website", "Status", "Last checked", "Automatic checks", "Actions"];
+// While a run is going, its progress is read again this often.
+const PROGRESS_REFRESH_MS = 5000;
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong. Please try again.");
 
@@ -29,6 +32,26 @@ function statusOf(s: Supplier): { words: string; tone: "ok" | "warn" | "neutral"
   }
 }
 
+/** What the schedule is doing for one supplier, in a few plain lines. */
+function ScheduleCell({ row }: { row: ScheduleRow | undefined }) {
+  if (!row || row.status.state === "off") return <span className="muted">Automatic checks off</span>;
+  const status = row.status;
+  return (
+    <>
+      {status.state === "running" && row.run ? (
+        <span role="status">{runSummary(row.run)}</span>
+      ) : status.state === "not_checked" ? (
+        <span>Not being checked. {status.message}</span>
+      ) : (
+        <span>
+          {intervalWords(row.intervalMinutes)}, next check {whenWords(row.nextCheckAt)}
+        </span>
+      )}
+      {status.state !== "running" && row.lastRun && <div className="muted">{runSummary(row.lastRun)}</div>}
+    </>
+  );
+}
+
 const hostOf = (url: string) => {
   try {
     return new URL(url).host;
@@ -40,6 +63,7 @@ const hostOf = (url: string) => {
 export function SuppliersPage({ api }: { api: Api }) {
   useTitle("Suppliers");
   const [suppliers, setSuppliers] = useState<Supplier[] | null>(null);
+  const [schedule, setSchedule] = useState<ScheduleRow[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -56,6 +80,26 @@ export function SuppliersPage({ api }: { api: Api }) {
       .catch((e: unknown) => setLoadError(message(e)));
   }, [api]);
   useEffect(load, [load]);
+  // The schedule and any run's progress. Read once, and again every few seconds for as long as a run is going. A failure only
+  // leaves the column as it was: the suppliers themselves still show.
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const read = () =>
+      api.schedule
+        .overview()
+        .then((rows) => {
+          if (cancelled) return;
+          setSchedule(rows);
+          if (rows.some((r) => r.status.state === "running")) timer = setTimeout(read, PROGRESS_REFRESH_MS);
+        })
+        .catch(() => {});
+    void read();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [api]);
   useEffect(() => {
     if (confirming) cancelRef.current?.focus();
   }, [confirming]);
@@ -194,6 +238,9 @@ export function SuppliersPage({ api }: { api: Api }) {
                   </td>
                   <td role="cell" data-label="Last checked">
                     {s.lastSessionCheckAt ? formatWhen(s.lastSessionCheckAt) : <span className="muted">Never</span>}
+                  </td>
+                  <td role="cell" data-label="Automatic checks">
+                    <ScheduleCell row={schedule.find((r) => r.supplierId === s.id)} />
                   </td>
                   <td role="cell" data-label="Actions">
                     <div className="row-actions">

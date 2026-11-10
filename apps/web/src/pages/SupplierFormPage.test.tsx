@@ -23,13 +23,14 @@ describe("adding a supplier", () => {
     return { api, user: userEvent.setup() };
   };
 
-  it("has labelled fields with plain hints and a 60 minute default", () => {
+  it("has labelled fields with plain hints, and no old check-interval field", () => {
     setup();
     expect(screen.getByRole("heading", { name: "Add supplier" })).toBeInTheDocument();
     expect(screen.getByLabelText("Name")).toBeInTheDocument();
     expect(screen.getByLabelText("Website address")).toBeInTheDocument();
     expect(screen.getByLabelText(/Login address/)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Check every/)).toHaveValue(60);
+    expect(screen.queryByLabelText(/Check every/)).toBeNull();
+    expect(screen.queryByRole("group", { name: "Automatic checks" })).toBeNull();
     expect(screen.getByText(/starting with https:\/\//i)).toBeInTheDocument();
     expect(screen.getByText(/never asks for or stores/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Cancel" })).toHaveAttribute("href", "/suppliers");
@@ -44,7 +45,6 @@ describe("adding a supplier", () => {
       name: "Acme Supply",
       websiteUrl: "https://shop.acme.example/",
       loginUrl: "https://shop.acme.example/sign-in",
-      checkIntervalMinutes: 60,
     });
     await waitFor(() => expect(window.location.pathname).toBe("/suppliers"));
   });
@@ -53,7 +53,7 @@ describe("adding a supplier", () => {
     const { api, user } = setup();
     await fillNew(user, "  Acme  ", "  https://acme.example/ ");
     await user.click(screen.getByRole("button", { name: "Add supplier" }));
-    expect(api.suppliers.create).toHaveBeenCalledWith({ name: "Acme", websiteUrl: "https://acme.example/", loginUrl: null, checkIntervalMinutes: 60 });
+    expect(api.suppliers.create).toHaveBeenCalledWith({ name: "Acme", websiteUrl: "https://acme.example/", loginUrl: null });
   });
 
   it("shows what is missing beside each field, focuses the first, and sends nothing", async () => {
@@ -67,24 +67,11 @@ describe("adding a supplier", () => {
     expect(api.suppliers.create).not.toHaveBeenCalled();
   });
 
-  it.each(["14", "1441", "0", "", "60.5"])("refuses a check interval of %j beside its field", async (value) => {
-    const { api, user } = setup();
-    await fillNew(user);
-    const interval = screen.getByLabelText(/Check every/);
-    await user.clear(interval);
-    if (value) await user.type(interval, value);
-    await user.click(screen.getByRole("button", { name: "Add supplier" }));
-    expect(screen.getByText(/whole number of minutes from 15 to 1440/)).toBeInTheDocument();
-    expect(interval).toHaveFocus();
-    expect(api.suppliers.create).not.toHaveBeenCalled();
-  });
-
   it.each([
     ["invalid_name", "Name"],
     ["name_taken", "Name"],
     ["invalid_website", "Website address"],
     ["invalid_login_url", "Login address"],
-    ["invalid_interval", "Check every"],
   ])("shows the server's %s message beside the %s field", async (code, label) => {
     const create = vi.fn().mockRejectedValue(new ApiError(`Server says: ${code}.`, 400, code));
     const { user } = setup({ suppliers: { create } });
@@ -119,7 +106,7 @@ describe("adding a supplier", () => {
 });
 
 describe("editing a supplier", () => {
-  const existing = aSupplier({ loginUrl: "https://shop.acme.example/login", checkIntervalMinutes: 120 });
+  const existing = aSupplier({ loginUrl: "https://shop.acme.example/login" });
   const setup = (over: Parameters<typeof fakeApi>[0] = {}) => {
     window.history.replaceState(null, "", `/suppliers/${existing.id}/edit`);
     const api = fakeApi({ ...over, suppliers: { get: vi.fn().mockResolvedValue(existing), ...over.suppliers } });
@@ -134,7 +121,12 @@ describe("editing a supplier", () => {
     expect(await screen.findByLabelText("Name")).toHaveValue("Acme Supply");
     expect(screen.getByLabelText("Website address")).toHaveValue("https://shop.acme.example/");
     expect(screen.getByLabelText(/Login address/)).toHaveValue("https://shop.acme.example/login");
-    expect(screen.getByLabelText(/Check every/)).toHaveValue(120);
+    expect(screen.queryByLabelText(/Check every/)).toBeNull();
+  });
+
+  it("shows the Automatic checks panel for an existing supplier", async () => {
+    setup();
+    expect(await screen.findByRole("group", { name: "Automatic checks" })).toBeInTheDocument();
   });
 
   it("sends only what changed", async () => {

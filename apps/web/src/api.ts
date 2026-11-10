@@ -77,6 +77,11 @@ export type Supplier = {
   websiteUrl: string;
   loginUrl: string | null;
   checkIntervalMinutes: number;
+  /** Automatic checks: minutes between runs, null = off. */
+  scheduleIntervalMinutes: number | null;
+  scheduleWindowStart: string | null;
+  scheduleWindowEnd: string | null;
+  nextCheckAt: string | null;
   enabled: boolean;
   sessionStatus: "not_connected" | "connected" | "needs_reconnect" | "blocked";
   /** Who paused it: the owner, or the app because the session needs attention. null when it is not paused. */
@@ -94,9 +99,43 @@ export type Supplier = {
   updatedAt: string;
 };
 
+/** One run of checks for one supplier. Counts and a fixed stop code only. */
+export type CheckRun = {
+  id: string;
+  supplierId: string;
+  trigger: "scheduled" | "manual";
+  startedAt: string;
+  endedAt: string | null;
+  linksTotal: number;
+  linksDone: number;
+  inStock: number;
+  outOfStock: number;
+  cannotTell: number;
+  outcome: "running" | "finished" | "stopped" | "failed";
+  stopReason: string | null;
+};
+export type ScheduleWindow = { start: string; end: string } | null;
+export type ScheduleStatus = { state: "off" | "waiting" | "running" } | { state: "not_checked"; reason: string; message: string };
+/** What the schedule is doing for one supplier. */
+export type ScheduleRow = {
+  supplierId: string;
+  status: ScheduleStatus;
+  intervalMinutes: number | null;
+  window: ScheduleWindow;
+  nextCheckAt: string | null;
+  run: CheckRun | null;
+  lastRun: CheckRun | null;
+};
+export type ScheduleApi = {
+  overview(): Promise<ScheduleRow[]>;
+  /** Turns automatic checks on (an interval from the list) or off (null), with the quiet-hours window or null for all day. */
+  set(supplierId: string, input: { intervalMinutes: number | null; window: ScheduleWindow }): Promise<Supplier>;
+  runs(supplierId: string): Promise<CheckRun[]>;
+};
+
 export type PermissionInput = { status: Supplier["automationPermission"]; note: string | null; pauseSeconds?: number };
 
-export type SupplierInput = { name: string; websiteUrl: string; loginUrl: string | null; checkIntervalMinutes: number };
+export type SupplierInput = { name: string; websiteUrl: string; loginUrl: string | null };
 
 export type SuppliersApi = {
   list(): Promise<Supplier[]>;
@@ -292,6 +331,7 @@ export type Api = {
   logout(): Promise<void>;
   shopify: ShopifyApi;
   suppliers: SuppliersApi;
+  schedule: ScheduleApi;
   mappings: MappingsApi;
   captures: CapturesApi;
   recipes: RecipesApi;
@@ -403,6 +443,15 @@ const suppliers: SuppliersApi = {
 };
 
 const enc = encodeURIComponent;
+const schedule: ScheduleApi = {
+  async overview() {
+    return (await request<{ schedule: ScheduleRow[] }>("/api/schedule", { method: "GET" })).schedule;
+  },
+  set: (supplierId, input) => supplier(`/api/suppliers/${enc(supplierId)}/schedule`, { method: "PUT", json: input }),
+  async runs(supplierId) {
+    return (await request<{ runs: CheckRun[] }>(`/api/suppliers/${enc(supplierId)}/runs`, { method: "GET" })).runs;
+  },
+};
 const captures: CapturesApi = {
   async list(supplierId) {
     return (await request<{ captures: Capture[] }>(`/api/suppliers/${enc(supplierId)}/captures`, { method: "GET" })).captures;
@@ -511,6 +560,7 @@ export const api: Api = {
   mappings,
   captures,
   recipes,
+  schedule,
   stock,
   loginSessions,
   notifications,
