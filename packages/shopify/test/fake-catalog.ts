@@ -116,9 +116,13 @@ export function createFakeCatalog(init: { locations: FakeLocation[]; variants: F
       if (typeof key !== "string" || !/@idempotent\(\s*key\s*:\s*\$idempotencyKey\s*\)/.test(request.query)) {
         return { body: { errors: [{ message: "idempotency key required", extensions: { code: "BAD_REQUEST" } }] } };
       }
+      // Shopify's 2026-10 input has exactly these fields. Any other one, such as the removed ignoreCompareQuantity, is a GraphQL error.
+      const sent = request.variables?.input as Record<string, unknown> | undefined;
+      const unknownField = Object.keys(sent ?? {}).find((k) => !["name", "reason", "referenceDocumentUri", "quantities"].includes(k));
+      if (unknownField) return { body: { errors: [{ message: `InputObject 'InventorySetQuantitiesInput' doesn't accept argument '${unknownField}'`, extensions: { code: "argumentNotAccepted" } }] } };
       if (dropWrites) return { status: 500, body: { errors: "boom" } }; // the request never reached the store
       if (replies.has(key)) return failAllReplies ? { status: 500, body: { errors: "boom" } } : { body: replies.get(key) };
-      const input = request.variables?.input as { name?: string; reason?: string; referenceDocumentUri?: string; ignoreCompareQuantity?: boolean; quantities?: { inventoryItemId: string; locationId: string; quantity: number; changeFromQuantity?: number | null }[] };
+      const input = request.variables?.input as { name?: string; reason?: string; referenceDocumentUri?: string; quantities?: { inventoryItemId: string; locationId: string; quantity: number; changeFromQuantity?: number | null }[] };
       const row = input?.quantities?.[0];
       const v = variants.find((x) => x.inventoryItemId === row?.inventoryItemId);
       const answer = (userErrors: { field: string[]; message: string; code: string }[]) => ({
@@ -137,7 +141,7 @@ export function createFakeCatalog(init: { locations: FakeLocation[]; variants: F
       if (!row || !v || input.name !== "available" || v.stock[row.locationId] === undefined) {
         return { body: answer([{ field: ["input"], message: "no such item", code: "ITEM_NOT_FOUND" }]) };
       }
-      if (!input.ignoreCompareQuantity && row.changeFromQuantity !== v.stock[row.locationId]) {
+      if (row.changeFromQuantity !== v.stock[row.locationId]) {
         const body = answer([{ field: ["input", "quantities", "0", "changeFromQuantity"], message: "stale", code: "CHANGE_FROM_QUANTITY_STALE" }]);
         replies.set(key, body);
         return { body };
