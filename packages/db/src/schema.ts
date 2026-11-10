@@ -242,7 +242,7 @@ export const notifications = pgTable(
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
   },
   (t) => [
-    check("notifications_kind", sql`${t.kind} in ('supplier_needs_reconnect', 'recipe_needs_review')`),
+    check("notifications_kind", sql`${t.kind} in ('supplier_needs_reconnect', 'recipe_needs_review', 'proposal_needs_attention')`),
     check("notifications_reason", sql`${t.reason} in ('login_required', 'captcha', 'blocked', 'unknown', 'page_changed')`),
     uniqueIndex("notifications_one_open").on(t.kind, t.supplierId).where(sql`${t.resolvedAt} is null`),
   ],

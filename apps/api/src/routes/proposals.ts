@@ -2,7 +2,7 @@ import type { FastifyInstance, RawReplyDefaultExpression, RawRequestDefaultExpre
 import type { Logger } from "pino";
 import { z } from "zod";
 import type { createAuditWriter } from "@stock-monitor/audit";
-import type { createProposalRepository, createShopifyRepository, ProposalView } from "@stock-monitor/db";
+import type { createNotificationRepository, createProposalRepository, createShopifyRepository, ProposalView } from "@stock-monitor/db";
 import { MAX_QUANTITY, validateQuantity } from "@stock-monitor/proposals";
 import type { Queue } from "@stock-monitor/queue";
 import { AppError } from "../errors.js";
@@ -13,6 +13,8 @@ type Audit = ReturnType<typeof createAuditWriter>;
 export type ProposalRoutesDeps = {
   proposals: ReturnType<typeof createProposalRepository>;
   shopify: ReturnType<typeof createShopifyRepository>;
+  /** When set, a refresh closes the supplier's "a change was not applied" notice. */
+  notifications?: ReturnType<typeof createNotificationRepository>;
   queue: Pick<Queue, "enqueue">;
   now?: () => Date;
 };

@@ -47,3 +47,9 @@ export function resultWords(state: ProposalState, code: string | null, quantity:
   if (state === "failed") return (code && FAILURES[code]) || "Shopify did not accept the change.";
   return null;
 }
+
+/** "Out of stock, waiting for you": a link's latest suggestion in one short line. */
+export const suggestionLine = (kind: ProposalKind, state: ProposalState): string => {
+  const state_ = stateWords(state);
+  return `Suggestion: ${kindWords(kind)}, ${state_.charAt(0).toLowerCase()}${state_.slice(1)}`;
+};

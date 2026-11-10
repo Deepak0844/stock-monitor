@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { closedWords, kindWords, resultWords, stateWords } from "./proposalWords.js";
+import { closedWords, kindWords, resultWords, stateWords, suggestionLine } from "./proposalWords.js";
 
 describe("proposal words", () => {
   it("names each kind of suggestion", () => {
@@ -39,5 +39,10 @@ describe("proposal words", () => {
     expect(resultWords("conflict", "changed", null)).toBe("Shopify's number changed, so nothing was changed.");
     expect(resultWords("applied", "applied", 0)).toBe("Shopify now shows 0.");
     expect(resultWords("open", null, null)).toBeNull();
+  });
+
+  it("puts a link's latest suggestion in one short line", () => {
+    expect(suggestionLine("set_zero_out_of_stock", "open")).toBe("Suggestion: Out of stock, waiting for you");
+    expect(suggestionLine("restock", "conflict")).toBe("Suggestion: Back in stock, not applied: Shopify changed");
   });
 });

@@ -134,7 +134,11 @@ export function DashboardPage({ api }: { api: Api }) {
             {notes.map((n) => (
               <li key={n.id}>
                 <span>{n.message}</span>
-                {n.kind === "recipe_needs_review" ? (
+                {n.kind === "proposal_needs_attention" ? (
+                  <Link to="/proposals" className="button primary inline">
+                    See proposals
+                  </Link>
+                ) : n.kind === "recipe_needs_review" ? (
                   <Link to={`/suppliers/${n.supplierId}/rules`} className="button primary inline" aria-label={`Review stock rules ${n.supplierName}`}>
                     Review stock rules
                   </Link>

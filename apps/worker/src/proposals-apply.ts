@@ -1,6 +1,6 @@
 import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
-import type { createProposalRepository, createShopifyRepository } from "@stock-monitor/db";
+import type { createNotificationRepository, createProposalRepository, createShopifyRepository } from "@stock-monitor/db";
 import { isConflict, nextAfterUnknown } from "@stock-monitor/proposals";
 import type { Queue } from "@stock-monitor/queue";
 import {
@@ -17,6 +17,7 @@ export type ProposalsApplyDeps = {
   proposals: ReturnType<typeof createProposalRepository>;
   shopify: ReturnType<typeof createShopifyRepository>;
   audit: ReturnType<typeof createAuditWriter>;
+  notifications: ReturnType<typeof createNotificationRepository>;
   queue: Pick<Queue, "enqueue">;
   logger: Logger;
   now?: () => Date;
@@ -39,7 +40,7 @@ const UNREACHABLE_RETRY_SECONDS = 300;
  * be reached at all it stays approved and waiting. Records and audit events hold numbers and fixed codes only.
  */
 export function createProposalsApplyHandler(deps: ProposalsApplyDeps) {
-  const { proposals, shopify, audit, queue, logger } = deps;
+  const { proposals, shopify, audit, notifications, queue, logger } = deps;
   const now = deps.now ?? (() => new Date());
 
   return async function handleApply(payload: { proposalId: string }): Promise<void> {
@@ -55,7 +56,7 @@ export function createProposalsApplyHandler(deps: ProposalsApplyDeps) {
     }
   };
 
-  async function apply(p: { id: string; variantId: string; shopifyQuantitySeen: number; approvedQuantity: number; idempotencyKey: string; attempts: number }): Promise<void> {
+  async function apply(p: { id: string; supplierId: string; variantId: string; shopifyQuantitySeen: number; approvedQuantity: number; idempotencyKey: string; attempts: number }): Promise<void> {
     const id = p.id;
     const to = p.approvedQuantity;
     const seen = p.shopifyQuantitySeen;
@@ -64,12 +65,18 @@ export function createProposalsApplyHandler(deps: ProposalsApplyDeps) {
     const note = (action: string, extra: Record<string, unknown>) =>
       audit.record({ action: `proposal.${action}`, entityType: "proposal", entityId: id, details: { variantId: p.variantId, from: seen, to, ...extra } });
 
+    // One notice on the Dashboard per supplier when a change was not applied; applying a change for that supplier closes it.
+    const warn = (message: string) => notifications.raise({ kind: "proposal_needs_attention", supplierId: p.supplierId, message, reason: "unknown" });
     const fail = async (code: string) => {
-      if (await proposals.markFailed(id, code)) await note("failed", { code });
+      if (await proposals.markFailed(id, code)) {
+        await note("failed", { code });
+        await warn("A stock change could not be applied to Shopify. Open Proposals to see why.");
+      }
       logger.warn({ proposalId: id, code }, "proposal failed");
     };
     const applied = async () => {
       if (!(await proposals.markApplied(id, to, now()))) return;
+      await notifications.resolve("proposal_needs_attention", p.supplierId);
       await shopify.setAvailable(p.variantId, to);
       await note("applied", {});
       logger.info({ proposalId: id }, "proposal applied");
@@ -78,6 +85,7 @@ export function createProposalsApplyHandler(deps: ProposalsApplyDeps) {
       if (!(await proposals.markConflict(id, current))) return;
       if (current !== null) await shopify.setAvailable(p.variantId, current);
       await note("conflict", { now: current });
+      await warn("A stock change was not applied because Shopify's number changed. Open Proposals to refresh it.");
       logger.info({ proposalId: id }, "proposal conflict: Shopify changed");
     };
     const later = async (seconds: number) => {

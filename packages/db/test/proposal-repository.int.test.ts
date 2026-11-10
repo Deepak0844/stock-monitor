@@ -253,6 +253,16 @@ describe("history", () => {
   });
 });
 
+describe("the latest suggestion of each link", () => {
+  it("is the newest one's state and kind, for each link that has one", async () => {
+    expect(await repo().latestByMapping()).toEqual(new Map());
+    const a = (await repo().evaluateFor(input())).proposal!;
+    await repo().reject(a.id, null, "owner", NOW);
+    const b = (await repo().evaluateFor(input({ shopifyQuantitySeen: 3 }))).proposal!;
+    expect([...(await repo().latestByMapping())]).toEqual([[mapping, { state: "open", kind: "set_zero_out_of_stock", id: b.id }]]);
+  });
+});
+
 describe("cleanup", () => {
   it("removing the supplier removes its suggestions", async () => {
     await repo().evaluateFor(input());

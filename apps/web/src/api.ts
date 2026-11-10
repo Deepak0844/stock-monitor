@@ -180,6 +180,8 @@ export type Mapping = {
   unavailableCandidate: boolean;
   /** What the latest stock check said, or null when none has run. */
   latestStock: LatestStock | null;
+  /** The link's newest suggestion, or null when it has had none. */
+  latestSuggestion: { id: string; state: ProposalState; kind: ProposalKind } | null;
 };
 
 export type StockAnswer = "in_stock" | "out_of_stock" | "cannot_tell";
@@ -311,7 +313,7 @@ export type LoginSessionsApi = {
 /** Something that needs the owner's attention, in plain words. */
 export type AppNotification = {
   id: string;
-  kind: "supplier_needs_reconnect" | "recipe_needs_review";
+  kind: "supplier_needs_reconnect" | "recipe_needs_review" | "proposal_needs_attention";
   supplierId: string;
   supplierName: string;
   message: string;

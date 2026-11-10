@@ -42,6 +42,13 @@ describe("DashboardPage", () => {
     expect(within(c).getByRole("link", { name: "Review suggestions" })).toHaveAttribute("href", "/proposals");
   });
 
+  it("shows a change that was not applied, with a link to Proposals", async () => {
+    setup({ notifications: { list: vi.fn().mockResolvedValue([aNotification({ kind: "proposal_needs_attention", message: "A stock change was not applied because Shopify's number changed. Open Proposals to refresh it." })]) } });
+    expect(await screen.findByText(/A stock change was not applied/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "See proposals" })).toHaveAttribute("href", "/proposals");
+    expect(screen.queryByRole("link", { name: /Reconnect supplier/ })).toBeNull();
+  });
+
   it("explains the four steps of how it works, in order", async () => {
     setup();
     await screen.findByText("Nothing needs your attention.");

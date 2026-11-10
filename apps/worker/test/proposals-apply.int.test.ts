@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { randomBytes } from "node:crypto";
 import { Writable } from "node:stream";
 import { startTestDb, type TestDb } from "@stock-monitor/db/test-harness";
-import { createMappingRepository, createProposalRepository, createShopifyRepository, createSupplierRepository } from "@stock-monitor/db";
+import { createMappingRepository, createNotificationRepository, createProposalRepository, createShopifyRepository, createSupplierRepository } from "@stock-monitor/db";
 import { createAuditWriter } from "@stock-monitor/audit";
 import { createLogger } from "@stock-monitor/shared";
 import { LOC_A, createFakeCatalog, createFakeShopify, makeVariant, type FakeShopify } from "@stock-monitor/shopify/testing";
@@ -29,7 +29,7 @@ const proposals = () => createProposalRepository(t.appDb);
 const shopify = () => createShopifyRepository(t.appDb, key);
 const handler = () =>
   createProposalsApplyHandler({
-    proposals: proposals(), shopify: shopify(), audit: createAuditWriter(t.appDb), logger, now: () => NOW,
+    proposals: proposals(), shopify: shopify(), audit: createAuditWriter(t.appDb), notifications: createNotificationRepository(t.appDb), logger, now: () => NOW,
     queue: { enqueue: async (name: string, payload: unknown, options?: never) => { if (enqueueFails) throw new Error("down"); enqueued.push({ name, payload, options }); } } as never,
     baseUrl: () => fake.url, clientOptions: { sleep: async () => {} },
   });
@@ -55,7 +55,7 @@ afterAll(async () => {
   await t?.stop();
 });
 beforeEach(async () => {
-  await t.pool.query("truncate suppliers, shopify_variants, shopify_connection, audit_events cascade");
+  await t.pool.query("truncate suppliers, shopify_variants, shopify_connection, audit_events, notifications cascade");
   logLines.length = 0;
   enqueued = [];
   enqueueFails = false;
@@ -141,6 +141,49 @@ describe("conflict", () => {
     catalog.setVariants([makeVariant(4, { stock: {} })]);
     await handler()({ proposalId: p.id });
     expect(await state(p.id)).toMatchObject({ state: "conflict", resultQuantity: null });
+  });
+});
+
+describe("the Dashboard notice", () => {
+  const open = async () => (await createNotificationRepository(t.appDb).listOpen()).filter((n) => n.kind === "proposal_needs_attention");
+
+  it("a conflict raises one notice, in plain words, naming the supplier", async () => {
+    const p = await approved();
+    catalog.setStock(ITEM, LOC_A, 3);
+    await handler()({ proposalId: p.id });
+    const notes = await open();
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatchObject({ supplierName: "Acme", message: "A stock change was not applied because Shopify's number changed. Open Proposals to refresh it." });
+  });
+
+  it("a failure raises one notice, and a second one for the same supplier does not add another", async () => {
+    const a = await approved();
+    catalog.failNextWrite("refuse");
+    await handler()({ proposalId: a.id });
+    const b = await approved();
+    catalog.setStock(ITEM, LOC_A, 3);
+    await handler()({ proposalId: b.id });
+    expect(await open()).toHaveLength(1);
+    expect((await open())[0]!.message).toMatch(/Shopify's number changed/); // the latest wording
+  });
+
+  it("applying a change for that supplier closes the notice", async () => {
+    const a = await approved();
+    catalog.setStock(ITEM, LOC_A, 3);
+    await handler()({ proposalId: a.id });
+    expect(await open()).toHaveLength(1);
+    const b = await approved();
+    await proposals().markFailed(b.id, "x"); // keep the next one simple: reset to a fresh approved one
+    catalog.setStock(ITEM, LOC_A, 4);
+    const c = await approved();
+    await handler()({ proposalId: c.id });
+    expect(await open()).toEqual([]);
+  });
+
+  it("a successful apply raises nothing", async () => {
+    const p = await approved();
+    await handler()({ proposalId: p.id });
+    expect(await open()).toEqual([]);
   });
 });
 
@@ -285,7 +328,7 @@ describe("one worker at a time", () => {
     expect(fake.graphqlRequests()).toEqual([]);
     expect(await state(p.id)).toMatchObject({ state: "approved" });
     const later = createProposalsApplyHandler({
-      proposals: proposals(), shopify: shopify(), audit: createAuditWriter(t.appDb), logger, now: () => new Date(NOW.getTime() + 121_000),
+      proposals: proposals(), shopify: shopify(), audit: createAuditWriter(t.appDb), notifications: createNotificationRepository(t.appDb), logger, now: () => new Date(NOW.getTime() + 121_000),
       queue: { enqueue: async () => {} } as never, baseUrl: () => fake.url, clientOptions: { sleep: async () => {} },
     });
     await later({ proposalId: p.id });

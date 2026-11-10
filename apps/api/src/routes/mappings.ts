@@ -1,7 +1,7 @@
 import type { FastifyInstance, RawReplyDefaultExpression, RawRequestDefaultExpression, RawServerDefault } from "fastify";
 import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
-import type { createImportPreviewRepository, createMappingRepository, createObservationRepository, ObservationRecord, createSupplierRepository, createSupplierSessionRepository, MappingRow } from "@stock-monitor/db";
+import type { createImportPreviewRepository, createMappingRepository, createObservationRepository, createProposalRepository, ObservationRecord, createSupplierRepository, createSupplierSessionRepository, MappingRow } from "@stock-monitor/db";
 import type { Queue } from "@stock-monitor/queue";
 import { isUnavailableCandidate, sameSite, whyNotChecked } from "@stock-monitor/mapping";
 import { validateSupplierUrl, verifyPublicHost, type HostLookup } from "@stock-monitor/supplier-session";
@@ -18,6 +18,8 @@ export type MappingRoutesDeps = {
   previews?: ReturnType<typeof createImportPreviewRepository>;
   /** The latest stock answer on each link. Left out, links carry no stock answer. */
   observations?: ReturnType<typeof createObservationRepository>;
+  /** When set, each link carries its latest suggestion. */
+  proposals?: ReturnType<typeof createProposalRepository>;
   /** Link checks. Both are needed. Left out, there are no check routes. */
   supplierSessions?: ReturnType<typeof createSupplierSessionRepository>;
   queue?: Pick<Queue, "enqueue">;
@@ -51,8 +53,9 @@ const noteOf = (value: unknown): string | null => {
 };
 
 /** Adds what a screen needs and the row does not store: whether the link is an "unavailable candidate". */
-const present = (row: MappingRow, latest?: ObservationRecord) => ({
+const present = (row: MappingRow, latest?: ObservationRecord, suggestion?: { id: string; state: string; kind: string }) => ({
   ...row,
+  latestSuggestion: suggestion ?? null,
   latestStock: latest ? { answer: latest.answer, reason: latest.reason, quantity: latest.quantity, matchedText: latest.matchedText, observedAt: latest.observedAt } : null,
   unavailableCandidate: isUnavailableCandidate(
     { status: row.linkStatus, lastWorkedAt: row.lastWorkedAt, workedTitle: row.workedTitle, workedHeading: row.workedHeading, missingChecks: row.missingChecks, firstMissingAt: row.firstMissingAt, checkedAt: row.lastLinkCheckAt },
@@ -82,7 +85,8 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
     const { supplierId, status, search } = request.query;
     const rows = await mappings.list({ supplierId, linkStatus: status as never, search });
     const latest = deps.observations ? await deps.observations.latestByMapping() : new Map<string, ObservationRecord>();
-    return { mappings: rows.map((row) => present(row, latest.get(row.id))) };
+    const suggestions = deps.proposals ? await deps.proposals.latestByMapping() : new Map();
+    return { mappings: rows.map((row) => present(row, latest.get(row.id), suggestions.get(row.id))) };
   });
 
   app.post("/api/mappings", async (request, reply) => {

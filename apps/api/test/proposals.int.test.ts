@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createHash, randomBytes } from "node:crypto";
 import { Writable } from "node:stream";
 import { startTestDb, type TestDb } from "@stock-monitor/db/test-harness";
-import { createMappingRepository, createProposalRepository, createShopifyRepository, createSupplierRepository } from "@stock-monitor/db";
+import { createMappingRepository, createNotificationRepository, createProposalRepository, createShopifyRepository, createSupplierRepository } from "@stock-monitor/db";
 import { createLogger } from "@stock-monitor/shared";
 import { buildApp } from "../src/app.js";
 
@@ -27,6 +27,7 @@ const app = () =>
     proposals: {
       proposals: proposals(),
       shopify: createShopifyRepository(t.appDb, { key: randomBytes(32), keyId: "k" }),
+      notifications: createNotificationRepository(t.appDb),
       queue: { enqueue: async (name: string, payload: unknown, options?: unknown) => { if (enqueueFails) throw new Error("down"); queued.push({ name, payload, ...(options ? { options } : {}) }); } } as never,
       now: () => now,
     },
@@ -75,7 +76,7 @@ afterAll(async () => {
   await t?.stop();
 });
 beforeEach(async () => {
-  await t.pool.query("truncate suppliers, shopify_variants, shopify_connection, app_settings, audit_events cascade");
+  await t.pool.query("truncate suppliers, shopify_variants, shopify_connection, app_settings, audit_events, notifications cascade");
   queued.length = 0;
   enqueueFails = false;
   now = new Date("2026-06-10T10:00:00Z");
