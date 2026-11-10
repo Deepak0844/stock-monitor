@@ -104,6 +104,7 @@ const app = buildApp({
   mappings: { mappings: createMappingRepository(db.appDb), suppliers, previews: createImportPreviewRepository(db.appDb), supplierSessions, queue, lookup, observations: createObservationRepository(db.appDb) },
   captures: { captures: createCaptureRepository(db.appDb), mappings: createMappingRepository(db.appDb), suppliers, supplierSessions, queue },
   recipes: { recipes: createRecipeRepository(db.appDb), captures: createCaptureRepository(db.appDb), mappings: createMappingRepository(db.appDb), suppliers },
+  schedule: { suppliers, supplierSessions, recipes: createRecipeRepository(db.appDb), checkRuns: createCheckRunRepository(db.appDb), timezone: "UTC" },
   stockChecks: { mappings: createMappingRepository(db.appDb), suppliers, supplierSessions, recipes: createRecipeRepository(db.appDb), observations: createObservationRepository(db.appDb), checkRuns: createCheckRunRepository(db.appDb), queue },
   notifications: { repo: notifications },
   loginSessions: { suppliers, loginSessions, supplierSessions, browser: browserClient, key: encryption, notifications, queue },
