@@ -9,3 +9,4 @@ export * from "./import-preview-repository.js";
 export * from "./recipe-repository.js";
 export * from "./capture-repository.js";
 export * from "./observation-repository.js";
+export * from "./check-run-repository.js";
