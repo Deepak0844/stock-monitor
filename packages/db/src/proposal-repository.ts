@@ -94,7 +94,12 @@ export function createProposalRepository<S extends Record<string, unknown>>(db: 
       }
       if (!existing && i.observationId !== null) {
         // One answer gets one suggestion: after the owner rejected it, or it expired, only a newer check may suggest again.
-        const [used] = await tx.select({ id: proposals.id }).from(proposals).where(and(eq(proposals.mappingId, i.mappingId), eq(proposals.observationId, i.observationId))).limit(1);
+        // A conflict or a failure is different: nothing was changed and the owner can refresh, so the same answer may suggest again.
+        const [used] = await tx
+          .select({ id: proposals.id })
+          .from(proposals)
+          .where(and(eq(proposals.mappingId, i.mappingId), eq(proposals.observationId, i.observationId), sql`${proposals.state} not in ('conflict', 'failed')`))
+          .limit(1);
         if (used) return { change: "none", proposal: null };
       }
       if (existing) await tx.update(proposals).set({ state: "replaced", closedReason: "newer_answer" }).where(eq(proposals.id, existing.id));

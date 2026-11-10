@@ -286,6 +286,7 @@ describe("checking a connection and reading messages", () => {
     await api.proposals.approve("p1");
     await api.proposals.approve("p/1", 7);
     await api.proposals.reject("p1");
+    await api.proposals.refresh("p1");
     await api.proposals.settings();
     await api.proposals.saveSettings({ defaultQuantity: 8, expiryHours: 12 });
     const calls = fetchMock.mock.calls.map(([url, init]) => [init.method, url, init.body]);
@@ -296,6 +297,7 @@ describe("checking a connection and reading messages", () => {
       ["POST", "/api/proposals/p1/approve", "{}"],
       ["POST", "/api/proposals/p%2F1/approve", '{"quantity":7}'],
       ["POST", "/api/proposals/p1/reject", "{}"],
+      ["POST", "/api/proposals/p1/refresh", "{}"],
       ["GET", "/api/settings/proposals", undefined],
       ["PUT", "/api/settings/proposals", '{"defaultQuantity":8,"expiryHours":12}'],
     ]);

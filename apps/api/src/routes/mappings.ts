@@ -130,6 +130,8 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
     }
     if (!(await mappings.update(current.id, patch))) throw MAPPING_NOT_FOUND();
     await record(request, "mapping.updated", "mapping", current.id, { changed: Object.keys(patch) });
+    // Turning a link off or on changes whether its suggestion still applies, so ask for it to be looked at again.
+    if ("enabled" in patch) await deps.queue?.enqueue("proposals.evaluate", { mappingId: current.id }).catch((error) => request.log.warn({ err: error }, "could not queue a suggestions evaluation"));
     return { mapping: present((await mappings.get(current.id)) as MappingRow) };
   });
 

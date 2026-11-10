@@ -210,6 +210,7 @@ export function fakeApi(
       count: vi.fn().mockResolvedValue(0),
       approve: vi.fn().mockImplementation(async (_id, quantity) => aProposal({ state: "approved", approvedQuantity: quantity ?? 0 })),
       reject: vi.fn().mockImplementation(async () => aProposal({ state: "rejected" })),
+      refresh: vi.fn().mockResolvedValue(undefined),
       settings: vi.fn().mockResolvedValue({ settings: { defaultQuantity: 5, expiryHours: 24 }, writePermission: { state: "ready", message: "Shopify allows this app to change stock." } }),
       saveSettings: vi.fn().mockImplementation(async (settings) => ({ settings, writePermission: { state: "ready", message: "Shopify allows this app to change stock." } })),
       ...proposals,

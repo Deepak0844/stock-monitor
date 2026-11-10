@@ -19,6 +19,11 @@ const app = () =>
   buildApp({
     db: t.appDb,
     logger,
+    mappings: {
+      mappings: createMappingRepository(t.appDb),
+      suppliers: createSupplierRepository(t.appDb),
+      queue: { enqueue: async (name: string, payload: unknown) => void queued.push({ name, payload }) } as never,
+    },
     proposals: {
       proposals: proposals(),
       shopify: createShopifyRepository(t.appDb, { key: randomBytes(32), keyId: "k" }),
@@ -28,7 +33,7 @@ const app = () =>
   });
 
 type Json = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
-async function call(method: "GET" | "POST" | "PUT", url: string, payload?: unknown, cookie = true) {
+async function call(method: "GET" | "POST" | "PUT" | "PATCH", url: string, payload?: unknown, cookie = true) {
   const res = await app().inject({ method, url, cookies: cookie ? { sid } : {}, ...(payload === undefined ? {} : { payload: payload as never }) });
   return { status: res.statusCode, body: res.json() as Json };
 }
@@ -81,7 +86,7 @@ beforeEach(async () => {
 });
 
 describe("every suggestion route needs a signed-in owner", () => {
-  it.each([["GET", "/api/proposals"], ["GET", "/api/proposals/count"], ["POST", "/api/proposals/x/approve"], ["POST", "/api/proposals/x/reject"], ["GET", "/api/settings/proposals"], ["PUT", "/api/settings/proposals"]])("%s %s returns 401", async (method, url) => {
+  it.each([["GET", "/api/proposals"], ["GET", "/api/proposals/count"], ["POST", "/api/proposals/x/approve"], ["POST", "/api/proposals/x/reject"], ["POST", "/api/proposals/x/refresh"], ["GET", "/api/settings/proposals"], ["PUT", "/api/settings/proposals"]])("%s %s returns 401", async (method, url) => {
     expect((await call(method as "GET", url, undefined, false)).status).toBe(401);
   });
 });
@@ -233,6 +238,63 @@ describe("approve", () => {
     for (const id of ["11111111-1111-4111-8111-111111111111", "not-an-id"]) {
       expect(await call("POST", `/api/proposals/${id}/approve`, {})).toMatchObject({ status: 404, body: { error: { code: "proposal_not_found" } } });
     }
+  });
+});
+
+describe("a link that was turned off", () => {
+  it("cannot be approved, and says why", async () => {
+    const p = await suggest();
+    await t.pool.query("update mappings set enabled = false");
+    const r = await call("POST", `/api/proposals/${p.id}/approve`, {});
+    expect(r).toMatchObject({ status: 409, body: { error: { code: "link_off", message: "This link was turned off, so the suggestion no longer applies." } } });
+    expect(queued).toHaveLength(0);
+  });
+
+  it("turning a link off or on asks for the suggestions to be looked at again; changing only its note does not", async () => {
+    await suggest();
+    await call("PATCH", `/api/mappings/${mapping}`, { enabled: false });
+    expect(queued).toEqual([{ name: "proposals.evaluate", payload: { mappingId: mapping } }]);
+    queued.length = 0;
+    await call("PATCH", `/api/mappings/${mapping}`, { enabled: true });
+    expect(queued).toEqual([{ name: "proposals.evaluate", payload: { mappingId: mapping } }]);
+    queued.length = 0;
+    await call("PATCH", `/api/mappings/${mapping}`, { note: "x" });
+    expect(queued).toEqual([]);
+  });
+});
+
+describe("refresh", () => {
+  const decided = async (state: "conflict" | "failed" | "expired" | "approved" | "applied" | "rejected" | "open") => {
+    const p = await suggest();
+    if (state !== "open") await t.pool.query("update proposals set state = $1 where id = $2", [state, p.id]);
+    return p;
+  };
+
+  it.each([["conflict"], ["failed"], ["expired"]] as const)("a %s suggestion can be refreshed: Shopify is read again and the checks are looked at again", async (state) => {
+    const p = await decided(state);
+    const r = await call("POST", `/api/proposals/${p.id}/refresh`, {});
+    expect(r).toMatchObject({ status: 202, body: { queued: true } });
+    expect(queued).toEqual([{ name: "shopify.sync", payload: {} }]);
+    expect((await events("proposal.refresh_requested"))[0]).toMatchObject({ entity_id: p.id });
+  });
+
+  it.each([["open"], ["approved"], ["applied"], ["rejected"]] as const)("a %s suggestion cannot be refreshed", async (state) => {
+    const p = await decided(state);
+    const r = await call("POST", `/api/proposals/${p.id}/refresh`, {});
+    expect(r).toMatchObject({ status: 409, body: { error: { code: "cannot_refresh" } } });
+    expect(queued).toEqual([]);
+  });
+
+  it("says plainly when the suggestion does not exist, and takes no body fields", async () => {
+    expect((await call("POST", "/api/proposals/11111111-1111-4111-8111-111111111111/refresh", {})).status).toBe(404);
+    const p = await decided("conflict");
+    expect((await call("POST", `/api/proposals/${p.id}/refresh`, { quantity: 3 })).status).toBe(400);
+  });
+
+  it("a queue that is down is said plainly", async () => {
+    const p = await decided("conflict");
+    enqueueFails = true;
+    expect(await call("POST", `/api/proposals/${p.id}/refresh`, {})).toMatchObject({ status: 503 });
   });
 });
 
