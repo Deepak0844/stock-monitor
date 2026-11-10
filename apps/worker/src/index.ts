@@ -76,6 +76,20 @@ await registerHandlers(queue, logger, {
           key: config.encryptionKey,
         }
       : undefined,
+  // Automatic checks start the supplier runs above, so they need the same browser service.
+  scheduling:
+    config.browserServiceUrl && config.browserControlToken
+      ? {
+          suppliers: createSupplierRepository(db),
+          supplierSessions: createSupplierSessionRepository(db),
+          recipes: createRecipeRepository(db),
+          mappings: createMappingRepository(db),
+          checkRuns: createCheckRunRepository(db),
+          queue,
+          audit: createAuditWriter(db),
+          timezone: config.timezone,
+        }
+      : undefined,
   // Link checks need the same browser service as session checks.
   mappingLinks:
     config.browserServiceUrl && config.browserControlToken

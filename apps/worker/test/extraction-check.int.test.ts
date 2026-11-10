@@ -417,6 +417,16 @@ describe("run records and stop rules", () => {
     expect(everything).not.toContain("shop.acme.example/p");
   });
 
+  it("does nothing for a run that was already ended, such as a job left queued over a restart", async () => {
+    await turnOn();
+    await links(2);
+    const row = (await runs().start(acme, "scheduled", 2))!;
+    await runs().stopAllRunning("restarted");
+    expect(await checkSupplierStock(deps(), acme, row.id)).toEqual({ kind: "skipped", reason: "run_ended" });
+    expect(requests("/capture")).toHaveLength(0);
+    expect(await lastRun()).toMatchObject({ outcome: "stopped", stopReason: "restarted" });
+  });
+
   it("run rows hold counts and a code, never an address or session", async () => {
     await turnOn();
     await links(2);

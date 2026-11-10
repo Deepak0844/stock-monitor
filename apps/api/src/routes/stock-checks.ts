@@ -4,6 +4,7 @@ import type { createAuditWriter } from "@stock-monitor/audit";
 import type { createCheckRunRepository, createMappingRepository, createObservationRepository, createRecipeRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
 import { whyNotChecked } from "@stock-monitor/mapping";
 import type { Queue } from "@stock-monitor/queue";
+import { runExpirySeconds } from "@stock-monitor/scheduling";
 import { AppError } from "../errors.js";
 
 type App = FastifyInstance<RawServerDefault, RawRequestDefaultExpression, RawReplyDefaultExpression, Logger>;
@@ -19,11 +20,6 @@ export type StockCheckRoutesDeps = {
   queue: Pick<Queue, "enqueue">;
 };
 
-// A run waits the supplier's pause between pages, so it can take far longer than the queue's default 15 minutes. If the queue gave
-// up on it half way it would start the whole run again at the same time as the first.
-const RUN_MIN_SECONDS = 15 * 60;
-const RUN_MAX_SECONDS = 6 * 60 * 60;
-const PER_PAGE_EXTRA_SECONDS = 30;
 const NOT_STARTED = () => new AppError(503, "check_not_started", "The check could not be started. Please try again in a minute.");
 
 /** Stock checks on request, and what they found. The checks themselves run in the worker. */
@@ -60,12 +56,11 @@ export function registerStockCheckRoutes(app: App, deps: StockCheckRoutesDeps, a
     const supplier = await readySupplier(request.params.id);
     const links = (await mappings.forSupplier(supplier.id)).filter((m) => m.enabled).length;
     if (links === 0) throw new AppError(409, "no_links", "This supplier has no links to check yet.");
-    const seconds = links * (supplier.checkPauseSeconds + PER_PAGE_EXTRA_SECONDS);
     // The run record is what stops two runs for one supplier: the database refuses a second one that is running.
     const run = await checkRuns.start(supplier.id, "manual", links);
     if (!run) throw new AppError(409, "run_in_progress", "A check for this supplier is already running. Wait for it to finish.");
     try {
-      await queue.enqueue("extraction.checks", { supplierId: supplier.id, runId: run.id }, { expireInSeconds: Math.min(RUN_MAX_SECONDS, Math.max(RUN_MIN_SECONDS, seconds)), retryLimit: 0 });
+      await queue.enqueue("extraction.checks", { supplierId: supplier.id, runId: run.id }, { expireInSeconds: runExpirySeconds(links, supplier.checkPauseSeconds), retryLimit: 0 });
     } catch {
       await checkRuns.end(run.id, "failed", "not_queued");
       throw NOT_STARTED();

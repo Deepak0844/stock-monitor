@@ -34,7 +34,7 @@ export type StockCheckDeps = {
   now?: () => Date;
 };
 
-export type SkipReason = CheckGateReason | "no_mapping" | "no_supplier" | "link_off" | "no_recipe";
+export type SkipReason = CheckGateReason | "no_mapping" | "no_supplier" | "link_off" | "no_recipe" | "run_ended";
 /** Why a run ended before every link was looked at. */
 export type StopReason = "login_required" | "captcha" | "blocked" | "unreachable" | "supplier_not_ready";
 export type StockOutcome = { kind: "skipped"; reason: SkipReason } | { kind: "checked"; answer: Answer; reason: Reason | null };
@@ -55,6 +55,21 @@ const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, 
 const tell = (reason: Reason): Decision => ({ answer: "cannot_tell", reason, quantity: null, matchedText: null, quantityMismatch: false });
 const RETENTION_DAYS = 30;
 
+/** The supplier and its active rules, or the plain reason a check must not run now. The tick uses the same gate, so it never starts a run the checker would refuse. */
+export async function stockGate(
+  deps: Pick<StockCheckDeps, "suppliers" | "supplierSessions" | "recipes">,
+  supplierId: string,
+): Promise<{ supplier: SupplierRecord; active: Active } | { reason: SkipReason }> {
+  const supplier = await deps.suppliers.get(supplierId);
+  if (!supplier) return { reason: "no_supplier" };
+  const refused = whyNotChecked(supplier, (await deps.supplierSessions.getSealed(supplierId)) !== null);
+  if (refused) return { reason: refused.reason };
+  const row = await deps.recipes.active(supplierId);
+  const checked = row ? validateRecipe(row.rules) : null;
+  if (!row || !checked?.ok) return { reason: "no_recipe" };
+  return { supplier, active: { recipe: checked.recipe, version: row.version } };
+}
+
 /**
  * Stock checks. One visit to a page gives two results: the stock answer (by the owner's rules) and the link status (by the
  * mapping rules). The answer is in stock or out of stock only when the rules matched clearly. A login, puzzle, block, outage, changed
@@ -62,21 +77,11 @@ const RETENTION_DAYS = 30;
  * or puts a session, page text or picture in a log, an audit event or an observation.
  */
 export function createStockChecker(deps: StockCheckDeps) {
-  const { mappings, suppliers, supplierSessions, recipes, observations, captures, notifications, audit, checkRuns, browser, logger } = deps;
+  const { mappings, suppliers, supplierSessions, observations, captures, notifications, audit, checkRuns, browser, logger } = deps;
   const sleep = deps.sleep ?? wait;
   const now = deps.now ?? (() => new Date());
 
-  /** The supplier and its active rules, or the plain reason a check must not run now. */
-  async function gate(supplierId: string): Promise<{ supplier: SupplierRecord; active: Active } | { reason: SkipReason }> {
-    const supplier = await suppliers.get(supplierId);
-    if (!supplier) return { reason: "no_supplier" };
-    const refused = whyNotChecked(supplier, (await supplierSessions.getSealed(supplierId)) !== null);
-    if (refused) return { reason: refused.reason };
-    const row = await recipes.active(supplierId);
-    const checked = row ? validateRecipe(row.rules) : null;
-    if (!row || !checked?.ok) return { reason: "no_recipe" };
-    return { supplier, active: { recipe: checked.recipe, version: row.version } };
-  }
+  const gate = (supplierId: string) => stockGate(deps, supplierId);
 
   async function visit(supplier: SupplierRecord, mapping: MappingRow, recipe: Recipe): Promise<Visit> {
     const sealed = await supplierSessions.getSealed(supplier.id);
@@ -196,6 +201,8 @@ export function createStockChecker(deps: StockCheckDeps) {
       await checkRuns.end(runId, "stopped", "supplier_not_ready");
       return { kind: "skipped", reason: first.reason };
     }
+    // A job left queued over a restart: its run was already ended, and a newer run may be going. It must not visit anything.
+    if (!(await checkRuns.isRunning(runId))) return { kind: "skipped", reason: "run_ended" };
     await captures.purge(RETENTION_DAYS);
     const links = (await mappings.forSupplier(supplierId)).filter((m) => m.enabled);
     const visits: Visit[] = [];
