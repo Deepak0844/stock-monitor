@@ -158,6 +158,18 @@ describe("stock answers", () => {
     expect(await screen.findByText("No stock check yet")).toBeInTheDocument();
   });
 
+  it("shows the link's latest suggestion in words under its stock answer, and nothing when there is none", async () => {
+    setup([
+      aMapping({ id: "a", productTitle: "Alpha", latestStock: stock({ answer: "out_of_stock" }), latestSuggestion: { id: "p1", state: "open", kind: "set_zero_out_of_stock" } }),
+      aMapping({ id: "b", productTitle: "Beta", latestStock: stock(), latestSuggestion: { id: "p2", state: "applied", kind: "restock" } }),
+      aMapping({ id: "c", productTitle: "Gamma", latestStock: stock(), latestSuggestion: null }),
+    ]);
+    const row = async (name: string) => within(await screen.findByRole("row", { name: new RegExp(name) }));
+    expect((await row("Alpha")).getByText("Suggestion: Out of stock, waiting for you")).toBeInTheDocument();
+    expect((await row("Beta")).getByText("Suggestion: Back in stock, applied")).toBeInTheDocument();
+    expect((await row("Gamma")).queryByText(/Suggestion:/)).toBeNull();
+  });
+
   it("shows the latest answer in words, with the quantity, the region and the reason", async () => {
     setup([
       aMapping({ id: "a", productTitle: "Alpha", latestStock: stock({ quantity: 12 }) }),

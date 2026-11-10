@@ -245,6 +245,15 @@ export function createProposalRepository<S extends Record<string, unknown>>(db: 
       return rows.map((r) => r.id);
     },
 
+    /** The newest suggestion of every link that has one: its id, state and kind. For the Links page. */
+    async latestByMapping(): Promise<Map<string, { id: string; state: ProposalState; kind: string }>> {
+      const rows = await db
+        .selectDistinctOn([proposals.mappingId], { mappingId: proposals.mappingId, id: proposals.id, state: proposals.state, kind: proposals.kind })
+        .from(proposals)
+        .orderBy(proposals.mappingId, desc(proposals.createdAt), desc(proposals.id));
+      return new Map(rows.map((r) => [r.mappingId, { id: r.id, state: r.state as ProposalState, kind: r.kind }]));
+    },
+
     async settings(): Promise<ProposalSettings> {
       const [row] = await db.select().from(appSettings).where(eq(appSettings.key, SETTINGS_KEY)).limit(1);
       const v = (row?.value ?? {}) as Partial<ProposalSettings>;

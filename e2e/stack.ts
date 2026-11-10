@@ -92,7 +92,7 @@ await registerHandlers(queue, logger, {
   },
   mappingLinks: { mappings: createMappingRepository(db.appDb), suppliers, supplierSessions, audit: createAuditWriter(db.appDb), browser: browserClient, key: encryption.key, sleep: async () => {} },
   proposals: { mappings: createMappingRepository(db.appDb), observations: createObservationRepository(db.appDb), shopify: repo, proposals: createProposalRepository(db.appDb) },
-  proposalsApply: { proposals: createProposalRepository(db.appDb), shopify: repo, audit: createAuditWriter(db.appDb), queue, baseUrl, clientOptions: { sleep: async () => {} } },
+  proposalsApply: { proposals: createProposalRepository(db.appDb), shopify: repo, audit: createAuditWriter(db.appDb), notifications, queue, baseUrl, clientOptions: { sleep: async () => {} } },
   supplierVerify: { suppliers, supplierSessions, notifications, audit: createAuditWriter(db.appDb), browser: browserClient, key: encryption.key, retryDelaysMs: [], sleep: async () => {} },
 });
 
@@ -105,7 +105,7 @@ const app = buildApp({
   logger,
   webRoot,
   suppliers: { repo: suppliers, lookup },
-  mappings: { mappings: createMappingRepository(db.appDb), suppliers, previews: createImportPreviewRepository(db.appDb), supplierSessions, queue, lookup, observations: createObservationRepository(db.appDb) },
+  mappings: { mappings: createMappingRepository(db.appDb), suppliers, previews: createImportPreviewRepository(db.appDb), supplierSessions, queue, lookup, observations: createObservationRepository(db.appDb), proposals: createProposalRepository(db.appDb) },
   captures: { captures: createCaptureRepository(db.appDb), mappings: createMappingRepository(db.appDb), suppliers, supplierSessions, queue },
   recipes: { recipes: createRecipeRepository(db.appDb), captures: createCaptureRepository(db.appDb), mappings: createMappingRepository(db.appDb), suppliers },
   schedule: { suppliers, supplierSessions, recipes: createRecipeRepository(db.appDb), checkRuns: createCheckRunRepository(db.appDb), timezone: "UTC" },
@@ -114,7 +114,7 @@ const app = buildApp({
   loginSessions: { suppliers, loginSessions, supplierSessions, browser: browserClient, key: encryption, notifications, queue },
   loginScreen: { allowedOrigins: [BASE_URL], vnc: { host: "127.0.0.1", port: vnc.port }, firstMessageTimeoutMs: 5000 },
   shopify: { repo, queue, baseUrl, clientOptions: { sleep: async () => {} } },
-  proposals: { proposals: createProposalRepository(db.appDb), shopify: repo, queue },
+  proposals: { proposals: createProposalRepository(db.appDb), shopify: repo, notifications, queue },
 });
 
 // Control channel for the tests. Listens on this machine only.

@@ -104,6 +104,7 @@ await registerHandlers(queue, logger, {
     proposals: createProposalRepository(db),
     shopify: createShopifyRepository(db, { key: config.encryptionKey, keyId: KEY_ID }),
     audit: createAuditWriter(db),
+    notifications: createNotificationRepository(db),
     queue,
   },
   // Link checks need the same browser service as session checks.

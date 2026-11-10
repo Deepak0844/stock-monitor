@@ -3,6 +3,7 @@ import type { Api, LinkStatus, Mapping, Observation, Supplier, UnmappedList } fr
 import { LINK_STATUS_OPTIONS, linkStatusOf } from "../components/linkStatus.js";
 import { isStale } from "@stock-monitor/scheduling";
 import { Notice } from "../components/Notice.js";
+import { suggestionLine } from "../components/proposalWords.js";
 import { ANSWER_TONE, reasonWords, stockSentence } from "../components/stockWords.js";
 import { formatDay, formatWhen } from "../format.js";
 import { Link } from "../router.js";
@@ -286,6 +287,11 @@ export function MappingsPage({ api }: { api: Api }) {
                               </div>
                             )}
                             <div className="muted">Seen {formatWhen(m.latestStock.observedAt)}</div>
+                            {m.latestSuggestion && (
+                              <div>
+                                <Link to="/proposals">{suggestionLine(m.latestSuggestion.kind, m.latestSuggestion.state)}</Link>
+                              </div>
+                            )}
                           </>
                         ) : (
                           <span className="muted">No stock check yet</span>

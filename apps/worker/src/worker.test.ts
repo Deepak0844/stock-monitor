@@ -41,7 +41,7 @@ describe("suggestions are evaluated after the data they depend on changes", () =
     await registerHandlers(a.queue, logger, deps());
     expect(a.handlers.has("proposals.apply")).toBe(false);
     const b = fakeQueue();
-    await registerHandlers(b.queue, logger, { proposalsApply: { proposals: {} as never, shopify: {} as never, audit: {} as never, queue: b.queue } });
+    await registerHandlers(b.queue, logger, { proposalsApply: { proposals: {} as never, shopify: {} as never, audit: {} as never, notifications: {} as never, queue: b.queue } });
     expect(b.handlers.has("proposals.apply")).toBe(true);
   });
 

@@ -129,6 +129,7 @@ export const aMapping = (over: Partial<Mapping> = {}): Mapping => ({
   variantRemoved: false,
   unavailableCandidate: false,
   latestStock: null,
+  latestSuggestion: null,
   region: null,
   ...over,
 });

@@ -36,7 +36,7 @@ const app = buildApp({
   webRoot,
   suppliers: { repo: createSupplierRepository(db) },
   notifications: { repo: createNotificationRepository(db) },
-  mappings: { mappings: createMappingRepository(db), suppliers: createSupplierRepository(db), observations: createObservationRepository(db), previews: createImportPreviewRepository(db), supplierSessions: createSupplierSessionRepository(db), queue },
+  mappings: { mappings: createMappingRepository(db), suppliers: createSupplierRepository(db), observations: createObservationRepository(db), proposals: createProposalRepository(db), previews: createImportPreviewRepository(db), supplierSessions: createSupplierSessionRepository(db), queue },
   captures: { captures: createCaptureRepository(db), mappings: createMappingRepository(db), suppliers: createSupplierRepository(db), supplierSessions: createSupplierSessionRepository(db), queue },
   recipes: { recipes: createRecipeRepository(db), captures: createCaptureRepository(db), mappings: createMappingRepository(db), suppliers: createSupplierRepository(db) },
   schedule: { suppliers: createSupplierRepository(db), supplierSessions: createSupplierSessionRepository(db), recipes: createRecipeRepository(db), checkRuns: createCheckRunRepository(db), timezone: config.timezone },
@@ -62,7 +62,7 @@ const app = buildApp({
           vnc: { host: new URL(config.browserServiceUrl).hostname, port: config.browserVncPort },
         }
       : undefined,
-  proposals: { proposals: createProposalRepository(db), shopify: createShopifyRepository(db, { key: config.encryptionKey, keyId: KEY_ID }), queue },
+  proposals: { proposals: createProposalRepository(db), shopify: createShopifyRepository(db, { key: config.encryptionKey, keyId: KEY_ID }), notifications: createNotificationRepository(db), queue },
   shopify: {
     repo: createShopifyRepository(db, { key: config.encryptionKey, keyId: KEY_ID }),
     queue,
