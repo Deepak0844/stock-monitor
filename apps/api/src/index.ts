@@ -6,6 +6,7 @@ import {
   createLoginSessionRepository,
   createNotificationRepository,
   createShopifyRepository,
+  createProposalRepository,
   createCaptureRepository, createCheckRunRepository, createObservationRepository, createRecipeRepository, createImportPreviewRepository, createMappingRepository, createSupplierRepository,
   createSupplierSessionRepository,
 } from "@stock-monitor/db";
@@ -61,6 +62,7 @@ const app = buildApp({
           vnc: { host: new URL(config.browserServiceUrl).hostname, port: config.browserVncPort },
         }
       : undefined,
+  proposals: { proposals: createProposalRepository(db), shopify: createShopifyRepository(db, { key: config.encryptionKey, keyId: KEY_ID }), queue },
   shopify: {
     repo: createShopifyRepository(db, { key: config.encryptionKey, keyId: KEY_ID }),
     queue,
