@@ -87,6 +87,18 @@ describe("evaluateFor", () => {
     expect((await repo().evaluateFor(input({ observationId: newer }))).change).toBe("created");
   });
 
+  it("after a conflict or a failure the same answer may suggest again, so the owner can refresh", async () => {
+    const obs = (await t.pool.query(`insert into stock_observations (mapping_id, answer, check_result) values ($1, 'out_of_stock', 'ok') returning id`, [mapping])).rows[0].id as number;
+    const a = (await repo().evaluateFor(input({ observationId: obs }))).proposal!;
+    await repo().markApproved(a.id, 0, "owner", NOW);
+    await repo().markConflict(a.id, 3);
+    const again = await repo().evaluateFor(input({ observationId: obs, shopifyQuantitySeen: 3 }));
+    expect(again).toMatchObject({ change: "created", proposal: { state: "open", shopifyQuantitySeen: 3 } });
+    await repo().markApproved(again.proposal!.id, 0, "owner", NOW);
+    await repo().markFailed(again.proposal!.id, "refused");
+    expect((await repo().evaluateFor(input({ observationId: obs, shopifyQuantitySeen: 3 }))).change).toBe("created");
+  });
+
   it("two evaluations at the same moment give one open suggestion", async () => {
     const both = await Promise.all([repo().evaluateFor(input()), repo().evaluateFor(input())]);
     expect(await repo().open()).toHaveLength(1);

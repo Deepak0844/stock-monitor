@@ -212,3 +212,41 @@ describe("history", () => {
     expect(await screen.findByText("No past suggestions yet.")).toBeInTheDocument();
   });
 });
+
+describe("refresh", () => {
+  const rows = [
+    aProposal({ id: "c", state: "conflict", resultCode: "changed", resultQuantity: 3, productTitle: "Red Cap" }),
+    aProposal({ id: "f", state: "failed", resultCode: "refused", productTitle: "Green Hat" }),
+    aProposal({ id: "e", state: "expired", productTitle: "Pink Scarf" }),
+    aProposal({ id: "a", state: "applied", approvedQuantity: 0, resultCode: "applied", resultQuantity: 0 }),
+    aProposal({ id: "r", state: "rejected", productTitle: "Grey Sock" }),
+  ];
+
+  it("offers Refresh on a suggestion that was not applied or expired, and on no other", async () => {
+    const { user } = await setup([], { proposals: { history: vi.fn().mockResolvedValue({ proposals: rows, hasMore: false, page: 1 }) } });
+    await user.click(await screen.findByRole("button", { name: "History" }));
+    const table = await screen.findByRole("table", { name: "Past suggestions" });
+    for (const name of ["Red Cap", "Green Hat", "Pink Scarf"]) {
+      expect(within(within(table).getByRole("row", { name: new RegExp(name) })).getByRole("button", { name: `Refresh ${name}, Large` })).toBeInTheDocument();
+    }
+    expect(within(within(table).getByRole("row", { name: /Blue Tee/ })).queryByRole("button", { name: /Refresh/ })).toBeNull();
+    expect(within(within(table).getByRole("row", { name: /Grey Sock/ })).queryByRole("button", { name: /Refresh/ })).toBeNull();
+  });
+
+  it("asks for a refresh and says where the new suggestion will appear", async () => {
+    const refresh = vi.fn().mockResolvedValue(undefined);
+    const { user } = await setup([], { proposals: { refresh, history: vi.fn().mockResolvedValue({ proposals: rows, hasMore: false, page: 1 }) } });
+    await user.click(await screen.findByRole("button", { name: "History" }));
+    await user.click(await screen.findByRole("button", { name: "Refresh Red Cap, Large" }));
+    expect(refresh).toHaveBeenCalledWith("c");
+        expect(await screen.findByText(/Reading Shopify again/)).toBeInTheDocument();
+  });
+
+  it("shows the plain reason when a refresh cannot start", async () => {
+    const refresh = vi.fn().mockRejectedValue(new ApiError("Could not start that. Try again in a minute.", 503));
+    const { user } = await setup([], { proposals: { refresh, history: vi.fn().mockResolvedValue({ proposals: rows, hasMore: false, page: 1 }) } });
+    await user.click(await screen.findByRole("button", { name: "History" }));
+    await user.click(await screen.findByRole("button", { name: "Refresh Green Hat, Large" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not start that.");
+  });
+});

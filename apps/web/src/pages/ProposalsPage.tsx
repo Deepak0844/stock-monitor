@@ -111,8 +111,12 @@ function OpenItem({ api, proposal, permission, onChanged }: { api: Api; proposal
   );
 }
 
+const REFRESHABLE = new Set(["conflict", "failed", "expired"]);
+
 function History({ api }: { api: Api }) {
   const [rows, setRows] = useState<Proposal[] | null>(null);
+  const [refreshed, setRefreshed] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [more, setMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -133,6 +137,17 @@ function History({ api }: { api: Api }) {
   );
   useEffect(() => load(1), [load]);
 
+  async function refresh(p: Proposal) {
+    setRefreshError(null);
+    setRefreshed(false);
+    try {
+      await api.proposals.refresh(p.id);
+      setRefreshed(true);
+    } catch (e) {
+      setRefreshError(message(e));
+    }
+  }
+
   if (error) {
     return (
       <>
@@ -151,6 +166,12 @@ function History({ api }: { api: Api }) {
   if (rows.length === 0) return <p className="empty-state">No past suggestions yet.</p>;
   return (
     <>
+      {refreshed && <Notice kind="info" role="status">Reading Shopify again. If a suggestion still applies, it will appear under Waiting in a moment.</Notice>}
+      {refreshError && (
+        <Notice kind="error" role="alert">
+          {refreshError}
+        </Notice>
+      )}
       <table className="data-table" aria-label="Past suggestions">
         <thead>
           <tr>
@@ -177,6 +198,13 @@ function History({ api }: { api: Api }) {
                   <div className="muted">{resultWords(p.state, p.resultCode, p.resultQuantity) ?? closedWords(p.closedReason)}</div>
                 )}
                 {p.decidedAt && <div className="muted">{formatWhen(p.decidedAt)}</div>}
+                {REFRESHABLE.has(p.state) && (
+                  <div>
+                    <button type="button" className="button secondary" aria-label={`Refresh ${name(p)}`} onClick={() => void refresh(p)}>
+                      Refresh
+                    </button>
+                  </div>
+                )}
               </td>
             </tr>
           ))}

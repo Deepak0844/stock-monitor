@@ -362,6 +362,8 @@ export type ProposalsApi = {
   /** Approves one suggestion. Pass a number to change it first. */
   approve(id: string, quantity?: number): Promise<Proposal>;
   reject(id: string): Promise<Proposal>;
+  /** After a conflict, a failure or an expiry: read Shopify's numbers again. A new suggestion appears if one still applies. */
+  refresh(id: string): Promise<void>;
   settings(): Promise<{ settings: ProposalSettings; writePermission: WritePermission }>;
   saveSettings(settings: ProposalSettings): Promise<{ settings: ProposalSettings; writePermission: WritePermission }>;
 };
@@ -586,6 +588,9 @@ const proposals: ProposalsApi = {
   },
   async reject(id) {
     return (await request<{ proposal: Proposal }>(`/api/proposals/${enc(id)}/reject`, { method: "POST", json: {} })).proposal;
+  },
+  async refresh(id) {
+    await request(`/api/proposals/${enc(id)}/refresh`, { method: "POST", json: {} });
   },
   settings: () => request("/api/settings/proposals", { method: "GET" }),
   saveSettings: (settings) => request("/api/settings/proposals", { method: "PUT", json: settings }),

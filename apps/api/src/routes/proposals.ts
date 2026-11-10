@@ -107,6 +107,7 @@ export function registerProposalRoutes(app: App, deps: ProposalRoutesDeps, audit
     if (!current) throw NOT_FOUND();
     if (current.state !== "open") throw stateError(current.state);
     if (current.expiresAt.getTime() <= now().getTime()) throw stateError("expired");
+    if (!current.mappingEnabled) throw new AppError(409, "link_off", "This link was turned off, so the suggestion no longer applies.");
     if ((await writePermission()).state !== "ready") throw new AppError(409, "no_write_permission", NO_PERMISSION);
     if (!current.tracked) throw new AppError(409, "not_tracked", NOT_TRACKED);
     const quantity = body.data.quantity ?? current.proposedQuantity;
@@ -131,6 +132,25 @@ export function registerProposalRoutes(app: App, deps: ProposalRoutesDeps, audit
     if (!(await proposals.reject(current.id, note, request.user?.id ?? "owner", now()))) throw stateError("approved");
     await record(request, "proposal.rejected", current.id, { variantId: current.variantId, hasNote: note !== null });
     return { proposal: present((await proposals.getView(current.id))!) };
+  });
+
+  // Refresh: after a conflict, a failure or an expiry, read Shopify's numbers again. The sync asks for the suggestions to be made again
+  // from the latest checks, so a new suggestion appears if one still applies. It changes nothing in Shopify and never retries a write.
+  const emptyBody = z.object({}).strict();
+  app.post<{ Params: { id: string } }>("/api/proposals/:id/refresh", async (request, reply) => {
+    if (!emptyBody.safeParse(request.body ?? {}).success) throw new AppError(400, "bad_request", "The request was not valid.");
+    const current = await proposals.getView(request.params.id);
+    if (!current) throw NOT_FOUND();
+    if (!["conflict", "failed", "expired"].includes(current.state)) {
+      throw new AppError(409, "cannot_refresh", "Only a suggestion that was not applied, or that expired, can be refreshed.");
+    }
+    try {
+      await queue.enqueue("shopify.sync", {});
+    } catch {
+      throw new AppError(503, "queue_unavailable", "Could not start that. Try again in a minute.");
+    }
+    await record(request, "proposal.refresh_requested", current.id, { variantId: current.variantId });
+    return reply.status(202).send({ queued: true });
   });
 
   app.get("/api/settings/proposals", async () => ({ settings: await proposals.settings(), writePermission: await writePermission() }));
