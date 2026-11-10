@@ -4,7 +4,6 @@ import { Link, usePath } from "../router.js";
 import {
   IconApprovals,
   IconDashboard,
-  IconHistory,
   IconLogout,
   IconMenu,
   IconProducts,
@@ -23,7 +22,6 @@ const NAV: NavItem[] = [
   { label: "Links", icon: <IconLinks />, to: "/mappings", current: (p) => p.startsWith("/mappings") },
   { label: "Products", icon: <IconProducts />, to: "/products", current: (p) => p.startsWith("/products") },
   { label: "Proposals", icon: <IconApprovals />, to: "/proposals", current: (p) => p.startsWith("/proposals"), count: "proposals" },
-  { label: "History", icon: <IconHistory /> },
   { label: "Settings", icon: <IconSettings />, to: "/settings/shopify", current: (p) => p.startsWith("/settings") },
 ];
 

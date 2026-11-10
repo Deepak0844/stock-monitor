@@ -123,17 +123,14 @@ test("the pages also pass the accessibility scan in dark mode", async ({ page })
   expect(signedIn.violations).toEqual([]);
 });
 
-test("the navigation links to Settings and marks unbuilt sections as coming soon", async ({ page }) => {
+test("the navigation links to every section, with no dead items", async ({ page }) => {
   await signIn(page);
   const menu = page.getByRole("button", { name: "Menu" });
   if (await menu.isVisible()) await menu.click(); // on a phone the navigation opens from the Menu button
   const nav = page.getByRole("navigation", { name: "Main" });
   await expect(nav.getByRole("link", { name: "Dashboard" })).toHaveAttribute("aria-current", "page");
   await expect(nav.getByRole("link", { name: "Proposals" })).toHaveAttribute("href", "/proposals");
-  for (const name of ["History"]) {
-    await expect(nav.getByText(name)).toBeVisible();
-    await expect(nav.getByRole("link", { name })).toHaveCount(0);
-  }
+  await expect(nav.getByText("History")).toHaveCount(0);
   await expect(nav.getByRole("link", { name: "Suppliers" })).toHaveAttribute("href", "/suppliers");
   await expect(nav.getByRole("link", { name: "Products" })).toHaveAttribute("href", "/products");
   await expect(nav.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings/shopify");

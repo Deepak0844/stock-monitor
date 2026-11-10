@@ -32,17 +32,10 @@ describe("AppShell", () => {
     expect(within(nav).getByRole("link", { name: "Dashboard" })).toHaveAttribute("aria-current", "page");
   });
 
-  it.each(["History"])(
-    "shows %s as not available yet instead of a dead link",
-    (label) => {
-      setup();
-      const nav = screen.getByRole("navigation", { name: "Main" });
-      expect(within(nav).queryByRole("link", { name: new RegExp(label) })).toBeNull();
-      const item = within(nav).getByText(label).closest("[aria-disabled]");
-      expect(item).toHaveAttribute("aria-disabled", "true");
-      expect(item).toHaveTextContent("Soon");
-    },
-  );
+  it("has no History item: past suggestions live under Proposals", () => {
+    setup();
+    expect(within(screen.getByRole("navigation", { name: "Main" })).queryByText("History")).toBeNull();
+  });
 
   it("makes Suppliers a real link to the suppliers page, and marks it current there and on its sub pages", () => {
     window.history.replaceState(null, "", "/suppliers/new");
@@ -68,7 +61,7 @@ describe("AppShell", () => {
     setup();
     const nav = screen.getByRole("navigation", { name: "Main" });
     const labels = within(nav).getAllByRole("listitem").map((li) => li.textContent?.replace("Soon", "").trim());
-    expect(labels).toEqual(["Dashboard", "Suppliers", "Links", "Products", "Proposals", "History", "Settings"]);
+    expect(labels).toEqual(["Dashboard", "Suppliers", "Links", "Products", "Proposals", "Settings"]);
   });
 
   it("makes Proposals a real link, with no badge when nothing is waiting", () => {
