@@ -15,6 +15,7 @@ import { createScreenRegistry, registerLoginScreen, type LoginScreenDeps } from 
 import { registerLoginSessionRoutes, type LoginSessionRoutesDeps } from "./routes/login-sessions.js";
 import { registerCaptureRoutes, type CaptureRoutesDeps } from "./routes/captures.js";
 import { registerScheduleRoutes, type ScheduleRoutesDeps } from "./routes/schedule.js";
+import { registerProposalRoutes, type ProposalRoutesDeps } from "./routes/proposals.js";
 import { registerStockCheckRoutes, type StockCheckRoutesDeps } from "./routes/stock-checks.js";
 import { registerRecipeRoutes, type RecipeRoutesDeps } from "./routes/recipes.js";
 import { registerMappingRoutes, type MappingRoutesDeps } from "./routes/mappings.js";
@@ -68,6 +69,7 @@ export type AppDeps = {
   stockChecks?: StockCheckRoutesDeps;
   /** Automatic checks: the schedule setting and run history. Left out, there are no /api/schedule routes. */
   schedule?: ScheduleRoutesDeps;
+  proposals?: ProposalRoutesDeps;
 };
 
 const SECURITY_HEADERS = {
@@ -86,7 +88,7 @@ const isApiPath = (path: string) => path === "/api" || path.startsWith("/api/");
 
 const loginBody = z.object({ email: z.string().min(1), password: z.string().min(1) });
 
-export function buildApp({ db, logger, secureCookies = false, webRoot, trustProxy = false, shopify, suppliers, loginSessions, loginScreen, notifications, mappings, captures, recipes, stockChecks, schedule }: AppDeps) {
+export function buildApp({ db, logger, secureCookies = false, webRoot, trustProxy = false, shopify, suppliers, loginSessions, loginScreen, notifications, mappings, captures, recipes, stockChecks, schedule, proposals }: AppDeps) {
   const app = Fastify({
     loggerInstance: logger,
     genReqId: () => randomUUID(),
@@ -213,6 +215,7 @@ export function buildApp({ db, logger, secureCookies = false, webRoot, trustProx
   if (recipes) registerRecipeRoutes(app, recipes, audit);
   if (stockChecks) registerStockCheckRoutes(app, stockChecks, audit);
   if (schedule) registerScheduleRoutes(app, schedule, audit);
+  if (proposals) registerProposalRoutes(app, proposals, audit);
   const screens = createScreenRegistry();
   const logins = loginSessions ? registerLoginSessionRoutes(app, { ...loginSessions, onEnded: screens.closeFor }, audit) : null;
   if (logins && loginSessions && loginScreen) {
