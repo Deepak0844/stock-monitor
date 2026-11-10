@@ -236,6 +236,8 @@ export function registerShopifyRoutes(app: App, deps: ShopifyRoutesDeps, audit: 
         tracked: v.tracked,
         inventoryPolicy: v.inventoryPolicy,
         available: v.available,
+        supplierName: v.supplierName,
+        supplierUrl: v.supplierUrl,
         syncedAt: v.syncedAt,
         warnings: warningsFor(v),
       })),

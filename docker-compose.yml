@@ -85,6 +85,9 @@ services:
     environment:
       <<: [*app-env, *browser-link]
       APP_TIMEZONE: ${BROWSER_TIMEZONE:-UTC}
+      # The product metafields (namespace.key) that hold the supplier's name and page address. Sync sets links from them.
+      SHOPIFY_SUPPLIER_NAME_METAFIELD: ${SHOPIFY_SUPPLIER_NAME_METAFIELD:-custom.supplier_name}
+      SHOPIFY_SPU_METAFIELD: ${SHOPIFY_SPU_METAFIELD:-custom.spu}
     networks: [default, control]
     depends_on:
       migrate:
