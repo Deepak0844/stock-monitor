@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { randomBytes } from "node:crypto";
 import { Writable } from "node:stream";
 import { startTestDb, type TestDb } from "@stock-monitor/db/test-harness";
-import { createCheckRunRepository, createMappingRepository, createRecipeRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
+import { createProposalRepository, createCheckRunRepository, createMappingRepository, createRecipeRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
 import { createAuditWriter } from "@stock-monitor/audit";
 import { createLogger } from "@stock-monitor/shared";
 import { sealSessionState } from "@stock-monitor/supplier-session";
@@ -62,6 +62,21 @@ beforeEach(async () => {
   now = T0;
   enqueued = [];
   enqueueFails = false;
+});
+
+describe("the tick and suggestions", () => {
+  it("expires open suggestions that are past their time, and only those", async () => {
+    const id = await ready("Acme");
+    const link = (await createMappingRepository(t.appDb).forSupplier(id))[0]!;
+    const proposals = createProposalRepository(t.appDb);
+    const make = (expiresAt: Date) => proposals.evaluateFor({ variantId: link.variantId, mappingId: link.id, supplierId: id, observationId: null, shopifyQuantitySeen: 4, wanted: { kind: "set_zero_out_of_stock", proposedQuantity: 0 }, expiresAt });
+    const due = (await make(new Date(now.getTime() - MIN))).proposal!;
+    await runTick(deps({ proposals }));
+    expect(await proposals.get(due.id)).toMatchObject({ state: "expired" });
+    const later = (await make(new Date(now.getTime() + 60 * MIN))).proposal!;
+    await runTick(deps({ proposals }));
+    expect(await proposals.get(later.id)).toMatchObject({ state: "open" });
+  });
 });
 
 describe("the tick", () => {

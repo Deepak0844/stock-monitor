@@ -49,6 +49,26 @@ describe("parseJob", () => {
     });
   });
 
+  describe("proposals.evaluate", () => {
+    const supplierId = "3f0c1f4e-7b1a-4c53-9a53-0c8f6f5d9a11";
+    it("takes nothing, a supplier or a link, and no other field", () => {
+      expect(parseJob("proposals.evaluate", {})).toEqual({});
+      expect(parseJob("proposals.evaluate", { supplierId })).toEqual({ supplierId });
+      expect(parseJob("proposals.evaluate", { mappingId: supplierId })).toEqual({ mappingId: supplierId });
+      expect(() => parseJob("proposals.evaluate", { supplierId: "nope" })).toThrow();
+      expect(() => parseJob("proposals.evaluate", { cookie: "x" })).toThrow();
+    });
+  });
+
+  describe("proposals.apply", () => {
+    it("takes one suggestion id and nothing else", () => {
+      const proposalId = "3f0c1f4e-7b1a-4c53-9a53-0c8f6f5d9a11";
+      expect(parseJob("proposals.apply", { proposalId })).toEqual({ proposalId });
+      expect(() => parseJob("proposals.apply", {})).toThrow();
+      expect(() => parseJob("proposals.apply", { proposalId, quantity: 3 })).toThrow();
+    });
+  });
+
   describe("extraction.checks", () => {
     const supplierId = "11111111-1111-4111-8111-111111111111";
     const runId = "22222222-2222-4222-8222-222222222222";
