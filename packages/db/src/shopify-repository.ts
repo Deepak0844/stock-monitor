@@ -290,6 +290,8 @@ export function createShopifyRepository<S extends Record<string, unknown>>(db: N
           tracked: r.tracked,
           inventoryPolicy: r.inventoryPolicy as "DENY" | "CONTINUE",
           available: r.available,
+          supplierName: r.supplierName,
+          supplierUrl: r.supplierUrl,
           syncedAt: r.syncedAt,
         })),
       };

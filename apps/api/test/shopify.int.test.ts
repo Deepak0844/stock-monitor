@@ -396,6 +396,8 @@ describe("GET /api/shopify/variants", () => {
     tracked: true,
     inventoryPolicy: "DENY",
     available: n,
+    supplierName: null,
+    supplierUrl: null,
     ...over,
   });
 

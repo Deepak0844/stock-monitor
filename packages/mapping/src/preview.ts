@@ -6,6 +6,8 @@ export type RowNote = { line: number; sku: string; message: string };
 export type Preview = {
   good: GoodRow[];
   skippedSuppliers: number;
+  /** Rows for variants whose supplier and address come from Shopify: the import leaves them alone. */
+  skippedShopify: number;
   problems: RowNote[];
   warnings: RowNote[];
   counts: { new: number; replace: number; unchanged: number };
@@ -15,7 +17,7 @@ export type ExistingLinks = Map<string, { supplierId: string; url: string }>;
 
 /** Everything the owner sees before confirming. Nothing is saved here. */
 export function buildPreview(rows: ExportRow[], ctx: RowContext, existing: ExistingLinks): Preview {
-  const preview: Preview = { good: [], skippedSuppliers: 0, problems: [], warnings: [], counts: { new: 0, replace: 0, unchanged: 0 } };
+  const preview: Preview = { good: [], skippedSuppliers: 0, skippedShopify: 0, problems: [], warnings: [], counts: { new: 0, replace: 0, unchanged: 0 } };
   const seenSkus = new Set<string>();
   const seenUrls = new Set<string>();
 
@@ -23,6 +25,10 @@ export function buildPreview(rows: ExportRow[], ctx: RowContext, existing: Exist
     const result = checkRow(row, ctx);
     if (result.kind === "skipped_supplier") {
       preview.skippedSuppliers++;
+      continue;
+    }
+    if (result.kind === "skipped_shopify") {
+      preview.skippedShopify++;
       continue;
     }
     const problem = (message: string) => preview.problems.push({ line: row.line, sku: row.sku, message });

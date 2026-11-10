@@ -45,4 +45,11 @@ describe("buildPreview", () => {
     expect(p.good).toHaveLength(2);
     expect(p.warnings).toEqual([{ line: 3, sku: "B", message: "Another row in this file uses the same page address." }]);
   });
+
+  it("counts rows for variants that Shopify already supplies as skipped, and saves none of them", () => {
+    const managed: RowContext = { ...ctx, shopifyManaged: new Set(["va"]) };
+    const p = buildPreview([row(2, "A", "https://acme.test/a"), row(3, "B", "https://acme.test/b")], managed, new Map());
+    expect(p).toMatchObject({ skippedShopify: 1, problems: [], counts: { new: 1, replace: 0, unchanged: 0 } });
+    expect(p.good.map((g) => g.sku)).toEqual(["B"]);
+  });
 });
