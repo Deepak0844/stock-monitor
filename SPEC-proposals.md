@@ -2,7 +2,7 @@
 
 Module id: `proposals`. Depends on: `foundation`, `shopify` (read: variants, quantities, location, scopes), `supplier-session`, `mapping` (links, link status, "may be unavailable" test), `extraction` (observations), `scheduling` (regular checks). Map: `CAPABILITY-MAP.md`. Intent: `docs/intent/stock-monitor.md`. Shopify contract: `SPEC-shopify.md` ("Phase B contract").
 
-Status: **draft v2, all six questions answered (2026-11-10); awaiting approval.** No plan and no code until it is approved.
+Status: **approved by the owner (2026-11-10).** No plan and no code until it is approved.
 
 ## Objective
 
