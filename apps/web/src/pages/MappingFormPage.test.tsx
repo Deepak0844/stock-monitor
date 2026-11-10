@@ -135,3 +135,19 @@ describe("region", () => {
     await waitFor(() => expect(api.mappings.update).toHaveBeenCalledWith(aMapping().id, { region: null }));
   });
 });
+
+describe("a link set from Shopify", () => {
+  it("warns on the edit page that the next sync puts Shopify's values back", async () => {
+    window.history.replaceState(null, "", "/mappings/44444444-4444-4444-8444-444444444444/edit");
+    const { api } = setup({ mappings: { get: vi.fn().mockResolvedValue(aMapping({ shopifyManaged: true })) } as never }, { id: "44444444-4444-4444-8444-444444444444" });
+    expect(await screen.findByText(/This link is set from Shopify/)).toBeInTheDocument();
+    expect(screen.getByText(/the next Sync puts Shopify's supplier and page address back/)).toBeInTheDocument();
+    expect(api.mappings.get).toHaveBeenCalled();
+  });
+
+  it("shows no warning on an ordinary link", async () => {
+    setup({ mappings: { get: vi.fn().mockResolvedValue(aMapping()) } as never }, { id: "44444444-4444-4444-8444-444444444444" });
+    await screen.findByLabelText("Supplier page address");
+    expect(screen.queryByText(/This link is set from Shopify/)).not.toBeInTheDocument();
+  });
+});

@@ -9,7 +9,7 @@ const PAGE_SIZE = 25;
 
 type Applied = { search: string; attention: boolean; page: number };
 
-const COLUMNS = ["Product", "Variant", "SKU", "Available", "Notes"];
+const COLUMNS = ["Product", "Variant", "SKU", "Supplier", "Available", "Notes"];
 
 function variantName(v: VariantItem) {
   // Shopify names a product's only variant "Default Title". That means nothing to a shop owner.
@@ -185,6 +185,16 @@ export function ProductsPage({ api }: { api: Api }) {
                       </td>
                       <td role="cell" data-label="SKU">
                         {v.sku ?? <span className="muted">No SKU</span>}
+                      </td>
+                      <td role="cell" data-label="Supplier">
+                        {v.supplierName || v.supplierUrl ? (
+                          <>
+                            <span>{v.supplierName ?? <span className="muted">No name</span>}</span>
+                            {v.supplierUrl && <span className="muted block">{v.supplierUrl}</span>}
+                          </>
+                        ) : (
+                          <span className="muted">No supplier in Shopify</span>
+                        )}
                       </td>
                       <td role="cell" data-label="Available" className="number">
                         {v.available === null ? <span className="muted">Not stocked here</span> : v.available}

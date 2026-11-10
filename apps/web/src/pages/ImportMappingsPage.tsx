@@ -104,6 +104,11 @@ export function ImportMappingsPage({ api }: { api: Api }) {
           {step.preview.skippedSuppliers > 0 && <p>
               {step.preview.skippedSuppliers} {step.preview.skippedSuppliers === 1 ? "row is" : "rows are"} for suppliers not in the app.
             </p>}
+          {step.preview.skippedShopify > 0 && (
+            <p>
+              {step.preview.skippedShopify} {step.preview.skippedShopify === 1 ? "row is" : "rows are"} left out because Shopify already has the supplier and page address for {step.preview.skippedShopify === 1 ? "that product" : "those products"}.
+            </p>
+          )}
           {step.preview.sample.length > 0 && (
             <ul className="plain-list" aria-label="Examples">
               {step.preview.sample.map((s) => (

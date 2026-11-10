@@ -91,6 +91,15 @@ h2 {
 p {
   margin: 0;
 }
+.block {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.sync-links {
+  margin-top: 0.75rem;
+}
+
 .muted {
   color: var(--muted);
 }

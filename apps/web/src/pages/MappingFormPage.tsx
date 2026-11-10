@@ -58,6 +58,11 @@ export function MappingFormPage({ api, id }: { api: Api; id?: string }) {
       )}
       {load.kind === "ready" && (
         <section className="panel">
+          {load.mapping?.shopifyManaged && (
+            <Notice kind="warning">
+              This link is set from Shopify, from the supplier name and page address on the product. If you change it here, the next Sync puts Shopify's supplier and page address back. Change them in Shopify instead.
+            </Notice>
+          )}
           <MappingForm api={api} mapping={load.mapping} />
         </section>
       )}
