@@ -18,6 +18,12 @@ export type SupplierRecord = {
   checkPauseSeconds: number;
   /** The region label stock checks look for, unless a link has its own. */
   defaultRegion: string | null;
+  /** Automatic checks: minutes between runs, null = off. */
+  scheduleIntervalMinutes: number | null;
+  scheduleWindowStart: string | null;
+  scheduleWindowEnd: string | null;
+  nextCheckAt: Date | null;
+  failureCount: number;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -125,6 +131,26 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
 
     /** The region label stock checks look for on this supplier's pages. null clears it. */
     setRegion: (id: string, region: string | null) => set(id, { defaultRegion: region }),
+
+    /** Sets or turns off automatic checks. Resets the failure count. */
+    setSchedule: (id: string, input: { intervalMinutes: number | null; window: { start: string; end: string } | null; nextCheckAt: Date | null }) =>
+      set(id, {
+        scheduleIntervalMinutes: input.intervalMinutes,
+        scheduleWindowStart: input.window?.start ?? null,
+        scheduleWindowEnd: input.window?.end ?? null,
+        nextCheckAt: input.nextCheckAt,
+        failureCount: 0,
+      }),
+
+    /** The next check time and failure count, written when a run ends. */
+    async recordRunEnd(id: string, input: { nextCheckAt: Date; failureCount: number }): Promise<void> {
+      await set(id, { nextCheckAt: input.nextCheckAt, failureCount: input.failureCount });
+    },
+
+    /** Suppliers that have automatic checks turned on. */
+    async scheduled(): Promise<SupplierRecord[]> {
+      return (await db.select().from(suppliers).where(sql`${suppliers.scheduleIntervalMinutes} is not null`)) as SupplierRecord[];
+    },
 
     pause: (id: string) => set(id, { enabled: false, pausedReason: "owner" }),
     resume: (id: string) => set(id, { enabled: true, pausedReason: null }),

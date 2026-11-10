@@ -145,6 +145,14 @@ export const suppliers = pgTable(
     checkPauseSeconds: integer("check_pause_seconds").notNull().default(10),
     /** The region label stock checks look for on a supplier's page, unless a link has its own. */
     defaultRegion: text("default_region"),
+    /** Automatic checks: minutes between runs, null = off. (`check_interval_minutes` above is an older, unused field.) */
+    scheduleIntervalMinutes: integer("schedule_interval_minutes"),
+    /** Local time "HH:MM" window in which automatic checks may start. Both null = all day. */
+    scheduleWindowStart: text("schedule_window_start"),
+    scheduleWindowEnd: text("schedule_window_end"),
+    nextCheckAt: timestamp("next_check_at", { withTimezone: true }),
+    /** Failed runs in a row, for the retry delay. */
+    failureCount: integer("failure_count").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -153,6 +161,8 @@ export const suppliers = pgTable(
     check("suppliers_automation_permission", sql`${t.automationPermission} in ('unknown', 'granted', 'not_granted')`),
     check("suppliers_check_pause", sql`${t.checkPauseSeconds} >= 1`),
     check("suppliers_default_region", sql`${t.defaultRegion} is null or char_length(${t.defaultRegion}) between 1 and 200`),
+    check("suppliers_schedule_interval", sql`${t.scheduleIntervalMinutes} is null or ${t.scheduleIntervalMinutes} in (60, 180, 360, 720, 1440)`),
+    check("suppliers_schedule_window", sql`(${t.scheduleWindowStart} is null) = (${t.scheduleWindowEnd} is null)`),
     check("suppliers_check_interval", sql`${t.checkIntervalMinutes} between 15 and 1440`),
     check(
       "suppliers_pause_reason",
@@ -359,5 +369,34 @@ export const stockObservations = pgTable(
   (t) => [
     check("stock_observations_answer", sql`${t.answer} in ('in_stock', 'out_of_stock', 'cannot_tell')`),
     index("stock_observations_mapping_idx").on(t.mappingId, t.observedAt),
+  ],
+);
+
+// One run of checks for one supplier. At most one is running per supplier: the database enforces it, so two
+// workers or a tick and a button press cannot both start. Counts and a fixed stop code only: never page text,
+// addresses or session data.
+export const checkRuns = pgTable(
+  "check_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    supplierId: uuid("supplier_id")
+      .notNull()
+      .references(() => suppliers.id, { onDelete: "cascade" }),
+    trigger: text("trigger").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    linksTotal: integer("links_total").notNull().default(0),
+    linksDone: integer("links_done").notNull().default(0),
+    inStock: integer("in_stock").notNull().default(0),
+    outOfStock: integer("out_of_stock").notNull().default(0),
+    cannotTell: integer("cannot_tell").notNull().default(0),
+    outcome: text("outcome").notNull().default("running"),
+    stopReason: text("stop_reason"),
+  },
+  (t) => [
+    check("check_runs_trigger", sql`${t.trigger} in ('scheduled', 'manual')`),
+    check("check_runs_outcome", sql`${t.outcome} in ('running', 'finished', 'stopped', 'failed')`),
+    uniqueIndex("check_runs_one_running").on(t.supplierId).where(sql`${t.outcome} = 'running'`),
+    index("check_runs_supplier_started").on(t.supplierId, t.startedAt),
   ],
 );
