@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+// namespace.key, as Shopify shows it under Custom data. The same rule as parseMetafieldName in the shopify package.
+const METAFIELD_NAME = /^[A-Za-z0-9_-]{3,255}\.[A-Za-z0-9_-]{2,64}$/;
+
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   DATABASE_URL: z.url(),
@@ -19,6 +22,9 @@ const schema = z.object({
   BROWSER_VNC_PORT: z.coerce.number().int().min(1).max(65535).default(5900),
   // The address people open the app at, for example https://stock.example.com. The live screen only accepts connections from this origin.
   APP_ORIGIN: z.url().optional(),
+  // Which product metafields hold the supplier's name and the supplier's page address (the SPU), as namespace.key.
+  SHOPIFY_SUPPLIER_NAME_METAFIELD: z.string().regex(METAFIELD_NAME, "must be namespace.key, for example custom.supplier_name").default("custom.supplier_name"),
+  SHOPIFY_SPU_METAFIELD: z.string().regex(METAFIELD_NAME, "must be namespace.key, for example custom.spu").default("custom.spu"),
   // The owner's timezone (an IANA name such as Asia/Kolkata): automatic checks keep to the quiet-hours window in this zone.
   APP_TIMEZONE: z
     .string()
@@ -55,11 +61,15 @@ export type Config = {
   appOrigin: string | undefined;
   /** The owner's timezone, for the quiet-hours window of automatic checks. */
   timezone: string;
+  /** namespace.key of the product metafield holding the supplier's name. */
+  shopifySupplierNameMetafield: string;
+  /** namespace.key of the product metafield holding the supplier's page address (the SPU). */
+  shopifySpuMetafield: string;
 };
 
 // An env file with `NAME=` and nothing after it sets the variable to an empty string. For a setting that is optional,
 // that means "not set", not "set to nothing".
-const BLANK_MEANS_UNSET = ["APP_ORIGIN", "BROWSER_SERVICE_URL", "BROWSER_CONTROL_TOKEN", "BROWSER_VNC_PORT", "SHOPIFY_BASE_URL_OVERRIDE", "APP_TIMEZONE"];
+const BLANK_MEANS_UNSET = ["APP_ORIGIN", "BROWSER_SERVICE_URL", "BROWSER_CONTROL_TOKEN", "BROWSER_VNC_PORT", "SHOPIFY_BASE_URL_OVERRIDE", "APP_TIMEZONE", "SHOPIFY_SUPPLIER_NAME_METAFIELD", "SHOPIFY_SPU_METAFIELD"];
 
 export function loadConfig(input: Record<string, string | undefined>): Config {
   const env = Object.fromEntries(Object.entries(input).filter(([name, value]) => !(value === "" && BLANK_MEANS_UNSET.includes(name))));
@@ -96,5 +106,7 @@ export function loadConfig(input: Record<string, string | undefined>): Config {
     browserVncPort: c.BROWSER_VNC_PORT,
     appOrigin: c.APP_ORIGIN ? new URL(c.APP_ORIGIN).origin : undefined,
     timezone: c.APP_TIMEZONE,
+    shopifySupplierNameMetafield: c.SHOPIFY_SUPPLIER_NAME_METAFIELD,
+    shopifySpuMetafield: c.SHOPIFY_SPU_METAFIELD,
   };
 }

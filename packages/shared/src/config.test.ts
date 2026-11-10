@@ -165,4 +165,18 @@ describe("loadConfig", () => {
       expect(() => loadConfig({ ...valid, APP_TIMEZONE: "Mars/Base" })).toThrow(/APP_TIMEZONE/);
     });
   });
+
+  describe("Shopify supplier metafields", () => {
+    it("defaults to custom.supplier_name and custom.spu, and reads other names", () => {
+      expect(loadConfig(valid)).toMatchObject({ shopifySupplierNameMetafield: "custom.supplier_name", shopifySpuMetafield: "custom.spu" });
+      expect(loadConfig({ ...valid, SHOPIFY_SUPPLIER_NAME_METAFIELD: "ops.vendor", SHOPIFY_SPU_METAFIELD: "ops.vendor_url" })).toMatchObject({
+        shopifySupplierNameMetafield: "ops.vendor",
+        shopifySpuMetafield: "ops.vendor_url",
+      });
+    });
+    it("treats a blank value as not set and refuses a name that is not namespace.key", () => {
+      expect(loadConfig({ ...valid, SHOPIFY_SPU_METAFIELD: "" }).shopifySpuMetafield).toBe("custom.spu");
+      expect(() => loadConfig({ ...valid, SHOPIFY_SPU_METAFIELD: "spu" })).toThrow(/SHOPIFY_SPU_METAFIELD/);
+    });
+  });
 });
