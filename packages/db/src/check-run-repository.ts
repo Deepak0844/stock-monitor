@@ -47,6 +47,13 @@ export function createCheckRunRepository<S extends Record<string, unknown>>(db: 
       await db.update(checkRuns).set({ outcome, stopReason, endedAt: new Date() }).where(and(eq(checkRuns.id, id), eq(checkRuns.outcome, "running")));
     },
 
+    /** Whether this run is still marked running. A job that starts after a restart ended its run must not do the work. */
+    async isRunning(id: string): Promise<boolean> {
+      if (!UUID.test(id)) return false;
+      const [row] = await db.select({ id: checkRuns.id }).from(checkRuns).where(and(eq(checkRuns.id, id), eq(checkRuns.outcome, "running"))).limit(1);
+      return Boolean(row);
+    },
+
     async running(): Promise<CheckRun[]> {
       return (await db.select().from(checkRuns).where(eq(checkRuns.outcome, "running"))) as CheckRun[];
     },
@@ -74,7 +81,7 @@ export function createCheckRunRepository<S extends Record<string, unknown>>(db: 
       return rows.length;
     },
 
-    /** Stops one supplier's running run, whatever its reason. Returns the stopped ids' count. */
+    /** Stops runs that have been going longer than the queue would let them. Returns how many. */
     async stopOlderThan(seconds: number, reason: string): Promise<number> {
       const rows = await db
         .update(checkRuns)

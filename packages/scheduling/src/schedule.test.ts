@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { backoffMs, insideWindow, intoWindow, isStale, nextCheckAt, pickDue } from "./schedule.js";
+import { backoffMs, runExpirySeconds, insideWindow, intoWindow, isStale, nextCheckAt, pickDue } from "./schedule.js";
 
 const KOLKATA = "Asia/Kolkata"; // UTC+5:30, no daylight saving
 const day = { start: "07:00", end: "22:00" };
@@ -80,5 +80,13 @@ describe("pickDue", () => {
     expect(pickDue(list, now, 0, 2, KOLKATA)).toEqual(["a", "b"]);
     expect(pickDue(list, now, 1, 2, KOLKATA)).toEqual(["a"]);
     expect(pickDue(list, now, 2, 2, KOLKATA)).toEqual([]);
+  });
+});
+
+describe("runExpirySeconds", () => {
+  it("allows each link its pause plus 30 seconds, never under 15 minutes or over 6 hours", () => {
+    expect(runExpirySeconds(1, 10)).toBe(900);
+    expect(runExpirySeconds(60, 60)).toBe(60 * 90);
+    expect(runExpirySeconds(10_000, 60)).toBe(6 * 3600);
   });
 });

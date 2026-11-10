@@ -4,10 +4,11 @@ import { createShopifySyncHandler, type ShopifySyncDeps } from "./shopify-sync.j
 import { createCaptureHandler, type CaptureDeps } from "./extraction-capture.js";
 import { createStockCheckHandlers, type StockCheckDeps } from "./extraction-check.js";
 import { createLinkCheckHandlers, type LinkCheckDeps } from "./mapping-link-check.js";
+import { reapStaleRuns, runTick, type TickDeps } from "./scheduling-tick.js";
 import { createSupplierVerifyHandler, type SupplierVerifyDeps } from "./supplier-verify.js";
 
 // Later modules register their job handlers here.
-export type WorkerDeps = { shopify?: Omit<ShopifySyncDeps, "logger">; supplierVerify?: Omit<SupplierVerifyDeps, "logger">; mappingLinks?: Omit<LinkCheckDeps, "logger">; extractionCapture?: Omit<CaptureDeps, "logger">; extractionChecks?: Omit<StockCheckDeps, "logger"> };
+export type WorkerDeps = { shopify?: Omit<ShopifySyncDeps, "logger">; supplierVerify?: Omit<SupplierVerifyDeps, "logger">; mappingLinks?: Omit<LinkCheckDeps, "logger">; extractionCapture?: Omit<CaptureDeps, "logger">; extractionChecks?: Omit<StockCheckDeps, "logger">; scheduling?: Omit<TickDeps, "logger"> };
 
 export async function registerHandlers(queue: Queue, logger: Logger, deps: WorkerDeps = {}): Promise<void> {
   await queue.work("health.ping", async ({ message }) => {
@@ -39,5 +40,15 @@ export async function registerHandlers(queue: Queue, logger: Logger, deps: Worke
     const handlers = createStockCheckHandlers({ ...deps.extractionChecks, logger });
     await queue.work("extraction.check", async (payload) => handlers.one(payload));
     await queue.work("extraction.checks", async (payload) => handlers.many(payload));
+  }
+
+  if (deps.scheduling) {
+    const tick = { ...deps.scheduling, logger };
+    await reapStaleRuns(tick); // nothing is running any more after a restart
+    await queue.work("scheduling.tick", async () => {
+      const result = await runTick(tick);
+      if (result.started.length > 0) logger.info({ started: result.started.length }, "scheduled runs started");
+    });
+    await queue.schedule("scheduling.tick", "* * * * *");
   }
 }
