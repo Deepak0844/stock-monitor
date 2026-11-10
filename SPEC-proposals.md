@@ -2,7 +2,7 @@
 
 Module id: `proposals`. Depends on: `foundation`, `shopify` (read: variants, quantities, location, scopes), `supplier-session`, `mapping` (links, link status, "may be unavailable" test), `extraction` (observations), `scheduling` (regular checks). Map: `CAPABILITY-MAP.md`. Intent: `docs/intent/stock-monitor.md`. Shopify contract: `SPEC-shopify.md` ("Phase B contract").
 
-Status: **draft v1, not yet reviewed by the owner.** No plan and no code until it is approved.
+Status: **draft v1.1, three of six questions answered (2026-11-10); awaiting the rest.** No plan and no code until it is approved.
 
 ## Objective
 
@@ -129,11 +129,14 @@ Numbers and codes only: no page text, no addresses, no session or credential dat
 9. Every decision and write is recorded with who, when and the numbers; the history lists them; no page text, address, session or secret is in any record, log or job.
 10. `npm run check`, the browser tests and the browser journeys pass, including the accessibility scan, and the contract check against a development store is recorded.
 
+## Resolved questions (owner, 2026-11-10)
+
+1. **Default quantity:** a setting in the app (starting value 5, my proposal), and the number on each "Back in stock" suggestion can be edited before approving, so the owner can type a different one every time.
+4. **Missing pages:** suggest 0 only after the link has been flagged "may be unavailable" (two checks 6+ hours apart). Confirmed.
+5. **Development store:** later. Everything is built and tested against the fake Shopify server first. The `write_inventory` permission is **not** added to any real store, and the manual contract check against a development store waits until the owner has one. The module is not called done before that check.
+
 ## Still open for the owner
 
-1. **Default quantity.** When the supplier is back in stock and Shopify shows 0, what number should the app suggest (for example 5 or 10)? It is a setting you can change later.
-2. **Only when it differs.** I propose: suggest 0 only when Shopify shows more than 0, and suggest the default only when Shopify shows 0 (so nothing is suggested when they already agree in spirit). Is that right, or do you want a suggestion whenever the numbers differ?
-3. **How long a suggestion stays open.** I propose 3 days (checks run daily, so an older suggestion is probably out of date). Right?
-4. **Missing pages.** I propose suggesting 0 for a missing page only after the link has been flagged "may be unavailable" (two checks 6+ hours apart), never on the first miss. Right?
-5. **Shopify permission.** Adding `write_inventory` is a change in Shopify that you approve. I propose building and testing everything against a **development store** first and adding the permission to your real store only when you say so. Do you have, or can you make, a Shopify development store?
-6. **One at a time.** For the pilot you approve suggestions one by one (no "approve all"). OK?
+2. **When to suggest.** Suggest 0 only when Shopify shows more than 0; suggest the default only when Shopify shows 0.
+3. **How long a suggestion stays open.** Proposed: 3 days.
+6. **Approving.** One suggestion at a time (no "approve all") for the pilot.
