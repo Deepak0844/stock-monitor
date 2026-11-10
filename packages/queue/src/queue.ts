@@ -2,7 +2,12 @@ import { PgBoss } from "pg-boss";
 import { jobSchemas, parseJob, type JobName, type JobPayload } from "./jobs.js";
 
 /** For a job that runs long: how many seconds it may run before the queue gives up on it, and how often it is tried again. */
-export type JobOptions = { expireInSeconds?: number; retryLimit?: number };
+export type JobOptions = {
+  expireInSeconds?: number;
+  retryLimit?: number;
+  /** Do not start the job until this many seconds from now. */
+  startAfter?: number;
+};
 
 export type Queue = {
   start(): Promise<void>;

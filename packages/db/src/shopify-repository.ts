@@ -218,6 +218,11 @@ export function createShopifyRepository<S extends Record<string, unknown>>(db: N
 
   const variants = {
     /** One page of variants that still exist in Shopify, with the total that match. */
+    /** After the app changed a number in Shopify (or saw a newer one), keep the synced copy in step so suggestions use it. */
+    async setAvailable(variantId: string, quantity: number): Promise<void> {
+      await db.update(shopifyVariants).set({ available: quantity, quantityReadAt: new Date() }).where(eq(shopifyVariants.variantId, variantId));
+    },
+
     /** What the suggestions need of some variants: the item to change, the last synced number, and whether it is gone. */
     async variantStock(variantIds: string[]): Promise<Map<string, { inventoryItemId: string; available: number | null; tracked: boolean; removed: boolean }>> {
       if (variantIds.length === 0) return new Map();

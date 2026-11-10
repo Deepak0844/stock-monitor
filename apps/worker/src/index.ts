@@ -99,6 +99,13 @@ await registerHandlers(queue, logger, {
     shopify: createShopifyRepository(db, { key: config.encryptionKey, keyId: KEY_ID }),
     proposals: createProposalRepository(db),
   },
+  // The one job that changes Shopify: writes an approved number.
+  proposalsApply: {
+    proposals: createProposalRepository(db),
+    shopify: createShopifyRepository(db, { key: config.encryptionKey, keyId: KEY_ID }),
+    audit: createAuditWriter(db),
+    queue,
+  },
   // Link checks need the same browser service as session checks.
   mappingLinks:
     config.browserServiceUrl && config.browserControlToken

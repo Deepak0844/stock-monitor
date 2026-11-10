@@ -212,6 +212,12 @@ export function createProposalRepository<S extends Record<string, unknown>>(db: 
       return rows.length;
     },
 
+    /** Approved suggestions nobody has finished since `before`: a lost job, a crash, or a queue that was down. */
+    async stuckApproved(before: Date): Promise<string[]> {
+      const rows = await db.select({ id: proposals.id }).from(proposals).where(and(eq(proposals.state, "approved"), lte(proposals.decidedAt, before)));
+      return rows.map((r) => r.id);
+    },
+
     async settings(): Promise<ProposalSettings> {
       const [row] = await db.select().from(appSettings).where(eq(appSettings.key, SETTINGS_KEY)).limit(1);
       const v = (row?.value ?? {}) as Partial<ProposalSettings>;
