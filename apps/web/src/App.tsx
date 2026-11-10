@@ -34,10 +34,12 @@ export function App({ api = realApi }: { api?: Api }) {
   const connectId = /^\/suppliers\/([^/]+)\/connect$/.exec(path)?.[1];
 
   const [proposalCount, setProposalCount] = useState(0);
+  const [attentionCount, setAttentionCount] = useState(0);
   const signedIn = state.kind === "signedIn";
   // How many suggestions are waiting, for the menu. Read again whenever the owner moves to another page.
   const refreshCount = useCallback(() => {
     api.proposals.count().then(setProposalCount).catch(() => {});
+    api.notifications.list().then((n) => setAttentionCount(n.length)).catch(() => {});
   }, [api]);
   useEffect(() => {
     if (signedIn) refreshCount();
@@ -91,6 +93,7 @@ export function App({ api = realApi }: { api?: Api }) {
     <AppShell
       email={state.email}
       proposalCount={proposalCount}
+      attentionCount={attentionCount}
       onSignOut={() =>
         api
           .logout()

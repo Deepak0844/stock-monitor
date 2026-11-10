@@ -9,9 +9,9 @@ import { navigate } from "../router.js";
 beforeEach(() => window.history.replaceState(null, "", "/"));
 afterEach(cleanup);
 
-const setup = (onSignOut = vi.fn(), proposalCount?: number) => {
+const setup = (onSignOut = vi.fn(), proposalCount?: number, attentionCount?: number) => {
   render(
-    <AppShell email="owner@example.com" onSignOut={onSignOut} proposalCount={proposalCount}>
+    <AppShell email="owner@example.com" onSignOut={onSignOut} proposalCount={proposalCount} attentionCount={attentionCount}>
       <h1>Page title</h1>
     </AppShell>,
   );
@@ -77,6 +77,17 @@ describe("AppShell", () => {
     const link = within(nav).getByRole("link", { name: "Proposals" });
     expect(link).toHaveAttribute("href", "/proposals");
     expect(link.querySelector(".badge")).toBeNull();
+  });
+
+  it("shows how many things need attention beside Dashboard, and says so to a screen reader", () => {
+    setup(undefined, undefined, 2);
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    expect(within(nav).getByRole("link", { name: "Dashboard, 2 need attention" })).toBeInTheDocument();
+  });
+
+  it("shows no Dashboard badge when nothing needs attention", () => {
+    setup(undefined, undefined, 0);
+    expect(within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: "Dashboard" })).toBeInTheDocument();
   });
 
   it("shows how many suggestions are waiting, and says so to a screen reader", () => {
