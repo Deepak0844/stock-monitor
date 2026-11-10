@@ -93,6 +93,16 @@ const describePage = (arg: { limits: typeof LIMITS; challenge: string }) => {
   };
 };
 
+// The container runs this file through tsx, which wraps named inner functions of describePage in __name(...). That helper does
+// not exist inside the page, so the read would fail with "ReferenceError: __name is not defined". This gives the page one.
+const NAME_SHIM = "globalThis.__name = globalThis.__name || ((fn) => fn)";
+
+/** Reads what the page is showing. Exported so a test can run it under tsx, the way the container does. */
+export async function readPage(page: import("playwright").Page) {
+  await page.evaluate(NAME_SHIM);
+  return page.evaluate(describePage, { limits: LIMITS, challenge: CHALLENGE_WIDGET });
+}
+
 async function takePicture(page: import("playwright").Page): Promise<string | null> {
   for (const fullPage of [true, false]) {
     try {
@@ -134,7 +144,7 @@ export async function capturePage(browser: Browser, request: CaptureRequest, opt
 
     // The picture first: describing the page hides its input fields.
     const picture = request.picture ? await takePicture(page) : null;
-    const seen = await page.evaluate(describePage, { limits: LIMITS, challenge: CHALLENGE_WIDGET });
+    const seen = await readPage(page);
     const result = classifyPage({
       requestedUrl: request.url,
       loginUrl: request.loginUrl,
