@@ -487,6 +487,9 @@ main:focus {
   margin-top: 0.5rem;
   color: var(--muted);
 }
+.summary .button {
+  margin-top: 0.75rem;
+}
 
 .panel {
   margin-top: 1rem;
