@@ -273,7 +273,9 @@ describe("history", () => {
     ];
     const { user } = await setup([], { proposals: { history: history(rows) } });
     await user.click(await screen.findByRole("button", { name: "History" }));
-    const table = await screen.findByRole("table", { name: "Past suggestions" });
+    // The table shows while loading too, with placeholder rows: wait for a real row first.
+    await screen.findByRole("row", { name: /Blue Tee/ });
+    const table = screen.getByRole("table", { name: "Past suggestions" });
     expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Product", "Supplier", "Shopify showed", "Suggested", "Result"]);
     expect(within(within(table).getByRole("row", { name: /Blue Tee/ })).getByText("Applied")).toBeInTheDocument();
     expect(within(within(table).getByRole("row", { name: /Red Cap/ })).getByText("Shopify now shows 3, so nothing was changed.")).toBeInTheDocument();
@@ -316,7 +318,9 @@ describe("refresh", () => {
   it("offers Refresh on a suggestion that was not applied or expired, and on no other", async () => {
     const { user } = await setup([], { proposals: { history: vi.fn().mockResolvedValue({ proposals: rows, hasMore: false, total: rows.length, page: 1, pageSize: 10 }) } });
     await user.click(await screen.findByRole("button", { name: "History" }));
-    const table = await screen.findByRole("table", { name: "Past suggestions" });
+    // The table shows while loading too, with placeholder rows: wait for a real row first.
+    await screen.findByRole("row", { name: /Blue Tee/ });
+    const table = screen.getByRole("table", { name: "Past suggestions" });
     for (const name of ["Red Cap", "Green Hat", "Pink Scarf"]) {
       expect(within(within(table).getByRole("row", { name: new RegExp(name) })).getByRole("button", { name: `Refresh ${name}, Large` })).toBeInTheDocument();
     }
