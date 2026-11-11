@@ -183,7 +183,7 @@ async function addViaApi(page: Page, name = "Acme Supply") {
   const supplier = (await res.json()) as { supplier: { id: string } };
   return { id: supplier.supplier.id, url: `/suppliers/${supplier.supplier.id}/connect` };
 }
-const liveCanvas = (page: Page) => page.locator(".screen canvas");
+const liveCanvas = (page: Page) => page.getByRole("group", { name: /^Live login window/ }).locator("canvas");
 
 test("the owner connects a supplier: the login window appears, they press I'm logged in, and the supplier is connected", async ({ page }, info) => {
   const problems: string[] = [];

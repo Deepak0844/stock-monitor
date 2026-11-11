@@ -45,7 +45,7 @@ describe("ShopifyError", () => {
 
   it("explains the different-organization problem in plain words", () => {
     expect(new ShopifyError("wrong_organization").message).toBe(
-      "Shopify says this app and your store belong to different organizations. Create the app in the same organization as your store.",
+      "Shopify says this app and your store belong to different organisations. Create the app in the same organisation as your store.",
     );
   });
 

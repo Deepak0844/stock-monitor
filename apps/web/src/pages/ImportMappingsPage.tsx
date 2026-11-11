@@ -202,7 +202,7 @@ function ColumnsPanel({ columns, initial, busy, onPreview }: { columns: ImportCo
   return (
     <Card className="flex flex-col gap-4 p-6">
       <h2 className="text-base font-semibold">2. Check the columns</h2>
-      <p className="text-sm text-muted-foreground">{columns.rowCount.toLocaleString("en")} rows found. These are our best guesses. Change any that are wrong.</p>
+      <p className="text-sm text-muted-foreground">{columns.rowCount.toLocaleString("en-GB")} rows found. These are our best guesses. Change any that are wrong.</p>
       {COLUMN_FIELDS.map((f) => (
         <Field id={`col-${f.key}`} label={f.label} hint={f.hint} key={f.key}>
           <Select

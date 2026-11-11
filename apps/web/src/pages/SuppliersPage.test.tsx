@@ -421,7 +421,7 @@ describe("automatic checks", () => {
 
   it("still shows the suppliers when the schedule cannot be read", async () => {
     setup([acme], { schedule: { overview: vi.fn().mockRejectedValue(new ApiError("No.", 500)) } });
-    expect(await screen.findByRole("table")).toBeInTheDocument();
+    expect(await screen.findByRole("row", { name: /Acme Supply/ })).toBeInTheDocument();
     expect(cellOf("Acme Supply")).toBeInTheDocument();
   });
 });

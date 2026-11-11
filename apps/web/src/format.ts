@@ -1,11 +1,11 @@
-/** A date and time the owner can read, in their own locale. */
+/** A date and time the owner can read, in British English: 10 Nov 2026, 14:30. */
 export function formatWhen(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  return new Date(iso).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
 }
 
-/** A date without the time, in the owner's own locale. */
+/** A date without the time, in British English: 10 Nov 2026. */
 export function formatDay(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, { dateStyle: "medium" });
+  return new Date(iso).toLocaleDateString("en-GB", { dateStyle: "medium" });
 }
 
 /** How long ago something happened, in plain words: "just now", "12 minutes ago", "3 hours ago", "2 days ago". */

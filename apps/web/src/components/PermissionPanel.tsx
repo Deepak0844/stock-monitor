@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button.js";
 import { Input, Select } from "@/components/ui/input.js";
 import type { Api, Supplier } from "../api.js";
+import { formatDay } from "../format.js";
 import { Field } from "./Field.js";
 import { Notice } from "./Notice.js";
 
@@ -51,7 +52,7 @@ export function PermissionPanel({ api, supplier }: { api: Api; supplier: Supplie
         <legend className="mb-1 text-lg font-semibold">Permission to check automatically</legend>
         <p className="text-sm text-muted-foreground">
           Many suppliers' terms limit automatic checks. Record what you have agreed with this supplier. Status: <strong className="text-foreground">{WORDS[status]}</strong>. {MEANING[status]}
-          {supplier.permissionSetAt ? ` Last recorded ${new Date(supplier.permissionSetAt).toLocaleDateString()}.` : ""}
+          {supplier.permissionSetAt ? ` Last recorded ${formatDay(supplier.permissionSetAt)}.` : ""}
         </p>
         <Field id="permission" label="Permission">
           <Select id="permission" className="w-full" value={status} onChange={(e) => setStatus(e.target.value as Supplier["automationPermission"])}>

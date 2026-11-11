@@ -139,7 +139,7 @@ describe("connect", () => {
   });
 
   it("shows the different-organization message as it is", async () => {
-    const message = "Shopify says this app and your store belong to different organizations. Create the app in the same organization as your store.";
+    const message = "Shopify says this app and your store belong to different organisations. Create the app in the same organisation as your store.";
     const { user } = setup({ onTest: vi.fn().mockRejectedValue(new ApiError(message, 422, "shopify_wrong_organization")) });
     await fill(user);
     await user.click(screen.getByRole("button", { name: "Test connection" }));

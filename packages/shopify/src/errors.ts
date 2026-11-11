@@ -17,7 +17,7 @@ const MESSAGES: Record<ShopifyErrorCode, string> = {
   unexpected_reply: "Shopify sent a reply we did not expect. Try again later.",
   invalid_shop: "Enter your store address, like my-store.myshopify.com.",
   wrong_organization:
-    "Shopify says this app and your store belong to different organizations. Create the app in the same organization as your store.",
+    "Shopify says this app and your store belong to different organisations. Create the app in the same organisation as your store.",
   store_unavailable:
     "Shopify says your store is not available right now. It may be frozen or locked. Check your Shopify account.",
 };
