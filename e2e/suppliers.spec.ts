@@ -338,6 +338,11 @@ const eventually = (page: Page, check: () => Promise<void>) =>
     await page.reload();
     await check();
   }).toPass({ timeout: 30_000, intervals: [1_000, 2_000] });
+/** Finishing a login queues its own first check. Waits until that check has passed, so it cannot land later and undo a result the test sets up. */
+const firstCheckPassed = (page: Page, supplierId: string) =>
+  expect
+    .poll(async () => ((await (await page.request.get(`/api/suppliers/${supplierId}/session`)).json()) as { session: { lastVerifiedAt: string | null } | null }).session?.lastVerifiedAt ?? null, CHECK_WAIT)
+    .not.toBeNull();
 
 test("a check that finds the login gone marks only that supplier, raises one message, and Reconnect supplier leads back to a fix", async ({ page }, info) => {
   await signIn(page);
@@ -438,6 +443,7 @@ test("a pause the owner made stays in place through a problem and a reconnect, u
   await signIn(page);
   const supplier = await addViaApi(page);
   await connectThroughTheWindow(page, supplier.url);
+  await firstCheckPassed(page, supplier.id);
   await page.goto("/suppliers");
   await rowMenu(page, "Acme Supply", "Pause");
   await expect(rowOf(page)).toContainText("Paused");
