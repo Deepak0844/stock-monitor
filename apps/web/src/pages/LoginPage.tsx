@@ -1,4 +1,7 @@
 import { useRef, useState, type FormEvent } from "react";
+import { Button } from "@/components/ui/button.js";
+import { Input } from "@/components/ui/input.js";
+import { Field } from "../components/Field.js";
 import { Logo } from "../components/Logo.js";
 import { IconEye, IconEyeOff } from "../components/icons.js";
 
@@ -37,27 +40,31 @@ export function LoginPage({ onLogin }: Props) {
   }
 
   return (
-    <div className="auth">
-      <aside className="auth-brand">
-        <Logo />
-        <div className="auth-pitch">
-          <p className="auth-tagline">Know what your suppliers have, before your customers order.</p>
-          <ul className="auth-points">
-            <li>Checks your suppliers' stock for you.</li>
-            <li>You approve every change.</li>
-            <li>Nothing reaches Shopify without your OK.</li>
+    <div className="grid min-h-screen bg-background text-foreground lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
+      <aside className="flex flex-col justify-between gap-10 bg-sidebar p-8 text-sidebar-foreground lg:p-12">
+        <Logo className="text-white" />
+        <div className="max-w-md">
+          <p className="text-2xl font-bold leading-snug text-white lg:text-3xl">Know what your suppliers have, before your customers order.</p>
+          <ul className="mt-6 flex flex-col gap-3 text-base">
+            {["Checks your suppliers' stock for you.", "You approve every change.", "Nothing reaches Shopify without your OK."].map((point) => (
+              <li key={point} className="flex items-start gap-3">
+                <span aria-hidden="true" className="mt-2 size-2 shrink-0 rounded-full bg-accent" />
+                {point}
+              </li>
+            ))}
           </ul>
         </div>
       </aside>
 
-      <main className="auth-side">
-        <form className="auth-card" onSubmit={submit} noValidate>
-          <h1>Sign in</h1>
-          <p className="muted">Use the owner account to review supplier stock and approve changes.</p>
+      <main className="grid place-items-center p-6 lg:p-12">
+        <form className="flex w-full max-w-sm flex-col gap-5" onSubmit={submit} noValidate>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Sign in</h1>
+            <p className="mt-1 text-sm text-muted-foreground">Use the owner account to review supplier stock and approve changes.</p>
+          </div>
 
-          <div className="field">
-            <label htmlFor="email">Email</label>
-            <input
+          <Field id="email" label="Email" error={errors.email}>
+            <Input
               id="email"
               ref={emailRef}
               type="email"
@@ -67,21 +74,16 @@ export function LoginPage({ onLogin }: Props) {
               aria-invalid={errors.email ? "true" : undefined}
               aria-describedby={errors.email ? "email-error" : undefined}
             />
-            {errors.email && (
-              <p id="email-error" className="field-error">
-                {errors.email}
-              </p>
-            )}
-          </div>
+          </Field>
 
-          <div className="field">
-            <label htmlFor="password">Password</label>
-            <div className="input-wrap">
-              <input
+          <Field id="password" label="Password" error={errors.password}>
+            <div className="relative">
+              <Input
                 id="password"
                 ref={passwordRef}
                 type={showPassword ? "text" : "password"}
                 autoComplete="current-password"
+                className="pr-12"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 aria-invalid={errors.password ? "true" : undefined}
@@ -89,29 +91,24 @@ export function LoginPage({ onLogin }: Props) {
               />
               <button
                 type="button"
-                className="icon-button"
+                className="absolute right-0 top-0 grid size-10 place-items-center rounded-lg text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
                 aria-label={showPassword ? "Hide password" : "Show password"}
                 onClick={() => setShowPassword((s) => !s)}
               >
                 {showPassword ? <IconEyeOff /> : <IconEye />}
               </button>
             </div>
-            {errors.password && (
-              <p id="password-error" className="field-error">
-                {errors.password}
-              </p>
-            )}
-          </div>
+          </Field>
 
           {formError && (
-            <p role="alert" className="form-error">
+            <p role="alert" className="rounded-lg border border-danger/30 bg-danger-soft px-4 py-3 text-sm font-medium text-danger">
               {formError}
             </p>
           )}
 
-          <button type="submit" className="button primary" disabled={pending} aria-busy={pending}>
+          <Button type="submit" loading={pending}>
             {pending ? "Signing in…" : "Sign in"}
-          </button>
+          </Button>
         </form>
       </main>
     </div>

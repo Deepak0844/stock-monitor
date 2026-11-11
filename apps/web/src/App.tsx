@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
+import { Button } from "@/components/ui/button.js";
+import { Skeleton } from "@/components/ui/skeleton.js";
 import { api as realApi, type Api } from "./api.js";
 import { DashboardPage } from "./pages/DashboardPage.js";
 import { NotFoundPage } from "./pages/NotFoundPage.js";
@@ -59,22 +61,27 @@ export function App({ api = realApi }: { api?: Api }) {
 
   if (state.kind === "loading") {
     return (
-      <p role="status" className="status">
-        Loading…
-      </p>
+      <div className="grid min-h-screen place-items-center bg-background p-6">
+        <div className="flex w-full max-w-xs flex-col gap-3">
+          <p role="status" className="sr-only">
+            Loading…
+          </p>
+          <Skeleton className="h-6 w-1/2" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-3/4" />
+        </div>
+      </div>
     );
   }
 
   if (state.kind === "error") {
     return (
-      <main className="auth-single">
-        <div className="card">
-          <p role="alert" className="form-error">
+      <main className="grid min-h-screen place-items-center bg-background p-6 text-foreground">
+        <div className="flex w-full max-w-sm flex-col items-start gap-4 rounded-xl border border-border bg-card p-6 shadow-sm">
+          <p role="alert" className="text-sm font-medium text-danger">
             {state.message}
           </p>
-          <button type="button" className="button primary" onClick={checkSession}>
-            Try again
-          </button>
+          <Button onClick={checkSession}>Try again</Button>
         </div>
       </main>
     );
