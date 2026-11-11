@@ -40,7 +40,9 @@ describe("saved pages", () => {
 
   it("asks for a capture of a chosen link, and says it has started in a toast", async () => {
     const { api, user } = setup();
-    await user.selectOptions(await screen.findByLabelText("Link to capture"), aMapping().id);
+    // The picker shows before the links load: wait for the link itself first.
+    await screen.findByRole("option", { name: /Blue Tee/ });
+    await user.selectOptions(screen.getByLabelText("Link to capture"), aMapping().id);
     await user.click(screen.getByRole("button", { name: "Capture" }));
     expect(api.captures.request).toHaveBeenCalledWith(acme.id, { mappingId: aMapping().id });
     expect(await screen.findByText(/Capturing the page/)).toBeInTheDocument();
@@ -52,6 +54,7 @@ describe("saved pages", () => {
     await user.click(await screen.findByRole("button", { name: "Capture" }));
     expect(await screen.findByText("Choose the link whose page you want to capture.")).toBeInTheDocument();
     expect(request).not.toHaveBeenCalled();
+    await screen.findByRole("option", { name: /Blue Tee/ });
     await user.selectOptions(screen.getByLabelText("Link to capture"), aMapping().id);
     await user.click(screen.getByRole("button", { name: "Capture" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("recorded permission");
