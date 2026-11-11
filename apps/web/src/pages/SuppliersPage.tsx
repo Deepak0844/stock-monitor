@@ -7,7 +7,7 @@ import { Link } from "../router.js";
 import { useTitle } from "../useTitle.js";
 
 const CHECK_REFRESH_MS = 4000;
-const CHECK_REFRESHES = 3;
+const CHECK_REFRESHES = 12;
 const COLUMNS = ["Name", "Website", "Status", "Last checked", "Automatic checks", "Actions"];
 // While a run is going, its progress is read again this often.
 const PROGRESS_REFRESH_MS = 5000;

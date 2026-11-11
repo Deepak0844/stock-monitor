@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { ApiError, type Mapping } from "../api.js";
 import { aMapping, aSupplier, fakeApi } from "../test/fake-api.js";
@@ -102,6 +102,20 @@ describe("checking links", () => {
     await user.click(await screen.findByRole("button", { name: "Check now Blue Tee Large" }));
     expect(api.mappings.checkLink).toHaveBeenCalledWith(blue.id);
     expect(await screen.findByText(/has started/i)).toBeInTheDocument();
+  });
+
+  it("reads the list again after a check, so the new status shows without a reload", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    try {
+      const list = vi.fn().mockResolvedValueOnce([blue]).mockResolvedValue([{ ...blue, status: "needs_login" }]);
+      const { user } = setup([blue], { mappings: { list } });
+      await user.click(await screen.findByRole("button", { name: "Check now Blue Tee Large" }));
+      expect(list).toHaveBeenCalledTimes(1);
+      await act(async () => void vi.advanceTimersByTime(4_500));
+      expect(list).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows the server's plain reason when a check is refused", async () => {

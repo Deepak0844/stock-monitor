@@ -12,6 +12,9 @@ import { useTitle } from "../useTitle.js";
 const COLUMNS = ["Product", "Supplier", "Page", "Status", "Stock", "Last checked", "Actions"];
 const SHOW_UNMAPPED = 50;
 const SEARCH_DELAY_MS = 250;
+// A check finishes some moments after it is asked for (a login-browser check takes up to half a minute), so the list is read again.
+const CHECK_REFRESH_MS = 4000;
+const CHECK_REFRESHES = 12;
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong. Please try again.");
 const where = (url: string) => {
@@ -65,6 +68,16 @@ export function MappingsPage({ api }: { api: Api }) {
   }, [api, supplierId, status, q]);
   useEffect(load, [load]);
 
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => void (refreshTimer.current && clearTimeout(refreshTimer.current)), []);
+  const refreshSoon = (times: number) => {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => {
+      load();
+      if (times > 1) refreshSoon(times - 1);
+    }, CHECK_REFRESH_MS);
+  };
+
   useEffect(() => {
     api.mappings.unmapped(vq || undefined).then(setUnmapped).catch(() => setUnmapped(null));
   }, [api, vq, mappings]);
@@ -89,16 +102,19 @@ export function MappingsPage({ api }: { api: Api }) {
   const checkOne = (m: Mapping) =>
     run(async () => {
       await api.mappings.checkLink(m.id);
+      refreshSoon(CHECK_REFRESHES);
       setDone(`A check of ${m.productTitle} (${m.variantTitle}) has started. Its status will update in a moment.`);
     });
   const checkStock = (m: Mapping) =>
     run(async () => {
       await api.stock.checkLink(m.id);
+      refreshSoon(CHECK_REFRESHES);
       setDone(`A stock check of ${m.productTitle} (${m.variantTitle}) has started. The answer will appear here in a moment.`);
     });
   const checkAllStock = (s: Supplier) =>
     run(async () => {
       const n = await api.stock.checkSupplier(s.id);
+      refreshSoon(CHECK_REFRESHES);
       setDone(`Checking stock for ${n} ${n === 1 ? "link" : "links"} for ${s.name}, one page at a time. Answers will appear as they finish.`);
     });
   const toggleHistory = (m: Mapping) =>
@@ -110,6 +126,7 @@ export function MappingsPage({ api }: { api: Api }) {
   const checkAll = (s: Supplier) =>
     run(async () => {
       const n = await api.mappings.checkSupplierLinks(s.id);
+      refreshSoon(CHECK_REFRESHES);
       setDone(`Checking ${n} ${n === 1 ? "link" : "links"} for ${s.name}, one page at a time. Statuses will update as they finish.`);
     });
   const remove = (m: Mapping) =>
