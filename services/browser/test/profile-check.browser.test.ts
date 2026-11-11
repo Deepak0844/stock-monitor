@@ -47,7 +47,7 @@ const post = async (route: string, path: string, state: unknown) =>
   (await (await fetch(`${svc.url}${route}`, {
     method: "POST", headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
     body: JSON.stringify({ url: `${site.url}${path}`, state }),
-  })).json()) as Record<string, any>;
+  })).json()) as { result: string; status: number | null; finalUrl?: string; description: { sections: unknown[] } };
 
 describe.skipIf(!linux)("link and stock checks run in the profile browser", () => {
   it("check-page reaches a signed-in page and reports its status, address and title", async () => {
