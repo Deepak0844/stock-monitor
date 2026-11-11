@@ -86,6 +86,15 @@ describe("adding a link by hand", () => {
     expect(list.body.mappings).toMatchObject([{ productTitle: "Tee", supplierName: "Acme", sku: "S1" }]);
   });
 
+  it("says a link is set from Shopify when its variant's product has a supplier name and page address there", async () => {
+    await t.pool.query("update shopify_variants set supplier_name = 'Acme', supplier_url = 'https://shop.acme.example/p/blue' where variant_id = 'v1'");
+    await create();
+    await call("POST", "/api/mappings", { supplierId: acme, variantId: "v2", url: "https://shop.acme.example/p/two" });
+    const byVariant = new Map((await call("GET", "/api/mappings")).body.mappings.map((m: { variantId: string; shopifyManaged: boolean }) => [m.variantId, m.shopifyManaged]));
+    expect(byVariant.get("v1")).toBe(true);
+    expect(byVariant.get("v2")).toBe(false);
+  });
+
   it.each([
     ["http://shop.acme.example/p", "invalid_url", /https/],
     ["https://10.0.0.1/p", "invalid_url", /IP/],

@@ -37,7 +37,10 @@ export type SyncRun = {
   removed: number | null;
   total: number | null;
   error: string | null;
+  /** What the step after the sync did with the supplier name and page address Shopify holds. null when it did not run. */
+  links: SyncLinks | null;
 };
+export type SyncLinks = { added: number; updated: number; skipped: number; problems: { product: string; sku: string | null; message: string }[] };
 
 export type VariantWarning = { code: "not_tracked" | "continue_selling"; message: string };
 
@@ -51,6 +54,9 @@ export type VariantItem = {
   inventoryPolicy: "DENY" | "CONTINUE";
   /** Stock at the chosen location. null means the variant is not stocked there, which is not the same as 0. */
   available: number | null;
+  /** The product's supplier name and page address (SPU) from Shopify. null when it has none. */
+  supplierName: string | null;
+  supplierUrl: string | null;
   syncedAt: string;
   warnings: VariantWarning[];
 };
@@ -176,6 +182,8 @@ export type Mapping = {
   supplierName: string;
   /** Shopify no longer has the variant. The link is kept. */
   variantRemoved: boolean;
+  /** The product has a supplier name and page address in Shopify, so the next sync sets this link from them. */
+  shopifyManaged: boolean;
   /** Worked before and the page is missing on two checks at least 6 hours apart. */
   unavailableCandidate: boolean;
   /** What the latest stock check said, or null when none has run. */
@@ -263,6 +271,8 @@ export type ImportPreview = {
   goodCount: number;
   sample: { line: number; sku: string; url: string }[];
   skippedSuppliers: number;
+  /** Rows for variants whose supplier and address come from Shopify: left out. */
+  skippedShopify: number;
   counts: { new: number; replace: number; unchanged: number };
   problems: RowNote[];
   problemCount: number;

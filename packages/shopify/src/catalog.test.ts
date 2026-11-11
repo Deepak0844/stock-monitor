@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { fetchVariantPages, listLocations, VARIANTS_PAGE_SIZE, estimateVariantsPageCost } from "./catalog.js";
+import { fetchVariantPages, listLocations, parseMetafieldName, VARIANTS_PAGE_SIZE, estimateVariantsPageCost } from "./catalog.js";
 import { isShopifyError } from "./errors.js";
 import { LOC_A, LOC_B, makeVariant } from "../test/fake-catalog.js";
 import { startFakeStore } from "../test/helpers.js";
@@ -17,9 +17,9 @@ const locations = [
   { id: "gid://shopify/Location/3", name: "Old warehouse", isActive: false },
 ];
 
-async function collect(client: Store["client"], locationId: string) {
+async function collect(client: Store["client"], locationId: string, metafields?: Parameters<typeof fetchVariantPages>[2]) {
   const all = [];
-  for await (const page of fetchVariantPages(client, locationId)) all.push(...page);
+  for await (const page of fetchVariantPages(client, locationId, metafields)) all.push(...page);
   return all;
 }
 
@@ -82,6 +82,8 @@ describe("fetchVariantPages", () => {
           policy: "CONTINUE",
           tracked: false,
           stock: { [LOC_A]: 8 },
+          supplierName: "Acme Foods",
+          supplierUrl: "https://acme.example/p/1",
         }),
       ],
     });
@@ -93,6 +95,8 @@ describe("fetchVariantPages", () => {
         variantTitle: "Blue / Large",
         options: [{ name: "Colour", value: "Blue" }, { name: "Size", value: "Large" }],
         sku: null,
+        supplierName: "Acme Foods",
+        supplierUrl: "https://acme.example/p/1",
         inventoryItemId: "gid://shopify/InventoryItem/1",
         tracked: false,
         inventoryPolicy: "CONTINUE",
@@ -173,6 +177,43 @@ describe("fetchVariantPages", () => {
     for (const q of store.catalog.queries) {
       expect(q).not.toMatch(/\bmutation\b/i);
       expect(q.trim()).toMatch(/^query\b/);
+    }
+  });
+});
+
+describe("supplier metafields", () => {
+  it("reads the supplier name and page address from the product's metafields, trimmed, empty as none", async () => {
+    store = await startFakeStore({
+      locations,
+      variants: [
+        makeVariant(1, { supplierName: "  Acme Foods ", supplierUrl: " https://acme.example/p/1 " }),
+        makeVariant(2, { supplierName: "", supplierUrl: "   " }),
+        makeVariant(3),
+      ],
+    });
+    const found = await collect(store.client, LOC_A);
+    expect(found.map((v) => [v.supplierName, v.supplierUrl])).toEqual([
+      ["Acme Foods", "https://acme.example/p/1"],
+      [null, null],
+      [null, null],
+    ]);
+  });
+
+  it("asks Shopify for the metafield names it was given, and for custom.supplier_name and custom.spu by default", async () => {
+    store = await startFakeStore({ locations, variants: [makeVariant(1)] });
+    await collect(store.client, LOC_A);
+    expect(store.catalog.variantVariables[0]).toMatchObject({ nameNamespace: "custom", nameKey: "supplier_name", urlNamespace: "custom", urlKey: "spu" });
+    await collect(store.client, LOC_A, { supplierName: { namespace: "ops", key: "vendor" }, supplierUrl: { namespace: "ops", key: "vendor_url" } });
+    expect(store.catalog.variantVariables.at(-1)).toMatchObject({ nameNamespace: "ops", nameKey: "vendor", urlNamespace: "ops", urlKey: "vendor_url" });
+  });
+});
+
+describe("parseMetafieldName", () => {
+  it("splits namespace.key and refuses anything Shopify would not accept", () => {
+    expect(parseMetafieldName("custom.supplier_name")).toEqual({ namespace: "custom", key: "supplier_name" });
+    expect(parseMetafieldName(" custom.spu ")).toEqual({ namespace: "custom", key: "spu" });
+    for (const bad of ["", "spu", "custom.", ".spu", "a.spu", "custom.a", "custom.spu.extra", "cus tom.spu", "custom.sp u"]) {
+      expect(parseMetafieldName(bad)).toBeNull();
     }
   });
 });

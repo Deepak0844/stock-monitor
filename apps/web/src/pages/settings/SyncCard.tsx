@@ -140,6 +140,25 @@ export function SyncCard({ api, connection, onFinished }: Props) {
         {progress()}
       </div>
       {!busy && lastRun?.status === "failed" && lastRun.error && <Notice kind="error">{lastRun.error}</Notice>}
+      {!busy && lastRun?.status === "succeeded" && lastRun.links && (
+        <div className="sync-links">
+          <p>{`Links from Shopify: ${lastRun.links.added} added, ${lastRun.links.updated} updated, ${lastRun.links.skipped} skipped.`}</p>
+          {lastRun.links.problems.length > 0 && (
+            <>
+              <p className="muted">Skipped. Fix these in Shopify, then sync again.</p>
+              <ul className="plain-list">
+                {lastRun.links.problems.map((p, i) => (
+                  <li key={i}>
+                    {p.product}
+                    {p.sku ? ` (${p.sku})` : ""}: {p.message}
+                  </li>
+                ))}
+              </ul>
+              {lastRun.links.skipped > lastRun.links.problems.length && <p className="muted">Showing the first {lastRun.links.problems.length}.</p>}
+            </>
+          )}
+        </div>
+      )}
 
       <div className="actions">
         <button

@@ -92,6 +92,13 @@
       "when": 1794316969409,
       "tag": "0012_notifications_proposals",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1794346012083,
+      "tag": "0013_sync_supplier_fields",
+      "breakpoints": true
     }
   ]
 }

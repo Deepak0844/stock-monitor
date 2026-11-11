@@ -105,6 +105,13 @@ describe("preview", () => {
     expect(await linkCount()).toBe(0); // nothing is saved by a preview
   });
 
+  it("leaves out rows for variants whose supplier and address come from Shopify, and says how many", async () => {
+    await t.pool.query("update shopify_variants set supplier_name = 'Acme', supplier_url = 'https://shop.acme.example/p/1' where variant_id = 'v1'");
+    const r = await preview();
+    expect(r.body).toMatchObject({ goodCount: 1, skippedShopify: 1, skippedSuppliers: 1 });
+    expect(r.body.sample.map((g: Json) => g.sku)).toEqual(["S2"]);
+  });
+
   it("never stores descriptions or other unused columns", async () => {
     await preview();
     const stored = JSON.stringify((await t.pool.query("select rows from import_previews")).rows);
