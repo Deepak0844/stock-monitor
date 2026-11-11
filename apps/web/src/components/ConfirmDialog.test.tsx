@@ -8,6 +8,40 @@ import { ConfirmDialog } from "./ConfirmDialog.js";
 afterEach(cleanup);
 const props = { open: true, title: "Delete Ashgrove?", description: "This removes its links.", confirmLabel: "Delete supplier" };
 
+describe("ConfirmDialog focus", () => {
+  it("returns focus to the element the page names when it is cancelled, and to the main area when that is gone", async () => {
+    const { rerender } = render(
+      <>
+        <main id="main" tabIndex={-1} />
+        <button id="opener">More actions</button>
+        <ConfirmDialog {...props} onConfirm={vi.fn()} onClose={vi.fn()} returnFocusTo={() => document.getElementById("opener")} />
+      </>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    rerender(
+      <>
+        <main id="main" tabIndex={-1} />
+        <button id="opener">More actions</button>
+        <ConfirmDialog {...props} open={false} onConfirm={vi.fn()} onClose={vi.fn()} returnFocusTo={() => document.getElementById("opener")} />
+      </>,
+    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "More actions" })).toHaveFocus());
+    rerender(
+      <>
+        <main id="main" tabIndex={-1} />
+        <ConfirmDialog {...props} open onConfirm={vi.fn()} onClose={vi.fn()} returnFocusTo={() => null} />
+      </>,
+    );
+    rerender(
+      <>
+        <main id="main" tabIndex={-1} />
+        <ConfirmDialog {...props} open={false} onConfirm={vi.fn()} onClose={vi.fn()} returnFocusTo={() => null} />
+      </>,
+    );
+    await waitFor(() => expect(document.getElementById("main")).toHaveFocus());
+  });
+});
+
 describe("ConfirmDialog", () => {
   it("asks once even when the button is clicked twice", async () => {
     let finish!: () => void;

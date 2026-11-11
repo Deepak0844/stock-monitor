@@ -469,6 +469,7 @@ export function MappingsPage({ api }: { api: Api }) {
           confirmLabel="Delete link"
           onConfirm={() => remove(confirming)}
           onClose={() => setConfirming(null)}
+          returnFocusTo={() => document.querySelector<HTMLElement>(`[aria-label="More actions for ${label(confirming)}"]`)}
         />
       )}
     </>

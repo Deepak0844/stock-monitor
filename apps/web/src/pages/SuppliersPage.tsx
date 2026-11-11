@@ -387,6 +387,7 @@ export function SuppliersPage({ api }: { api: Api }) {
           confirmLabel="Delete supplier"
           onConfirm={() => remove(confirming)}
           onClose={() => setConfirming(null)}
+          returnFocusTo={() => document.querySelector<HTMLElement>(`[aria-label="More actions for ${confirming.name}"]`)}
         />
       )}
     </>

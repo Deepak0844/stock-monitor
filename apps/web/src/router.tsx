@@ -13,7 +13,7 @@ const subscribe = (listener: () => void) => {
 };
 
 export function navigate(to: string): void {
-  if (window.location.pathname === to) return;
+  if (window.location.pathname + window.location.search === to) return;
   window.history.pushState(null, "", to);
   notify();
 }
