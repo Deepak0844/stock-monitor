@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Browser, BrowserContextOptions } from "playwright";
 import { classifyPage, looksLikeNotFound, type SessionState } from "@stock-monitor/supplier-session";
 import type { GuardProxy } from "./proxy.js";
-import { CHALLENGE_WIDGET, MAX_TEXT, type CheckPageOutcome, type VerifyOptions } from "./verify.js";
+import { CHALLENGE_WIDGET, MAX_TEXT, type BlockTracker, type CheckPageOutcome, type VerifyOptions } from "./verify.js";
 
 export type CaptureRequest = { url: string; loginUrl?: string; state: SessionState; picture?: boolean };
 /** What the browser was showing, as words: headings with the lines under them, and the buttons. Never raw HTML. */
@@ -129,42 +129,46 @@ export async function capturePage(browser: Browser, request: CaptureRequest, opt
     acceptDownloads: false,
     proxy: { server: `http://127.0.0.1:${options.proxy.port}`, username: id, password: options.proxy.secret, bypass: "<-loopback>" },
   });
-  const nothing = { finalUrl: null, title: null, heading: null, softNotFound: false, description: { sections: [], buttons: [] }, picture: null };
   try {
-    const page = await context.newPage();
-    let status: number | null = null;
-    try {
-      const response = await page.goto(request.url, { timeout: options.navigationTimeoutMs ?? DEFAULT_TIMEOUT_MS, waitUntil: "load" });
-      status = response?.status() ?? null;
-      if (response?.headers()["x-guard-blocked"] === "private") return { result: "unknown", status, blockedRequests: tracker.blocked().count, ...nothing };
-    } catch {
-      const { count, privateAddress } = tracker.blocked();
-      return { result: privateAddress ? "unknown" : "unreachable", status: null, blockedRequests: count, ...nothing };
-    }
-
-    // The picture first: describing the page hides its input fields.
-    const picture = request.picture ? await takePicture(page) : null;
-    const seen = await readPage(page);
-    const result = classifyPage({
-      requestedUrl: request.url,
-      loginUrl: request.loginUrl,
-      page: { finalUrl: page.url(), status, title: seen.title, text: seen.text.slice(0, MAX_TEXT), hasPasswordField: seen.hasPasswordField, hasChallengeWidget: seen.hasChallengeWidget },
-    });
-    const title = short(seen.title);
-    const heading = short(seen.h1);
-    return {
-      result,
-      status,
-      blockedRequests: tracker.blocked().count,
-      finalUrl: withoutQuery(page.url()),
-      title,
-      heading,
-      softNotFound: looksLikeNotFound({ title, heading }),
-      description: { sections: seen.sections, buttons: seen.buttons },
-      picture,
-    };
+    return await capturePageIn(await context.newPage(), request, tracker, options.navigationTimeoutMs ?? DEFAULT_TIMEOUT_MS);
   } finally {
     tracker.stop();
     await context.close();
   }
+}
+
+/** Loads and describes the page in an already prepared page. Used with a throw-away context and with the persistent profile. */
+export async function capturePageIn(page: import("playwright").Page, request: CaptureRequest, tracker: BlockTracker, timeoutMs: number): Promise<CaptureOutcome> {
+  const nothing = { finalUrl: null, title: null, heading: null, softNotFound: false, description: { sections: [], buttons: [] }, picture: null };
+  let status: number | null;
+  try {
+    const response = await page.goto(request.url, { timeout: timeoutMs, waitUntil: "load" });
+    status = response?.status() ?? null;
+    if (response?.headers()["x-guard-blocked"] === "private") return { result: "unknown", status, blockedRequests: tracker.blocked().count, ...nothing };
+  } catch {
+    const { count, privateAddress } = tracker.blocked();
+    return { result: privateAddress ? "unknown" : "unreachable", status: null, blockedRequests: count, ...nothing };
+  }
+
+  // The picture first: describing the page hides its input fields.
+  const picture = request.picture ? await takePicture(page) : null;
+  const seen = await readPage(page);
+  const result = classifyPage({
+    requestedUrl: request.url,
+    loginUrl: request.loginUrl,
+    page: { finalUrl: page.url(), status, title: seen.title, text: seen.text.slice(0, MAX_TEXT), hasPasswordField: seen.hasPasswordField, hasChallengeWidget: seen.hasChallengeWidget },
+  });
+  const title = short(seen.title);
+  const heading = short(seen.h1);
+  return {
+    result,
+    status,
+    blockedRequests: tracker.blocked().count,
+    finalUrl: withoutQuery(page.url()),
+    title,
+    heading,
+    softNotFound: looksLikeNotFound({ title, heading }),
+    description: { sections: seen.sections, buttons: seen.buttons },
+    picture,
+  };
 }
