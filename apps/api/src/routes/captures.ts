@@ -82,7 +82,8 @@ export function registerCaptureRoutes(app: App, deps: CaptureRoutesDeps, audit: 
       throw new AppError(404, "picture_not_found", "This capture has no picture.");
     }
     // Private page content: never kept by a browser or a proxy.
-    return reply.header("content-type", "image/png").header("cache-control", "private, no-store").send(picture);
+    const type = picture[0] === 0xff && picture[1] === 0xd8 ? "image/jpeg" : "image/png"; // a long page is kept as a JPEG
+    return reply.header("content-type", type).header("cache-control", "private, no-store").send(picture);
   });
 
   app.patch<{ Params: { id: string } }>("/api/captures/:id", async (request) => {
