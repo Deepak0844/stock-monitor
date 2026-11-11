@@ -53,7 +53,8 @@ async function captureAndLabel(page: Page, name: string, expected: "in_stock" | 
   await page.getByLabel("Answer you expect").selectOption(expected);
   await page.getByRole("button", { name: "Save label" }).click();
   const words = { in_stock: "In stock", out_of_stock: "Out of stock", cannot_tell: "Cannot tell" }[expected];
-  await expect(page.getByText("Label saved.")).toBeVisible();
+  // Labelling twice in a row leaves two toasts on screen for a moment: look at the newest.
+  await expect(page.getByText("Label saved.").last()).toBeVisible();
   // On a phone the list and the page take turns.
   const back = page.getByRole("button", { name: "All pages" });
   if (await back.isVisible()) await back.click();
