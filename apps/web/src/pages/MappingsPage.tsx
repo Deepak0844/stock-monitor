@@ -71,6 +71,9 @@ export function MappingsPage({ api }: { api: Api }) {
   const [variantSearch, setVariantSearch] = useState("");
   const [unmapped, setUnmapped] = useState<UnmappedList | null>(null);
   const [reloaded, setReloaded] = useState(0);
+  // Checks asked for whose answer has not shown yet, as `link:<id>` or `stock:<id>`.
+  const [waiting, setWaiting] = useState<Set<string>>(new Set());
+  const stopWaiting = (key?: string) => key && setWaiting((w) => (w.has(key) ? new Set([...w].filter((x) => x !== key)) : w));
   const [history, setHistory] = useState<{ mapping: Mapping; items: Observation[] } | null>(null);
   const vq = useDelayed(variantSearch);
   const query = { supplierId: supplierId || undefined, status: status || undefined, search: search || undefined, page, pageSize };
@@ -117,7 +120,7 @@ export function MappingsPage({ api }: { api: Api }) {
   latest.current = data?.items ?? null;
   useEffect(() => () => void (refreshTimer.current && clearTimeout(refreshTimer.current)), []);
   /** `finished` says when the answer has shown. Without it (a whole supplier run) it stops once the list has changed and then sat still. */
-  const refreshSoon = (times: number, finished?: (list: Mapping[]) => boolean, sawChange = false, still = 0) => {
+  const refreshSoon = (times: number, finished?: (list: Mapping[]) => boolean, sawChange = false, still = 0, key?: string) => {
     if (refreshTimer.current) clearTimeout(refreshTimer.current);
     refreshTimer.current = setTimeout(() => {
       api.mappings
@@ -126,9 +129,10 @@ export function MappingsPage({ api }: { api: Api }) {
           const changed = JSON.stringify(result.items) !== JSON.stringify(latest.current);
           if (changed) setData({ items: result.items, total: result.total });
           const stop = finished ? finished(result.items) : sawChange && !changed && still + 1 >= STILL_POLLS;
-          if (!stop && times > 1) refreshSoon(times - 1, finished, sawChange || changed, changed ? 0 : still + 1);
+          if (!stop && times > 1) refreshSoon(times - 1, finished, sawChange || changed, changed ? 0 : still + 1, key);
+          else stopWaiting(key);
         })
-        .catch(() => {});
+        .catch(() => stopWaiting(key));
     }, CHECK_REFRESH_MS);
   };
 
@@ -152,14 +156,26 @@ export function MappingsPage({ api }: { api: Api }) {
   const label = (m: Mapping) => `${m.productTitle} ${m.variantTitle}`;
   const checkOne = (m: Mapping) =>
     run(`link:${m.id}`, async () => {
-      await api.mappings.checkLink(m.id);
-      refreshSoon(CHECK_REFRESHES, (list) => list.find((x) => x.id === m.id)?.lastLinkCheckAt !== m.lastLinkCheckAt);
+      setWaiting((w) => new Set(w).add(`link:${m.id}`));
+      try {
+        await api.mappings.checkLink(m.id);
+      } catch (e) {
+        stopWaiting(`link:${m.id}`);
+        throw e;
+      }
+      refreshSoon(CHECK_REFRESHES, (list) => list.find((x) => x.id === m.id)?.lastLinkCheckAt !== m.lastLinkCheckAt, false, 0, `link:${m.id}`);
       toast(`A check of ${m.productTitle} (${m.variantTitle}) has started. Its status will update in a moment.`);
     });
   const checkStock = (m: Mapping) =>
     run(`stock:${m.id}`, async () => {
-      await api.stock.checkLink(m.id);
-      refreshSoon(CHECK_REFRESHES, (list) => list.find((x) => x.id === m.id)?.latestStock?.observedAt !== m.latestStock?.observedAt);
+      setWaiting((w) => new Set(w).add(`stock:${m.id}`));
+      try {
+        await api.stock.checkLink(m.id);
+      } catch (e) {
+        stopWaiting(`stock:${m.id}`);
+        throw e;
+      }
+      refreshSoon(CHECK_REFRESHES, (list) => list.find((x) => x.id === m.id)?.latestStock?.observedAt !== m.latestStock?.observedAt, false, 0, `stock:${m.id}`);
       toast(`A stock check of ${m.productTitle} (${m.variantTitle}) has started. The answer will appear here in a moment.`);
     });
   const supplier = suppliers.find((s) => s.id === supplierId);
@@ -207,6 +223,7 @@ export function MappingsPage({ api }: { api: Api }) {
     {
       header: "Status",
       cell: (m) => {
+        if (waiting.has(`link:${m.id}`)) return <Badge variant="warning" className="animate-pulse">Checking…</Badge>;
         const s = linkStatusOf(m);
         return (
           <div className="flex flex-col items-start gap-1">
@@ -221,7 +238,11 @@ export function MappingsPage({ api }: { api: Api }) {
     {
       header: "Stock",
       cell: (m) =>
-        m.latestStock ? (
+        waiting.has(`stock:${m.id}`) ? (
+          <Badge variant="warning" className="animate-pulse">
+            Checking…
+          </Badge>
+        ) : m.latestStock ? (
           <div className="flex flex-col items-start gap-1">
             <Badge variant={badgeVariant(ANSWER_TONE[m.latestStock.answer])}>{stockSentence(m.latestStock, stockRegion(m))}</Badge>
             {reasonWords(m.latestStock.reason) && m.latestStock.reason !== "not_listed" && <span className="text-muted-foreground">{reasonWords(m.latestStock.reason)}</span>}

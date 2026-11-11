@@ -338,6 +338,33 @@ describe("checking a connection", () => {
     }
   });
 
+  it("shows a pulsing Checking… badge in the row until the new status arrives, and moves nothing else", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    try {
+      const reply = (s: Supplier) => ({ items: [s], total: 1, page: 1, pageSize: 10 });
+      const page = vi.fn().mockResolvedValueOnce(reply(connected)).mockResolvedValue(reply(aSupplier({ sessionStatus: "connected", lastSessionCheckAt: "2026-11-11T09:00:00.000Z" })));
+      const { user } = setup([connected], { suppliers: { page } });
+      const row = within(await screen.findByRole("row", { name: /Acme Supply/ }));
+      await user.click(row.getByRole("button", { name: "Check connection Acme Supply" }));
+      expect(await row.findByText("Checking…")).toBeInTheDocument();
+      expect(row.queryByText("Connected")).toBeNull();
+      expect(screen.getByText(/has started/).closest("main, section, table")).toBeNull(); // a toast, never a banner among the page content
+      await act(async () => void vi.advanceTimersByTime(4_500));
+      expect(await row.findByText("Connected")).toBeInTheDocument();
+      expect(row.queryByText("Checking…")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("takes the Checking… badge away when the check cannot be started", async () => {
+    const checkSession = vi.fn().mockRejectedValue(new ApiError("No.", 503));
+    const { user } = setup([connected], { suppliers: { checkSession } });
+    await user.click(await screen.findByRole("button", { name: "Check connection Acme Supply" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("No.");
+    expect(screen.queryByText("Checking…")).toBeNull();
+  });
+
   it("shows the server's plain message when the check cannot be started", async () => {
     const checkSession = vi.fn().mockRejectedValue(new ApiError("The check could not be started. Please try again in a minute.", 503, "check_not_started"));
     const { user } = setup([connected], { suppliers: { checkSession } });

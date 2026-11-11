@@ -99,6 +99,9 @@ export function SuppliersPage({ api }: { api: Api }) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<Supplier | null>(null);
   const [checkingId, setCheckingId] = useState<string | null>(null);
+  // Suppliers whose check was asked for and whose new status has not shown yet.
+  const [waiting, setWaiting] = useState<Set<string>>(new Set());
+  const stopWaiting = (id: string) => setWaiting((w) => (w.has(id) ? new Set([...w].filter((x) => x !== id)) : w));
   const [q, setQ] = useState(search);
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latest = useRef(0);
@@ -175,28 +178,33 @@ export function SuppliersPage({ api }: { api: Api }) {
   }
   const toggle = (s: Supplier) => act(async () => replace(await (s.enabled ? api.suppliers.pause(s.id) : api.suppliers.resume(s.id))));
   /** Reads the page again, a few times a few seconds apart, because a check finishes some moments after it is asked for. */
-  const refreshSoon = (times: number, finished: (list: Supplier[]) => boolean) => {
+  const refreshSoon = (times: number, finished: (list: Supplier[]) => boolean, id: string) => {
     if (refreshTimer.current) clearTimeout(refreshTimer.current);
     refreshTimer.current = setTimeout(() => {
       api.suppliers
         .page(queryRef.current)
         .then((result) => {
           setData({ items: result.items, total: result.total });
-          if (!finished(result.items) && times > 1) refreshSoon(times - 1, finished);
+          if (finished(result.items) || times <= 1) stopWaiting(id);
+          else refreshSoon(times - 1, finished, id);
         })
-        .catch(() => {});
+        .catch(() => stopWaiting(id));
     }, CHECK_REFRESH_MS);
   };
   const check = (s: Supplier) =>
     act(async () => {
       setCheckingId(s.id);
+      setWaiting((w) => new Set(w).add(s.id));
       try {
         await api.suppliers.checkSession(s.id);
+      } catch (e) {
+        stopWaiting(s.id);
+        throw e;
       } finally {
         setCheckingId(null);
       }
       toast(`A check of ${s.name} has started. Its status will update in a moment.`);
-      refreshSoon(CHECK_REFRESHES, (list) => list.find((x) => x.id === s.id)?.lastSessionCheckAt !== s.lastSessionCheckAt);
+      refreshSoon(CHECK_REFRESHES, (list) => list.find((x) => x.id === s.id)?.lastSessionCheckAt !== s.lastSessionCheckAt, s.id);
     });
   const remove = async (s: Supplier) => {
     await api.suppliers.remove(s.id);
@@ -216,6 +224,7 @@ export function SuppliersPage({ api }: { api: Api }) {
     {
       header: "Status",
       cell: (s) => {
+        if (waiting.has(s.id)) return <Badge variant="warning" className="animate-pulse">Checking…</Badge>;
         const st = statusOf(s);
         return <Badge variant={st.tone}>{st.words}</Badge>;
       },

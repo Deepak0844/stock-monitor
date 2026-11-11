@@ -200,6 +200,35 @@ describe("checking links", () => {
   });
 });
 
+describe("progress in the row", () => {
+  it("shows Checking… in the Status cell after Check now, and in the Stock cell after Check stock, until the answer arrives", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    try {
+      const reply = (m: Mapping) => ({ items: [m], total: 1, page: 1, pageSize: 10 });
+      const answered = { ...blue, linkStatus: "works" as const, lastLinkCheckAt: "2026-11-11T08:00:00Z", latestStock: { answer: "in_stock" as const, reason: null, quantity: null, matchedText: null, observedAt: "2026-11-11T08:00:00Z" } };
+      const page = vi.fn().mockResolvedValueOnce(reply(blue)).mockResolvedValue(reply(answered));
+      const { user } = setup([blue], { mappings: { page } });
+      const row = within(await screen.findByRole("row", { name: /Blue Tee/ }));
+      await user.click(row.getByRole("button", { name: "Check now Blue Tee Large" }));
+      expect(await row.findByText("Checking…")).toBeInTheDocument();
+      expect(row.queryByText("Not checked")).toBeNull();
+      await act(async () => void vi.advanceTimersByTime(4_500));
+      expect(await row.findByText("Works")).toBeInTheDocument();
+      expect(row.queryByText("Checking…")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("takes Checking… away when the check is refused", async () => {
+    const checkLink = vi.fn().mockRejectedValue(new ApiError("No permission.", 409));
+    const { user } = setup([blue], { mappings: { checkLink } });
+    await user.click(await screen.findByRole("button", { name: "Check now Blue Tee Large" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("No permission.");
+    expect(screen.queryByText("Checking…")).toBeNull();
+  });
+});
+
 describe("deleting", () => {
   const askToDelete = async (user: ReturnType<typeof userEvent.setup>) => {
     await user.click(within(await openMenu(user, "Blue Tee Large")).getByRole("menuitem", { name: "Delete" }));
