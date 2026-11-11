@@ -2,7 +2,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { plainLaunchArgs, seedProfile } from "./plain-window.js";
+import { spawn } from "node:child_process";
+import { plainLaunchArgs, quitCleanly, seedProfile } from "./plain-window.js";
 
 const options = {
   profile: "/tmp/p",
@@ -108,5 +109,18 @@ describe("seedProfile", () => {
     await seedProfile(dir);
     const plain = JSON.parse(await readFile(join(dir, "Default", "Preferences"), "utf8"));
     expect(plain.intl).toBeUndefined();
+  });
+});
+
+describe("quitCleanly", () => {
+  it("returns at once for a browser that was already killed by a signal", async () => {
+    const child = spawn("sleep", ["60"], { detached: true, stdio: "ignore" });
+    child.kill("SIGKILL");
+    await new Promise((resolve) => child.once("exit", resolve));
+    const done = await Promise.race([
+      quitCleanly(child, 500).then(() => "returned"),
+      new Promise((resolve) => setTimeout(() => resolve("still waiting"), 2000)),
+    ]);
+    expect(done).toBe("returned");
   });
 });

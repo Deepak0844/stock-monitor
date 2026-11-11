@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { connect, type AddressInfo, type Socket } from "node:net";
+import { connect, createServer as createNetServer, type AddressInfo, type Socket } from "node:net";
 import { createServer, request, type IncomingHttpHeaders, type Server } from "node:http";
 import { startGuardProxy, type GuardProxy } from "./proxy.js";
 import type { Guard } from "./guard.js";
@@ -270,6 +270,27 @@ describe("a listener for one plain window", () => {
         s.once("error", reject);
       }),
     ).rejects.toThrow();
+  });
+
+  it("closes even with a tunnel still open, so a site that never hangs up cannot stall the next check", async () => {
+    // Like some real sites: it keeps the connection open after the browser has hung up.
+    const stubborn = createNetServer({ allowHalfOpen: true }, () => {});
+    await new Promise<void>((resolve) => stubborn.listen(0, "127.0.0.1", resolve));
+    const listener = await proxy.openListener("window-7");
+    const socket = await new Promise<Socket>((resolve, reject) => {
+      const req = request({ host: "127.0.0.1", port: listener.port, method: "CONNECT", path: `pinned.test:${(stubborn.address() as AddressInfo).port}` });
+      req.on("connect", (_res, s) => resolve(s));
+      req.on("error", reject);
+      req.end();
+    });
+    socket.end(); // the browser has gone; the site keeps its side open
+    const closed = await Promise.race([
+      listener.close().then(() => "closed"),
+      new Promise((resolve) => setTimeout(() => resolve("still waiting"), 2000)),
+    ]);
+    socket.destroy();
+    stubborn.close();
+    expect(closed).toBe("closed");
   });
 
   it("is a separate listener from the main one, which still needs its password", async () => {
