@@ -128,12 +128,21 @@ describe("one link", () => {
     expect(kept).toMatchObject([{ keptReason: "page_changed", hasPicture: true, mappingId: id }]);
   });
 
-  it.each(["login_required", "captcha", "blocked", "unreachable"])("a %s page is cannot tell, with the visit's result, and the supplier's own status is left alone", async (result) => {
+  it.each([["login_required", "needs_reconnect"], ["captcha", "blocked"], ["blocked", "blocked"]])("a %s page is cannot tell, and the supplier is marked %s", async (result, status) => {
     const id = await link("v1");
     await turnOn();
     fake.behaviour.page = { result, status: 403, finalUrl: null, title: null, heading: null, softNotFound: false };
     expect(await checkStock(deps(), id)).toEqual({ kind: "checked", answer: "cannot_tell", reason: "check_failed" });
     expect(await latest(id)).toMatchObject({ answer: "cannot_tell", reason: "check_failed", checkResult: result });
+    expect(await suppliers().get(acme)).toMatchObject({ sessionStatus: status });
+    expect(await notes().listOpen()).toMatchObject([{ kind: "supplier_needs_reconnect", supplierId: acme, reason: result }]);
+  });
+
+  it("an unreachable page is cannot tell, and the supplier's own status is left alone", async () => {
+    const id = await link("v1");
+    await turnOn();
+    fake.behaviour.page = { result: "unreachable", status: null, finalUrl: null, title: null, heading: null, softNotFound: false };
+    expect(await checkStock(deps(), id)).toEqual({ kind: "checked", answer: "cannot_tell", reason: "check_failed" });
     expect(await suppliers().get(acme)).toMatchObject({ sessionStatus: "connected", enabled: true, pausedReason: null });
     expect((await notes().listOpen()).length).toBe(0);
   });

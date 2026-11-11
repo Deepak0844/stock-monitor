@@ -29,6 +29,7 @@ const deps = (over: Partial<LinkCheckDeps> = {}): LinkCheckDeps => ({
   mappings: maps(),
   suppliers: suppliers(),
   supplierSessions: createSupplierSessionRepository(t.appDb),
+  notifications: createNotificationRepository(t.appDb),
   audit: createAuditWriter(t.appDb),
   browser: createBrowserClient({ baseUrl: fake.url, token: FAKE_CONTROL_TOKEN, timeoutMs: 2000 }),
   key,
@@ -107,14 +108,21 @@ describe("one link", () => {
     expect(await mapping(id)).toMatchObject({ missingChecks: 0 });
   });
 
-  it("a supplier that needs a login is never turned into a broken link, and its own status is left alone", async () => {
+  it("a page that shows a puzzle is never a broken link, and the supplier is marked as needing the owner", async () => {
     const id = await link("v1");
     await checkLink(deps(), id);
     fake.behaviour.page = { ...normal, result: "captcha", status: 403, finalUrl: null, title: null, heading: null };
     expect(await checkLink(deps(), id)).toEqual({ kind: "checked", status: "needs_login" });
     expect(await mapping(id)).toMatchObject({ linkStatus: "needs_login", missingChecks: 0 });
-    expect(await suppliers().get(acme)).toMatchObject({ sessionStatus: "connected", enabled: true, pausedReason: null });
-    expect((await createNotificationRepository(t.appDb).listOpen()).length).toBe(0);
+    expect(await suppliers().get(acme)).toMatchObject({ sessionStatus: "blocked", enabled: false, pausedReason: "session" });
+    expect(await createNotificationRepository(t.appDb).listOpen()).toMatchObject([{ kind: "supplier_needs_reconnect", supplierId: acme, reason: "captcha" }]);
+  });
+
+  it("a login page marks the supplier as needing to reconnect, though the home page looked fine", async () => {
+    const id = await link("v1");
+    fake.behaviour.page = { ...normal, result: "login_required", status: 200, finalUrl: null, title: null, heading: null };
+    expect(await checkLink(deps(), id)).toEqual({ kind: "checked", status: "needs_login" });
+    expect(await suppliers().get(acme)).toMatchObject({ sessionStatus: "needs_reconnect" });
   });
 
   it("a browser service that does not answer means could not check", async () => {

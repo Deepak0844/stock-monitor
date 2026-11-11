@@ -126,6 +126,7 @@ await registerHandlers(queue, logger, {
           mappings: createMappingRepository(db),
           suppliers: createSupplierRepository(db),
           supplierSessions: createSupplierSessionRepository(db),
+          notifications: createNotificationRepository(db),
           audit: createAuditWriter(db),
           browser: createBrowserClient({ baseUrl: config.browserServiceUrl, token: config.browserControlToken }),
           key: config.encryptionKey,

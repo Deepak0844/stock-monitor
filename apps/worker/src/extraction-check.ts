@@ -151,6 +151,8 @@ export function createStockChecker(deps: StockCheckDeps) {
       await captures.purge(RETENTION_DAYS);
       const v = await visit(gated.supplier, mapping, gated.active.recipe);
       await finish(gated.supplier, v, gated.active.version, false);
+      // A page that asked for a login or refused us means the session is no good, as a failed session check would say.
+      if (v.checkResult === "login_required" || v.checkResult === "captcha" || v.checkResult === "blocked") await raiseNeedsAttention(deps, gated.supplier, v.checkResult);
       return { kind: "checked", answer: v.decision.answer, reason: v.decision.reason };
     },
 
