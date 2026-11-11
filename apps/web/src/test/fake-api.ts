@@ -276,6 +276,7 @@ export function fakeApi(
       save: vi.fn().mockResolvedValue({ id: "88888888-8888-4888-8888-888888888888", version: 1 }),
       test: vi.fn().mockResolvedValue({ results: [], passed: false }),
       activate: vi.fn().mockImplementation(async () => aRecipeVersion({ active: true })),
+      remove: vi.fn().mockResolvedValue(undefined),
       ...recipes,
     },
     stock: {

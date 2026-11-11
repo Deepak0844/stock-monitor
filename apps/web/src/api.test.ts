@@ -340,6 +340,13 @@ describe("paged lists and notification actions", () => {
     expect(sent(history)).toBe("/api/proposals?tab=history&page=3&pageSize=10");
   });
 
+  it("deletes a version with DELETE", async () => {
+    const fetchMock = reply({ ok: true });
+    await api.recipes.remove("r 1");
+    expect(sent(fetchMock)).toBe("/api/recipes/r%201");
+    expect((fetchMock.mock.calls[0]![1] as RequestInit).method).toBe("DELETE");
+  });
+
   it("marks one notification, and all of them, as read", async () => {
     const one = reply({ ok: true });
     await api.notifications.markRead("n 1");

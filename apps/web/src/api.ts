@@ -256,6 +256,8 @@ export type RecipesApi = {
   /** Runs a draft on the labelled saved pages and saves nothing. */
   test(supplierId: string, recipe: Recipe): Promise<RecipeTest>;
   activate(id: string): Promise<RecipeVersion>;
+  /** Hides a version that is not turned on. */
+  remove(id: string): Promise<void>;
 };
 export type StockApi = {
   checkLink(mappingId: string): Promise<void>;
@@ -554,6 +556,9 @@ const recipes: RecipesApi = {
   test: (supplierId, recipe) => request(`/api/suppliers/${enc(supplierId)}/recipes/test`, { method: "POST", json: { recipe } }),
   async activate(id) {
     return (await request<{ recipe: RecipeVersion }>(`/api/recipes/${enc(id)}/activate`, { method: "POST" })).recipe;
+  },
+  async remove(id) {
+    await request(`/api/recipes/${enc(id)}`, { method: "DELETE" });
   },
 };
 const stock: StockApi = {
