@@ -259,9 +259,9 @@ If the app cannot tell whether Shopify made a change (for example the connection
 
 Until you do, Approve is refused and nothing is ever sent. The permission is `write_inventory`, added to the app you created in Shopify; then **Connect** again in the app's Shopify settings. **Do this on a development store first, not your real store** (see the checklist below). The app only uses it when you press Approve.
 
-### Checking it against a real Shopify store (still to do)
+### Checking it against a real Shopify store
 
-All of this has been built and tested against a stand-in Shopify. Shopify's own behaviour has not yet been confirmed on a real store, so this module is **not finished until you run this check**, on a **development store** (free, from your Shopify Partners account) with a few test products:
+This check was run and passed on a Shopify development store on 2026-11-12. Repeat it after a Shopify API version change, on a **development store** (free, from your Shopify Partners account) with a few test products:
 
 1. Create the app in the development store with read and `write_inventory` access, and connect it in the app's Shopify settings. Choose a location and **Sync**.
 2. Pick a test product with stock 4. Set the supplier's stand-in answer to out of stock (or edit a suggestion by hand) so a suggestion "set to 0" appears. **Approve** it. Open the product in Shopify: **available** must now show 0 at that location.
@@ -285,7 +285,7 @@ Saved supplier sessions are decrypted in memory while a check runs, so anyone wh
 - Set `TRUST_PROXY=true` **only** if the proxy overwrites `X-Forwarded-For` with the real client address. Otherwise anyone can fake their address and dodge the sign-in rate limit. Leave it `false` with no proxy.
 - `.env` readable only by the deploy user (`chmod 600 .env`). Never commit it.
 - Back up `APP_ENCRYPTION_KEY` separately, for example in a password manager. If it is lost, saved sessions and the Shopify token cannot be read. They can be recreated by reconnecting.
-- Encrypted, off-server database backups: nightly `pg_dump` to storage such as S3 or Backblaze, and a restore test. **Not automated yet.** It is a follow-up task.
+- Database backups are manual by choice: see the README for `pg_dump` and `pg_restore`. Keep copies off the server and try a restore now and then.
 - Check the pilot supplier's terms of service on automated access before the first real check.
 
 ## Known limits
