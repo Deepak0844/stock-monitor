@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
+import { AbandonedError, QueueFullError } from "./job-queue.js";
 import { createControlServer, type CaptureFn, type CheckPageFn, type SessionsApi, type VerifyFn } from "./server.js";
 
 const TOKEN = "t".repeat(40);
@@ -73,7 +74,7 @@ describe("POST /verify", () => {
     const res = await post({ ...body, loginUrl: "https://shop.acme.example/login" });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ result: "ok", status: 200, blockedRequests: 0 });
-    expect(verify).toHaveBeenCalledWith({ url: body.url, loginUrl: "https://shop.acme.example/login", state });
+    expect(verify).toHaveBeenCalledWith({ url: body.url, loginUrl: "https://shop.acme.example/login", state }, { signal: expect.any(AbortSignal) });
   });
 
   it("never echoes the session state in the answer", async () => {
@@ -218,7 +219,7 @@ describe("the live window routes", () => {
 });
 
 describe("POST /check-page", () => {
-  const call = (token: string | null = TOKEN, payload: unknown = body) =>
+  const call = (token: string | null = TOKEN, payload: unknown = body, signal?: AbortSignal) =>
     fetch(`${base}/check-page`, { method: "POST", headers: { "content-type": "application/json", ...(token === null ? {} : { authorization: `Bearer ${token}` }) }, body: JSON.stringify(payload) });
 
   it("needs the control token and does nothing without it", async () => {
@@ -230,7 +231,7 @@ describe("POST /check-page", () => {
     const res = await call();
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ result: "ok", status: 200, finalUrl: "https://shop.acme.example/p", softNotFound: false });
-    expect(checkPage).toHaveBeenCalledWith(expect.objectContaining({ url: body.url }));
+    expect(checkPage).toHaveBeenCalledWith(expect.objectContaining({ url: body.url }), expect.anything());
   });
 
   it("refuses a request that is not an address and a session", async () => {
@@ -248,8 +249,8 @@ describe("POST /check-page", () => {
 });
 
 describe("POST /capture", () => {
-  const call = (token: string | null = TOKEN, payload: unknown = body) =>
-    fetch(`${base}/capture`, { method: "POST", headers: { "content-type": "application/json", ...(token === null ? {} : { authorization: `Bearer ${token}` }) }, body: JSON.stringify(payload) });
+  const call = (token: string | null = TOKEN, payload: unknown = body, signal?: AbortSignal) =>
+    fetch(`${base}/capture`, { method: "POST", headers: { "content-type": "application/json", ...(token === null ? {} : { authorization: `Bearer ${token}` }) }, body: JSON.stringify(payload), signal });
 
   it("needs the control token and does nothing without it", async () => {
     expect((await call(null)).status).toBe(401);
@@ -258,7 +259,7 @@ describe("POST /capture", () => {
 
   it("passes on whether a picture was asked for", async () => {
     expect((await call(TOKEN, { ...body, picture: true })).status).toBe(200);
-    expect(capture).toHaveBeenCalledWith(expect.objectContaining({ url: body.url, picture: true }));
+    expect(capture).toHaveBeenCalledWith(expect.objectContaining({ url: body.url, picture: true }), expect.anything());
   });
 
   it("refuses a picture setting that is not yes or no, and an address that is not a web address", async () => {
@@ -273,5 +274,49 @@ describe("POST /capture", () => {
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: "capture_failed" });
     expect(logs.join("\n")).not.toContain(MARKER);
+  });
+
+  it("answers 503 busy when the job says the queue is full, without logging a failure", async () => {
+    capture.mockRejectedValue(new QueueFullError());
+    const res = await call();
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "busy" });
+    expect(logs.join("\n")).not.toContain("capture failed");
+  });
+
+  it("gives the job a signal that fires when the caller goes away", async () => {
+    let seen: AbortSignal | undefined;
+    capture.mockImplementation((_request, opts) => {
+      seen = opts?.signal;
+      return new Promise(() => {});
+    });
+    const gone = new AbortController();
+    const pending = call(TOKEN, body, gone.signal).catch(() => {});
+    await vi.waitFor(() => expect(seen).toBeDefined());
+    expect(seen?.aborted).toBe(false);
+    gone.abort();
+    await pending;
+    await vi.waitFor(() => expect(seen?.aborted).toBe(true));
+  });
+
+  it("does not abort the signal when the answer was sent normally", async () => {
+    let seen: AbortSignal | undefined;
+    capture.mockImplementation(async (_request, opts) => {
+      seen = opts?.signal;
+      return { result: "ok", status: 200, blockedRequests: 0, finalUrl: null, title: null, heading: null, softNotFound: false, description: { sections: [], buttons: [] }, picture: null };
+    });
+    await (await call()).text();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(seen?.aborted).toBe(false);
+  });
+
+  it("says nothing and logs nothing when the caller left before the job's turn", async () => {
+    capture.mockRejectedValue(new AbandonedError());
+    const gone = new AbortController();
+    const pending = call(TOKEN, body, gone.signal).catch(() => null);
+    await new Promise((r) => setTimeout(r, 100));
+    gone.abort();
+    expect(await pending).toBeNull();
+    expect(logs.join("\n")).not.toContain("capture failed");
   });
 });

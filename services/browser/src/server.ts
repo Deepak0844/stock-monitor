@@ -4,9 +4,11 @@ import { isSessionState, type SessionState } from "@stock-monitor/supplier-sessi
 import type { CaptureOutcome, CaptureRequest } from "./capture.js";
 import type { CheckPageOutcome, CheckPageRequest, VerifyOutcome, VerifyRequest } from "./verify.js";
 
-export type VerifyFn = (request: VerifyRequest) => Promise<VerifyOutcome>;
-export type CheckPageFn = (request: CheckPageRequest) => Promise<CheckPageOutcome>;
-export type CaptureFn = (request: CaptureRequest) => Promise<CaptureOutcome>;
+/** `signal` fires when the caller has gone away without an answer, so a job still waiting for its turn can be dropped. */
+export type JobContext = { signal: AbortSignal };
+export type VerifyFn = (request: VerifyRequest, context?: JobContext) => Promise<VerifyOutcome>;
+export type CheckPageFn = (request: CheckPageRequest, context?: JobContext) => Promise<CheckPageOutcome>;
+export type CaptureFn = (request: CaptureRequest, context?: JobContext) => Promise<CaptureOutcome>;
 export type SessionsApi = {
   open(url: string): Promise<{ ok: true; id: string; expiresAt: string } | { ok: false; reason: "busy" | "failed" }>;
   /** The saved session, with the window closed. null when there is no such open window. */
@@ -144,13 +146,22 @@ export function createControlServer({ token, verify, checkPage, capture, session
     if (raw === null) return reply(res, 413, { error: "too_large" }, { connection: "close" });
     const request = parse(raw);
     if (!request) return reply(res, 400, { error: "invalid_request" });
+    const gone = new AbortController();
+    res.on("close", () => {
+      if (!res.writableEnded) gone.abort();
+    });
+    const context = { signal: gone.signal };
     try {
-      const answer = path === "/capture" && capture ? await capture(request) : path === "/check-page" && checkPage ? await checkPage(request) : await verify(request);
+      const answer = path === "/capture" && capture ? await capture(request, context) : path === "/check-page" && checkPage ? await checkPage(request, context) : await verify(request, context);
       // Which rule decided, never the address or the page: this is what tells a real login wall from a false alarm.
       const { result, status, signal } = answer as { result?: string; status?: number | null; signal?: string };
       if (signal) log(`${path.slice(1)}: ${result} (${signal}) http=${status ?? "none"}`);
       reply(res, 200, answer);
     } catch (error) {
+      const name = error instanceof Error ? error.name : "unknown";
+      // Too many jobs are already waiting: say so at once. The caller left before its turn: nobody is listening.
+      if (name === "QueueFullError") return reply(res, 503, { error: "busy" });
+      if (name === "AbandonedError") return;
       // The name only. A browser error message can contain the address and with it a secret.
       const what = path === "/capture" ? "capture" : path === "/check-page" ? "check-page" : "verify";
       log(`${what} failed: ${error instanceof Error ? error.name : "unknown"}`);

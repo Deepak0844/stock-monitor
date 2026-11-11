@@ -109,12 +109,12 @@ export async function startBrowserService(options: BrowserServiceOptions): Promi
     sessions,
     vncPassword: options.vncPassword,
     // In profile mode link and stock checks run in the same logged-in browser as the session check, not in a cookie-replaying headless one.
-    checkPage: async (request) =>
-      checkInProfile?.checkPage(request, options.navigationTimeoutMs) ?? checkPage(await getBrowser(), request, { navigationTimeoutMs: options.navigationTimeoutMs, proxy }),
-    capture: async (request) =>
-      checkInProfile?.capture(request, options.navigationTimeoutMs) ?? capturePage(await getBrowser(), request, { navigationTimeoutMs: options.navigationTimeoutMs, proxy }),
-    verify: async (request) =>
-      checkInProfile?.(request) ??
+    checkPage: async (request, context) =>
+      checkInProfile?.checkPage(request, options.navigationTimeoutMs, context) ?? checkPage(await getBrowser(), request, { navigationTimeoutMs: options.navigationTimeoutMs, proxy }),
+    capture: async (request, context) =>
+      checkInProfile?.capture(request, options.navigationTimeoutMs, context) ?? capturePage(await getBrowser(), request, { navigationTimeoutMs: options.navigationTimeoutMs, proxy }),
+    verify: async (request, context) =>
+      checkInProfile?.(request, context) ??
       verifyPage(await getBrowser(), request, {
         navigationTimeoutMs: options.navigationTimeoutMs,
         proxy,
