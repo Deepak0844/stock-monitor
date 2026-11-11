@@ -39,7 +39,7 @@ export function DataTable<T>({ columns, rows, rowKey, loading, error, onRetry, e
           {(loading && rows === null) || showRows ? (
             <Table aria-label={label} aria-busy={loading}>
               <TableHeader>
-                <tr>
+                <tr role="row">
                   {columns.map((c) => (
                     <TableHead key={c.header} className={c.className}>
                       {c.hideHeader ? <span className="sr-only">{c.header}</span> : c.header}
@@ -52,7 +52,7 @@ export function DataTable<T>({ columns, rows, rowKey, loading, error, onRetry, e
                   ? Array.from({ length: pageSize }, (_, i) => (
                       <TableRow key={i} className="hover:bg-transparent">
                         {columns.map((c) => (
-                          <TableCell key={c.header} className={c.className}>
+                          <TableCell key={c.header} className={c.className} data-label={c.hideHeader ? undefined : c.header}>
                             <Skeleton className={i % 2 ? "w-2/3" : "w-4/5"} />
                           </TableCell>
                         ))}
@@ -61,7 +61,7 @@ export function DataTable<T>({ columns, rows, rowKey, loading, error, onRetry, e
                   : rows.map((row) => (
                       <TableRow key={rowKey(row)} className={loading ? "opacity-60" : undefined}>
                         {columns.map((c) => (
-                          <TableCell key={c.header} className={c.className}>
+                          <TableCell key={c.header} className={c.className} data-label={c.hideHeader ? undefined : c.header}>
                             {c.cell(row)}
                           </TableCell>
                         ))}

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { LogOut, Menu } from "lucide-react";
+import { CircleUser, LogOut, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu.js";
 import { cn } from "@/lib/utils.js";
 import { Logo } from "../components/Logo.js";
 import { Link, usePath } from "../router.js";
@@ -106,13 +107,6 @@ export function AppShell({ email, onSignOut, children, notifications, proposalCo
             })}
           </ul>
         </nav>
-        <div className="border-t border-white/10 p-4">
-          <p className="mb-2 truncate text-xs text-sidebar-foreground/80">{email}</p>
-          <Button variant="outline" size="sm" className="w-full border-white/25 bg-transparent text-sidebar-foreground hover:bg-sidebar-active" onClick={onSignOut}>
-            <LogOut aria-hidden="true" />
-            Sign out
-          </Button>
-        </div>
       </aside>
 
       <div className="min-w-0">
@@ -126,6 +120,21 @@ export function AppShell({ email, onSignOut, children, notifications, proposalCo
           </div>
           <NotificationBell state={notifications} />
           <ThemeToggle />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" aria-label="Account">
+                <CircleUser aria-hidden="true" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuLabel>{email}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={onSignOut}>
+                <LogOut aria-hidden="true" />
+                Sign out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </header>
         <CrumbsContext.Provider value={setCrumbs}>
           <main id="main" tabIndex={-1} ref={mainRef} className="mx-auto w-full max-w-7xl px-4 py-6 outline-none sm:px-6">

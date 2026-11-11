@@ -24,8 +24,9 @@ describe("App", () => {
   it("shows the home page for a signed-in owner", async () => {
     render(<App api={fakeApi({ getMe: vi.fn().mockResolvedValue({ email: "owner@example.com" }) })} />);
     expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Account" }));
     expect(screen.getByText("owner@example.com")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Sign out" })).toBeInTheDocument();
   });
 
   it("moves to the home page after a successful sign in", async () => {
@@ -34,14 +35,15 @@ describe("App", () => {
     await user.type(await screen.findByLabelText("Email"), "owner@example.com");
     await user.type(screen.getByLabelText("Password"), "correct horse battery");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
-    expect(await screen.findByRole("button", { name: "Sign out" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Account" })).toBeInTheDocument();
   });
 
   it("returns to the sign-in page after signing out", async () => {
     const user = userEvent.setup();
     const api = fakeApi({ getMe: vi.fn().mockResolvedValue({ email: "owner@example.com" }) });
     render(<App api={api} />);
-    await user.click(await screen.findByRole("button", { name: "Sign out" }));
+    await user.click(await screen.findByRole("button", { name: "Account" }));
+    await user.click(screen.getByRole("menuitem", { name: "Sign out" }));
     expect(await screen.findByRole("heading", { name: /sign in/i })).toBeInTheDocument();
     expect(api.logout).toHaveBeenCalled();
   });

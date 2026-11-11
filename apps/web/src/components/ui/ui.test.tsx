@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { Button } from "./button.js";
 import { Badge } from "./badge.js";
 import { Skeleton } from "./skeleton.js";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./dropdown-menu.js";
 import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "./dialog.js";
 
 afterEach(cleanup);
@@ -57,5 +58,40 @@ describe("Badge and Skeleton", () => {
   it("hides the skeleton from assistive technology", () => {
     render(<Skeleton data-testid="s" />);
     expect(screen.getByTestId("s")).toHaveAttribute("aria-hidden", "true");
+  });
+});
+
+describe("DropdownMenu", () => {
+  const menu = (onSelect = vi.fn()) =>
+    render(
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild><button>More</button></DropdownMenuTrigger>
+        <DropdownMenuContent><DropdownMenuItem onSelect={onSelect}>Pause</DropdownMenuItem></DropdownMenuContent>
+      </DropdownMenu>,
+    );
+
+  it("does not open when the pointer goes down, so a touch cannot choose the item that appears under the finger", () => {
+    const onSelect = vi.fn();
+    menu(onSelect);
+    fireEvent.pointerDown(screen.getByRole("button", { name: "More" }), { button: 0, pointerType: "touch" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("opens on the click, closes on Escape, and the item can be chosen", async () => {
+    const onSelect = vi.fn();
+    menu(onSelect);
+    await userEvent.click(screen.getByRole("button", { name: "More" }));
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("menuitem", { name: "Pause" }));
+    expect(onSelect).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("opens from the keyboard", async () => {
+    menu();
+    screen.getByRole("button", { name: "More" }).focus();
+    await userEvent.keyboard("{Enter}");
+    expect(screen.getByRole("menu")).toBeInTheDocument();
   });
 });

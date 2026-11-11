@@ -6,6 +6,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { OWNER_EMAIL, OWNER_PASSWORD } from "./constants.js";
 import { control } from "./control.js";
+import { expectSignedIn, settle } from "./ui.js";
 
 test.describe.configure({ mode: "serial" });
 
@@ -22,7 +23,7 @@ async function signIn(page: Page) {
   await page.getByLabel("Email").fill(OWNER_EMAIL);
   await page.getByLabel("Password", { exact: true }).fill(OWNER_PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+  await expectSignedIn(page);
 }
 
 const supplierId = async (page: Page) => ((await page.request.get("/api/suppliers").then((r) => r.json())) as { suppliers: { id: string }[] }).suppliers[0]!.id;
@@ -59,6 +60,7 @@ const history = async (page: Page) => {
   return page.getByRole("table", { name: "Past suggestions" });
 };
 const scan = async (page: Page, label: string) => {
+  await settle(page);
   const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
   expect(result.violations.map((v) => `${label}: ${v.id}`), label).toEqual([]);
 };

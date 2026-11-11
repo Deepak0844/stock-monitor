@@ -91,7 +91,7 @@ export function LoginPage({ onLogin }: Props) {
               />
               <button
                 type="button"
-                className="absolute right-0 top-0 grid size-10 place-items-center rounded-lg text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+                className="absolute right-0 top-0 grid size-11 place-items-center rounded-lg text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
                 aria-label={showPassword ? "Hide password" : "Show password"}
                 onClick={() => setShowPassword((s) => !s)}
               >

@@ -5,6 +5,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { OWNER_EMAIL, OWNER_PASSWORD } from "./constants.js";
 import { control } from "./control.js";
+import { expectSignedIn, rowMenu, settle } from "./ui.js";
 
 test.describe.configure({ mode: "serial" });
 
@@ -29,12 +30,12 @@ async function signIn(page: Page) {
   await page.getByLabel("Email").fill(OWNER_EMAIL);
   await page.getByLabel("Password", { exact: true }).fill(OWNER_PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+  await expectSignedIn(page);
 }
 
 async function openRules(page: Page) {
   await page.goto("/suppliers");
-  await page.getByRole("link", { name: "Stock rules Acme Supply" }).click();
+  await rowMenu(page, "Acme Supply", "Stock rules");
   await expect(page.getByRole("heading", { level: 1, name: "Stock rules" })).toBeVisible();
 }
 
@@ -56,6 +57,7 @@ async function captureAndLabel(page: Page, name: string, expected: "in_stock" | 
 }
 
 const scan = async (page: Page, label: string) => {
+  await settle(page);
   const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
   expect(result.violations.map((v) => `${label}: ${v.id}`), label).toEqual([]);
 };
@@ -138,7 +140,8 @@ test("a stock check shows in stock, out of stock and cannot tell, never calling 
   await expectCell(page, link, "The check did not work");
   await expect(row(page, link)).toContainText("Cannot tell");
 
-  await row(page, link).getByRole("button", { name: /^Show history/ }).click();
+  await row(page, link).getByRole("button", { name: /^More actions/ }).click();
+  await page.getByRole("menuitem", { name: "History" }).click();
   const history = page.getByRole("list", { name: /Stock history for/ });
   await expect(history.getByRole("listitem")).toHaveCount(4);
   await expect(history).toContainText("In stock");
@@ -178,14 +181,14 @@ test("a region chosen in the app is read from the page's table: a number, zero, 
   await signIn(page);
 
   await page.goto("/suppliers");
-  await page.getByRole("link", { name: "Edit Acme Supply" }).click();
+  await rowMenu(page, "Acme Supply", "Edit");
   await page.getByLabel("Default region (optional)").fill("Loughborough");
   await page.getByRole("button", { name: "Save region" }).click();
   await expect(page.getByText("Region saved.")).toBeVisible();
 
   for (const [size, region] of [["Size 2", "Manchester"], ["Size 3", "Cardiff"]] as const) {
     await page.goto("/mappings");
-    await page.getByRole("link", { name: `Edit link Blue Tee ${size}` }).click();
+    await rowMenu(page, `Blue Tee ${size}`, "Edit");
     await page.getByLabel("Region (optional)").fill(region);
     await page.getByRole("button", { name: "Save changes" }).click();
     await expect(page).toHaveURL(/\/mappings$/);
@@ -216,7 +219,8 @@ test("the stock screens pass the accessibility scan in light and dark, and never
   await page.goto("/mappings");
   await row(page, /Blue Tee.*Size 1/).getByRole("button", { name: /^Check stock/ }).click();
   await expectCell(page, /Blue Tee.*Size 1/, /In stock|Cannot tell/);
-  await row(page, /Blue Tee.*Size 1/).getByRole("button", { name: /^Show history/ }).click();
+  await row(page, /Blue Tee.*Size 1/).getByRole("button", { name: /^More actions/ }).click();
+  await page.getByRole("menuitem", { name: "History" }).click();
 
   for (const scheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: scheme });
@@ -233,7 +237,7 @@ test("the stock screens pass the accessibility scan in light and dark, and never
     await noSideScroll(page, `links ${scheme}`);
 
     await page.goto("/suppliers");
-    await page.getByRole("link", { name: "Edit Acme Supply" }).click();
+    await rowMenu(page, "Acme Supply", "Edit");
     await expect(page.getByLabel("Default region (optional)")).toBeVisible();
     await scan(page, `supplier ${scheme}`);
     await noSideScroll(page, `supplier ${scheme}`);
