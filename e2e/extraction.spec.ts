@@ -45,7 +45,8 @@ async function captureAndLabel(page: Page, name: string, expected: "in_stock" | 
   if (await allPages.isVisible()) await allPages.click(); // on a phone the list and the page take turns
   await page.getByLabel("Link to capture").selectOption({ label: "Blue Tee · Size 1 · B0361" });
   await page.getByRole("button", { name: "Capture", exact: true }).click();
-  await expect(page.getByText(/Capturing the page/)).toBeVisible();
+  // Capturing twice in a row leaves two toasts on screen for a moment: look at the newest.
+  await expect(page.getByText(/Capturing the page/).last()).toBeVisible();
   const saved = page.getByRole("list", { name: "Saved pages" }).getByRole("button").filter({ hasText: "Unnamed capture" }).filter({ hasText: /Saved / });
   await expect(saved.first()).toBeVisible({ timeout: 20_000 });
   await saved.first().click();
