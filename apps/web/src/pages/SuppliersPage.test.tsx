@@ -75,7 +75,9 @@ describe("empty and loading", () => {
 describe("the table", () => {
   it("lists each supplier with its name, website and last-checked time, and one Add supplier link", async () => {
     setup([acme, globex]);
-    const table = await screen.findByRole("table", { name: "Suppliers" });
+    // The table shows while loading too, with placeholder rows: wait for a real row first.
+    await screen.findByRole("row", { name: /Acme Supply/ });
+    const table = screen.getByRole("table", { name: "Suppliers" });
     expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Name", "Website", "Status", "Last checked", "Automatic checks", "Actions"]);
     expect(within(rowOf("Acme Supply")).getByText("shop.acme.example")).toBeInTheDocument();
     expect(within(rowOf("Globex")).getByText("globex.example")).toBeInTheDocument();
