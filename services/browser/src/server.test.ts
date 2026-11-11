@@ -219,7 +219,7 @@ describe("the live window routes", () => {
 });
 
 describe("POST /check-page", () => {
-  const call = (token: string | null = TOKEN, payload: unknown = body, signal?: AbortSignal) =>
+  const call = (token: string | null = TOKEN, payload: unknown = body) =>
     fetch(`${base}/check-page`, { method: "POST", headers: { "content-type": "application/json", ...(token === null ? {} : { authorization: `Bearer ${token}` }) }, body: JSON.stringify(payload) });
 
   it("needs the control token and does nothing without it", async () => {

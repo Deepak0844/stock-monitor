@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { createBrowserClient } from "./client.js";
+import { CAPTURE_LIMIT_FACTOR, createBrowserClient } from "./client.js";
 import { createFakeBrowserService, FAKE_CONTROL_TOKEN, type FakeBrowserService } from "../test/fake-browser-service.js";
 
 let fake: FakeBrowserService;
@@ -161,6 +161,13 @@ describe("checkPage", () => {
   });
 });
 
+describe("verify when the browser is busy", () => {
+  it("is unavailable, the same as not answering", async () => {
+    fake.behaviour.verify = "busy";
+    expect(await client().verify({ url: "https://a.example/", state: { cookies: [], origins: [] } })).toEqual({ ok: false, reason: "unavailable" });
+  });
+});
+
 describe("capture", () => {
   const state = { cookies: [{ name: "s", value: COOKIE, domain: "shop.acme.example", path: "/" }], origins: [] };
 
@@ -183,6 +190,15 @@ describe("capture", () => {
     fake.behaviour.capture = "garbage";
     expect(await client().capture({ url: "https://a.example/", state })).toEqual({ ok: false, reason: "failed" });
     expect(await client({ baseUrl: "http://127.0.0.1:1" }).capture({ url: "https://a.example/", state })).toEqual({ ok: false, reason: "unavailable" });
+  });
+
+  it("says busy when the service answers 503", async () => {
+    fake.behaviour.capture = "busy";
+    expect(await client().capture({ url: "https://a.example/", state })).toEqual({ ok: false, reason: "busy" });
+  });
+
+  it("allows three times the usual 30 seconds for a capture or a connection check, because they may wait for a turn", () => {
+    expect(30_000 * CAPTURE_LIMIT_FACTOR).toBe(90_000);
   });
 
   it("never puts the session in an error", async () => {

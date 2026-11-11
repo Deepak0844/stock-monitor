@@ -16,7 +16,8 @@ export type CheckPageOutcome =
 export type PageDescriptionParts = { sections: { heading: string | null; level: number; lines: string[] }[]; buttons: { label: string; enabled: boolean; section: string | null }[] };
 export type CaptureOutcome =
   | ({ ok: true; picture: Buffer | null; description: PageDescriptionParts } & Omit<Extract<CheckPageOutcome, { ok: true }>, "ok">)
-  | { ok: false; reason: "failed" | "unavailable" };
+  /** `busy`: the browser has too many jobs waiting, so this one was refused at once. */
+  | { ok: false; reason: "failed" | "unavailable" | "busy" };
 export type CancelOutcome = { ok: true } | { ok: false; reason: "not_found" | "unavailable" };
 
 export type BrowserClient = {
@@ -48,6 +49,9 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "obj
  * Talks to the browser service over the private network. It never throws and never puts a token, an
  * address or a session in a message: every problem becomes a short reason the caller turns into plain words.
  */
+/** A capture or connection check may wait for its turn behind the job the browser is running, so it gets this many times the usual limit (30 s becomes 90 s). */
+export const CAPTURE_LIMIT_FACTOR = 3;
+
 export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, fetchImpl = fetch }: BrowserClientOptions): BrowserClient {
   const root = baseUrl.replace(/\/+$/, "");
 
@@ -95,8 +99,8 @@ export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, fetchI
     },
 
     async verify({ url, loginUrl, state }) {
-      const r = await call("POST", "/verify", { url, ...(loginUrl ? { loginUrl } : {}), state });
-      if (!r) return { ok: false, reason: "unavailable" };
+      const r = await call("POST", "/verify", { url, ...(loginUrl ? { loginUrl } : {}), state }, timeoutMs * CAPTURE_LIMIT_FACTOR);
+      if (!r || r.status === 503) return { ok: false, reason: "unavailable" };
       const j = r.json;
       if (r.status !== 200 || !isObject(j) || typeof j.result !== "string" || !PAGE_CLASSES.includes(j.result)) return { ok: false, reason: "failed" };
       return {
@@ -109,7 +113,7 @@ export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, fetchI
 
     async checkPage({ url, loginUrl, state }) {
       const r = await call("POST", "/check-page", { url, ...(loginUrl ? { loginUrl } : {}), state });
-      if (!r) return { ok: false, reason: "unavailable" };
+      if (!r || r.status === 503) return { ok: false, reason: "unavailable" };
       const j = r.json;
       if (r.status !== 200 || !isObject(j) || typeof j.result !== "string" || !PAGE_CLASSES.includes(j.result)) return { ok: false, reason: "failed" };
       const text = (v: unknown) => (typeof v === "string" ? v : null);
@@ -126,8 +130,9 @@ export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, fetchI
     },
 
     async capture({ url, loginUrl, state, picture }) {
-      const r = await call("POST", "/capture", { url, ...(loginUrl ? { loginUrl } : {}), state, ...(picture ? { picture: true } : {}) });
+      const r = await call("POST", "/capture", { url, ...(loginUrl ? { loginUrl } : {}), state, ...(picture ? { picture: true } : {}) }, timeoutMs * CAPTURE_LIMIT_FACTOR);
       if (!r) return { ok: false, reason: "unavailable" };
+      if (r.status === 503) return { ok: false, reason: "busy" };
       const j = r.json;
       if (r.status !== 200 || !isObject(j) || typeof j.result !== "string" || !PAGE_CLASSES.includes(j.result) || !isObject(j.description)) return { ok: false, reason: "failed" };
       const d = j.description;

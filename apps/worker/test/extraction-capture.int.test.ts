@@ -90,6 +90,13 @@ describe("a capture job", () => {
     expect(await handleCapture(deps(), await pending())).toEqual({ kind: "ready" });
   });
 
+  it("a busy browser fails the capture with its own reason", async () => {
+    fake.behaviour.capture = "busy";
+    const id = await pending();
+    expect(await handleCapture(deps(), id)).toEqual({ kind: "failed", reason: "browser_busy" });
+    expect(await captures().get(id)).toMatchObject({ status: "failed", failureReason: "browser_busy" });
+  });
+
   it("a browser service that does not answer fails the capture", async () => {
     fake.behaviour.capture = "fail";
     const id = await pending();

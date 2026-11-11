@@ -13,11 +13,11 @@ export type FakeBrowserService = {
     open: "ok" | "busy" | "fail" | "garbage";
     finish: "ok" | "gone" | "fail" | "garbage";
     cancel: "ok" | "gone" | "fail";
-    verify: "ok" | "fail" | "garbage";
+    verify: "ok" | "fail" | "garbage" | "busy";
     /** How a page check behaves, and what page it reports when "ok". */
     checkPage: "ok" | "fail" | "garbage";
     /** How a page capture behaves, what it describes, and the picture (base64) it returns. */
-    capture: "ok" | "fail" | "garbage";
+    capture: "ok" | "fail" | "garbage" | "busy";
     description: { sections: { heading: string | null; level: number; lines: string[] }[]; buttons: { label: string; enabled: boolean; section: string | null }[] };
     picture: string | null;
     /** Lets a test give each address its own description. Falls back to `description`. */
@@ -73,6 +73,7 @@ export async function createFakeBrowserService(): Promise<FakeBrowserService> {
       });
     }
     if (req.method === "POST" && path === "/verify") {
+      if (behaviour.verify === "busy") return reply(503, { error: "busy" });
       if (behaviour.verify === "fail") return reply(500, { error: "verify_failed" });
       if (behaviour.verify === "garbage") return reply(200, { result: "maybe" });
       return reply(200, { result: behaviour.verifyResult, status: behaviour.verifyResult === "unreachable" ? null : 200, blockedRequests: 0 });
@@ -85,6 +86,7 @@ export async function createFakeBrowserService(): Promise<FakeBrowserService> {
       return reply(200, { ...page, finalUrl: page.finalUrl === undefined ? asked : page.finalUrl, blockedRequests: 0 });
     }
     if (req.method === "POST" && path === "/capture") {
+      if (behaviour.capture === "busy") return reply(503, { error: "busy" });
       if (behaviour.capture === "fail") return reply(500, { error: "capture_failed" });
       if (behaviour.capture === "garbage") return reply(200, { result: "maybe" });
       const asked = body as { url?: string; picture?: boolean } | undefined;

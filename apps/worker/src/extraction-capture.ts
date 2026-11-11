@@ -50,7 +50,7 @@ export async function handleCapture(deps: CaptureDeps, captureId: string): Promi
     return fail("session_unreadable");
   }
   const outcome = await browser.capture({ url: mapping.url, loginUrl: supplier.loginUrl ?? undefined, state, picture: true });
-  if (!outcome.ok) return fail("browser_unavailable");
+  if (!outcome.ok) return fail(outcome.reason === "busy" ? "browser_busy" : "browser_unavailable");
   if (NOT_A_PAGE.has(outcome.result)) return fail(outcome.result);
 
   const description: PageDescription = {

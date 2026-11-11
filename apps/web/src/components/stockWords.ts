@@ -21,6 +21,7 @@ const CAPTURE_FAILURES: Record<string, string> = {
   captcha: "The supplier showed a puzzle (CAPTCHA).",
   blocked: "The supplier blocked the visit.",
   unreachable: "The supplier could not be reached.",
+  browser_busy: "The browser is busy with other checks. Try again in a minute.",
   browser_unavailable: "The browser service did not answer. Try again in a minute.",
   no_permission: "You have not recorded permission to check this supplier automatically.",
   not_connected: "The supplier is not connected.",
