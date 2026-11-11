@@ -5,6 +5,7 @@ import { NotFoundPage } from "./pages/NotFoundPage.js";
 import { ProposalsPage } from "./pages/ProposalsPage.js";
 import { ProductsPage } from "./pages/ProductsPage.js";
 import { ConnectSupplierPage } from "./pages/ConnectSupplierPage.js";
+import { ImportLoginPage } from "./pages/ImportLoginPage.js";
 import { ImportMappingsPage } from "./pages/ImportMappingsPage.js";
 import { MappingFormPage } from "./pages/MappingFormPage.js";
 import { MappingsPage } from "./pages/MappingsPage.js";
@@ -32,6 +33,7 @@ export function App({ api = realApi }: { api?: Api }) {
   const mappingEditId = /^\/mappings\/([^/]+)\/edit$/.exec(path)?.[1];
   const rulesId = /^\/suppliers\/([^/]+)\/rules$/.exec(path)?.[1];
   const connectId = /^\/suppliers\/([^/]+)\/connect$/.exec(path)?.[1];
+  const importLoginId = /^\/suppliers\/([^/]+)\/import$/.exec(path)?.[1];
 
   const [proposalCount, setProposalCount] = useState(0);
   const [attentionCount, setAttentionCount] = useState(0);
@@ -121,6 +123,8 @@ export function App({ api = realApi }: { api?: Api }) {
         <MappingFormPage key={mappingEditId} api={api} id={mappingEditId} />
       ) : rulesId ? (
         <StockRulesPage key={rulesId} api={api} supplierId={rulesId} />
+      ) : importLoginId ? (
+        <ImportLoginPage key={importLoginId} api={api} supplierId={importLoginId} />
       ) : connectId ? (
         <ConnectSupplierPage key={connectId} api={api} supplierId={connectId} />
       ) : editId ? (

@@ -530,3 +530,45 @@ test("no session, token or screen password is in any page, response, console mes
   expect(cookies.length).toBeGreaterThan(0);
   expect(cookies.every((c) => c.httpOnly)).toBe(true);
 });
+
+// ---------------------------------------------------------------------------------------------------------
+// Importing a login made in the owner's own browser.
+
+const COOKIE_EXPORT = JSON.stringify([
+  { name: "session", value: "imported-session-value", domain: ".shop.acme.example", path: "/", httpOnly: true, secure: true, sameSite: "lax", expirationDate: Math.floor(Date.now() / 1000) + 86_400 },
+  { name: "tracker", value: "x", domain: "ads.tracker.test", path: "/", expirationDate: Math.floor(Date.now() / 1000) + 86_400 },
+]);
+
+test("the owner imports a login from their own browser, and the supplier becomes connected", async ({ page }) => {
+  await signIn(page);
+  const supplier = await addViaApi(page);
+  await openSuppliers(page);
+  await page.getByRole("link", { name: "Import login Acme Supply" }).click();
+  await expect(page.getByRole("heading", { name: "Import login for Acme Supply" })).toBeVisible();
+
+  await page.getByLabel("Cookie export (JSON)").fill("not a cookie export");
+  await page.getByRole("button", { name: "Import login" }).click();
+  await expect(page.getByRole("alert")).toContainText("not a cookie export");
+
+  await page.getByLabel("Cookie export (JSON)").fill(COOKIE_EXPORT);
+  await page.getByRole("button", { name: "Import login" }).click();
+  await expect(page.getByText(/Saved 1 cookie, ignored 1 from other sites/)).toBeVisible();
+  await expect(page.locator("body")).not.toContainText("imported-session-value");
+
+  await page.getByRole("link", { name: "Back to suppliers" }).click();
+  await expect(page.getByRole("button", { name: "Check connection Acme Supply" })).toBeVisible();
+  const session = await page.request.get(`/api/suppliers/${supplier.id}/session`);
+  expect(JSON.stringify(await session.json())).not.toContain("imported-session-value");
+});
+
+test("the import screen passes the accessibility scan in light and dark, and never scrolls sideways", async ({ page }) => {
+  await signIn(page);
+  const supplier = await addViaApi(page);
+  for (const scheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.goto(`/suppliers/${supplier.id}/import`);
+    await expect(page.getByLabel("Cookie export (JSON)")).toBeVisible();
+    await scan(page, `${scheme} import login`);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), `${scheme} import must not scroll sideways`).toBeLessThanOrEqual(0);
+  }
+});

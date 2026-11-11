@@ -73,6 +73,22 @@ This is how you give the app access to a supplier's website, so it can check sto
 
 You have 15 minutes. The clock is shown. If time runs out, or you press **Cancel**, or you leave the page, the window is closed and **nothing is saved**.
 
+### Importing a login from your own browser
+
+Use this when a supplier rejects the login window (for example it says the captcha failed after you solved it) but lets you in from your normal browser.
+
+1. Log in to the supplier in your normal Chrome.
+2. With a cookie extension (such as Cookie-Editor), export that site's cookies as **JSON** and copy them.
+3. In the app, open Suppliers, press **Import login** on that supplier, paste the text and press **Import login**.
+
+The app keeps only cookies for the supplier's own site and ignores the rest, and ignores cookies that have already expired. The login is saved
+encrypted, the supplier becomes Connected, and a first check runs. Cookies are a login: do not share them, and they are never shown again.
+
+- It is not a promise. A supplier's bot protection may tie its cookies to your browser, so press Check connection and read the result.
+- Logging out of the supplier in your own browser may end the saved login too.
+- When the supplier ends the login, the usual "needs reconnect" message appears. Import again.
+- Importing does not change the supplier's terms. Check that automated access is allowed.
+
 ### What the statuses mean
 
 | You see | It means | What to do |

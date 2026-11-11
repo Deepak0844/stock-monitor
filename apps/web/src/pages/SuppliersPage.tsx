@@ -262,6 +262,9 @@ export function SuppliersPage({ api }: { api: Api }) {
                           Reconnect supplier
                         </Link>
                       )}
+                      <Link to={`/suppliers/${s.id}/import`} className="button secondary" aria-label={`Import login ${s.name}`}>
+                        Import login
+                      </Link>
                       <Link to={`/suppliers/${s.id}/rules`} className="button secondary" aria-label={`Stock rules ${s.name}`}>
                         Stock rules
                       </Link>

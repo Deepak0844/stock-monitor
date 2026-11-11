@@ -223,6 +223,7 @@ export function fakeApi(
       start: vi.fn().mockResolvedValue({ loginSession: aLoginSession(), token: "t".repeat(64) }),
       finish: vi.fn().mockResolvedValue({ loginSession: aLoginSession({ status: "finished" }), session: null }),
       cancel: vi.fn().mockResolvedValue(aLoginSession({ status: "cancelled" })),
+      importCookies: vi.fn().mockResolvedValue({ kept: 1, dropped: 0, session: null }),
       cancelOnLeave: vi.fn(),
       ...loginSessions,
     },

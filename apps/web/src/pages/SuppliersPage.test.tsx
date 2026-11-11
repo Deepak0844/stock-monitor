@@ -174,6 +174,11 @@ describe("delete", () => {
 });
 
 describe("connecting", () => {
+  it.each(["not_connected", "connected", "needs_reconnect"] as const)("offers Import login, as a link to the import screen, when the status is %s", async (sessionStatus) => {
+    setup([{ ...acme, sessionStatus }]);
+    expect(await screen.findByRole("link", { name: "Import login Acme Supply" })).toHaveAttribute("href", `/suppliers/${acme.id}/import`);
+  });
+
   it("offers Connect, as a link to the connect screen, for a supplier that is not connected", async () => {
     setup([acme]);
     const link = await screen.findByRole("link", { name: "Connect Acme Supply" });

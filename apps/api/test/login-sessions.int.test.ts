@@ -105,6 +105,7 @@ describe("every login route needs a signed-in owner", () => {
     ["GET", `/api/suppliers/${UNKNOWN}/session`],
     ["DELETE", `/api/suppliers/${UNKNOWN}/session`],
     ["POST", `/api/suppliers/${UNKNOWN}/check-session`],
+    ["POST", `/api/suppliers/${UNKNOWN}/session/import`],
   ] as const)("%s %s returns 401 without a session and reaches nothing", async (method, url) => {
     expect((await call(method, url, false)).status).toBe(401);
     expect(fake.requests).toHaveLength(0);
@@ -465,5 +466,75 @@ describe("the first check after a login, and checking by hand", () => {
     const r = await call("POST", `/api/suppliers/${acme}/check-session`);
     expect(r.status).toBe(503);
     expect(r.body.error.message).toBe("The check could not be started. Please try again in a minute.");
+  });
+});
+
+describe("importing a login from the owner's own browser", () => {
+  const IMPORT_SECRET = "IMPORTED-COOKIE-SECRET-8b1f";
+  const exported = (over: Record<string, unknown> = {}) => ({ name: "session", value: IMPORT_SECRET, domain: ".shop.acme.example", path: "/", expirationDate: Math.floor(Date.now() / 1000) + 86_400, httpOnly: true, secure: true, sameSite: "lax", ...over });
+  const post = async (supplier: string, cookies: unknown, cookie = true) => {
+    const payload = { cookies: typeof cookies === "string" ? cookies : JSON.stringify(cookies) };
+    const res = await shared.inject({ method: "POST", url: `/api/suppliers/${supplier}/session/import`, payload, cookies: cookie ? { sid } : {} });
+    bodies.push(res.body);
+    return { status: res.statusCode, body: res.json() as Record<string, any> }; // eslint-disable-line @typescript-eslint/no-explicit-any
+  };
+
+  it("saves the cookies sealed, connects the supplier and queues one check", async () => {
+    const r = await post(acme, [exported(), exported({ name: "other", domain: "ads.tracker.test" })]);
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ kept: 1, dropped: 1, session: { cookieCount: 1, domains: ["shop.acme.example"] } });
+    expect((await supplierRepo().get(acme))?.sessionStatus).toBe("connected");
+    const saved = unsealSessionState((await sessionRepo().getSealed(acme))!, key.key);
+    expect(saved.cookies).toEqual([expect.objectContaining({ name: "session", value: IMPORT_SECRET, domain: "shop.acme.example", sameSite: "Lax" })]);
+    expect(queued).toEqual([{ name: "supplier.session.verify", payload: { supplierId: acme } }]);
+  });
+
+  it("resolves the 'needs reconnect' notice and replaces an older session", async () => {
+    const notes = createNotificationRepository(t.appDb);
+    await notes.raise({ kind: "supplier_needs_reconnect", supplierId: acme, message: "Acme needs you to log in again.", reason: "login_required" });
+    const { id } = await start();
+    await call("POST", `/api/login-sessions/${id}/finish`);
+    await post(acme, [exported({ name: "fresh" })]);
+    expect(await notes.listOpen()).toEqual([]);
+    expect(unsealSessionState((await sessionRepo().getSealed(acme))!, key.key).cookies.map((c) => c.name)).toEqual(["fresh"]);
+  });
+
+  it("refuses text it cannot use with a plain message, and keeps the old session", async () => {
+    const { id } = await start();
+    await call("POST", `/api/login-sessions/${id}/finish`);
+    queued.length = 0;
+    for (const bad of ["hello", "[]", [exported({ domain: "other.example" })]]) {
+      const r = await post(acme, bad);
+      expect(r.status).toBe(422);
+      expect(r.body.error.code).toBe("nothing_to_import");
+    }
+    expect(unsealSessionState((await sessionRepo().getSealed(acme))!, key.key)).toEqual(sessionState);
+    expect(queued).toEqual([]);
+  });
+
+  it("still connects when the check cannot be queued", async () => {
+    enqueueFails = true;
+    expect((await post(acme, [exported()])).status).toBe(200);
+    expect((await supplierRepo().get(acme))?.sessionStatus).toBe("connected");
+  });
+
+  it("gives a plain 404 for an unknown supplier and 400 for a missing body field", async () => {
+    expect((await post(UNKNOWN, [exported()])).body.error.code).toBe("supplier_not_found");
+    const res = await shared.inject({ method: "POST", url: `/api/suppliers/${acme}/session/import`, payload: {}, cookies: { sid } });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("refuses a body over 256 KB", async () => {
+    const res = await shared.inject({ method: "POST", url: `/api/suppliers/${acme}/session/import`, payload: { cookies: "x".repeat(300_000) }, cookies: { sid } });
+    expect(res.statusCode).toBe(413);
+  });
+
+  it("audits counts only, and never returns, stores in clear or logs a cookie value", async () => {
+    await post(acme, [exported(), exported({ domain: "other.example" })]);
+    await post(acme, `session=${IMPORT_SECRET}; a=b`);
+    const [event] = await audit("supplier.session_imported");
+    expect(event).toMatchObject({ actor_user_id: userId, entity_id: acme, details: { kept: 1, dropped: 1 } });
+    const everything = [...bodies, ...logLines, JSON.stringify((await t.pool.query("select * from audit_events")).rows), JSON.stringify((await t.pool.query("select * from supplier_sessions")).rows)].join("\n");
+    expect(everything).not.toContain(IMPORT_SECRET);
   });
 });

@@ -316,6 +316,8 @@ export type LoginSessionsApi = {
   start(supplierId: string): Promise<{ loginSession: LoginSession; token: string }>;
   finish(id: string): Promise<{ loginSession: LoginSession; session: SavedSession | null }>;
   cancel(id: string): Promise<LoginSession>;
+  /** Saves a login the owner made in their own browser, from the cookie export they pasted. */
+  importCookies(supplierId: string, cookies: string): Promise<{ kept: number; dropped: number; session: SavedSession | null }>;
   /** For a page that is closing: asks the server to cancel, and does not wait for the answer. */
   cancelOnLeave(id: string): void;
 };
@@ -614,6 +616,7 @@ const loginSessions: LoginSessionsApi = {
   async cancel(id) {
     return (await request<{ loginSession: LoginSession }>(`/api/login-sessions/${encodeURIComponent(id)}/cancel`, { method: "POST" })).loginSession;
   },
+  importCookies: (supplierId, cookies) => request(`/api/suppliers/${encodeURIComponent(supplierId)}/session/import`, { method: "POST", json: { cookies } }),
   cancelOnLeave(id) {
     // keepalive lets the request finish after the page has gone. Nothing waits for it, and a failure is ignored.
     void fetch(`/api/login-sessions/${encodeURIComponent(id)}/cancel`, { method: "POST", credentials: "same-origin", keepalive: true }).catch(() => {});

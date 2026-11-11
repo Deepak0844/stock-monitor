@@ -1,6 +1,6 @@
 # Spec: import a login from the owner's own browser (DRAFT)
 
-Status: draft, awaiting owner approval. No code until approved.
+Status: approved by the owner (all three open questions answered yes). Built in this PR.
 
 ## Why
 

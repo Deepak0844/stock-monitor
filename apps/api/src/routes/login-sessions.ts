@@ -3,7 +3,7 @@ import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
 import type { createLoginSessionRepository, createNotificationRepository, createSupplierRepository, createSupplierSessionRepository, FailureReason, LoginSessionRecord } from "@stock-monitor/db";
 import type { Queue } from "@stock-monitor/queue";
-import { createLoginToken, sealSessionState } from "@stock-monitor/supplier-session";
+import { createLoginToken, parseCookieExport, sealSessionState, type SessionState } from "@stock-monitor/supplier-session";
 import type { BrowserClient } from "@stock-monitor/browser-client";
 import { AppError } from "../errors.js";
 
@@ -33,6 +33,7 @@ export type LoginSessions = {
 };
 
 const TOKEN_MINUTES = 10;
+const IMPORT_BODY_LIMIT = 256 * 1024;
 const NOT_FOUND = () => new AppError(404, "login_session_not_found", "That login does not exist.");
 const SUPPLIER_NOT_FOUND = () => new AppError(404, "supplier_not_found", "That supplier does not exist.");
 const LOGIN_OPEN = () => new AppError(409, "login_open", "A login window is already open. Finish or cancel it first.");
@@ -66,6 +67,24 @@ export function registerLoginSessionRoutes(app: App, deps: LoginSessionRoutesDep
 
   const record = (request: { user: { id: string } | null; id: string }, action: string, id: string, details: Record<string, unknown>) =>
     audit.record({ actorUserId: request.user?.id, action, entityType: "login_session", entityId: id, details, requestId: request.id });
+
+  /** Seals and saves a session and marks the supplier connected. Never leaves a session saved for a supplier that is not marked connected. */
+  async function saveConnected(supplierId: string, state: SessionState) {
+    try {
+      await supplierSessions.save(supplierId, sealSessionState(state, key.key, key.keyId), state);
+      if (!(await suppliers.markConnected(supplierId))) throw new Error("supplier missing");
+    } catch (error) {
+      await supplierSessions.remove(supplierId).catch(() => {});
+      throw error;
+    }
+  }
+
+  /** What follows any new login: the supplier has a working login again, and a first check runs to confirm it. */
+  async function afterConnected(supplierId: string) {
+    await notifications.resolve("supplier_needs_reconnect", supplierId);
+    // If the queue is down the login still stands.
+    await queue.enqueue("supplier.session.verify", { supplierId }).catch(() => {});
+  }
 
   /** Marks attempts that ran out of time, and makes sure their windows are closed. */
   async function sweep() {
@@ -143,20 +162,15 @@ export function registerLoginSessionRoutes(app: App, deps: LoginSessionRoutesDep
       throw new AppError(422, "nothing_to_save", "No login was found in the window. Log in to the supplier, then press I'm logged in. Start the login again to try again.");
     }
     try {
-      await supplierSessions.save(attempt.supplierId, sealSessionState(state, key.key, key.keyId), state);
-      if (!(await suppliers.markConnected(attempt.supplierId))) throw new Error("supplier missing");
+      await saveConnected(attempt.supplierId, state);
     } catch {
-      await supplierSessions.remove(attempt.supplierId).catch(() => {}); // never leave a session saved for a supplier that is not marked connected
       await failAttempt(request, attempt, "save_failed");
       throw new AppError(500, "save_failed", "The login could not be saved. Start the login again.");
     }
 
     await loginSessions.finish(attempt.id);
     ended(attempt.id);
-    // The supplier has a working login again, so whatever was asking for one is no longer true.
-    await notifications.resolve("supplier_needs_reconnect", attempt.supplierId);
-    // A first check, to see that the saved login really works. If the queue is down the login still stands.
-    await queue.enqueue("supplier.session.verify", { supplierId: attempt.supplierId }).catch(() => {});
+    await afterConnected(attempt.supplierId);
     const facts = await supplierSessions.facts(attempt.supplierId);
     await record(request, "login_session.finished", attempt.id, { supplierId: attempt.supplierId, savedItems: facts?.cookieCount ?? 0 });
     return { loginSession: view((await loginSessions.get(attempt.id)) as LoginSessionRecord), session: facts };
@@ -182,6 +196,27 @@ export function registerLoginSessionRoutes(app: App, deps: LoginSessionRoutesDep
     if (!(await suppliers.get(request.params.id))) throw SUPPLIER_NOT_FOUND();
     return { session: await supplierSessions.facts(request.params.id) };
   });
+
+  app.post<{ Params: { id: string }; Body: { cookies: string } }>(
+    "/api/suppliers/:id/session/import",
+    { bodyLimit: IMPORT_BODY_LIMIT, schema: { body: { type: "object", required: ["cookies"], properties: { cookies: { type: "string" } } } } },
+    async (request) => {
+      const supplier = await suppliers.get(request.params.id);
+      if (!supplier) throw SUPPLIER_NOT_FOUND();
+      const hosts = [supplier.websiteUrl, supplier.loginUrl].flatMap((u) => (u ? [new URL(u).hostname] : []));
+      const parsed = parseCookieExport(request.body.cookies, hosts, Math.floor(Date.now() / 1000));
+      if (!parsed.ok) throw new AppError(422, "nothing_to_import", parsed.message);
+      try {
+        await saveConnected(supplier.id, parsed.state);
+      } catch {
+        throw new AppError(500, "save_failed", "The login could not be saved. Please try again.");
+      }
+      await afterConnected(supplier.id);
+      // Counts only: a cookie's name or value never reaches the audit trail.
+      await audit.record({ actorUserId: request.user?.id, action: "supplier.session_imported", entityType: "supplier", entityId: supplier.id, details: { kept: parsed.kept, dropped: parsed.dropped }, requestId: request.id });
+      return { kept: parsed.kept, dropped: parsed.dropped, session: await supplierSessions.facts(supplier.id) };
+    },
+  );
 
   app.post<{ Params: { id: string } }>("/api/suppliers/:id/check-session", async (request, reply) => {
     if (!(await suppliers.get(request.params.id))) throw SUPPLIER_NOT_FOUND();
