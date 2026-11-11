@@ -1,4 +1,7 @@
+import { Button } from "@/components/ui/button.js";
+import { Input, Select } from "@/components/ui/input.js";
 import type { Recipe, StockRule } from "../api.js";
+import { Field } from "./Field.js";
 
 export type RuleDraft = { type: "text" | "button"; words: string; enabled: "" | "true" | "false"; under: string };
 export type Draft = {
@@ -58,91 +61,89 @@ const GROUPS: { key: ListKey; title: string; hint: string }[] = [
   { key: "outOfStock", title: "Out of stock when", hint: "Any one of these matching means out of stock." },
 ];
 
+const legend = "mb-1 text-base font-semibold";
+const checkbox = "flex items-center gap-2 text-sm font-medium";
+
 export function RuleEditor({ draft, onChange }: { draft: Draft; onChange: (draft: Draft) => void }) {
   const setRule = (key: ListKey, index: number, patch: Partial<RuleDraft>) => onChange({ ...draft, [key]: draft[key].map((r, i) => (i === index ? { ...r, ...patch } : r)) });
   const remove = (key: ListKey, index: number) => onChange({ ...draft, [key]: draft[key].filter((_, i) => i !== index) });
   const add = (key: ListKey) => onChange({ ...draft, [key]: [...draft[key], emptyRule()] });
 
   return (
-    <div className="rule-editor">
+    <div className="flex flex-col gap-6">
       {GROUPS.map(({ key, title, hint }) => (
-        <fieldset key={key}>
-          <legend>{title}</legend>
-          <p className="hint">{hint}</p>
+        <fieldset key={key} className="flex flex-col gap-3">
+          <legend className={legend}>{title}</legend>
+          <p className="text-sm text-muted-foreground">{hint}</p>
           {draft[key].map((rule, i) => {
             const label = `${title} rule ${i + 1}`;
             return (
-              <div className="rule-row" key={i} role="group" aria-label={label}>
-                <div className="field">
-                  <label htmlFor={`${key}-${i}-type`}>{`${label} type`}</label>
-                  <select id={`${key}-${i}-type`} value={rule.type} onChange={(e) => setRule(key, i, { type: e.target.value as RuleDraft["type"] })}>
+              <div className="grid gap-3 rounded-lg border border-border bg-muted/40 p-3 sm:grid-cols-2" key={i} role="group" aria-label={label}>
+                <Field id={`${key}-${i}-type`} label={`${label} type`}>
+                  <Select id={`${key}-${i}-type`} className="w-full" value={rule.type} onChange={(e) => setRule(key, i, { type: e.target.value as RuleDraft["type"] })}>
                     <option value="text">Text on the page</option>
                     <option value="button">Button on the page</option>
-                  </select>
-                </div>
-                <div className="field">
-                  <label htmlFor={`${key}-${i}-words`}>{`${label} words`}</label>
-                  <input id={`${key}-${i}-words`} type="text" autoComplete="off" value={rule.words} onChange={(e) => setRule(key, i, { words: e.target.value })} />
-                </div>
+                  </Select>
+                </Field>
+                <Field id={`${key}-${i}-words`} label={`${label} words`}>
+                  <Input id={`${key}-${i}-words`} type="text" autoComplete="off" value={rule.words} onChange={(e) => setRule(key, i, { words: e.target.value })} />
+                </Field>
                 {rule.type === "button" && (
-                  <div className="field">
-                    <label htmlFor={`${key}-${i}-enabled`}>{`${label} button must be`}</label>
-                    <select id={`${key}-${i}-enabled`} value={rule.enabled} onChange={(e) => setRule(key, i, { enabled: e.target.value as RuleDraft["enabled"] })}>
+                  <Field id={`${key}-${i}-enabled`} label={`${label} button must be`}>
+                    <Select id={`${key}-${i}-enabled`} className="w-full" value={rule.enabled} onChange={(e) => setRule(key, i, { enabled: e.target.value as RuleDraft["enabled"] })}>
                       <option value="">Either</option>
                       <option value="true">Enabled</option>
                       <option value="false">Disabled</option>
-                    </select>
-                  </div>
+                    </Select>
+                  </Field>
                 )}
-                <div className="field">
-                  <label htmlFor={`${key}-${i}-under`}>{`${label} only under this heading (optional)`}</label>
-                  <input id={`${key}-${i}-under`} type="text" autoComplete="off" value={rule.under} onChange={(e) => setRule(key, i, { under: e.target.value })} />
+                <Field id={`${key}-${i}-under`} label={`${label} only under this heading (optional)`}>
+                  <Input id={`${key}-${i}-under`} type="text" autoComplete="off" value={rule.under} onChange={(e) => setRule(key, i, { under: e.target.value })} />
+                </Field>
+                <div className="sm:col-span-2">
+                  <Button type="button" variant="outline" size="sm" aria-label={`Remove ${label}`} onClick={() => remove(key, i)}>
+                    Remove
+                  </Button>
                 </div>
-                <button type="button" className="button secondary" aria-label={`Remove ${label}`} onClick={() => remove(key, i)}>
-                  Remove
-                </button>
               </div>
             );
           })}
-          <button type="button" className="button secondary" onClick={() => add(key)}>
-            {`Add a rule to ${title}`}
-          </button>
+          <div>
+            <Button type="button" variant="outline" size="sm" onClick={() => add(key)}>
+              {`Add a rule to ${title}`}
+            </Button>
+          </div>
         </fieldset>
       ))}
 
-      <fieldset>
-        <legend>Quantity (optional)</legend>
-        <label className="check">
-          <input type="checkbox" checked={draft.quantity.on} onChange={(e) => onChange({ ...draft, quantity: { ...draft.quantity, on: e.target.checked } })} />
+      <fieldset className="flex flex-col gap-3">
+        <legend className={legend}>Quantity (optional)</legend>
+        <label className={checkbox}>
+          <input type="checkbox" className="size-4 accent-primary" checked={draft.quantity.on} onChange={(e) => onChange({ ...draft, quantity: { ...draft.quantity, on: e.target.checked } })} />
           Read a quantity
         </label>
         {draft.quantity.on && (
           <>
-            <div className="field">
-              <label htmlFor="quantity-label">Quantity label</label>
-              <input id="quantity-label" type="text" autoComplete="off" value={draft.quantity.label} onChange={(e) => onChange({ ...draft, quantity: { ...draft.quantity, label: e.target.value } })} />
-              <p className="hint">The number right after these words is the quantity, for example "Units left".</p>
-            </div>
-            <div className="field">
-              <label htmlFor="quantity-under">Quantity only under this heading (optional)</label>
-              <input id="quantity-under" type="text" autoComplete="off" value={draft.quantity.under} onChange={(e) => onChange({ ...draft, quantity: { ...draft.quantity, under: e.target.value } })} />
-            </div>
+            <Field id="quantity-label" label="Quantity label" hint='The number right after these words is the quantity, for example "Units left".'>
+              <Input id="quantity-label" type="text" autoComplete="off" value={draft.quantity.label} onChange={(e) => onChange({ ...draft, quantity: { ...draft.quantity, label: e.target.value } })} />
+            </Field>
+            <Field id="quantity-under" label="Quantity only under this heading (optional)">
+              <Input id="quantity-under" type="text" autoComplete="off" value={draft.quantity.under} onChange={(e) => onChange({ ...draft, quantity: { ...draft.quantity, under: e.target.value } })} />
+            </Field>
           </>
         )}
       </fieldset>
 
-      <fieldset>
-        <legend>Region (optional)</legend>
-        <label className="check">
-          <input type="checkbox" checked={draft.region.on} onChange={(e) => onChange({ ...draft, region: { ...draft.region, on: e.target.checked } })} />
+      <fieldset className="flex flex-col gap-3">
+        <legend className={legend}>Region (optional)</legend>
+        <label className={checkbox}>
+          <input type="checkbox" className="size-4 accent-primary" checked={draft.region.on} onChange={(e) => onChange({ ...draft, region: { ...draft.region, on: e.target.checked } })} />
           This supplier lists stock by region
         </label>
         {draft.region.on && (
-          <div className="field">
-            <label htmlFor="region-under">Region table heading</label>
-            <input id="region-under" type="text" autoComplete="off" value={draft.region.under} onChange={(e) => onChange({ ...draft, region: { ...draft.region, under: e.target.value } })} />
-            <p className="hint">The heading above the list of regions and numbers. Choose the region itself on the supplier's page, or on each link.</p>
-          </div>
+          <Field id="region-under" label="Region table heading" hint="The heading above the list of regions and numbers. Choose the region itself on the supplier's page, or on each link.">
+            <Input id="region-under" type="text" autoComplete="off" value={draft.region.under} onChange={(e) => onChange({ ...draft, region: { ...draft.region, under: e.target.value } })} />
+          </Field>
         )}
       </fieldset>
     </div>

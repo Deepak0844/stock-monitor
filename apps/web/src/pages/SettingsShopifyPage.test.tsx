@@ -152,7 +152,7 @@ describe("the connection", () => {
     const disconnect = vi.fn().mockResolvedValue(undefined);
     const { user } = setup(connected({}, { disconnect }));
     await user.click(await screen.findByRole("button", { name: "Disconnect" }));
-    await user.click(screen.getByRole("button", { name: "Yes, disconnect" }));
+    await user.click(screen.getByRole("button", { name: "Disconnect Shopify" }));
     expect(disconnect).toHaveBeenCalledTimes(1);
     expect(await screen.findByRole("heading", { name: "Connect your Shopify store" })).toBeInTheDocument();
   });
@@ -161,8 +161,9 @@ describe("the connection", () => {
     const disconnect = vi.fn().mockRejectedValue(new ApiError("Something went wrong. Please try again.", 500));
     const { user } = setup(connected({}, { disconnect }));
     await user.click(await screen.findByRole("button", { name: "Disconnect" }));
-    await user.click(screen.getByRole("button", { name: "Yes, disconnect" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong. Please try again.");
+    await user.click(screen.getByRole("button", { name: "Disconnect Shopify" }));
+    expect(await within(screen.getByRole("dialog")).findByRole("alert")).toHaveTextContent("Something went wrong. Please try again.");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByRole("heading", { name: "Connection" })).toBeInTheDocument();
   });
 });

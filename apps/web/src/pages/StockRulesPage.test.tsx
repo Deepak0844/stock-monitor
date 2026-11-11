@@ -104,8 +104,9 @@ describe("saved pages", () => {
   it("asks before deleting, then removes the capture", async () => {
     const { api, user } = setup(list(aCapture(), aCapture({ id: "other", name: "Other" })));
     await user.click(await screen.findByRole("button", { name: "Delete Blue Tee in stock" }));
+    expect(screen.getByRole("dialog", { name: "Delete Blue Tee in stock?" })).toHaveTextContent("cannot be recovered");
     expect(api.captures.remove).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Yes, delete" }));
+    await user.click(screen.getByRole("button", { name: "Delete saved page" }));
     expect(api.captures.remove).toHaveBeenCalledWith(aCapture().id);
     await waitFor(() => expect(screen.queryByRole("button", { name: "View Blue Tee in stock" })).toBeNull());
   });

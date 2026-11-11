@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
+import { Button } from "@/components/ui/button.js";
 import type { Api, LoginSession, Supplier } from "../api.js";
 import { LiveWindow, type LiveWindowFailure } from "../components/LiveWindow.js";
 import { Notice } from "../components/Notice.js";
+import { PageHeader } from "../components/PageHeader.js";
 import { Link, navigate } from "../router.js";
 import { useTitle } from "../useTitle.js";
 
@@ -128,17 +130,17 @@ export function ConnectSupplierPage({ api, supplierId, liveWindow: Window = Live
 
   return (
     <>
-      <div className="page-header">
-        <h1>{name ? `${again ? "Reconnect" : "Connect"} ${name}` : "Connect supplier"}</h1>
-        <p className="muted">Log in as you normally would. Solve any puzzle or code. Then press I'm logged in.</p>
-      </div>
+      <PageHeader
+        title={name ? `${again ? "Reconnect" : "Connect"} ${name}` : "Connect supplier"}
+        description="Log in as you normally would. Solve any puzzle or code. Then press I'm logged in."
+      />
 
-      <div className="desktop-hint">
+      <div className="mb-4 min-[897px]:hidden">
         <Notice kind="info">Connecting a supplier works best on a computer. You can still check status and messages on your phone.</Notice>
       </div>
 
       {state.kind === "starting" && (
-        <p role="status" className="status">
+        <p role="status" className="text-sm font-medium">
           Opening the login window…
         </p>
       )}
@@ -146,13 +148,13 @@ export function ConnectSupplierPage({ api, supplierId, liveWindow: Window = Live
       {state.kind === "window" && (
         <>
           {/* The buttons come before the window, so keyboard and screen reader users reach them first. */}
-          <div className="actions">
-            <button type="button" className="button primary" disabled={!state.connected || state.saving} aria-busy={state.saving} onClick={() => void finish()}>
+          <div className="flex flex-wrap gap-2">
+            <Button disabled={!state.connected || state.saving} loading={state.saving} onClick={() => void finish()}>
               {state.saving ? "Saving…" : "I'm logged in"}
-            </button>
-            <button type="button" className="button secondary" disabled={state.saving} onClick={() => void cancel()}>
+            </Button>
+            <Button variant="outline" disabled={state.saving} onClick={() => void cancel()}>
               Cancel
-            </button>
+            </Button>
           </div>
           <Window
             loginSessionId={state.loginSession.id}
@@ -166,34 +168,28 @@ export function ConnectSupplierPage({ api, supplierId, liveWindow: Window = Live
       )}
 
       {state.kind === "done" && (
-        <>
+        <div className="flex max-w-2xl flex-col items-start gap-4">
           <Notice kind="success" role="status">
             {name ?? "The supplier"} is connected.
           </Notice>
-          <div className="actions">
-            <Link to="/suppliers" className="button primary inline">
-              Back to suppliers
-            </Link>
-          </div>
-        </>
+          <Button asChild>
+            <Link to="/suppliers">Back to suppliers</Link>
+          </Button>
+        </div>
       )}
 
       {state.kind === "error" && (
-        <>
+        <div className="flex max-w-2xl flex-col items-start gap-4">
           <Notice kind="error" role="alert">
             {state.message}
           </Notice>
-          <div className="actions">
-            {state.canRetry && (
-              <button type="button" className="button primary" onClick={() => void tryAgain()}>
-                Try again
-              </button>
-            )}
-            <Link to="/suppliers" className="button secondary">
-              Back to suppliers
-            </Link>
+          <div className="flex flex-wrap gap-2">
+            {state.canRetry && <Button onClick={() => void tryAgain()}>Try again</Button>}
+            <Button variant="outline" asChild>
+              <Link to="/suppliers">Back to suppliers</Link>
+            </Button>
           </div>
-        </>
+        </div>
       )}
     </>
   );

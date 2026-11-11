@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Button } from "@/components/ui/button.js";
+import { Card } from "@/components/ui/card.js";
+import { Input } from "@/components/ui/input.js";
+import { Skeleton } from "@/components/ui/skeleton.js";
 import { ApiError, type Api, type Supplier, type SupplierInput } from "../api.js";
+import { Field as FormField } from "../components/Field.js";
 import { Notice } from "../components/Notice.js";
+import { PageHeader } from "../components/PageHeader.js";
 import { PermissionPanel, RegionPanel } from "../components/PermissionPanel.js";
 import { SchedulePanel } from "../components/SchedulePanel.js";
 import { Link, navigate } from "../router.js";
@@ -36,51 +42,50 @@ export function SupplierFormPage({ api, id }: { api: Api; id?: string }) {
 
   return (
     <>
-      <div className="page-header">
-        <h1>{editing ? "Edit supplier" : "Add supplier"}</h1>
-        <p className="muted">
-          {editing ? "Change how this supplier is checked." : "Add a supplier website you want to check for stock."}
-        </p>
-      </div>
+      <PageHeader
+        title={editing ? "Edit supplier" : "Add supplier"}
+        description={editing ? "Change how this supplier is checked." : "Add a supplier website you want to check for stock."}
+      />
 
       {load.kind === "loading" && (
-        <p role="status" className="status">
-          Loading…
-        </p>
+        <Card className="flex max-w-2xl flex-col gap-4 p-6">
+          <p role="status" className="sr-only">
+            Loading…
+          </p>
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-2/3" />
+        </Card>
       )}
       {load.kind === "error" && (
-        <>
+        <div className="flex max-w-2xl flex-col items-start gap-3">
           <Notice kind="error" role="alert">
             {load.message}
           </Notice>
-          <div className="actions">
-            <Link to="/suppliers" className="button secondary">
-              Back to suppliers
-            </Link>
-          </div>
-        </>
+          <Button variant="outline" asChild>
+            <Link to="/suppliers">Back to suppliers</Link>
+          </Button>
+        </div>
       )}
       {load.kind === "ready" && (
-        <>
-          <section className="panel">
+        <div className="flex max-w-2xl flex-col gap-6">
+          <Card className="p-6">
             <SupplierForm api={api} supplier={load.supplier} />
-          </section>
+          </Card>
           {load.supplier && (
-            <section className="panel">
-              <PermissionPanel api={api} supplier={load.supplier} />
-            </section>
+            <>
+              <Card className="p-6">
+                <PermissionPanel api={api} supplier={load.supplier} />
+              </Card>
+              <Card className="p-6">
+                <RegionPanel api={api} supplier={load.supplier} />
+              </Card>
+              <Card className="p-6">
+                <SchedulePanel api={api} supplier={load.supplier} />
+              </Card>
+            </>
           )}
-          {load.supplier && (
-            <section className="panel">
-              <RegionPanel api={api} supplier={load.supplier} />
-            </section>
-          )}
-          {load.supplier && (
-            <section className="panel">
-              <SchedulePanel api={api} supplier={load.supplier} />
-            </section>
-          )}
-        </>
+        </div>
       )}
     </>
   );
@@ -153,9 +158,8 @@ function SupplierForm({ api, supplier }: { api: Api; supplier: Supplier | null }
   ) => {
     const error = errors[key];
     return (
-      <div className="field">
-        <label htmlFor={key}>{label}</label>
-        <input
+      <FormField id={key} label={label} hint={<span id={`${key}-hint`}>{opts.hint}</span>} error={error}>
+        <Input
           id={key}
           ref={refs[key]}
           type={opts.type ?? "text"}
@@ -168,20 +172,12 @@ function SupplierForm({ api, supplier }: { api: Api; supplier: Supplier | null }
           aria-invalid={error ? "true" : undefined}
           aria-describedby={`${key}-hint${error ? ` ${key}-error` : ""}`}
         />
-        <p id={`${key}-hint`} className="hint">
-          {opts.hint}
-        </p>
-        {error && (
-          <p id={`${key}-error`} className="field-error">
-            {error}
-          </p>
-        )}
-      </div>
+      </FormField>
     );
   };
 
   return (
-    <form onSubmit={(e) => void submit(e)} noValidate className="connect-form">
+    <form onSubmit={(e) => void submit(e)} noValidate className="flex flex-col gap-5">
       {field("name", "Name", name, setName, { hint: "How you want to see this supplier in the app." })}
       {field("websiteUrl", "Website address", websiteUrl, setWebsiteUrl, {
         hint: "Starting with https://, like https://shop.example.com.",
@@ -198,13 +194,13 @@ function SupplierForm({ api, supplier }: { api: Api; supplier: Supplier | null }
         </Notice>
       )}
 
-      <div className="actions">
-        <button type="submit" className="button primary" disabled={saving}>
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" loading={saving}>
           {saving ? (supplier ? "Saving…" : "Adding…") : supplier ? "Save changes" : "Add supplier"}
-        </button>
-        <Link to="/suppliers" className="button secondary">
-          Cancel
-        </Link>
+        </Button>
+        <Button variant="outline" asChild>
+          <Link to="/suppliers">Cancel</Link>
+        </Button>
       </div>
     </form>
   );
