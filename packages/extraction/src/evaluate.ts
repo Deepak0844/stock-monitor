@@ -10,8 +10,12 @@ const clip = (line: string) => line.trim().slice(0, MAX_LINE);
  * contains those words, and the sub-sections below it, up to the next heading of the same or higher level.
  * A heading that is not on the page leaves nothing to look at.
  */
-function scope(page: PageDescription, under?: string): PageDescription["sections"] {
-  if (under === undefined) return page.sections;
+function scope(page: PageDescription, under?: string, main = false): PageDescription["sections"] {
+  if (under === undefined) {
+    // "main": only the product's own section (under the page's first top-level heading), so suggested products are ignored.
+    const own = main ? page.sections.find((s) => s.level === 1 && s.heading !== null) : undefined;
+    return own ? [own] : page.sections;
+  }
   const wanted = normaliseWords(under);
   const start = page.sections.findIndex((s) => s.heading !== null && normaliseWords(s.heading).includes(wanted));
   if (start === -1) return [];
@@ -24,19 +28,21 @@ function scope(page: PageDescription, under?: string): PageDescription["sections
   return out;
 }
 // A heading is text on the page too, so it counts as the first line of its own section.
-const scopeLines = (page: PageDescription, under?: string) => scope(page, under).flatMap((s) => (s.heading === null ? s.lines : [s.heading, ...s.lines]));
+const scopeLines = (page: PageDescription, under?: string, main = false) => scope(page, under, main).flatMap((s) => (s.heading === null ? s.lines : [s.heading, ...s.lines]));
 
 /** The line that contains the rule's words, or null. */
-export function textMatches(page: PageDescription, rule: TextRule): string | null {
+export function textMatches(page: PageDescription, rule: TextRule, main = false): string | null {
   const wanted = normaliseWords(rule.text);
-  const hit = scopeLines(page, rule.under).find((line) => normaliseWords(line).includes(wanted));
+  const hit = scopeLines(page, rule.under, main).find((line) => normaliseWords(line).includes(wanted));
   return hit === undefined ? null : clip(hit);
 }
 
 /** The label of a button that matches the rule's label (and enabled setting, and heading), or null. */
-export function buttonMatches(page: PageDescription, rule: ButtonRule): string | null {
+export function buttonMatches(page: PageDescription, rule: ButtonRule, main = false): string | null {
   const wanted = normaliseWords(rule.label);
-  const headings = rule.under === undefined ? null : new Set(scope(page, rule.under).map((s) => normaliseWords(s.heading ?? "")));
+  const sections = scope(page, rule.under, main);
+  // Everything in scope means every button counts, including ones above the first heading.
+  const headings = sections.length === page.sections.length ? null : new Set(sections.map((s) => normaliseWords(s.heading ?? "")));
   const hit = page.buttons.find(
     (b) =>
       normaliseWords(b.label).includes(wanted) &&
@@ -56,9 +62,9 @@ export type LabelledNumber = { found: false } | { found: true; quantity: number 
  * Finds a label and reads the number right after it: in the same table row, on the same line, or alone on the next line.
  * The first match under the heading wins. A label that only starts a longer one ("Bristol" in "Bristol North") is not a match.
  */
-export function labelledNumber(page: PageDescription, label: string, under?: string): LabelledNumber {
+export function labelledNumber(page: PageDescription, label: string, under?: string, main = false): LabelledNumber {
   const wanted = normaliseWords(label);
-  const lines = scopeLines(page, under);
+  const lines = scopeLines(page, under, main);
   for (const [i, line] of lines.entries()) {
     const cells = line.split("\t");
     if (cells.length > 1) {
