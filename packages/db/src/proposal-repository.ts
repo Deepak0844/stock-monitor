@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, gt, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { appSettings, mappings, proposals, shopifyVariants, stockObservations, suppliers } from "./schema.js";
 
@@ -147,6 +147,20 @@ export function createProposalRepository<S extends Record<string, unknown>>(db: 
     async open(): Promise<ProposalView[]> {
       const rows = await viewQuery().where(inArray(proposals.state, ["open", "approved"])).orderBy(desc(proposals.createdAt));
       return rows.map(toView);
+    },
+
+    /** One page of the open and approved suggestions, newest first, with how many there are in all. */
+    async openPage(limit: number, offset: number): Promise<{ items: ProposalView[]; total: number }> {
+      const where = inArray(proposals.state, ["open", "approved"]);
+      const rows = await viewQuery().where(where).orderBy(desc(proposals.createdAt), desc(proposals.id)).limit(limit).offset(offset);
+      const [row] = await db.select({ n: count() }).from(proposals).where(where);
+      return { items: rows.map(toView), total: Number(row?.n ?? 0) };
+    },
+
+    /** How many decided, expired or replaced suggestions there are. */
+    async historyTotal(): Promise<number> {
+      const [row] = await db.select({ n: count() }).from(proposals).where(sql`${proposals.state} not in ('open', 'approved')`);
+      return Number(row?.n ?? 0);
     },
 
     async history(limit: number, offset: number): Promise<ProposalView[]> {

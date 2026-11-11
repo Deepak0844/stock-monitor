@@ -201,3 +201,28 @@ describe("links that come from Shopify's metafields", () => {
     expect(byVariant.get("v1")).toBe(false);
   });
 });
+
+describe("mappings: page", () => {
+  const link = (variantId: string, supplierId = acme) => maps().create({ variantId, supplierId, url: `https://acme.example/${variantId}`, note: null });
+
+  it("returns one page in the list order with how many match in all", async () => {
+    for (const v of ["v1", "v2", "v3"]) await link(v);
+    const first = await maps().page({ page: 1, pageSize: 2 });
+    expect(first.total).toBe(3);
+    expect(first.rows.map((r) => r.variantId)).toEqual(["v1", "v2"]);
+    expect((await maps().page({ page: 2, pageSize: 2 })).rows.map((r) => r.variantId)).toEqual(["v3"]);
+  });
+
+  it("gives no rows, but the true total, for a page past the end", async () => {
+    await link("v1");
+    expect(await maps().page({ page: 4, pageSize: 10 })).toMatchObject({ rows: [], total: 1 });
+  });
+
+  it("applies the supplier and search filters to the total too, and treats a bad supplier id as no match", async () => {
+    await link("v1");
+    await link("v2", globex);
+    expect(await maps().page({ page: 1, pageSize: 10, supplierId: globex })).toMatchObject({ total: 1 });
+    expect((await maps().page({ page: 1, pageSize: 10, search: "100%_" })).total).toBe(0);
+    expect(await maps().page({ page: 1, pageSize: 10, supplierId: "not-an-id" })).toEqual({ rows: [], total: 0 });
+  });
+});

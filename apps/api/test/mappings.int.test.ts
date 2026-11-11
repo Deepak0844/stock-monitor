@@ -206,3 +206,32 @@ describe("recording permission on a supplier", () => {
     expect((await call("PATCH", "/api/suppliers/00000000-0000-4000-8000-000000000000/permission", { status: "granted" })).status).toBe(404);
   });
 });
+
+describe("GET /api/mappings with a page", () => {
+  const link = async (variantId: string) => {
+    await addVariant(variantId, `P-${variantId}`);
+    await create({ variantId, url: `https://shop.acme.example/p/${variantId}` });
+  };
+
+  it("returns one page with the total, and still lists everything when no page is asked for", async () => {
+    for (const v of ["a1", "a2", "a3"]) await link(v);
+    const r = await call("GET", "/api/mappings?page=2&pageSize=2");
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ total: 3, page: 2, pageSize: 2 });
+    expect(r.body.mappings).toHaveLength(1);
+    expect((await call("GET", "/api/mappings")).body.mappings).toHaveLength(3);
+  });
+
+  it("keeps the supplier, status and search filters", async () => {
+    await link("a1");
+    await link("a2");
+    expect((await call("GET", `/api/mappings?page=1&pageSize=10&supplierId=${acme}&search=p-a2`)).body.total).toBe(1);
+    expect((await call("GET", "/api/mappings?page=1&pageSize=10&status=works")).body.total).toBe(0);
+  });
+
+  it.each(["page=0", "page=x", "page=1&pageSize=0", "page=1&pageSize=101", "page=1&pageSize=-1"])("refuses ?%s with a plain 400", async (query) => {
+    const r = await call("GET", `/api/mappings?${query}`);
+    expect(r.status).toBe(400);
+    expect(r.body.error.code).toBe("invalid_input");
+  });
+});

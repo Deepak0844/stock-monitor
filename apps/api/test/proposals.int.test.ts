@@ -116,6 +116,21 @@ describe("listing", () => {
     expect((await call("GET", "/api/proposals")).body.proposals[0]).toMatchObject({ continueSelling: true, blockedReason: null });
   });
 
+  it("pages the open tab when a page is asked for, and says how many there are in all", async () => {
+    for (let i = 0; i < 3; i++) await suggest();
+    const r = await call("GET", "/api/proposals?tab=open&page=2&pageSize=2");
+    expect(r.body).toMatchObject({ total: 3, page: 2, pageSize: 2 });
+    expect(r.body.proposals).toHaveLength(1);
+    const all = await call("GET", "/api/proposals");
+    expect(all.body.proposals).toHaveLength(3);
+    expect(all.body.total).toBe(3);
+  });
+
+  it("says how many history rows there are in all", async () => {
+    for (let i = 0; i < 3; i++) await proposals().reject((await suggest()).id, null, "owner", now);
+    expect((await call("GET", "/api/proposals?tab=history&pageSize=2")).body).toMatchObject({ total: 3, hasMore: true });
+  });
+
   it("history lists decided, expired and replaced suggestions, newest first, in pages", async () => {
     const a = await suggest();
     const b = await suggest();
