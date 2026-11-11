@@ -40,7 +40,7 @@ const raise = (supplierId: string, message: string) => notes().raise({ kind: "su
 const UNKNOWN = "00000000-0000-4000-8000-000000000000";
 
 describe("notification routes need a signed-in owner", () => {
-  it.each([["GET", "/api/notifications"], ["POST", `/api/notifications/${UNKNOWN}/read`]] as const)("%s %s returns 401 without a session", async (method, url) => {
+  it.each([["GET", "/api/notifications"], ["POST", `/api/notifications/${UNKNOWN}/read`], ["POST", "/api/notifications/read-all"]] as const)("%s %s returns 401 without a session", async (method, url) => {
     expect((await call(method, url, false)).status).toBe(401);
   });
 });
@@ -93,5 +93,16 @@ describe("POST /api/notifications/:id/read", () => {
       expect(r.status).toBe(404);
       expect(r.body.error).toMatchObject({ code: "notification_not_found", message: "That message does not exist." });
     }
+  });
+});
+
+describe("POST /api/notifications/read-all", () => {
+  it("reads everything that is open, says how many it changed, and is harmless to repeat", async () => {
+    await raise(await supplier("Acme"), "Acme needs you to log in again.");
+    await raise(await supplier("Globex"), "Globex needs you to log in again.");
+    expect((await call("POST", "/api/notifications/read-all")).body).toEqual({ ok: true, count: 2 });
+    const listed = (await call("GET", "/api/notifications")).body.notifications as { readAt: string | null }[];
+    expect(listed.every((n) => n.readAt !== null)).toBe(true);
+    expect((await call("POST", "/api/notifications/read-all")).body).toEqual({ ok: true, count: 0 });
   });
 });
