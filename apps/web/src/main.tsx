@@ -1,5 +1,5 @@
 import "@fontsource-variable/inter";
-import "./styles.css";
+import "./theme.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.js";

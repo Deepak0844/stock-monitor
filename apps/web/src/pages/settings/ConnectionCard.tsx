@@ -1,6 +1,10 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
+import { Badge } from "@/components/ui/badge.js";
+import { Button } from "@/components/ui/button.js";
 import type { Api, ConnectionCheck, ShopifyConnection, ShopifyDetails } from "../../api.js";
+import { ConfirmDialog } from "../../components/ConfirmDialog.js";
 import { Notice } from "../../components/Notice.js";
+import { Facts, Panel, SubPanel } from "../../components/Panel.js";
 import { formatWhen } from "../../format.js";
 import { ShopifyConnectForm } from "./ShopifyConnectForm.js";
 
@@ -19,10 +23,9 @@ export function ConnectionCard({ api, connection, welcome, onConnected, onDiscon
   const needsReconnect = connection.status === "needs_reconnect";
   const [showForm, setShowForm] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [busy, setBusy] = useState<"test" | "disconnect" | null>(null);
+  const [busy, setBusy] = useState<"test" | null>(null);
   const [check, setCheck] = useState<ConnectionCheck | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const cancelRef = useRef<HTMLButtonElement>(null);
 
   async function test() {
     setBusy("test");
@@ -38,25 +41,14 @@ export function ConnectionCard({ api, connection, welcome, onConnected, onDiscon
   }
 
   async function disconnect() {
-    setBusy("disconnect");
-    setError(null);
-    try {
-      await api.shopify.disconnect();
-      onDisconnected();
-    } catch (e) {
-      setError(message(e));
-      setConfirming(false);
-    } finally {
-      setBusy(null);
-    }
+    await api.shopify.disconnect();
+    onDisconnected();
   }
 
   const shown = check ?? welcome;
 
   return (
-    <section className="panel" aria-labelledby="connection-heading">
-      <h2 id="connection-heading">Connection</h2>
-
+    <Panel id="connection-heading" title="Connection">
       {welcome && (
         <Notice kind="success" role="status">
           Connected to {welcome.shopName}.
@@ -73,52 +65,38 @@ export function ConnectionCard({ api, connection, welcome, onConnected, onDiscon
         </Notice>
       )}
 
-      <dl className="facts">
-        <div>
-          <dt>Store</dt>
-          <dd>{connection.shop}</dd>
-        </div>
-        <div>
-          <dt>Status</dt>
-          <dd>
-            <span className={needsReconnect ? "status-badge warn" : "status-badge ok"}>
-              {needsReconnect ? "Needs reconnecting" : "Connected"}
-            </span>
-          </dd>
-        </div>
-        <div>
-          <dt>Permissions</dt>
-          <dd>
-            {connection.scopes.length > 0 ? (
-              <ul className="chips">
+      <Facts
+        items={[
+          ["Store", connection.shop],
+          ["Status", <Badge variant={needsReconnect ? "warning" : "success"}>{needsReconnect ? "Needs reconnecting" : "Connected"}</Badge>],
+          [
+            "Permissions",
+            connection.scopes.length > 0 ? (
+              <ul className="flex flex-wrap gap-1.5">
                 {connection.scopes.map((s) => (
-                  <li key={s}>{s}</li>
+                  <li key={s} className="rounded-md bg-muted px-2 py-0.5 font-mono text-xs">
+                    {s}
+                  </li>
                 ))}
               </ul>
             ) : (
               "Not checked"
-            )}
-          </dd>
-        </div>
-        <div>
-          <dt>Connected since</dt>
-          <dd>{formatWhen(connection.connectedAt)}</dd>
-        </div>
-        <div>
-          <dt>Last successful check</dt>
-          <dd>{connection.lastSuccessfulCallAt ? formatWhen(connection.lastSuccessfulCallAt) : "Not yet"}</dd>
-        </div>
-      </dl>
+            ),
+          ],
+          ["Connected since", formatWhen(connection.connectedAt)],
+          ["Last successful check", connection.lastSuccessfulCallAt ? formatWhen(connection.lastSuccessfulCallAt) : "Not yet"],
+        ]}
+      />
 
       {shown && (
-        <div className="form-result" aria-live="polite">
+        <div className="flex flex-col gap-2" aria-live="polite">
           {check && (
             <Notice kind="success" role="status">
               Connection works. Store name: {check.shopName}.
             </Notice>
           )}
           {shown.warnings.length > 0 && (
-            <ul className="warning-list">
+            <ul className="flex flex-col gap-2">
               {shown.warnings.map((w) => (
                 <li key={w}>
                   <Notice kind="warning">{w}</Notice>
@@ -130,9 +108,9 @@ export function ConnectionCard({ api, connection, welcome, onConnected, onDiscon
       )}
 
       {showForm ? (
-        <div className="subpanel">
-          <h3>Reconnect Shopify</h3>
-          <p className="muted">For your safety the saved client ID and secret are never shown, so enter them again.</p>
+        <SubPanel>
+          <h3 className="font-semibold">Reconnect Shopify</h3>
+          <p className="text-sm text-muted-foreground">For your safety the saved client ID and secret are never shown, so enter them again.</p>
           <ShopifyConnectForm
             initialShop={connection.shop}
             onTest={(details) => api.shopify.test(details)}
@@ -142,50 +120,37 @@ export function ConnectionCard({ api, connection, welcome, onConnected, onDiscon
             }}
             onCancel={needsReconnect ? undefined : () => setShowForm(false)}
           />
-        </div>
-      ) : confirming ? (
-        <div className="subpanel" role="group" aria-label="Confirm disconnect">
-          <p>
-            <strong>Disconnect Shopify?</strong> The saved credentials will be deleted. Products already imported stay in
-            this app.
-          </p>
-          <div className="actions">
-            <button type="button" className="button danger" onClick={() => void disconnect()} disabled={busy !== null}>
-              Yes, disconnect
-            </button>
-            <button type="button" className="button secondary" ref={cancelRef} onClick={() => setConfirming(false)} disabled={busy !== null}>
-              Cancel
-            </button>
-          </div>
-        </div>
+        </SubPanel>
       ) : (
-        <div className="actions">
+        <div className="flex flex-wrap gap-2">
           {needsReconnect ? (
-            <button type="button" className="button primary" onClick={() => setShowForm(true)}>
-              Reconnect Shopify
-            </button>
+            <Button onClick={() => setShowForm(true)}>Reconnect Shopify</Button>
           ) : (
             <>
-              <button type="button" className="button secondary" onClick={() => void test()} disabled={busy !== null}>
+              <Button variant="outline" onClick={() => void test()} disabled={busy !== null} loading={busy === "test"}>
                 {busy === "test" ? "Testing…" : "Test connection"}
-              </button>
-              <button type="button" className="button secondary" onClick={() => setShowForm(true)}>
+              </Button>
+              <Button variant="outline" onClick={() => setShowForm(true)}>
                 Reconnect Shopify
-              </button>
+              </Button>
             </>
           )}
-          <button
-            type="button"
-            className="button secondary"
-            onClick={() => {
-              setConfirming(true);
-              queueMicrotask(() => cancelRef.current?.focus());
-            }}
-          >
+          <Button variant="outline" onClick={() => setConfirming(true)}>
             Disconnect
-          </button>
+          </Button>
         </div>
       )}
-    </section>
+
+      {confirming && (
+        <ConfirmDialog
+          open
+          title="Disconnect Shopify?"
+          description="The saved credentials will be deleted. Products already imported stay in this app."
+          confirmLabel="Disconnect Shopify"
+          onConfirm={disconnect}
+          onClose={() => setConfirming(false)}
+        />
+      )}
+    </Panel>
   );
 }

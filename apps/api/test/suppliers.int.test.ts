@@ -281,3 +281,35 @@ describe("pause, resume and delete", () => {
     expect((await call("DELETE", `/api/suppliers/${a.id}`)).status).toBe(404);
   });
 });
+
+describe("GET /api/suppliers with a page", () => {
+  type Paged = { items: Supplier[]; total: number; page: number; pageSize: number };
+  const seed = async (n: number) => {
+    for (let i = 1; i <= n; i++) await create({ name: `Supplier ${String(i).padStart(2, "0")}`, websiteUrl: `https://s${i}.example/` });
+  };
+
+  it("returns one page with the total, and still lists everything when no page is asked for", async () => {
+    await seed(12);
+    const paged = (await call("GET", "/api/suppliers?page=2&pageSize=5")).body as unknown as Paged;
+    expect(paged).toMatchObject({ total: 12, page: 2, pageSize: 5 });
+    expect(paged.items.map((s) => s.name)).toEqual(["Supplier 06", "Supplier 07", "Supplier 08", "Supplier 09", "Supplier 10"]);
+    expect((await call("GET", "/api/suppliers")).body.suppliers).toHaveLength(12);
+  });
+
+  it("filters by search and status", async () => {
+    await seed(3);
+    const found = (await call("GET", "/api/suppliers?page=1&pageSize=10&search=supplier%2002")).body as unknown as Paged;
+    expect(found.items.map((s) => s.name)).toEqual(["Supplier 02"]);
+    const none = (await call("GET", "/api/suppliers?page=1&pageSize=10&status=paused")).body as unknown as Paged;
+    expect(none.total).toBe(0);
+  });
+
+  it.each(["page=0", "page=abc", "page=1&pageSize=0", "page=1&pageSize=101", "page=1&pageSize=-5", "page=1&status=nonsense"])(
+    "refuses ?%s with a plain 400",
+    async (query) => {
+      const res = await call("GET", `/api/suppliers?${query}`);
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe("invalid_input");
+    },
+  );
+});

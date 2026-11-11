@@ -4,6 +4,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { OWNER_EMAIL, OWNER_PASSWORD } from "./constants.js";
 import { control } from "./control.js";
+import { expectSignedIn, rowMenu, settle } from "./ui.js";
 
 test.describe.configure({ mode: "serial" });
 
@@ -16,7 +17,7 @@ async function signIn(page: Page) {
   await page.getByLabel("Email").fill(OWNER_EMAIL);
   await page.getByLabel("Password", { exact: true }).fill(OWNER_PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+  await expectSignedIn(page);
 }
 
 /** On a phone the navigation sits behind the Menu button. */
@@ -34,6 +35,7 @@ async function addSupplier(page: Page, name: string, website = "https://shop.acm
 }
 
 const scan = async (page: Page, label: string) => {
+  await settle(page);
   const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
   expect(result.violations.map((v) => `${label}: ${v.id}`), label).toEqual([]);
 };
@@ -62,27 +64,27 @@ test("the Suppliers page starts empty, then an owner can add, edit, pause, resum
   await expect(page.getByRole("row", { name: /Globex/ })).toBeVisible();
   await shot(page, "list", info.project.name);
 
-  await page.getByRole("button", { name: "Pause Acme Supply" }).click();
+  await rowMenu(page, "Acme Supply", "Pause");
   await expect(page.getByRole("row", { name: /Acme Supply/ })).toContainText("Paused");
   await expect(page.getByRole("row", { name: /Globex/ })).toContainText("Not connected");
   await page.reload();
   await expect(page.getByRole("row", { name: /Acme Supply/ })).toContainText("Paused");
-  await page.getByRole("button", { name: "Resume Acme Supply" }).click();
+  await rowMenu(page, "Acme Supply", "Resume");
   await expect(page.getByRole("row", { name: /Acme Supply/ })).toContainText("Not connected");
 
-  await page.getByRole("link", { name: "Edit Acme Supply" }).click();
+  await rowMenu(page, "Acme Supply", "Edit");
   await expect(page.getByLabel("Name")).toHaveValue("Acme Supply");
   await page.getByLabel("Name").fill("Acme Ltd");
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect(page.getByRole("row", { name: /Acme Ltd/ })).toBeVisible();
 
-  await page.getByRole("button", { name: "Delete Acme Ltd" }).click();
-  await expect(page.getByRole("group", { name: "Confirm delete" })).toContainText("cannot be undone");
+  await rowMenu(page, "Acme Ltd", "Delete");
+  await expect(page.getByRole("dialog", { name: "Delete Acme Ltd?" })).toContainText("cannot undo this");
   await shot(page, "confirm-delete", info.project.name);
   await page.getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByRole("row", { name: /Acme Ltd/ })).toBeVisible();
-  await page.getByRole("button", { name: "Delete Acme Ltd" }).click();
-  await page.getByRole("button", { name: "Yes, delete" }).click();
+  await rowMenu(page, "Acme Ltd", "Delete");
+  await page.getByRole("button", { name: "Delete supplier" }).click();
   await expect(page.getByText("Deleted Acme Ltd.")).toBeVisible();
   await expect(page.getByRole("row", { name: /Acme Ltd/ })).toHaveCount(0);
   await expect(page.getByRole("row", { name: /Globex/ })).toBeVisible();
@@ -146,19 +148,21 @@ test("the supplier screens pass the accessibility scan in light and dark, and ne
     await page.getByLabel("Name").fill("Acme Supply");
     await page.getByLabel("Website address").fill("https://shop.acme.example/");
     await page.getByRole("button", { name: "Add supplier" }).click();
+    await expect(page.getByRole("row", { name: /Acme Supply/ })).toBeVisible(); // saved, so going on cannot cancel it
     await page.goto("/suppliers/new");
     await addSupplier(page, "Globex Wholesale Distribution Company", "https://very-long-supplier-name.example/products/login");
     await expect(page.getByRole("row", { name: /Globex/ })).toBeVisible();
-    await page.getByRole("button", { name: "Pause Globex Wholesale Distribution Company" }).click();
+    await rowMenu(page, "Globex Wholesale Distribution Company", "Pause");
     await expect(page.getByRole("row", { name: /Globex/ })).toContainText("Paused");
     await scan(page, `${scheme} suppliers, list`);
     await shot(page, `list-${scheme}`, info.project.name);
 
-    await page.getByRole("button", { name: "Delete Acme Supply" }).click();
-    await expect(page.getByRole("group", { name: "Confirm delete" })).toBeVisible();
+    await rowMenu(page, "Acme Supply", "Delete");
+    await expect(page.getByRole("dialog", { name: "Delete Acme Supply?" })).toBeVisible();
     await scan(page, `${scheme} suppliers, confirming delete`);
+    await page.getByRole("button", { name: "Cancel" }).click();
 
-    await page.getByRole("link", { name: "Edit Acme Supply" }).click();
+    await rowMenu(page, "Acme Supply", "Edit");
     await expect(page.getByLabel("Name")).toHaveValue("Acme Supply");
     await scan(page, `${scheme} form, editing`);
 
@@ -183,7 +187,7 @@ async function addViaApi(page: Page, name = "Acme Supply") {
   const supplier = (await res.json()) as { supplier: { id: string } };
   return { id: supplier.supplier.id, url: `/suppliers/${supplier.supplier.id}/connect` };
 }
-const liveCanvas = (page: Page) => page.locator(".screen canvas");
+const liveCanvas = (page: Page) => page.getByRole("group", { name: /^Live login window/ }).locator("canvas");
 
 test("the owner connects a supplier: the login window appears, they press I'm logged in, and the supplier is connected", async ({ page }, info) => {
   const problems: string[] = [];
@@ -309,8 +313,9 @@ test("the connect screen passes the accessibility scan in light and dark, and ne
     await expect(page.getByText("Acme Supply is connected.")).toBeVisible();
     await scan(page, `${scheme} connect, done`);
     await page.goto("/suppliers");
-    await page.getByRole("button", { name: "Delete Acme Supply" }).click();
-    await page.getByRole("button", { name: "Yes, delete" }).click();
+    await rowMenu(page, "Acme Supply", "Delete");
+    await page.getByRole("button", { name: "Delete supplier" }).click();
+    await expect(page.getByText("Deleted Acme Supply.")).toBeVisible(); // gone, so the same name can be added again
     supplier = await addViaApi(page);
   }
 });
@@ -364,7 +369,7 @@ test("a check that finds the login gone marks only that supplier, raises one mes
   await expect(page.getByText("Nothing needs your attention.")).toBeVisible();
   await page.goto("/suppliers");
   await expect(rowOf(page)).toContainText("Connected");
-  await expect(page.getByRole("button", { name: "Pause Acme Supply" })).toBeVisible(); // not left paused
+  await expect(rowOf(page)).not.toContainText("Paused"); // not left paused
 });
 
 test("a puzzle or a block shows as Blocked with its own plain message", async ({ page }) => {
@@ -434,7 +439,7 @@ test("a pause the owner made stays in place through a problem and a reconnect, u
   const supplier = await addViaApi(page);
   await connectThroughTheWindow(page, supplier.url);
   await page.goto("/suppliers");
-  await page.getByRole("button", { name: "Pause Acme Supply" }).click();
+  await rowMenu(page, "Acme Supply", "Pause");
   await expect(rowOf(page)).toContainText("Paused");
 
   // The login stops working while the supplier is paused. The problem is reported, and the owner's pause is not replaced.
@@ -457,9 +462,8 @@ test("a pause the owner made stays in place through a problem and a reconnect, u
   await expect(page.getByText("Nothing needs your attention.")).toBeVisible();
   await page.goto("/suppliers");
   await expect(rowOf(page)).toContainText("Paused");
-  await expect(page.getByRole("button", { name: "Resume Acme Supply" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Resume Acme Supply" }).click();
+  await rowMenu(page, "Acme Supply", "Resume");
   await expect(rowOf(page)).toContainText("Connected");
 });
 

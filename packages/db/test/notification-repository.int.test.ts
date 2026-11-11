@@ -114,3 +114,22 @@ describe("listing and reading", () => {
     expect(await count()).toBe(0);
   });
 });
+
+describe("marking all as read", () => {
+  it("reads every open unread notification once, and says how many it changed", async () => {
+    await raise(a);
+    await raise(b, "Globex needs you to log in again.");
+    expect(await notes().markAllRead()).toBe(2);
+    expect((await notes().listOpen()).every((n) => n.readAt !== null)).toBe(true);
+    expect(await notes().markAllRead()).toBe(0);
+  });
+
+  it("leaves a resolved notification alone, and a problem found again stays read", async () => {
+    await raise(a);
+    await notes().markAllRead();
+    await raise(a, "Acme still needs you to log in again.");
+    expect((await notes().listOpen())[0]?.readAt).not.toBeNull();
+    await notes().resolve("supplier_needs_reconnect", a);
+    expect(await notes().markAllRead()).toBe(0);
+  });
+});

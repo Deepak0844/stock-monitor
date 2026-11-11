@@ -26,6 +26,28 @@ const setup = (over: Parameters<typeof fakeApi>[0] = {}, props: { id?: string } 
   return { api, user: userEvent.setup() };
 };
 
+describe("saving", () => {
+  it("shows a spinner on the button while the link is being saved, and cannot be sent twice", async () => {
+    const create = vi.fn(() => new Promise<never>(() => {}));
+    const { user } = setup({ mappings: { create } });
+    await screen.findByRole("option", { name: /Blue Tee/ });
+    await user.selectOptions(screen.getByLabelText("Variant"), "v1");
+    await user.selectOptions(screen.getByLabelText("Supplier"), aSupplier().id);
+    await user.type(screen.getByLabelText("Supplier page address"), "https://shop.acme.example/p/blue");
+    const save = screen.getByRole("button", { name: "Add link" });
+    await user.click(save);
+    expect(save).toHaveAttribute("aria-busy", "true");
+    await user.click(save);
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a shimmer while a link to edit is loading", () => {
+    const api = fakeApi({ mappings: { get: vi.fn().mockReturnValue(new Promise(() => {})) } });
+    render(<MappingFormPage api={api} id="abc" />);
+    expect(screen.getByRole("status")).toHaveTextContent("Loading…");
+  });
+});
+
 describe("adding a link", () => {
   it("saves the chosen variant, supplier, page address and note, then goes back to the list", async () => {
     const { api, user } = setup();

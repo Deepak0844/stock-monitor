@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
+import { Select } from "@/components/ui/input.js";
+import { Skeleton } from "@/components/ui/skeleton.js";
 import type { Api, ShopifyConnection, ShopifyLocation } from "../../api.js";
+import { Field } from "../../components/Field.js";
 import { Notice } from "../../components/Notice.js";
+import { Panel } from "../../components/Panel.js";
+import { toast } from "../../lib/toast.js";
 
 type Props = {
   api: Api;
@@ -14,7 +19,6 @@ export function LocationCard({ api, connection, onChosen }: Props) {
   const [locations, setLocations] = useState<ShopifyLocation[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -32,11 +36,10 @@ export function LocationCard({ api, connection, onChosen }: Props) {
     if (!id) return;
     setSaving(true);
     setError(null);
-    setSaved(null);
     try {
       const location = await api.shopify.chooseLocation(id);
       onChosen(location);
-      setSaved(`Using ${location.name}.`);
+      toast(`Using ${location.name}.`);
     } catch (e) {
       setError(message(e));
     } finally {
@@ -49,12 +52,7 @@ export function LocationCard({ api, connection, onChosen }: Props) {
   const savedMissing = connection.locationId && !options.some((l) => l.id === connection.locationId);
 
   return (
-    <section className="panel" aria-labelledby="location-heading">
-      <h2 id="location-heading">Inventory location</h2>
-      <p className="muted">
-        Stock is read from one location in Shopify. Pick the one that holds the stock you sell.
-      </p>
-
+    <Panel id="location-heading" title="Inventory location" description="Stock is read from one location in Shopify. Pick the one that holds the stock you sell.">
       {loadError && (
         <Notice kind="error" role="alert">
           {loadError}
@@ -66,29 +64,25 @@ export function LocationCard({ api, connection, onChosen }: Props) {
         </Notice>
       )}
 
-      {locations && locations.length === 0 && <p>No active locations were found in Shopify.</p>}
+      {locations === null && !loadError && <Skeleton className="h-10 w-full max-w-sm" />}
+      {locations && locations.length === 0 && <p className="text-sm">No active locations were found in Shopify.</p>}
 
       {locations && locations.length > 0 && (
-        <div className="field">
-          <label htmlFor="location">Location</label>
-          <select
-            id="location"
-            value={connection.locationId ?? ""}
-            onChange={(e) => void choose(e.target.value)}
-            disabled={saving}
-          >
-            <option value="">Choose a location</option>
-            {savedMissing && <option value={connection.locationId!}>{connection.locationName ?? "Saved location"}</option>}
-            {options.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </select>
+        <div className="max-w-sm">
+          <Field id="location" label="Location">
+            <Select id="location" className="w-full" value={connection.locationId ?? ""} onChange={(e) => void choose(e.target.value)} disabled={saving}>
+              <option value="">Choose a location</option>
+              {savedMissing && <option value={connection.locationId!}>{connection.locationName ?? "Saved location"}</option>}
+              {options.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
         </div>
       )}
 
-      <div aria-live="polite">{saved && <Notice kind="success">{saved}</Notice>}</div>
-    </section>
+    </Panel>
   );
 }

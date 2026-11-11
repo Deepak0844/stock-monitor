@@ -26,6 +26,25 @@ describe("router", () => {
     expect(window.location.pathname).toBe("/settings/shopify");
   });
 
+  it("leaves a filtered list when its own plain address is chosen", async () => {
+    window.history.replaceState(null, "", "/suppliers?status=paused&page=2");
+    render(
+      <>
+        <Where />
+        <Link to="/suppliers">All suppliers</Link>
+      </>,
+    );
+    await userEvent.click(screen.getByRole("link", { name: "All suppliers" }));
+    expect(window.location.pathname + window.location.search).toBe("/suppliers");
+  });
+
+  it("does not add a history entry for the address it is already on", () => {
+    window.history.replaceState(null, "", "/suppliers?status=paused");
+    const before = window.history.length;
+    navigate("/suppliers?status=paused");
+    expect(window.history.length).toBe(before);
+  });
+
   it("follows the browser's back and forward buttons", () => {
     render(<Where />);
     act(() => navigate("/a"));

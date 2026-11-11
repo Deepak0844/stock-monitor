@@ -188,7 +188,7 @@ export const aNotification = (over: Partial<AppNotification> = {}): AppNotificat
 
 /** A fake API for screen tests. Every method is a spy with a sensible default. */
 export function fakeApi(
-  over: Partial<Omit<Api, "shopify" | "suppliers" | "schedule" | "loginSessions" | "mappings" | "captures" | "recipes" | "stock" | "proposals">> & {
+  over: Partial<Omit<Api, "shopify" | "suppliers" | "schedule" | "loginSessions" | "mappings" | "captures" | "recipes" | "stock" | "proposals" | "notifications">> & {
     shopify?: Partial<ShopifyApi>;
     suppliers?: Partial<SuppliersApi>;
     schedule?: Partial<ScheduleApi>;
@@ -207,10 +207,11 @@ export function fakeApi(
     login: vi.fn().mockResolvedValue({ email: "owner@example.com" }),
     logout: vi.fn().mockResolvedValue(undefined),
     ...rest,
-    notifications: { list: vi.fn().mockResolvedValue([]), ...notifications },
+    notifications: { list: vi.fn().mockResolvedValue([]), markRead: vi.fn().mockResolvedValue(undefined), markAllRead: vi.fn().mockResolvedValue(undefined), ...notifications },
     proposals: {
       open: vi.fn().mockResolvedValue({ proposals: [], writePermission: { state: "ready", message: "Shopify allows this app to change stock." } }),
-      history: vi.fn().mockResolvedValue({ proposals: [], hasMore: false, page: 1 }),
+      openPage: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 10, writePermission: { state: "ready", message: "Shopify allows this app to change stock." } }),
+      history: vi.fn().mockResolvedValue({ proposals: [], hasMore: false, total: 0, page: 1, pageSize: 25 }),
       count: vi.fn().mockResolvedValue(0),
       approve: vi.fn().mockImplementation(async (_id, quantity) => aProposal({ state: "approved", approvedQuantity: quantity ?? 0 })),
       reject: vi.fn().mockImplementation(async () => aProposal({ state: "rejected" })),
@@ -228,6 +229,7 @@ export function fakeApi(
     },
     suppliers: {
       list: vi.fn().mockResolvedValue([]),
+      page: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 10 }),
       get: vi.fn().mockResolvedValue(aSupplier()),
       create: vi.fn().mockImplementation(async (input) => aSupplier({ ...input })),
       update: vi.fn().mockImplementation(async (_id, patch) => aSupplier({ ...patch })),
@@ -247,6 +249,7 @@ export function fakeApi(
     },
     mappings: {
       list: vi.fn().mockResolvedValue([]),
+      page: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 10 }),
       get: vi.fn().mockResolvedValue(aMapping()),
       create: vi.fn().mockImplementation(async (input) => aMapping({ ...input })),
       update: vi.fn().mockImplementation(async (_id, patch) => aMapping({ ...patch })),
@@ -273,6 +276,7 @@ export function fakeApi(
       save: vi.fn().mockResolvedValue({ id: "88888888-8888-4888-8888-888888888888", version: 1 }),
       test: vi.fn().mockResolvedValue({ results: [], passed: false }),
       activate: vi.fn().mockImplementation(async () => aRecipeVersion({ active: true })),
+      remove: vi.fn().mockResolvedValue(undefined),
       ...recipes,
     },
     stock: {

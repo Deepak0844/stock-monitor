@@ -1,4 +1,5 @@
 import type { FastifyInstance, RawReplyDefaultExpression, RawRequestDefaultExpression, RawServerDefault } from "fastify";
+import { z } from "zod";
 import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
 import type { createImportPreviewRepository, createMappingRepository, createObservationRepository, createProposalRepository, ObservationRecord, createSupplierRepository, createSupplierSessionRepository, MappingRow } from "@stock-monitor/db";
@@ -81,12 +82,34 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
     return checked.url;
   }
 
-  app.get<{ Querystring: { supplierId?: string; status?: string; search?: string } }>("/api/mappings", async (request) => {
-    const { supplierId, status, search } = request.query;
-    const rows = await mappings.list({ supplierId, linkStatus: status as never, search });
+  const pageQuery = z.object({
+    page: z.coerce.number().int().min(1),
+    pageSize: z.coerce.number().int().min(1).max(100).default(10),
+  });
+
+  const filterQuery = z.object({
+    supplierId: z.string().uuid().optional(),
+    status: z.enum(["not_checked", "works", "never_worked", "page_missing", "moved", "looks_different", "needs_login", "could_not_check"]).optional(),
+    search: z.string().trim().max(100).optional(),
+  });
+
+  // With no `page` this lists every link, which the dashboard and a supplier's rules page rely on.
+  app.get("/api/mappings", async (request) => {
+    const query = request.query as { page?: string; pageSize?: string };
+    const filters = filterQuery.safeParse(request.query);
+    if (!filters.success) throw new AppError(400, "invalid_input", "Check the search and status and try again.");
+    const { supplierId, status, search } = filters.data;
+    const filter = { supplierId, linkStatus: status, search: search || undefined };
     const latest = deps.observations ? await deps.observations.latestByMapping() : new Map<string, ObservationRecord>();
     const suggestions = deps.proposals ? await deps.proposals.latestByMapping() : new Map();
-    return { mappings: rows.map((row) => present(row, latest.get(row.id), suggestions.get(row.id))) };
+    if (query.page === undefined) {
+      const rows = await mappings.list(filter);
+      return { mappings: rows.map((row) => present(row, latest.get(row.id), suggestions.get(row.id))) };
+    }
+    const paging = pageQuery.safeParse(request.query);
+    if (!paging.success) throw new AppError(400, "invalid_input", "Check the page values and try again.");
+    const { rows, total } = await mappings.page({ ...filter, ...paging.data });
+    return { mappings: rows.map((row) => present(row, latest.get(row.id), suggestions.get(row.id))), total, page: paging.data.page, pageSize: paging.data.pageSize };
   });
 
   app.post("/api/mappings", async (request, reply) => {
@@ -145,9 +168,11 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
     return { ok: true };
   });
 
-  app.get<{ Querystring: { mapped?: string; search?: string } }>("/api/variants", async (request) => {
+  app.get<{ Querystring: { mapped?: string } }>("/api/variants", async (request) => {
     if (request.query.mapped !== "false") throw new AppError(400, "invalid_input", "Ask for the variants that are not mapped: mapped=false.");
-    return mappings.unmappedVariants({ search: request.query.search });
+    const search = z.string().trim().max(100).optional().safeParse((request.query as { search?: unknown }).search);
+    if (!search.success) throw new AppError(400, "invalid_input", "Check the search and try again.");
+    return mappings.unmappedVariants({ search: search.data || undefined });
   });
 
   app.patch<{ Params: { id: string } }>("/api/suppliers/:id/permission", async (request) => {

@@ -195,7 +195,7 @@ describe("shopify sync handler", () => {
     await connect();
     fake.setMode("wrong_organization");
     await handler()({});
-    expect((await repo().lastSyncRun())!.error).toMatch(/different organizations/);
+    expect((await repo().lastSyncRun())!.error).toMatch(/different organisations/);
     expect((await repo().getConnection())!.status).toBe("needs_reconnect");
   });
 

@@ -5,13 +5,15 @@ import { act, cleanup, render, screen, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { AppShell } from "./AppShell.js";
 import { navigate } from "../router.js";
+import type { NotificationsState } from "./useNotifications.js";
 
 beforeEach(() => window.history.replaceState(null, "", "/"));
 afterEach(cleanup);
 
+const quiet: NotificationsState = { items: [], unread: 0, loading: false, error: null, markRead: vi.fn(), markAllRead: vi.fn(), reload: vi.fn() };
 const setup = (onSignOut = vi.fn(), proposalCount?: number, attentionCount?: number) => {
   render(
-    <AppShell email="owner@example.com" onSignOut={onSignOut} proposalCount={proposalCount} attentionCount={attentionCount}>
+    <AppShell email="owner@example.com" onSignOut={onSignOut} proposalCount={proposalCount} attentionCount={attentionCount} notifications={quiet}>
       <h1>Page title</h1>
     </AppShell>,
   );
@@ -69,7 +71,7 @@ describe("AppShell", () => {
     const nav = screen.getByRole("navigation", { name: "Main" });
     const link = within(nav).getByRole("link", { name: "Proposals" });
     expect(link).toHaveAttribute("href", "/proposals");
-    expect(link.querySelector(".badge")).toBeNull();
+    expect(link.querySelector("[data-count]")).toBeNull();
   });
 
   it("shows how many things need attention beside Dashboard, and says so to a screen reader", () => {
@@ -114,8 +116,9 @@ describe("AppShell", () => {
 
   it("shows who is signed in and signs out on request", async () => {
     const { onSignOut, user } = setup();
+    await user.click(screen.getByRole("button", { name: "Account" }));
     expect(screen.getByText("owner@example.com")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    await user.click(screen.getByRole("menuitem", { name: "Sign out" }));
     expect(onSignOut).toHaveBeenCalledTimes(1);
   });
 
@@ -151,5 +154,46 @@ describe("AppShell", () => {
   it("shows the page inside the main area", () => {
     setup();
     expect(within(screen.getByRole("main")).getByRole("heading", { name: "Page title" })).toBeInTheDocument();
+  });
+});
+
+describe("AppShell top bar", () => {
+  it("shows the breadcrumb trail for the page and a notification bell", () => {
+    window.history.replaceState(null, "", "/suppliers/new");
+    setup();
+    const trail = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(within(trail).getByRole("link", { name: "Suppliers" })).toHaveAttribute("href", "/suppliers");
+    expect(within(trail).getByText("Add supplier")).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Notifications, none unread" })).toBeInTheDocument();
+  });
+
+  it("has a theme button whose name stays the same and whose pressed state says which theme is on", async () => {
+    const { user } = setup();
+    const button = screen.getByRole("button", { name: "Dark theme" });
+    const before = button.getAttribute("aria-pressed");
+    expect(["true", "false"]).toContain(before);
+    await user.click(button);
+    expect(screen.getByRole("button", { name: "Dark theme" })).toHaveAttribute("aria-pressed", before === "true" ? "false" : "true");
+    expect(document.documentElement.classList.contains("dark")).toBe(before !== "true");
+    document.documentElement.classList.remove("dark", "light");
+  });
+});
+
+describe("AppShell phone menu focus", () => {
+  it("moves focus to the first link when the menu opens, and back to the Menu button when Escape closes it", async () => {
+    const { user } = setup();
+    const menu = screen.getByRole("button", { name: "Menu" });
+    await user.click(menu);
+    expect(within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: "Dashboard" })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(menu).toHaveAttribute("aria-expanded", "false");
+    expect(menu).toHaveFocus();
+  });
+
+  it("puts focus on the page content, not the Menu button, after a link is followed", async () => {
+    const { user } = setup();
+    await user.click(screen.getByRole("button", { name: "Menu" }));
+    await user.click(within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: "Suppliers" }));
+    expect(screen.getByRole("main")).toHaveFocus();
   });
 });

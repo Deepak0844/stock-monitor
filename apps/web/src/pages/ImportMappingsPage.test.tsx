@@ -37,6 +37,27 @@ const choose = async (user: ReturnType<typeof userEvent.setup>, f = file()) => {
   await user.upload(screen.getByLabelText("Shopify product export (CSV)"), f);
 };
 
+describe("while the file is read", () => {
+  it("says so, with a shimmer, and the file chooser is off until it is done", async () => {
+    let finish!: (c: ImportColumns) => void;
+    const { user } = setup({ importColumns: vi.fn(() => new Promise<ImportColumns>((resolve) => (finish = resolve))) });
+    await choose(user);
+    expect(screen.getByRole("status")).toHaveTextContent("Reading the file…");
+    expect(screen.getByLabelText("Shopify product export (CSV)")).toBeDisabled();
+    finish(columns);
+    expect(await screen.findByLabelText("SKU column")).toBeInTheDocument();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("shows a spinner on Show preview while the preview is made", async () => {
+    const { user } = setup({ importPreview: vi.fn(() => new Promise<ImportPreview>(() => {})) });
+    await choose(user);
+    const button = await screen.findByRole("button", { name: "Show preview" });
+    await user.click(button);
+    expect(button).toHaveAttribute("aria-busy", "true");
+  });
+});
+
 describe("import", () => {
   it("reads the file, shows the suggested columns and lets the owner change them", async () => {
     const { api, user } = setup();

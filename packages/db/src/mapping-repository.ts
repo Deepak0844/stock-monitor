@@ -79,6 +79,13 @@ export function createMappingRepository<S extends Record<string, unknown>>(db: N
     return text.trim() ? or(ilike(shopifyVariants.productTitle, like), ilike(shopifyVariants.variantTitle, like), ilike(shopifyVariants.sku, like)) : undefined;
   };
 
+  const whereFor = (filter: MappingFilter) =>
+    and(
+      filter.supplierId ? eq(mappings.supplierId, filter.supplierId) : undefined,
+      filter.linkStatus ? eq(mappings.linkStatus, filter.linkStatus) : undefined,
+      filter.search ? search(filter.search) : undefined,
+    );
+
   const get = async (id: string): Promise<MappingRow | null> => {
     if (!UUID.test(id)) return null;
     const [row] = await joined().where(eq(mappings.id, id)).limit(1);
@@ -90,12 +97,26 @@ export function createMappingRepository<S extends Record<string, unknown>>(db: N
 
     async list(filter: MappingFilter): Promise<MappingRow[]> {
       if (filter.supplierId !== undefined && !UUID.test(filter.supplierId)) return [];
-      const where = and(
-        filter.supplierId ? eq(mappings.supplierId, filter.supplierId) : undefined,
-        filter.linkStatus ? eq(mappings.linkStatus, filter.linkStatus) : undefined,
-        filter.search ? search(filter.search) : undefined,
-      );
+      const where = whereFor(filter);
       return (await joined().where(where).orderBy(asc(shopifyVariants.productTitle), asc(shopifyVariants.variantTitle))) as MappingRow[];
+    },
+
+    /** One page of links in the same order as `list`, with how many match in all. */
+    async page(filter: MappingFilter & { page: number; pageSize: number }): Promise<{ rows: MappingRow[]; total: number }> {
+      if (filter.supplierId !== undefined && !UUID.test(filter.supplierId)) return { rows: [], total: 0 };
+      const where = whereFor(filter);
+      const rows = (await joined()
+        .where(where)
+        .orderBy(asc(shopifyVariants.productTitle), asc(shopifyVariants.variantTitle), asc(mappings.id))
+        .limit(filter.pageSize)
+        .offset((filter.page - 1) * filter.pageSize)) as MappingRow[];
+      const [row] = await db
+        .select({ n: count() })
+        .from(mappings)
+        .innerJoin(shopifyVariants, eq(shopifyVariants.variantId, mappings.variantId))
+        .innerJoin(suppliers, eq(suppliers.id, mappings.supplierId))
+        .where(where);
+      return { rows, total: Number(row?.n ?? 0) };
     },
 
     async forSupplier(supplierId: string): Promise<MappingRow[]> {

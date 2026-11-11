@@ -62,6 +62,8 @@ export type VariantItem = {
 };
 
 export type VariantPage = { items: VariantItem[]; total: number; page: number; pageSize: number };
+/** One page of a list, with how many there are in all. */
+export type Page<T> = { items: T[]; total: number; page: number; pageSize: number };
 export type VariantQuery = { page: number; pageSize: number; search?: string; warningsOnly?: boolean };
 
 export type ShopifyApi = {
@@ -143,8 +145,11 @@ export type PermissionInput = { status: Supplier["automationPermission"]; note: 
 
 export type SupplierInput = { name: string; websiteUrl: string; loginUrl: string | null };
 
+export type SupplierStatusFilter = "connected" | "needs_reconnect" | "blocked" | "paused" | "not_connected";
 export type SuppliersApi = {
   list(): Promise<Supplier[]>;
+  /** One page, searched and filtered on the server. */
+  page(query: { page: number; pageSize: number; search?: string; status?: SupplierStatusFilter }): Promise<Page<Supplier>>;
   get(id: string): Promise<Supplier>;
   create(input: SupplierInput): Promise<Supplier>;
   /** Only the fields given are changed. */
@@ -251,6 +256,8 @@ export type RecipesApi = {
   /** Runs a draft on the labelled saved pages and saves nothing. */
   test(supplierId: string, recipe: Recipe): Promise<RecipeTest>;
   activate(id: string): Promise<RecipeVersion>;
+  /** Hides a version that is not turned on. */
+  remove(id: string): Promise<void>;
 };
 export type StockApi = {
   checkLink(mappingId: string): Promise<void>;
@@ -282,6 +289,8 @@ export type ImportResult = { created: number; updated: number; unchanged: number
 
 export type MappingsApi = {
   list(filter?: MappingFilter): Promise<Mapping[]>;
+  /** One page, filtered on the server. */
+  page(query: MappingFilter & { page: number; pageSize: number }): Promise<Page<Mapping>>;
   get(id: string): Promise<Mapping>;
   create(input: MappingInput): Promise<Mapping>;
   update(id: string, patch: { url?: string; note?: string | null; region?: string | null; enabled?: boolean }): Promise<Mapping>;
@@ -334,6 +343,8 @@ export type AppNotification = {
 export type NotificationsApi = {
   /** What is open now, newest first. */
   list(): Promise<AppNotification[]>;
+  markRead(id: string): Promise<void>;
+  markAllRead(): Promise<void>;
 };
 
 export type ProposalState = "open" | "approved" | "applied" | "conflict" | "failed" | "rejected" | "expired" | "replaced";
@@ -369,7 +380,9 @@ export type ProposalSettings = { defaultQuantity: number; expiryHours: number };
 export type ProposalsApi = {
   /** Suggestions waiting for the owner, and ones approved and waiting for Shopify. */
   open(): Promise<{ proposals: Proposal[]; writePermission: WritePermission }>;
-  history(page: number): Promise<{ proposals: Proposal[]; hasMore: boolean; page: number }>;
+  /** One page of the suggestions waiting for the owner, and ones approved and waiting for Shopify. */
+  openPage(query: { page: number; pageSize: number }): Promise<Page<Proposal> & { writePermission: WritePermission }>;
+  history(page: number, pageSize?: number): Promise<{ proposals: Proposal[]; hasMore: boolean; total: number; page: number; pageSize: number }>;
   count(): Promise<number>;
   /** Approves one suggestion. Pass a number to change it first. */
   approve(id: string, quantity?: number): Promise<Proposal>;
@@ -484,6 +497,12 @@ const suppliers: SuppliersApi = {
   async list() {
     return (await request<{ suppliers: Supplier[] }>("/api/suppliers", { method: "GET" })).suppliers;
   },
+  page({ page, pageSize, search, status }) {
+    const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+    if (search) params.set("search", search);
+    if (status) params.set("status", status);
+    return request<Page<Supplier>>(`/api/suppliers?${params}`, { method: "GET" });
+  },
   get: (id) => supplier(`/api/suppliers/${encodeURIComponent(id)}`, { method: "GET" }),
   create: (input) => supplier("/api/suppliers", { method: "POST", json: input }),
   update: (id, patch) => supplier(`/api/suppliers/${encodeURIComponent(id)}`, { method: "PATCH", json: patch }),
@@ -538,6 +557,9 @@ const recipes: RecipesApi = {
   async activate(id) {
     return (await request<{ recipe: RecipeVersion }>(`/api/recipes/${enc(id)}/activate`, { method: "POST" })).recipe;
   },
+  async remove(id) {
+    await request(`/api/recipes/${enc(id)}`, { method: "DELETE" });
+  },
 };
 const stock: StockApi = {
   async checkLink(mappingId) {
@@ -557,6 +579,16 @@ const mappings: MappingsApi = {
     if (filter.status) params.set("status", filter.status);
     if (filter.search) params.set("search", filter.search);
     return (await request<{ mappings: Mapping[] }>(`/api/mappings?${params}`, { method: "GET" })).mappings;
+  },
+  async page({ page, pageSize, ...filter }) {
+    const params = new URLSearchParams();
+    if (filter.supplierId) params.set("supplierId", filter.supplierId);
+    if (filter.status) params.set("status", filter.status);
+    if (filter.search) params.set("search", filter.search);
+    params.set("page", String(page));
+    params.set("pageSize", String(pageSize));
+    const body = await request<{ mappings: Mapping[]; total: number; page: number; pageSize: number }>(`/api/mappings?${params}`, { method: "GET" });
+    return { items: body.mappings, total: body.total, page: body.page, pageSize: body.pageSize };
   },
   async get(id) {
     return (await request<{ mapping: Mapping }>(`/api/mappings/${enc(id)}`, { method: "GET" })).mapping;
@@ -587,11 +619,28 @@ const notifications: NotificationsApi = {
   async list() {
     return (await request<{ notifications: AppNotification[] }>("/api/notifications", { method: "GET" })).notifications;
   },
+  async markRead(id) {
+    await request(`/api/notifications/${enc(id)}/read`, { method: "POST", json: {} });
+  },
+  async markAllRead() {
+    await request("/api/notifications/read-all", { method: "POST", json: {} });
+  },
 };
 
 const proposals: ProposalsApi = {
   open: () => request("/api/proposals?tab=open", { method: "GET" }),
-  history: (page) => request(`/api/proposals?${new URLSearchParams({ tab: "history", page: String(page) })}`, { method: "GET" }),
+  async openPage({ page, pageSize }) {
+    const body = await request<{ proposals: Proposal[]; total: number; page: number; pageSize: number; writePermission: WritePermission }>(
+      `/api/proposals?${new URLSearchParams({ tab: "open", page: String(page), pageSize: String(pageSize) })}`,
+      { method: "GET" },
+    );
+    return { items: body.proposals, total: body.total, page: body.page, pageSize: body.pageSize, writePermission: body.writePermission };
+  },
+  history: (page, pageSize) => {
+    const params = new URLSearchParams({ tab: "history", page: String(page) });
+    if (pageSize !== undefined) params.set("pageSize", String(pageSize));
+    return request(`/api/proposals?${params}`, { method: "GET" });
+  },
   async count() {
     return (await request<{ open: number }>("/api/proposals/count", { method: "GET" })).open;
   },

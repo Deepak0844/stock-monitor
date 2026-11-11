@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Button } from "@/components/ui/button.js";
+import { Card } from "@/components/ui/card.js";
+import { Input, Select } from "@/components/ui/input.js";
+import { Skeleton } from "@/components/ui/skeleton.js";
 import { ApiError, type Api, type Mapping, type Supplier, type UnmappedVariant } from "../api.js";
+import { Field, ReadOnlyField } from "../components/Field.js";
 import { Notice } from "../components/Notice.js";
+import { PageHeader } from "../components/PageHeader.js";
 import { Link, navigate } from "../router.js";
 import { useTitle } from "../useTitle.js";
 
@@ -35,36 +41,39 @@ export function MappingFormPage({ api, id }: { api: Api; id?: string }) {
 
   return (
     <>
-      <div className="page-header">
-        <h1>{editing ? "Edit link" : "Add link"}</h1>
-        <p className="muted">{editing ? "Change the supplier page this variant is linked to." : "Link a Shopify variant to the same item on a supplier's website."}</p>
-      </div>
+      <PageHeader
+        title={editing ? "Edit link" : "Add link"}
+        description={editing ? "Change the supplier page this variant is linked to." : "Link a Shopify variant to the same item on a supplier's website."}
+      />
       {load.kind === "loading" && (
-        <p role="status" className="status">
-          Loading…
-        </p>
+        <Card className="flex max-w-2xl flex-col gap-4 p-6">
+          <p role="status" className="sr-only">
+            Loading…
+          </p>
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-2/3" />
+        </Card>
       )}
       {load.kind === "error" && (
-        <>
+        <div className="flex max-w-2xl flex-col items-start gap-3">
           <Notice kind="error" role="alert">
             {load.message}
           </Notice>
-          <div className="actions">
-            <Link to="/mappings" className="button secondary">
-              Back to links
-            </Link>
-          </div>
-        </>
+          <Button variant="outline" asChild>
+            <Link to="/mappings">Back to links</Link>
+          </Button>
+        </div>
       )}
       {load.kind === "ready" && (
-        <section className="panel">
+        <Card className="flex max-w-2xl flex-col gap-4 p-6">
           {load.mapping?.shopifyManaged && (
             <Notice kind="warning">
               This link is set from Shopify, from the supplier name and page address on the product. If you change it here, the next Sync puts Shopify's supplier and page address back. Change them in Shopify instead.
             </Notice>
           )}
           <MappingForm api={api} mapping={load.mapping} />
-        </section>
+        </Card>
       )}
     </>
   );
@@ -139,39 +148,24 @@ function MappingForm({ api, mapping }: { api: Api; mapping: Mapping | null }) {
     }
   }
 
-  const err = (key: Field) =>
-    errors[key] && (
-      <p id={`${key}-error`} className="field-error">
-        {errors[key]}
-      </p>
-    );
   const described = (key: Field) => (errors[key] ? { "aria-invalid": "true" as const, "aria-describedby": `${key}-error` } : {});
 
   return (
-    <form onSubmit={(e) => void submit(e)} noValidate className="connect-form">
+    <form onSubmit={(e) => void submit(e)} noValidate className="flex flex-col gap-5">
       {mapping ? (
         <>
-          <div className="field">
-            <p className="label">Variant</p>
-            <p>
-              {mapping.productTitle} · {mapping.variantTitle}
-            </p>
-          </div>
-          <div className="field">
-            <p className="label">Supplier</p>
-            <p>{mapping.supplierName}</p>
-          </div>
+          <ReadOnlyField label="Variant">
+            {mapping.productTitle} · {mapping.variantTitle}
+          </ReadOnlyField>
+          <ReadOnlyField label="Supplier">{mapping.supplierName}</ReadOnlyField>
         </>
       ) : (
         <>
-          <div className="field">
-            <label htmlFor="find">Find a variant</label>
-            <input id="find" type="search" autoComplete="off" value={find} onChange={(e) => setFind(e.target.value)} />
-            <p className="hint">Search by product, variant or SKU. Only variants with no link are listed.</p>
-          </div>
-          <div className="field">
-            <label htmlFor="variant">Variant</label>
-            <select id="variant" ref={refs.variant as React.RefObject<HTMLSelectElement>} value={variantId} onChange={(e) => setVariantId(e.target.value)} {...described("variant")}>
+          <Field id="find" label="Find a variant" hint="Search by product, variant or SKU. Only variants with no link are listed.">
+            <Input id="find" type="search" autoComplete="off" value={find} onChange={(e) => setFind(e.target.value)} />
+          </Field>
+          <Field id="variant" label="Variant" error={errors.variant}>
+            <Select id="variant" className="w-full" ref={refs.variant as React.RefObject<HTMLSelectElement>} value={variantId} onChange={(e) => setVariantId(e.target.value)} {...described("variant")}>
               <option value="">Choose a variant</option>
               {variantId && !variants.some((v) => v.variantId === variantId) && <option value={variantId}>Selected variant</option>}
               {variants.map((v) => (
@@ -180,58 +174,58 @@ function MappingForm({ api, mapping }: { api: Api; mapping: Mapping | null }) {
                   {v.sku ? ` · ${v.sku}` : ""}
                 </option>
               ))}
-            </select>
-            {err("variant")}
-          </div>
-          <div className="field">
-            <label htmlFor="supplier">Supplier</label>
-            <select id="supplier" ref={refs.supplier as React.RefObject<HTMLSelectElement>} value={supplierId} onChange={(e) => setSupplierId(e.target.value)} {...described("supplier")}>
+            </Select>
+          </Field>
+          <Field id="supplier" label="Supplier" error={errors.supplier}>
+            <Select id="supplier" className="w-full" ref={refs.supplier as React.RefObject<HTMLSelectElement>} value={supplierId} onChange={(e) => setSupplierId(e.target.value)} {...described("supplier")}>
               <option value="">Choose a supplier</option>
               {suppliers.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
                 </option>
               ))}
-            </select>
-            {err("supplier")}
-          </div>
+            </Select>
+          </Field>
         </>
       )}
 
-      <div className="field">
-        <label htmlFor="url">Supplier page address</label>
-        <input id="url" ref={refs.url as React.RefObject<HTMLInputElement>} type="text" inputMode="url" autoComplete="off" autoCapitalize="none" spellCheck={false} value={url} onChange={(e) => setUrl(e.target.value)} {...described("url")} />
-        <p className="hint">
-          The page for this exact item, on the supplier's own website, starting with https://.
-          {mapping && " Changing the address starts the link's history again."}
-        </p>
-        {err("url")}
-      </div>
-      <div className="field">
-        <label htmlFor="note">Note (optional)</label>
-        <input id="note" ref={refs.note as React.RefObject<HTMLInputElement>} type="text" autoComplete="off" value={note} onChange={(e) => setNote(e.target.value)} {...described("note")} />
-        {err("note")}
-      </div>
-
-      <div className="field">
-        <label htmlFor="region">Region (optional)</label>
-        <input id="region" ref={refs.region as React.RefObject<HTMLInputElement>} type="text" autoComplete="off" value={region} onChange={(e) => setRegion(e.target.value)} {...described("region")} />
-        <p className="hint">For suppliers that list stock by region: the region's name as the supplier writes it. Left empty, the supplier's default region is used.</p>
-        {err("region")}
-      </div>
+      <Field
+        id="url"
+        label="Supplier page address"
+        error={errors.url}
+        hint={
+          <>
+            The page for this exact item, on the supplier's own website, starting with https://.
+            {mapping && " Changing the address starts the link's history again."}
+          </>
+        }
+      >
+        <Input id="url" ref={refs.url as React.RefObject<HTMLInputElement>} type="text" inputMode="url" autoComplete="off" autoCapitalize="none" spellCheck={false} value={url} onChange={(e) => setUrl(e.target.value)} {...described("url")} />
+      </Field>
+      <Field id="note" label="Note (optional)" error={errors.note}>
+        <Input id="note" ref={refs.note as React.RefObject<HTMLInputElement>} type="text" autoComplete="off" value={note} onChange={(e) => setNote(e.target.value)} {...described("note")} />
+      </Field>
+      <Field
+        id="region"
+        label="Region (optional)"
+        error={errors.region}
+        hint="For suppliers that list stock by region: the region's name as the supplier writes it. Left empty, the supplier's default region is used."
+      >
+        <Input id="region" ref={refs.region as React.RefObject<HTMLInputElement>} type="text" autoComplete="off" value={region} onChange={(e) => setRegion(e.target.value)} {...described("region")} />
+      </Field>
 
       {formError && (
         <Notice kind="error" role="alert">
           {formError}
         </Notice>
       )}
-      <div className="actions">
-        <button type="submit" className="button primary" disabled={saving}>
-          {saving ? "Saving…" : mapping ? "Save changes" : "Add link"}
-        </button>
-        <Link to="/mappings" className="button secondary">
-          Cancel
-        </Link>
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" loading={saving}>
+          {mapping ? "Save changes" : "Add link"}
+        </Button>
+        <Button variant="outline" asChild>
+          <Link to="/mappings">Cancel</Link>
+        </Button>
       </div>
     </form>
   );

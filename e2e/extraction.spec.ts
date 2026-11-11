@@ -5,6 +5,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { OWNER_EMAIL, OWNER_PASSWORD } from "./constants.js";
 import { control } from "./control.js";
+import { expectSignedIn, rowMenu, settle } from "./ui.js";
 
 test.describe.configure({ mode: "serial" });
 
@@ -29,33 +30,39 @@ async function signIn(page: Page) {
   await page.getByLabel("Email").fill(OWNER_EMAIL);
   await page.getByLabel("Password", { exact: true }).fill(OWNER_PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+  await expectSignedIn(page);
 }
 
 async function openRules(page: Page) {
   await page.goto("/suppliers");
-  await page.getByRole("link", { name: "Stock rules Acme Supply" }).click();
+  await rowMenu(page, "Acme Supply", "Stock rules");
   await expect(page.getByRole("heading", { level: 1, name: "Stock rules" })).toBeVisible();
 }
 
 /** Captures one link's page and waits until it is saved, then labels it. */
 async function captureAndLabel(page: Page, name: string, expected: "in_stock" | "out_of_stock" | "cannot_tell") {
+  const allPages = page.getByRole("button", { name: "All pages" });
+  if (await allPages.isVisible()) await allPages.click(); // on a phone the list and the page take turns
   await page.getByLabel("Link to capture").selectOption({ label: "Blue Tee · Size 1 · B0361" });
-  await page.getByLabel("Name (optional)").fill(name);
-  await page.getByRole("button", { name: "Capture a page" }).click();
+  await page.getByRole("button", { name: "Capture", exact: true }).click();
   await expect(page.getByText(/Capturing the page/)).toBeVisible();
-  const view = page.getByRole("button", { name: `View ${name}` });
-  await expect(view).toBeVisible({ timeout: 20_000 });
-  await view.click();
-  await expect(page.getByRole("heading", { name: `Saved page: ${name}` })).toBeVisible();
+  const saved = page.getByRole("list", { name: "Saved pages" }).getByRole("button").filter({ hasText: "Unnamed capture" }).filter({ hasText: /Saved / });
+  await expect(saved.first()).toBeVisible({ timeout: 20_000 });
+  await saved.first().click();
+  await page.getByLabel("Name", { exact: true }).fill(name);
   await page.getByLabel("Answer you expect").selectOption(expected);
   await page.getByRole("button", { name: "Save label" }).click();
-  // The list shows the label once it is saved (the "Label saved." notice may still be there from an earlier label).
   const words = { in_stock: "In stock", out_of_stock: "Out of stock", cannot_tell: "Cannot tell" }[expected];
+  // Labelling twice in a row leaves two toasts on screen for a moment: look at the newest.
+  await expect(page.getByText("Label saved.").last()).toBeVisible();
+  // On a phone the list and the page take turns.
+  const back = page.getByRole("button", { name: "All pages" });
+  if (await back.isVisible()) await back.click();
   await expect(page.getByRole("list", { name: "Saved pages" }).getByRole("listitem").filter({ hasText: name })).toContainText(`Expected: ${words}`);
 }
 
 const scan = async (page: Page, label: string) => {
+  await settle(page);
   const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
   expect(result.violations.map((v) => `${label}: ${v.id}`), label).toEqual([]);
 };
@@ -78,10 +85,13 @@ test("the owner captures pages, labels examples, builds rules, is stopped by a f
   await expect(page.getByText(/No saved pages yet/)).toBeVisible();
 
   await captureAndLabel(page, "In stock page", "in_stock");
+  await page.getByRole("list", { name: "Saved pages" }).getByRole("button", { name: /In stock page/ }).click(); // on a phone this opens the page
   await expect(page.getByRole("img", { name: "Picture of the saved page" })).toBeVisible();
+  await page.getByRole("tab", { name: "Page text" }).click();
   await expect(page.getByText("Soft cotton.")).toBeVisible();
   await control.browser({ description: soldOut });
   await captureAndLabel(page, "Sold out page", "out_of_stock");
+  await page.getByRole("list", { name: "Saved pages" }).getByRole("button", { name: /Sold out page/ }).click();
   await expect(page.getByText(/Contains a picture of the page/).first()).toBeVisible();
 
   // A wrong rule: the sold-out example does not give the answer the owner expects.
@@ -96,7 +106,7 @@ test("the owner captures pages, labels examples, builds rules, is stopped by a f
   await expect(page.getByText(/Saved as version 1/)).toBeVisible();
   await page.getByRole("button", { name: "Test all examples" }).click();
   await expect(page.getByText("1 example does not give the answer you expect.")).toBeVisible();
-  await expect(page.getByText(/You expected Out of stock, the rules said Cannot tell/)).toBeVisible();
+  await expect(page.getByRole("list", { name: "Test results" })).toContainText("You expected Out of stock, the rules said Cannot tell");
   await expect(page.getByRole("button", { name: "Turn on version 1" })).toBeDisabled();
   await expect(page.getByText("Some examples do not give the answer you expect. Fix the rules and test again.")).toBeVisible();
 
@@ -138,7 +148,8 @@ test("a stock check shows in stock, out of stock and cannot tell, never calling 
   await expectCell(page, link, "The check did not work");
   await expect(row(page, link)).toContainText("Cannot tell");
 
-  await row(page, link).getByRole("button", { name: /^Show history/ }).click();
+  await row(page, link).getByRole("button", { name: /^More actions/ }).click();
+  await page.getByRole("menuitem", { name: "History" }).click();
   const history = page.getByRole("list", { name: /Stock history for/ });
   await expect(history.getByRole("listitem")).toHaveCount(4);
   await expect(history).toContainText("In stock");
@@ -178,14 +189,14 @@ test("a region chosen in the app is read from the page's table: a number, zero, 
   await signIn(page);
 
   await page.goto("/suppliers");
-  await page.getByRole("link", { name: "Edit Acme Supply" }).click();
+  await rowMenu(page, "Acme Supply", "Edit");
   await page.getByLabel("Default region (optional)").fill("Loughborough");
   await page.getByRole("button", { name: "Save region" }).click();
   await expect(page.getByText("Region saved.")).toBeVisible();
 
   for (const [size, region] of [["Size 2", "Manchester"], ["Size 3", "Cardiff"]] as const) {
     await page.goto("/mappings");
-    await page.getByRole("link", { name: `Edit link Blue Tee ${size}` }).click();
+    await rowMenu(page, `Blue Tee ${size}`, "Edit");
     await page.getByLabel("Region (optional)").fill(region);
     await page.getByRole("button", { name: "Save changes" }).click();
     await expect(page).toHaveURL(/\/mappings$/);
@@ -216,13 +227,14 @@ test("the stock screens pass the accessibility scan in light and dark, and never
   await page.goto("/mappings");
   await row(page, /Blue Tee.*Size 1/).getByRole("button", { name: /^Check stock/ }).click();
   await expectCell(page, /Blue Tee.*Size 1/, /In stock|Cannot tell/);
-  await row(page, /Blue Tee.*Size 1/).getByRole("button", { name: /^Show history/ }).click();
+  await row(page, /Blue Tee.*Size 1/).getByRole("button", { name: /^More actions/ }).click();
+  await page.getByRole("menuitem", { name: "History" }).click();
 
   for (const scheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: scheme });
     await page.goto(rulesUrl);
     await expect(page.getByRole("heading", { name: "Saved pages" })).toBeVisible();
-    await page.getByRole("button", { name: "View In stock page" }).click();
+    await page.getByRole("list", { name: "Saved pages" }).getByRole("button", { name: /In stock page/ }).click();
     await expect(page.getByRole("img", { name: "Picture of the saved page" })).toBeVisible();
     await scan(page, `rules ${scheme}`);
     await noSideScroll(page, `rules ${scheme}`);
@@ -233,7 +245,7 @@ test("the stock screens pass the accessibility scan in light and dark, and never
     await noSideScroll(page, `links ${scheme}`);
 
     await page.goto("/suppliers");
-    await page.getByRole("link", { name: "Edit Acme Supply" }).click();
+    await rowMenu(page, "Acme Supply", "Edit");
     await expect(page.getByLabel("Default region (optional)")).toBeVisible();
     await scan(page, `supplier ${scheme}`);
     await noSideScroll(page, `supplier ${scheme}`);

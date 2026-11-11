@@ -1,5 +1,6 @@
 import type { FastifyInstance, RawReplyDefaultExpression, RawRequestDefaultExpression, RawServerDefault } from "fastify";
 import type { Logger } from "pino";
+import { z } from "zod";
 import type { createAuditWriter } from "@stock-monitor/audit";
 import type { createSupplierRepository, SupplierInput, SupplierPatch } from "@stock-monitor/db";
 import { validateSupplierUrl, verifyPublicHost, type HostLookup } from "@stock-monitor/supplier-session";
@@ -87,7 +88,21 @@ export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit
   const record = (request: { user: { id: string } | null; id: string }, action: string, id: string, details?: Record<string, unknown>) =>
     audit.record({ actorUserId: request.user?.id, action, entityType: "supplier", entityId: id, details, requestId: request.id });
 
-  app.get("/api/suppliers", async () => ({ suppliers: await repo.list() }));
+  const pageQuery = z.object({
+    page: z.coerce.number().int().min(1),
+    pageSize: z.coerce.number().int().min(1).max(100).default(10),
+    search: z.string().trim().max(100).optional(),
+    status: z.enum(["connected", "needs_reconnect", "blocked", "paused", "not_connected"]).optional(),
+  });
+
+  // With no `page` this lists every supplier, which the dropdowns and the dashboard rely on.
+  app.get("/api/suppliers", async (request) => {
+    if ((request.query as { page?: unknown }).page === undefined) return { suppliers: await repo.list() };
+    const parsed = pageQuery.safeParse(request.query);
+    if (!parsed.success) throw new AppError(400, "invalid_input", "Check the search, status and page values and try again.");
+    const { items, total } = await repo.page({ ...parsed.data, search: parsed.data.search || undefined });
+    return { items, total, page: parsed.data.page, pageSize: parsed.data.pageSize };
+  });
 
   app.post("/api/suppliers", async (request, reply) => {
     const values = (await checked(request.body, false)) as SupplierInput;

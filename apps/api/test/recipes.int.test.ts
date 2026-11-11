@@ -20,7 +20,7 @@ const app = () =>
   });
 
 type Json = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
-async function call(method: "GET" | "POST" | "PATCH", url: string, payload?: unknown, cookie = true) {
+async function call(method: "GET" | "POST" | "PATCH" | "DELETE", url: string, payload?: unknown, cookie = true) {
   const res = await app().inject({ method, url, payload: payload as never, cookies: cookie ? { sid } : {} });
   return { status: res.statusCode, body: res.json() as Json };
 }
@@ -74,7 +74,7 @@ beforeEach(async () => {
 describe("every recipe route needs a signed-in owner", () => {
   const routes: [string, string][] = [
     ["GET", "/api/suppliers/x/recipes"], ["POST", "/api/suppliers/x/recipes"], ["POST", "/api/suppliers/x/recipes/test"],
-    ["POST", "/api/recipes/x/activate"], ["PATCH", "/api/suppliers/x/region"],
+    ["POST", "/api/recipes/x/activate"], ["DELETE", "/api/recipes/x"], ["PATCH", "/api/suppliers/x/region"],
   ];
   it.each(routes)("%s %s returns 401 without a session", async (method, url) => {
     expect((await call(method as "GET", url, undefined, false)).status).toBe(401);
@@ -164,6 +164,36 @@ describe("turning a version on", () => {
   it("an unknown or made-up recipe is a plain 404", async () => {
     expect((await call("POST", "/api/recipes/00000000-0000-4000-8000-000000000000/activate")).body.error.code).toBe("recipe_not_found");
     expect((await call("POST", "/api/recipes/not-an-id/activate")).status).toBe(404);
+  });
+});
+
+describe("deleting a version", () => {
+  it("removes an inactive version from the list, audits it, and never hands its number out again", async () => {
+    const one = await saved();
+    const two = await saved({ ...recipe, outOfStock: [] });
+    expect((await call("DELETE", `/api/recipes/${two.id}`)).body).toEqual({ ok: true });
+    expect((await call("GET", `/api/suppliers/${acme}/recipes`)).body.recipes.map((r: Json) => r.version)).toEqual([1]);
+    expect((await events("recipe.deleted")).map((e) => e.details.version)).toEqual([2]);
+    expect((await saved()).version).toBe(3);
+    expect(one.version).toBe(1);
+  });
+
+  it("refuses the version that is turned on, with a plain message, and keeps it", async () => {
+    await example(page(), "in_stock");
+    const one = await saved();
+    await call("POST", `/api/recipes/${one.id}/activate`);
+    const r = await call("DELETE", `/api/recipes/${one.id}`);
+    expect(r.status).toBe(409);
+    expect(r.body.error).toMatchObject({ code: "recipe_active", message: "Turn another version on first." });
+    expect((await createRecipeRepository(t.appDb).active(acme))?.id).toBe(one.id);
+  });
+
+  it("cannot turn a deleted version on, and a second delete is a plain 404", async () => {
+    const one = await saved();
+    await call("DELETE", `/api/recipes/${one.id}`);
+    expect((await call("POST", `/api/recipes/${one.id}/activate`)).status).toBe(404);
+    expect((await call("DELETE", `/api/recipes/${one.id}`)).body.error.code).toBe("recipe_not_found");
+    expect((await call("DELETE", "/api/recipes/not-an-id")).status).toBe(404);
   });
 });
 

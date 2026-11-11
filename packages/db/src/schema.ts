@@ -315,6 +315,8 @@ export const stockRecipes = pgTable(
     active: boolean("active").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     activatedAt: timestamp("activated_at", { withTimezone: true }),
+    // A deleted version is hidden, not removed, so its number is never used again and old answers keep meaning one thing.
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (t) => [
     uniqueIndex("stock_recipes_supplier_version").on(t.supplierId, t.version),

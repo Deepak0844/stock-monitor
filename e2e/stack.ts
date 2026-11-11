@@ -47,6 +47,18 @@ import {
 const webRoot = fileURLToPath(new URL("../apps/web/dist", import.meta.url));
 const logger = createLogger({ level: "warn" });
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Two journeys that run side by side can make PostgreSQL stop one of two crossing writes (a deadlock). That one is safe to run again. */
+async function truncate(sql: string) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await db.pool.query(sql);
+      return;
+    } catch (error) {
+      if ((error as { code?: string }).code !== "40P01" || attempt >= 5) throw error;
+      await sleep(200);
+    }
+  }
+}
 
 const db = await startTestDb();
 await createOwner(db.appDb, { email: OWNER_EMAIL, password: OWNER_PASSWORD });
@@ -130,14 +142,14 @@ const control = createServer(async (req, res) => {
   };
   try {
     if (req.method === "POST" && req.url === "/control/reset") {
-      await db.pool.query("truncate shopify_connection, shopify_variants, shopify_sync_runs cascade");
+      await truncate("truncate shopify_connection, shopify_variants, shopify_sync_runs cascade");
       fake.setCredentials({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET });
       fake.setMode("ok");
       serve(DEFAULT_SCOPES);
       return reply(200);
     }
     if (req.method === "POST" && req.url === "/control/reset-suppliers") {
-      await db.pool.query("truncate suppliers cascade");
+      await truncate("truncate suppliers cascade");
       resetBrowser();
       await vnc.setAvailable(true);
       return reply(200);
@@ -145,7 +157,7 @@ const control = createServer(async (req, res) => {
     if (req.method === "POST" && req.url === "/control/reset-mappings") {
       // A clean slate for the link journeys: three variants Shopify has, one it removed, and one connected supplier
       // whose permission is not recorded yet. They run in their own projects, after every other journey.
-      await db.pool.query("truncate suppliers, shopify_variants, import_previews, audit_events cascade");
+      await truncate("truncate suppliers, shopify_variants, import_previews, audit_events cascade");
       resetBrowser();
       for (const [id, sku, title, removed] of [["v1", "B0361", "Large", false], ["v2", "B0362", "Small", false], ["v3", "B0363", "Medium", false], ["old", "B0000", "Retired", true]] as const) {
         await db.pool.query(
@@ -163,7 +175,7 @@ const control = createServer(async (req, res) => {
     if (req.method === "POST" && req.url === "/control/reset-extraction") {
       // A clean slate for the stock rule journeys: six variants, each with a link to one connected supplier that is allowed
       // to be checked, and no rules, captures or answers. They run in their own projects, after every other journey.
-      await db.pool.query("truncate suppliers, shopify_variants, import_previews, audit_events cascade");
+      await truncate("truncate suppliers, shopify_variants, import_previews, audit_events cascade");
       resetBrowser();
       const made = await suppliers.create({ name: "Acme Supply", websiteUrl: "https://shop.acme.example/", loginUrl: null, checkIntervalMinutes: 60 });
       if (!made.ok) return reply(500, { error: "seed failed" });
@@ -184,7 +196,7 @@ const control = createServer(async (req, res) => {
       // A clean slate for the suggestion journeys: three variants, stocked at 4 in the fake store and synced, each linked to one
       // connected, allowed supplier with stock rules on, and a Shopify connection that may or may not change stock.
       const { scopes = ["read_products", "read_inventory", "write_inventory"] } = (body ? JSON.parse(body) : {}) as { scopes?: string[] };
-      await db.pool.query("truncate suppliers, shopify_variants, shopify_connection, shopify_sync_runs, import_previews, audit_events, app_settings cascade");
+      await truncate("truncate suppliers, shopify_variants, shopify_connection, shopify_sync_runs, import_previews, audit_events, app_settings cascade");
       resetBrowser();
       catalog.setVariants([1, 2, 3].map((n) => makeVariant(n, { productTitle: "Blue Tee", title: `Size ${n}`, sku: `B036${n}`, stock: { [LOC_A]: 4 } })));
       catalog.writes.length = 0; // the count of accepted stock writes starts again with each journey

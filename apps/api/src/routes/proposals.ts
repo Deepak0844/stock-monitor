@@ -95,9 +95,17 @@ export function registerProposalRoutes(app: App, deps: ProposalRoutesDeps, audit
     if (!query.success) throw new AppError(400, "bad_request", "The request was not valid.");
     const { tab, page, pageSize } = query.data;
     const permission = await writePermission();
-    if (tab === "open") return { proposals: (await proposals.open()).map(present), writePermission: permission };
+    if (tab === "open") {
+      // With no `page` this lists every open suggestion, as before.
+      if ((request.query as { page?: unknown }).page === undefined) {
+        const all = (await proposals.open()).map(present);
+        return { proposals: all, total: all.length, writePermission: permission };
+      }
+      const { items, total } = await proposals.openPage(pageSize, (page - 1) * pageSize);
+      return { proposals: items.map(present), total, page, pageSize, writePermission: permission };
+    }
     const rows = await proposals.history(pageSize + 1, (page - 1) * pageSize);
-    return { proposals: rows.slice(0, pageSize).map(present), hasMore: rows.length > pageSize, page, writePermission: permission };
+    return { proposals: rows.slice(0, pageSize).map(present), hasMore: rows.length > pageSize, total: await proposals.historyTotal(), page, pageSize, writePermission: permission };
   });
 
   app.get("/api/proposals/count", async () => ({ open: (await proposals.open()).filter((p) => p.state === "open").length }));
