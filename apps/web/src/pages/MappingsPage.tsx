@@ -21,6 +21,7 @@ import { formatDay, formatWhen } from "../format.js";
 import { useListParams } from "../lib/useListParams.js";
 import { Link } from "../router.js";
 import { useTitle } from "../useTitle.js";
+import { toast } from "../lib/toast.js";
 
 const SHOW_UNMAPPED = 50;
 const SEARCH_DELAY_MS = 300;
@@ -64,7 +65,6 @@ export function MappingsPage({ api }: { api: Api }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [done, setDone] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<Mapping | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [q, setQ] = useState(search);
@@ -139,7 +139,6 @@ export function MappingsPage({ api }: { api: Api }) {
   async function run(key: string, work: () => Promise<void>) {
     setBusyKey(key);
     setActionError(null);
-    setDone(null);
     try {
       await work();
     } catch (e) {
@@ -155,26 +154,26 @@ export function MappingsPage({ api }: { api: Api }) {
     run(`link:${m.id}`, async () => {
       await api.mappings.checkLink(m.id);
       refreshSoon(CHECK_REFRESHES, (list) => list.find((x) => x.id === m.id)?.lastLinkCheckAt !== m.lastLinkCheckAt);
-      setDone(`A check of ${m.productTitle} (${m.variantTitle}) has started. Its status will update in a moment.`);
+      toast(`A check of ${m.productTitle} (${m.variantTitle}) has started. Its status will update in a moment.`);
     });
   const checkStock = (m: Mapping) =>
     run(`stock:${m.id}`, async () => {
       await api.stock.checkLink(m.id);
       refreshSoon(CHECK_REFRESHES, (list) => list.find((x) => x.id === m.id)?.latestStock?.observedAt !== m.latestStock?.observedAt);
-      setDone(`A stock check of ${m.productTitle} (${m.variantTitle}) has started. The answer will appear here in a moment.`);
+      toast(`A stock check of ${m.productTitle} (${m.variantTitle}) has started. The answer will appear here in a moment.`);
     });
   const supplier = suppliers.find((s) => s.id === supplierId);
   const checkAllStock = (s: Supplier) =>
     run("all-stock", async () => {
       const n = await api.stock.checkSupplier(s.id);
       refreshSoon(RUN_REFRESHES);
-      setDone(`Checking stock for ${n} ${n === 1 ? "link" : "links"} for ${s.name}, one page at a time. Answers will appear as they finish.`);
+      toast(`Checking stock for ${n} ${n === 1 ? "link" : "links"} for ${s.name}, one page at a time. Answers will appear as they finish.`);
     });
   const checkAll = (s: Supplier) =>
     run("all-links", async () => {
       const n = await api.mappings.checkSupplierLinks(s.id);
       refreshSoon(RUN_REFRESHES);
-      setDone(`Checking ${n} ${n === 1 ? "link" : "links"} for ${s.name}, one page at a time. Statuses will update as they finish.`);
+      toast(`Checking ${n} ${n === 1 ? "link" : "links"} for ${s.name}, one page at a time. Statuses will update as they finish.`);
     });
   const toggleHistory = (m: Mapping) =>
     run(`history:${m.id}`, async () => {
@@ -183,7 +182,7 @@ export function MappingsPage({ api }: { api: Api }) {
     });
   const remove = async (m: Mapping) => {
     await api.mappings.remove(m.id);
-    setDone(`Deleted the link for ${m.productTitle} (${m.variantTitle}).`);
+    toast(`Deleted the link for ${m.productTitle} (${m.variantTitle}).`);
     load();
   };
 
@@ -320,13 +319,6 @@ export function MappingsPage({ api }: { api: Api }) {
           </Notice>
         </div>
       )}
-      <div aria-live="polite" className={done ? "mb-4" : undefined}>
-        {done && (
-          <Notice kind="success" role="status">
-            {done}
-          </Notice>
-        )}
-      </div>
       {loading && data === null && !loadError && (
         <p role="status" className="sr-only">
           Loading links…

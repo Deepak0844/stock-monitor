@@ -13,6 +13,7 @@ import { ANSWER_WORDS, captureFailureWords, reasonWords } from "../components/st
 import { formatWhen } from "../format.js";
 import { Link } from "../router.js";
 import { useTitle } from "../useTitle.js";
+import { toast } from "../lib/toast.js";
 
 const POLL_MS = 3000;
 const POLLS = 20;
@@ -29,7 +30,6 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const [started, setStarted] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [test, setTest] = useState<RecipeTest | null>(null);
   const [mappingId, setMappingId] = useState("");
@@ -71,7 +71,6 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
   async function run(work: () => Promise<void>) {
     setBusy(true);
     setError(null);
-    setDone(null);
     try {
       await work();
     } catch (e) {
@@ -83,7 +82,6 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
 
   async function requestCapture() {
     setCaptureError(null);
-    setDone(null);
     if (!mappingId) return setCaptureError("Choose the link whose page you want to capture.");
     setBusy(true);
     try {
@@ -91,7 +89,7 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
       await api.captures.request(supplierId, { mappingId, ...(name ? { name } : {}) });
       polls.current = 0;
       setCaptureName("");
-      setDone("Capturing the page. It will appear in the list in a moment.");
+      toast("Capturing the page. It will appear in the list in a moment.");
       await loadCaptures();
     } catch (e) {
       setCaptureError(message(e));
@@ -110,7 +108,7 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
   const saveLabel = (c: CaptureDetail) =>
     run(async () => {
       await api.captures.label(c.id, { name: labelName.trim(), expected: labelExpected === "" ? null : labelExpected });
-      setDone("Label saved.");
+      toast("Label saved.");
       setTest(null);
       await loadCaptures();
     });
@@ -119,7 +117,7 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
     setCaptures((list) => list.filter((x) => x.id !== c.id));
     if (viewing?.id === c.id) setViewing(null);
     setTest(null);
-    setDone("Deleted the saved page.");
+    toast("Deleted the saved page.");
   };
   const runTest = () =>
     run(async () => {
@@ -128,13 +126,13 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
   const save = () =>
     run(async () => {
       const saved = await api.recipes.save(supplierId, toRecipe(draft));
-      setDone(`Saved as version ${saved.version}. It is not turned on yet.`);
+      toast(`Saved as version ${saved.version}. It is not turned on yet.`);
       await loadVersions();
     });
   const turnOn = (v: RecipeVersion) =>
     run(async () => {
       await api.recipes.activate(v.id);
-      setDone(`Version ${v.version} is turned on. Stock checks use it now.`);
+      toast(`Version ${v.version} is turned on. Stock checks use it now.`);
       await loadVersions();
     });
 
@@ -185,13 +183,6 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
             {error}
           </Notice>
         )}
-        <div aria-live="polite">
-          {done && (
-            <Notice kind="success" role="status">
-              {done}
-            </Notice>
-          )}
-        </div>
 
         <Panel
           id="pages-heading"

@@ -7,6 +7,7 @@ import type { Api, CheckRun, ScheduleRow, Supplier } from "../api.js";
 import { Field } from "./Field.js";
 import { Notice } from "./Notice.js";
 import { INTERVAL_CHOICES, runSummary, whenWords } from "./scheduleWords.js";
+import { toast } from "../lib/toast.js";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong. Please try again.");
 
@@ -23,7 +24,6 @@ export function SchedulePanel({ api, supplier }: { api: Api; supplier: Supplier 
   const [row, setRow] = useState<ScheduleRow | null>(null);
   const [runs, setRuns] = useState<CheckRun[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const load = () => {
@@ -35,12 +35,11 @@ export function SchedulePanel({ api, supplier }: { api: Api; supplier: Supplier 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError(null);
-    setSaved(false);
     if (!anyTime && from === until) return setError("Choose a start and an end time that are different.");
     setSaving(true);
     try {
       await api.schedule.set(supplier.id, { intervalMinutes: interval === "off" ? null : Number(interval), window: anyTime ? null : { start: from, end: until } });
-      setSaved(true);
+      toast("Automatic checks saved.");
       load();
     } catch (e) {
       setError(message(e));
@@ -102,7 +101,6 @@ export function SchedulePanel({ api, supplier }: { api: Api; supplier: Supplier 
               {error}
             </Notice>
           )}
-          <div aria-live="polite">{saved && <Notice kind="success" role="status">Automatic checks saved.</Notice>}</div>
           <div>
             <Button type="submit" variant="outline" loading={saving}>
               Save automatic checks

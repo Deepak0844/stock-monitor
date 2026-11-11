@@ -5,6 +5,7 @@ import type { Api, ShopifyConnection, ShopifyLocation } from "../../api.js";
 import { Field } from "../../components/Field.js";
 import { Notice } from "../../components/Notice.js";
 import { Panel } from "../../components/Panel.js";
+import { toast } from "../../lib/toast.js";
 
 type Props = {
   api: Api;
@@ -18,7 +19,6 @@ export function LocationCard({ api, connection, onChosen }: Props) {
   const [locations, setLocations] = useState<ShopifyLocation[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -36,11 +36,10 @@ export function LocationCard({ api, connection, onChosen }: Props) {
     if (!id) return;
     setSaving(true);
     setError(null);
-    setSaved(null);
     try {
       const location = await api.shopify.chooseLocation(id);
       onChosen(location);
-      setSaved(`Using ${location.name}.`);
+      toast(`Using ${location.name}.`);
     } catch (e) {
       setError(message(e));
     } finally {
@@ -84,7 +83,6 @@ export function LocationCard({ api, connection, onChosen }: Props) {
         </div>
       )}
 
-      <div aria-live="polite">{saved && <Notice kind="success">{saved}</Notice>}</div>
     </Panel>
   );
 }

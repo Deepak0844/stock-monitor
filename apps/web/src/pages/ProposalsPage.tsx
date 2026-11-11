@@ -18,6 +18,7 @@ import { badgeVariant } from "../components/tone.js";
 import { formatWhen } from "../format.js";
 import { useListParams, type ListParams } from "../lib/useListParams.js";
 import { useTitle } from "../useTitle.js";
+import { toast } from "../lib/toast.js";
 
 const POLL_MS = 5000;
 const message = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong. Please try again.");
@@ -133,7 +134,6 @@ function History({ api, params }: { api: Api; params: ListParams }) {
   const { page, pageSize, set } = params;
   const [data, setData] = useState<{ items: Proposal[]; total: number } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [refreshed, setRefreshed] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -155,10 +155,9 @@ function History({ api, params }: { api: Api; params: ListParams }) {
 
   async function refresh(p: Proposal) {
     setRefreshError(null);
-    setRefreshed(false);
     try {
       await api.proposals.refresh(p.id);
-      setRefreshed(true);
+      toast("Reading Shopify again. If a suggestion still applies, it will appear under Waiting in a moment.");
     } catch (e) {
       setRefreshError(message(e));
     }
@@ -199,13 +198,6 @@ function History({ api, params }: { api: Api; params: ListParams }) {
 
   return (
     <>
-      {refreshed && (
-        <div className="mb-4">
-          <Notice kind="info" role="status">
-            Reading Shopify again. If a suggestion still applies, it will appear under Waiting in a moment.
-          </Notice>
-        </div>
-      )}
       {refreshError && (
         <div className="mb-4">
           <Notice kind="error" role="alert">

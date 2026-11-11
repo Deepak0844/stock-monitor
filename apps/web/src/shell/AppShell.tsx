@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { CircleUser, LogOut, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
+import { Toaster } from "@/components/ui/toaster.js";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu.js";
 import { cn } from "@/lib/utils.js";
 import { Logo } from "../components/Logo.js";
@@ -109,6 +110,7 @@ export function AppShell({ email, onSignOut, children, notifications, proposalCo
         </nav>
       </aside>
 
+      <Toaster />
       <div className="min-w-0">
         <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-border bg-card px-4 py-2.5 sm:px-6">
           <Button variant="outline" className="lg:hidden" aria-expanded={open} aria-controls="main-nav" onClick={() => setOpen((o) => !o)}>

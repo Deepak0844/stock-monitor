@@ -5,6 +5,7 @@ import type { Api, Supplier } from "../api.js";
 import { formatDay } from "../format.js";
 import { Field } from "./Field.js";
 import { Notice } from "./Notice.js";
+import { toast } from "../lib/toast.js";
 
 const WORDS: Record<Supplier["automationPermission"], string> = { unknown: "Not recorded", granted: "Allowed", not_granted: "Not allowed" };
 const MEANING: Record<Supplier["automationPermission"], string> = {
@@ -24,13 +25,11 @@ export function PermissionPanel({ api, supplier }: { api: Api; supplier: Supplie
   const [pause, setPause] = useState(String(supplier.checkPauseSeconds));
   const [pauseError, setPauseError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError(null);
-    setSaved(false);
     const seconds = Number(pause);
     if (!/^\d+$/.test(pause.trim()) || seconds < 1 || seconds > 3600) return setPauseError("Enter a whole number of seconds from 1 to 3600.");
     setPauseError(null);
@@ -38,7 +37,7 @@ export function PermissionPanel({ api, supplier }: { api: Api; supplier: Supplie
     try {
       const updated = await api.suppliers.setPermission(supplier.id, { status, note: note.trim() || null, pauseSeconds: seconds });
       setStatus(updated.automationPermission);
-      setSaved(true);
+      toast("Permission saved.");
     } catch (e) {
       setError(message(e));
     } finally {
@@ -77,7 +76,6 @@ export function PermissionPanel({ api, supplier }: { api: Api; supplier: Supplie
             {error}
           </Notice>
         )}
-        <div aria-live="polite">{saved && <Notice kind="success" role="status">Permission saved.</Notice>}</div>
         <div>
           <Button type="submit" variant="outline" loading={saving}>
             Save permission
@@ -92,17 +90,15 @@ export function PermissionPanel({ api, supplier }: { api: Api; supplier: Supplie
 export function RegionPanel({ api, supplier }: { api: Api; supplier: Supplier }) {
   const [region, setRegion] = useState(supplier.defaultRegion ?? "");
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError(null);
-    setSaved(false);
     setSaving(true);
     try {
       await api.suppliers.setRegion(supplier.id, region.trim() || null);
-      setSaved(true);
+      toast("Region saved.");
     } catch (e) {
       setError(message(e));
     } finally {
@@ -125,7 +121,6 @@ export function RegionPanel({ api, supplier }: { api: Api; supplier: Supplier })
           {error}
         </Notice>
       )}
-      <div aria-live="polite">{saved && <Notice kind="success" role="status">Region saved.</Notice>}</div>
       <div>
         <Button type="submit" variant="outline" loading={saving}>
           Save region

@@ -57,7 +57,8 @@ describe("when there is nothing to show", () => {
 describe("the list", () => {
   it("is a real table with named columns", async () => {
     setup(async () => aPage(some(2)));
-    const table = await screen.findByRole("table", { name: "Products from Shopify" });
+    await screen.findByText("Product 1");
+    const table = screen.getByRole("table", { name: "Products from Shopify" });
     for (const name of ["Product", "Variant", "SKU", "Available", "Notes"]) {
       expect(within(table).getByRole("columnheader", { name })).toBeInTheDocument();
     }

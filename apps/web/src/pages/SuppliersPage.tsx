@@ -18,6 +18,7 @@ import { intervalWords, runSummary, whenWords } from "../components/scheduleWord
 import { formatWhen } from "../format.js";
 import { Link } from "../router.js";
 import { useTitle } from "../useTitle.js";
+import { toast } from "../lib/toast.js";
 
 const CHECK_REFRESH_MS = 4000;
 const CHECK_REFRESHES = 12;
@@ -96,7 +97,6 @@ export function SuppliersPage({ api }: { api: Api }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [done, setDone] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<Supplier | null>(null);
   const [checkingId, setCheckingId] = useState<string | null>(null);
   const [q, setQ] = useState(search);
@@ -167,7 +167,6 @@ export function SuppliersPage({ api }: { api: Api }) {
   };
   async function act(work: () => Promise<void>) {
     setActionError(null);
-    setDone(null);
     try {
       await work();
     } catch (e) {
@@ -196,13 +195,13 @@ export function SuppliersPage({ api }: { api: Api }) {
       } finally {
         setCheckingId(null);
       }
-      setDone(`A check of ${s.name} has started. Its status will update in a moment.`);
+      toast(`A check of ${s.name} has started. Its status will update in a moment.`);
       refreshSoon(CHECK_REFRESHES, (list) => list.find((x) => x.id === s.id)?.lastSessionCheckAt !== s.lastSessionCheckAt);
     });
   const remove = async (s: Supplier) => {
     await api.suppliers.remove(s.id);
     setAll((list) => list?.filter((x) => x.id !== s.id) ?? null);
-    setDone(`Deleted ${s.name}.`);
+    toast(`Deleted ${s.name}.`);
     load();
   };
 
@@ -313,13 +312,6 @@ export function SuppliersPage({ api }: { api: Api }) {
           </Notice>
         </div>
       )}
-      <div aria-live="polite" className={done ? "mb-4" : undefined}>
-        {done && (
-          <Notice kind="success" role="status">
-            {done}
-          </Notice>
-        )}
-      </div>
 
       {loading && data === null && !loadError && (
         <p role="status" className="sr-only">
