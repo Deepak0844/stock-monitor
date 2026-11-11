@@ -65,38 +65,47 @@ function isLoginAddress(url: string, loginUrl: string): boolean {
  * "ok" never means more than "this looks like the real, working page".
  */
 export function classifyPage(facts: PageFacts): PageClass {
+  return explainPage(facts).result;
+}
+
+/** Same answer as `classifyPage`, plus which rule decided it. The rule is a fixed code, never page content. */
+export function explainPage(facts: PageFacts): { result: PageClass; signal: string } {
   const { page } = facts;
-  if (!page) return "unreachable";
+  if (!page) return { result: "unreachable", signal: "no_page" };
 
   const { status } = page;
-  if (status !== null && status >= 500) return "unreachable"; // the supplier's server is struggling: try again later
+  if (status !== null && status >= 500) return { result: "unreachable", signal: "status_5xx" }; // the supplier's server is struggling: try again later
 
   const title = normalise(page.title);
   const text = normalise(page.text);
   const short = text.length <= SHORT_PAGE;
   const says = (words: RegExp[]) => matches(words, title) || (short && matches(words, text));
 
-  if (page.hasChallengeWidget || says(CAPTCHA_WORDS)) return "captcha";
-  if (status === 403 || status === 429 || says(BLOCK_WORDS)) return "blocked";
+  if (page.hasChallengeWidget) return { result: "captcha", signal: "challenge_widget" };
+  if (says(CAPTCHA_WORDS)) return { result: "captcha", signal: "captcha_words" };
+  if (status === 403 || status === 429) return { result: "blocked", signal: `status_${status}` };
+  if (says(BLOCK_WORDS)) return { result: "blocked", signal: "block_words" };
 
   let loginAddress: boolean;
   try {
     loginAddress = LOGIN_PATH.test(new URL(page.finalUrl).pathname) || (!!facts.loginUrl && isLoginAddress(page.finalUrl, facts.loginUrl));
   } catch {
-    return "unknown";
+    return { result: "unknown", signal: "bad_address" };
   }
-  if (status === 401 || page.hasPasswordField || loginAddress || matches(LOGIN_WORDS, title) || matches(LOGIN_WORDS, text)) {
-    return "login_required";
-  }
+  const login = status === 401 ? "status_401" : page.hasPasswordField ? "password_field" : loginAddress ? "login_address" : matches(LOGIN_WORDS, title) ? "login_words_title" : matches(LOGIN_WORDS, text) ? "login_words_text" : null;
+  if (login) return { result: "login_required", signal: login };
 
   // Everything below is about whether this really is the working page.
   let sameSite: boolean;
   try {
     sameSite = hostOf(page.finalUrl) === hostOf(facts.requestedUrl);
   } catch {
-    return "unknown";
+    return { result: "unknown", signal: "bad_address" };
   }
   const answered = status !== null && status >= 200 && status < 300;
-  if (!answered || !sameSite || text.length < MIN_CONTENT || says(ERROR_WORDS)) return "unknown";
-  return "ok";
+  if (!answered) return { result: "unknown", signal: "not_2xx" };
+  if (!sameSite) return { result: "unknown", signal: "other_site" };
+  if (text.length < MIN_CONTENT) return { result: "unknown", signal: "too_little_text" };
+  if (says(ERROR_WORDS)) return { result: "unknown", signal: "error_words" };
+  return { result: "ok", signal: "looks_real" };
 }

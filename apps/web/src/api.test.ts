@@ -303,3 +303,57 @@ describe("checking a connection and reading messages", () => {
     ]);
   });
 });
+
+describe("paged lists and notification actions", () => {
+  const sent = (fetchMock: ReturnType<typeof vi.fn>) => fetchMock.mock.calls[0]![0] as string;
+  const reply = (body: unknown) => {
+    const fetchMock = vi.fn().mockResolvedValue(respond(200, body));
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  };
+
+  it("asks the server for a page of suppliers, leaving out an empty search", async () => {
+    const fetchMock = reply({ items: [], total: 0, page: 2, pageSize: 10 });
+    const page = await api.suppliers.page({ page: 2, pageSize: 10, search: "ab", status: "paused" });
+    expect(sent(fetchMock)).toBe("/api/suppliers?page=2&pageSize=10&search=ab&status=paused");
+    expect(page).toEqual({ items: [], total: 0, page: 2, pageSize: 10 });
+    const second = reply({ items: [], total: 0, page: 1, pageSize: 10 });
+    await api.suppliers.page({ page: 1, pageSize: 10, search: "" });
+    expect(sent(second)).toBe("/api/suppliers?page=1&pageSize=10");
+  });
+
+  it("asks for a page of links and returns them as items", async () => {
+    const fetchMock = reply({ mappings: [{ id: "m1" }], total: 11, page: 2, pageSize: 10 });
+    const page = await api.mappings.page({ page: 2, pageSize: 10, supplierId: "s1", status: "works", search: "tee" });
+    expect(sent(fetchMock)).toBe("/api/mappings?supplierId=s1&status=works&search=tee&page=2&pageSize=10");
+    expect(page).toMatchObject({ items: [{ id: "m1" }], total: 11, page: 2, pageSize: 10 });
+  });
+
+  it("asks for a page of open suggestions and of history", async () => {
+    const permission = { state: "ready", message: "ok" };
+    const open = reply({ proposals: [{ id: "p1" }], total: 3, page: 1, pageSize: 25, writePermission: permission });
+    const result = await api.proposals.openPage({ page: 1, pageSize: 25 });
+    expect(sent(open)).toBe("/api/proposals?tab=open&page=1&pageSize=25");
+    expect(result).toMatchObject({ items: [{ id: "p1" }], total: 3, writePermission: permission });
+    const history = reply({ proposals: [], hasMore: false, total: 0, page: 3, pageSize: 10 });
+    await api.proposals.history(3, 10);
+    expect(sent(history)).toBe("/api/proposals?tab=history&page=3&pageSize=10");
+  });
+
+  it("deletes a version with DELETE", async () => {
+    const fetchMock = reply({ ok: true });
+    await api.recipes.remove("r 1");
+    expect(sent(fetchMock)).toBe("/api/recipes/r%201");
+    expect((fetchMock.mock.calls[0]![1] as RequestInit).method).toBe("DELETE");
+  });
+
+  it("marks one notification, and all of them, as read", async () => {
+    const one = reply({ ok: true });
+    await api.notifications.markRead("n 1");
+    expect(sent(one)).toBe("/api/notifications/n%201/read");
+    expect((one.mock.calls[0]![1] as RequestInit).method).toBe("POST");
+    const all = reply({ ok: true, count: 2 });
+    await api.notifications.markAllRead();
+    expect(sent(all)).toBe("/api/notifications/read-all");
+  });
+});

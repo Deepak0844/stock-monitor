@@ -20,6 +20,7 @@ const preview: ImportPreview = {
   goodCount: 2,
   sample: [{ line: 2, sku: "S1", url: "https://shop.acme.example/p/1" }],
   skippedSuppliers: 48,
+  skippedShopify: 0,
   counts: { new: 1, replace: 1, unchanged: 0 },
   problems: [{ line: 5, sku: "B0361", message: "SKU B0361 matches no variant." }],
   problemCount: 1,
@@ -35,6 +36,27 @@ const setup = (over: Partial<MappingsApi> = {}) => {
 const choose = async (user: ReturnType<typeof userEvent.setup>, f = file()) => {
   await user.upload(screen.getByLabelText("Shopify product export (CSV)"), f);
 };
+
+describe("while the file is read", () => {
+  it("says so, with a shimmer, and the file chooser is off until it is done", async () => {
+    let finish!: (c: ImportColumns) => void;
+    const { user } = setup({ importColumns: vi.fn(() => new Promise<ImportColumns>((resolve) => (finish = resolve))) });
+    await choose(user);
+    expect(screen.getByRole("status")).toHaveTextContent("Reading the file…");
+    expect(screen.getByLabelText("Shopify product export (CSV)")).toBeDisabled();
+    finish(columns);
+    expect(await screen.findByLabelText("SKU column")).toBeInTheDocument();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("shows a spinner on Show preview while the preview is made", async () => {
+    const { user } = setup({ importPreview: vi.fn(() => new Promise<ImportPreview>(() => {})) });
+    await choose(user);
+    const button = await screen.findByRole("button", { name: "Show preview" });
+    await user.click(button);
+    expect(button).toHaveAttribute("aria-busy", "true");
+  });
+});
 
 describe("import", () => {
   it("reads the file, shows the suggested columns and lets the owner change them", async () => {
@@ -57,6 +79,7 @@ describe("import", () => {
     expect(await screen.findByText("2 links are ready to save")).toBeInTheDocument();
     expect(screen.getByText(/1 new, 1 replaced, 0 unchanged/)).toBeInTheDocument();
     expect(screen.getByText("48 rows are for suppliers not in the app.")).toBeInTheDocument();
+    expect(screen.queryByText(/Shopify already/)).not.toBeInTheDocument();
     expect(screen.getByText(/Line 5.*SKU B0361 matches no variant\./)).toBeInTheDocument();
     expect(api.mappings.importConfirm).not.toHaveBeenCalled();
   });
@@ -83,5 +106,12 @@ describe("import", () => {
     await user.click(await screen.findByRole("button", { name: "Show preview" }));
     expect(await screen.findByText(/No rows can be saved/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Save/ })).toBeNull();
+  });
+
+  it("says how many rows were left out because Shopify already supplies the supplier and address", async () => {
+    const { user } = setup({ importPreview: vi.fn().mockResolvedValue({ ...preview, skippedShopify: 3 }) });
+    await choose(user);
+    await user.click(await screen.findByRole("button", { name: "Show preview" }));
+    expect(await screen.findByText("3 rows are left out because Shopify already has the supplier and page address for those products.")).toBeInTheDocument();
   });
 });

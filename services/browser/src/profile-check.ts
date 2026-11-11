@@ -12,7 +12,8 @@ import { classifyPage, type PageClass } from "@stock-monitor/supplier-session";
 import { plainLaunchArgs, quitCleanly, seedProfile, waitForDebuggingPort } from "./plain-window.js";
 import { cookieHash, holdProfile, PROFILE_ROOT, profileDirFor, releaseProfile } from "./profile-store.js";
 import type { GuardProxy } from "./proxy.js";
-import { CHALLENGE_WIDGET, MAX_TEXT, type VerifyOutcome, type VerifyRequest } from "./verify.js";
+import { capturePageIn, type CaptureOutcome, type CaptureRequest } from "./capture.js";
+import { CHALLENGE_WIDGET, inspectPage, MAX_TEXT, type BlockTracker, type CheckPageOutcome, type CheckPageRequest, type VerifyOutcome, type VerifyRequest } from "./verify.js";
 
 const CHALLENGE_TITLE = /just a moment|attention required|verify|human|captcha|security check|checking your browser/i;
 const BLOCKED_TITLE = /access denied|forbidden|blocked|error 1020|too many requests/i;
@@ -69,6 +70,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
     });
     return {
       child,
+      tracker,
       blocked: () => tracker.blocked().count,
       async stop() {
         await quitCleanly(child, 10_000);
@@ -114,8 +116,18 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
           (selector) => ({
             title: document.title,
             text: (document.body?.innerText ?? "").slice(0, 20_000),
-            hasPasswordField: document.querySelector('input[type="password"]') !== null,
-            hasChallengeWidget: document.querySelector(selector) !== null,
+            hasPasswordField: [...document.querySelectorAll('input[type="password"]')].some((el) => {
+        // A sign-in popup that is hidden until someone clicks it is not a login wall.
+        const box = el.getBoundingClientRect();
+        const style = getComputedStyle(el);
+        return box.width > 0 && box.height > 0 && style.visibility !== "hidden" && style.display !== "none" && Number(style.opacity) > 0.1;
+      }),
+            hasChallengeWidget: [...document.querySelectorAll(selector)].some((el) => {
+        // An invisible or off-screen widget (a form's spam guard) is not a puzzle in front of the page.
+        const box = el.getBoundingClientRect();
+        const style = getComputedStyle(el);
+        return el.getAttribute("data-size") !== "invisible" && box.width >= 50 && box.height >= 30 && style.visibility !== "hidden" && style.display !== "none" && Number(style.opacity) > 0.1 && box.bottom > 0 && box.right > 0;
+      }),
           }),
           CHALLENGE_WIDGET,
         );
@@ -172,11 +184,56 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
     return { result, status: null, blockedRequests: b.blocked() };
   }
 
+  /**
+   * Runs `run` on a page of the persistent profile, the logged-in browser that passes the supplier's checks. The browser keeps the
+   * profile's cookies and history; the debugging channel is open only for the length of `run`. If the profile is busy or the browser
+   * cannot be driven, the answer is `unavailable`, which the caller treats as "could not check".
+   */
+  async function inProfile<T>(request: VerifyRequest, unavailable: T, run: (page: import("playwright").Page, tracker: BlockTracker) => Promise<T>): Promise<T> {
+    const profile = profileDirFor(baseDir, request.url);
+    if (!holdProfile(profile)) return unavailable;
+    try {
+      const hash = cookieHash(request.state.cookies);
+      if ((await readFile(join(profile, "seeded"), "utf8").catch(() => "")) !== hash) {
+        await seed(profile, request.state);
+        await writeFile(join(profile, "seeded"), hash);
+      }
+      const b = await launch(profile, "about:blank", true);
+      try {
+        const port = await waitForDebuggingPort(profile, b.child, 20_000);
+        const cdp = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+        try {
+          const context = cdp.contexts()[0];
+          const page = context?.pages()[0] ?? (await context?.newPage());
+          return page ? await run(page, b.tracker) : unavailable;
+        } finally {
+          await cdp.close().catch(() => {});
+        }
+      } catch {
+        return unavailable;
+      } finally {
+        await b.stop();
+      }
+    } finally {
+      releaseProfile(profile);
+    }
+  }
+
+  const noPage = { result: "unreachable" as const, status: null, blockedRequests: 0, finalUrl: null, title: null, heading: null, softNotFound: false };
+
   // One at a time: a profile allows one browser, and each browser takes about 900 MB.
   let chain: Promise<unknown> = Promise.resolve();
-  return (request: VerifyRequest): Promise<VerifyOutcome> => {
-    const run = chain.then(() => check(request));
+  const inTurn = <T>(job: () => Promise<T>): Promise<T> => {
+    const run = chain.then(job);
     chain = run.catch(() => {});
     return run;
   };
+
+  const verify = (request: VerifyRequest): Promise<VerifyOutcome> => inTurn(() => check(request));
+  return Object.assign(verify, {
+    checkPage: (request: CheckPageRequest, timeoutMs = 20_000): Promise<CheckPageOutcome> =>
+      inTurn(() => inProfile(request, noPage as CheckPageOutcome, (page, tracker) => inspectPage(page, request, tracker, timeoutMs))),
+    capture: (request: CaptureRequest, timeoutMs = 20_000): Promise<CaptureOutcome> =>
+      inTurn(() => inProfile(request, { ...noPage, description: { sections: [], buttons: [] }, picture: null } as CaptureOutcome, (page, tracker) => capturePageIn(page, request, tracker, timeoutMs))),
+  });
 }

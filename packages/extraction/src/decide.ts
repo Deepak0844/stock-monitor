@@ -2,10 +2,10 @@ import { buttonMatches, labelledNumber, regionTable, textMatches } from "./evalu
 import type { Decision, PageDescription, Recipe, Reason, StockRule } from "./types.js";
 
 const tell = (reason: Reason, extra: Partial<Decision> = {}): Decision => ({ answer: "cannot_tell", reason, quantity: null, matchedText: null, quantityMismatch: false, ...extra });
-const matches = (page: PageDescription, rule: StockRule) => (rule.type === "text" ? textMatches(page, rule) : buttonMatches(page, rule));
+const matches = (page: PageDescription, rule: StockRule, main = false) => (rule.type === "text" ? textMatches(page, rule, main) : buttonMatches(page, rule, main));
 const firstMatch = (page: PageDescription, rules: StockRule[]): string | null => {
   for (const rule of rules) {
-    const hit = matches(page, rule);
+    const hit = matches(page, rule, true);
     if (hit !== null) return hit;
   }
   return null;
@@ -32,7 +32,7 @@ export function decide(page: PageDescription, recipe: Recipe, region: string | n
   const outHit = firstMatch(page, recipe.outOfStock);
   if (inHit !== null && outHit !== null) return tell("both_matched");
 
-  const read = recipe.quantity ? labelledNumber(page, recipe.quantity.label, recipe.quantity.under) : null;
+  const read = recipe.quantity ? labelledNumber(page, recipe.quantity.label, recipe.quantity.under, true) : null;
   const quantity = read?.found ? read.quantity : null;
   if (inHit === null && outHit === null) {
     if (quantity === null) return tell("neither_matched");

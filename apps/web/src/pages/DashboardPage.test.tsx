@@ -34,6 +34,22 @@ describe("DashboardPage", () => {
     expect(within(card(heading)).getByText(message)).toBeInTheDocument();
   });
 
+  it("shows how many suppliers have automatic checks on and when the next one is", async () => {
+    const next = "2030-01-02T09:00:00.000Z";
+    const row = (supplierId: string, over = {}) => ({ supplierId, status: { state: "waiting" as const }, intervalMinutes: 1440, window: null, nextCheckAt: next, run: null, lastRun: null, ...over });
+    setup({ schedule: { overview: vi.fn().mockResolvedValue([row("a"), row("b", { nextCheckAt: "2030-01-03T09:00:00.000Z" }), row("c", { intervalMinutes: null, status: { state: "off" }, nextCheckAt: null })]) } });
+    await screen.findByText("Nothing needs your attention.");
+    const c = card("Stock checks");
+    expect(await within(c).findByText("2 suppliers")).toBeInTheDocument();
+    expect(within(c).getByText(/next check/i)).toBeInTheDocument();
+  });
+
+  it("says a check is running now", async () => {
+    setup({ schedule: { overview: vi.fn().mockResolvedValue([{ supplierId: "a", status: { state: "running" }, intervalMinutes: 60, window: null, nextCheckAt: null, run: null, lastRun: null }]) } });
+    await screen.findByText("Nothing needs your attention.");
+    expect(await within(card("Stock checks")).findByText(/checking now/i)).toBeInTheDocument();
+  });
+
   it("shows how many suggestions are waiting and links to them", async () => {
     setup({ proposals: { count: vi.fn().mockResolvedValue(3) } });
     await screen.findByText("Nothing needs your attention.");
@@ -151,6 +167,33 @@ describe("Supplier connections", () => {
       expect(await screen.findByText("Could not load links.")).toBeInTheDocument();
       expect(screen.getByText("Nothing needs your attention.")).toBeInTheDocument();
     });
+  });
+});
+
+describe("links to the lists behind the numbers", () => {
+  it("sends Supplier connections to the suppliers that need reconnecting when there are some, else to all suppliers", async () => {
+    const list = vi.fn().mockResolvedValue([aSupplier({ id: "a", sessionStatus: "connected" }), aSupplier({ id: "b", name: "B", sessionStatus: "needs_reconnect" })]);
+    setup({ suppliers: { list } });
+    const c = within(card("Supplier connections"));
+    expect(await c.findByRole("link", { name: "See suppliers that need reconnecting" })).toHaveAttribute("href", "/suppliers?status=needs_reconnect");
+  });
+
+  it("sends Supplier connections to all suppliers when none need attention", async () => {
+    setup({ suppliers: { list: vi.fn().mockResolvedValue([aSupplier({ sessionStatus: "connected" })]) } });
+    expect(await within(card("Supplier connections")).findByRole("link", { name: "See suppliers" })).toHaveAttribute("href", "/suppliers");
+  });
+
+  it("shows a shimmer and says it is busy while a card loads", () => {
+    setup({ suppliers: { list: vi.fn().mockReturnValue(new Promise(() => {})) } });
+    expect(card("Supplier connections")).toHaveAttribute("aria-busy", "true");
+  });
+
+  it("lets the owner try again when the links cannot be loaded, without reloading the rest", async () => {
+    const unmapped = vi.fn().mockRejectedValueOnce(new ApiError("x", 500)).mockResolvedValue({ total: 10, unmapped: 4, items: [] });
+    const { user } = setup({ mappings: { unmapped } });
+    const c = await screen.findByRole("heading", { level: 2, name: "Supplier links" }).then((h) => within(h.closest("section")!));
+    await user.click(await c.findByRole("button", { name: "Try again" }));
+    expect(await c.findByText("4 of 10")).toBeInTheDocument();
   });
 });
 

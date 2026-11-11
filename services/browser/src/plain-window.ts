@@ -80,6 +80,9 @@ export async function seedProfile(profile: string, language?: string): Promise<v
   await writeFile(join(profile, "Default", "Preferences"), JSON.stringify(preferences));
 }
 
+// A browser killed by a signal has no exit code, only a signal code.
+const hasExited = (child: ChildProcess) => child.exitCode !== null || child.signalCode !== null;
+
 /** The port Chromium chose for its debugging channel, once it has written it. */
 export async function waitForDebuggingPort(
   profile: string,
@@ -88,7 +91,7 @@ export async function waitForDebuggingPort(
 ): Promise<number> {
   const end = Date.now() + timeoutMs;
   while (Date.now() < end) {
-    if (child.exitCode !== null) throw new Error("The browser stopped while starting.");
+    if (hasExited(child)) throw new Error("The browser stopped while starting.");
     try {
       const port = Number(
         (await readFile(join(profile, "DevToolsActivePort"), "utf8")).split("\n")[0],
@@ -113,7 +116,7 @@ const signalGroup = (child: ChildProcess, signal: NodeJS.Signals) => {
 
 /** Asks the browser to quit the way a person closing it would, which makes it write its profile to disk. */
 export const quitCleanly = async (child: ChildProcess, timeoutMs: number) => {
-  if (child.exitCode !== null) return;
+  if (hasExited(child)) return;
   const gone = new Promise<void>((resolve) => child.once("exit", () => resolve()));
   child.kill("SIGINT"); // a graceful shutdown, which writes the cookies to the profile. SIGTERM exits without writing them.
   const timer = setTimeout(() => signalGroup(child, "SIGKILL"), timeoutMs);
@@ -125,7 +128,7 @@ export const quitCleanly = async (child: ChildProcess, timeoutMs: number) => {
 /** Gives the browser a moment, and notices if it stopped straight away. */
 const waitForStart = async (child: ChildProcess) => {
   await new Promise((resolve) => setTimeout(resolve, 500));
-  if (child.exitCode !== null) throw new Error("The browser stopped while starting.");
+  if (hasExited(child)) throw new Error("The browser stopped while starting.");
 };
 
 /** The browser's cookie store. Its place in the profile depends on the Chromium version. */

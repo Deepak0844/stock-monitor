@@ -24,6 +24,7 @@ const run = (over: Partial<SyncRun> = {}): SyncRun => ({
   removed: 1,
   total: 10,
   error: null,
+  links: null,
   ...over,
 });
 
@@ -55,7 +56,7 @@ describe("loading", () => {
   it("says it is loading, then shows the page heading", async () => {
     setup();
     expect(screen.getByRole("status")).toHaveTextContent("Loading…");
-    expect(await screen.findByRole("heading", { level: 1, name: "Shopify settings" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
   });
 
   it("explains a failure plainly and offers to try again", async () => {
@@ -151,7 +152,7 @@ describe("the connection", () => {
     const disconnect = vi.fn().mockResolvedValue(undefined);
     const { user } = setup(connected({}, { disconnect }));
     await user.click(await screen.findByRole("button", { name: "Disconnect" }));
-    await user.click(screen.getByRole("button", { name: "Yes, disconnect" }));
+    await user.click(screen.getByRole("button", { name: "Disconnect Shopify" }));
     expect(disconnect).toHaveBeenCalledTimes(1);
     expect(await screen.findByRole("heading", { name: "Connect your Shopify store" })).toBeInTheDocument();
   });
@@ -160,8 +161,9 @@ describe("the connection", () => {
     const disconnect = vi.fn().mockRejectedValue(new ApiError("Something went wrong. Please try again.", 500));
     const { user } = setup(connected({}, { disconnect }));
     await user.click(await screen.findByRole("button", { name: "Disconnect" }));
-    await user.click(screen.getByRole("button", { name: "Yes, disconnect" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong. Please try again.");
+    await user.click(screen.getByRole("button", { name: "Disconnect Shopify" }));
+    expect(await within(screen.getByRole("dialog")).findByRole("alert")).toHaveTextContent("Something went wrong. Please try again.");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByRole("heading", { name: "Connection" })).toBeInTheDocument();
   });
 });
@@ -236,6 +238,20 @@ describe("sync", () => {
     expect(screen.getByText(/3 new/)).toBeInTheDocument();
     expect(screen.getByText(/2 updated/)).toBeInTheDocument();
     expect(screen.getByText(/1 removed/)).toBeInTheDocument();
+  });
+
+  it("says what the sync did with the supplier name and page address in Shopify, and lists what it skipped", async () => {
+    const links = { added: 12, updated: 3, skipped: 2, problems: [{ product: "Blue Tee (Large)", sku: "B0361", message: 'Supplier "Nobody" is not in the app.' }] };
+    setup(connected(ready, { getSync: vi.fn().mockResolvedValue(run({ links })) }));
+    expect(await screen.findByText("Links from Shopify: 12 added, 3 updated, 2 skipped.")).toBeInTheDocument();
+    expect(screen.getByText(/Blue Tee \(Large\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Supplier "Nobody" is not in the app\./)).toBeInTheDocument();
+  });
+
+  it("says nothing about links when the sync did not set any", async () => {
+    setup(connected(ready, { getSync: vi.fn().mockResolvedValue(run({ links: null })) }));
+    await screen.findByText(/10 variants/);
+    expect(screen.queryByText(/Links from Shopify/)).not.toBeInTheDocument();
   });
 
   it("says when nothing has been synced yet", async () => {

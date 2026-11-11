@@ -86,6 +86,15 @@ describe("adding a link by hand", () => {
     expect(list.body.mappings).toMatchObject([{ productTitle: "Tee", supplierName: "Acme", sku: "S1" }]);
   });
 
+  it("says a link is set from Shopify when its variant's product has a supplier name and page address there", async () => {
+    await t.pool.query("update shopify_variants set supplier_name = 'Acme', supplier_url = 'https://shop.acme.example/p/blue' where variant_id = 'v1'");
+    await create();
+    await call("POST", "/api/mappings", { supplierId: acme, variantId: "v2", url: "https://shop.acme.example/p/two" });
+    const byVariant = new Map((await call("GET", "/api/mappings")).body.mappings.map((m: { variantId: string; shopifyManaged: boolean }) => [m.variantId, m.shopifyManaged]));
+    expect(byVariant.get("v1")).toBe(true);
+    expect(byVariant.get("v2")).toBe(false);
+  });
+
   it.each([
     ["http://shop.acme.example/p", "invalid_url", /https/],
     ["https://10.0.0.1/p", "invalid_url", /IP/],
@@ -167,6 +176,21 @@ describe("changing and removing a link", () => {
   });
 });
 
+describe("list filters are checked", () => {
+  it("answers 400, not 500, for a repeated or oversized search, an unknown status or a bad supplier id", async () => {
+    for (const query of ["search=a&search=b", `search=${"x".repeat(101)}`, "status=bogus", "supplierId=not-an-id", "status=works&status=moved"]) {
+      expect((await call("GET", `/api/mappings?${query}`)).status, query).toBe(400);
+      expect((await call("GET", `/api/mappings?page=1&${query}`)).status, `page=1&${query}`).toBe(400);
+    }
+    expect((await call("GET", "/api/variants?mapped=false&search=a&search=b")).status).toBe(400);
+    expect((await call("GET", `/api/variants?mapped=false&search=${"x".repeat(101)}`)).status).toBe(400);
+  });
+  it("still accepts a normal search and status, with or without a page", async () => {
+    expect((await call("GET", "/api/mappings?search=tee&status=works")).status).toBe(200);
+    expect((await call("GET", "/api/mappings?page=1&search=tee&status=works")).status).toBe(200);
+  });
+});
+
 describe("unmapped variants", () => {
   it("counts and lists variants with no link", async () => {
     await create();
@@ -195,5 +219,34 @@ describe("recording permission on a supplier", () => {
     expect((await call("PATCH", `/api/suppliers/${acme}/permission`, { status: "maybe" })).status).toBe(400);
     expect((await call("PATCH", `/api/suppliers/${acme}/permission`, { status: "granted", pauseSeconds: 0 })).status).toBe(400);
     expect((await call("PATCH", "/api/suppliers/00000000-0000-4000-8000-000000000000/permission", { status: "granted" })).status).toBe(404);
+  });
+});
+
+describe("GET /api/mappings with a page", () => {
+  const link = async (variantId: string) => {
+    await addVariant(variantId, `P-${variantId}`);
+    await create({ variantId, url: `https://shop.acme.example/p/${variantId}` });
+  };
+
+  it("returns one page with the total, and still lists everything when no page is asked for", async () => {
+    for (const v of ["a1", "a2", "a3"]) await link(v);
+    const r = await call("GET", "/api/mappings?page=2&pageSize=2");
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ total: 3, page: 2, pageSize: 2 });
+    expect(r.body.mappings).toHaveLength(1);
+    expect((await call("GET", "/api/mappings")).body.mappings).toHaveLength(3);
+  });
+
+  it("keeps the supplier, status and search filters", async () => {
+    await link("a1");
+    await link("a2");
+    expect((await call("GET", `/api/mappings?page=1&pageSize=10&supplierId=${acme}&search=p-a2`)).body.total).toBe(1);
+    expect((await call("GET", "/api/mappings?page=1&pageSize=10&status=works")).body.total).toBe(0);
+  });
+
+  it.each(["page=0", "page=x", "page=1&pageSize=0", "page=1&pageSize=101", "page=1&pageSize=-1"])("refuses ?%s with a plain 400", async (query) => {
+    const r = await call("GET", `/api/mappings?${query}`);
+    expect(r.status).toBe(400);
+    expect(r.body.error.code).toBe("invalid_input");
   });
 });

@@ -14,6 +14,9 @@ export type FakeVariant = {
   productId: string;
   productTitle: string;
   inventoryItemId: string;
+  /** The product's supplier-name and supplier-page-address metafields. Missing or null means the product has none. */
+  supplierName?: string | null;
+  supplierUrl?: string | null;
   /** location id to available quantity. A location that is missing means "not stocked there". */
   stock: Record<string, number>;
 };
@@ -45,6 +48,7 @@ export function createFakeCatalog(init: { locations: FakeLocation[]; variants: F
   let failFromVariantRequest: number | null = null;
   const pageSizes: number[] = [];
   const queries: string[] = [];
+  const variantVariables: Record<string, unknown>[] = [];
   let variantPages = 0;
   // Writing stock. Follows the 2026-10 reference: inventorySetQuantities needs write_inventory, an @idempotent
   // key, and refuses a change when changeFromQuantity is not the number Shopify holds now.
@@ -80,6 +84,7 @@ export function createFakeCatalog(init: { locations: FakeLocation[]; variants: F
     if (/\bproductVariants\s*\(/.test(request.query)) {
       variantPages += 1;
       pageSizes.push(first);
+      variantVariables.push(request.variables ?? {});
       if (failFromVariantRequest !== null && variantPages >= failFromVariantRequest) {
         return { body: { errors: [{ message: "internal", extensions: { code: "INTERNAL_SERVER_ERROR" } }] } };
       }
@@ -91,7 +96,12 @@ export function createFakeCatalog(init: { locations: FakeLocation[]; variants: F
         sku: v.sku,
         selectedOptions: v.options,
         inventoryPolicy: v.policy,
-        product: { id: v.productId, title: v.productTitle },
+        product: {
+          id: v.productId,
+          title: v.productTitle,
+          supplierName: v.supplierName == null ? null : { value: v.supplierName },
+          supplierUrl: v.supplierUrl == null ? null : { value: v.supplierUrl },
+        },
         inventoryItem: {
           id: v.inventoryItemId,
           tracked: v.tracked,
@@ -116,9 +126,13 @@ export function createFakeCatalog(init: { locations: FakeLocation[]; variants: F
       if (typeof key !== "string" || !/@idempotent\(\s*key\s*:\s*\$idempotencyKey\s*\)/.test(request.query)) {
         return { body: { errors: [{ message: "idempotency key required", extensions: { code: "BAD_REQUEST" } }] } };
       }
+      // Shopify's 2026-10 input has exactly these fields. Any other one, such as the removed ignoreCompareQuantity, is a GraphQL error.
+      const sent = request.variables?.input as Record<string, unknown> | undefined;
+      const unknownField = Object.keys(sent ?? {}).find((k) => !["name", "reason", "referenceDocumentUri", "quantities"].includes(k));
+      if (unknownField) return { body: { errors: [{ message: `InputObject 'InventorySetQuantitiesInput' doesn't accept argument '${unknownField}'`, extensions: { code: "argumentNotAccepted" } }] } };
       if (dropWrites) return { status: 500, body: { errors: "boom" } }; // the request never reached the store
       if (replies.has(key)) return failAllReplies ? { status: 500, body: { errors: "boom" } } : { body: replies.get(key) };
-      const input = request.variables?.input as { name?: string; reason?: string; referenceDocumentUri?: string; ignoreCompareQuantity?: boolean; quantities?: { inventoryItemId: string; locationId: string; quantity: number; changeFromQuantity?: number | null }[] };
+      const input = request.variables?.input as { name?: string; reason?: string; referenceDocumentUri?: string; quantities?: { inventoryItemId: string; locationId: string; quantity: number; changeFromQuantity?: number | null }[] };
       const row = input?.quantities?.[0];
       const v = variants.find((x) => x.inventoryItemId === row?.inventoryItemId);
       const answer = (userErrors: { field: string[]; message: string; code: string }[]) => ({
@@ -137,7 +151,7 @@ export function createFakeCatalog(init: { locations: FakeLocation[]; variants: F
       if (!row || !v || input.name !== "available" || v.stock[row.locationId] === undefined) {
         return { body: answer([{ field: ["input"], message: "no such item", code: "ITEM_NOT_FOUND" }]) };
       }
-      if (!input.ignoreCompareQuantity && row.changeFromQuantity !== v.stock[row.locationId]) {
+      if (row.changeFromQuantity !== v.stock[row.locationId]) {
         const body = answer([{ field: ["input", "quantities", "0", "changeFromQuantity"], message: "stale", code: "CHANGE_FROM_QUANTITY_STALE" }]);
         replies.set(key, body);
         return { body };
@@ -194,6 +208,7 @@ export function createFakeCatalog(init: { locations: FakeLocation[]; variants: F
       variantPages = 0;
     },
     pageSizes,
+    variantVariables,
     queries,
   };
 }

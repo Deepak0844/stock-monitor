@@ -5,6 +5,7 @@ import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { COUNTS } from "./catalog.js";
 import { CLIENT_ID, CLIENT_SECRET, OWNER_EMAIL, OWNER_PASSWORD, ROTATED_SECRET, SHOP, SHOP_NAME } from "./constants.js";
 import { control } from "./control.js";
+import { expectSignedIn, settle } from "./ui.js";
 
 test.describe.configure({ mode: "serial" });
 test.setTimeout(90_000);
@@ -18,7 +19,7 @@ async function signIn(page: Page) {
   await page.getByLabel("Email").fill(OWNER_EMAIL);
   await page.getByLabel("Password", { exact: true }).fill(OWNER_PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+  await expectSignedIn(page);
 }
 
 /** On a phone the navigation sits behind the Menu button. */
@@ -62,7 +63,7 @@ async function connectedAndSynced(page: Page) {
 test("connect, test, choose a location, sync, and see the products", async ({ page }) => {
   await signIn(page);
   await goTo(page, "Settings");
-  await expect(page.getByRole("heading", { level: 1, name: "Shopify settings" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeVisible();
 
   await fillConnectForm(page);
   await page.getByRole("button", { name: "Test connection" }).click();
@@ -88,31 +89,29 @@ test("connect, test, choose a location, sync, and see the products", async ({ pa
   await expect(page.getByRole("heading", { level: 1, name: "Products" })).toBeVisible();
   await expect(page.getByText("Stock shown is available at Shop floor.")).toBeVisible();
   await expect(page.getByRole("table", { name: "Products from Shopify" })).toBeVisible();
-  await expect(page.getByText(`Showing 1 to ${COUNTS.pageSize} of ${COUNTS.total} variants`)).toBeVisible();
+  await expect(page.getByText(`Showing 1–${COUNTS.pageSize} of ${COUNTS.total}`)).toBeVisible();
   await expect(page.getByRole("row")).toHaveCount(COUNTS.pageSize + 1);
 
   // Paging, search, the attention filter, and the honest cases.
   await page.getByRole("button", { name: "Next page" }).click();
-  await expect(page.getByText(`Page 2 of ${Math.ceil(COUNTS.total / COUNTS.pageSize)}`)).toBeVisible();
+  await expect(page.getByText(`Showing ${COUNTS.pageSize + 1}–${Math.min(COUNTS.pageSize * 2, COUNTS.total)} of ${COUNTS.total}`)).toBeVisible();
   await page.getByRole("button", { name: "Previous page" }).click();
 
   await page.getByRole("searchbox", { name: "Search products" }).fill("SKU-0011");
-  await page.getByRole("button", { name: "Search" }).click();
+  await expect(page.getByText("Showing 1–1 of 1")).toBeVisible(); // the search waits a moment after typing
   await expect(page.getByText("Not stocked here")).toBeVisible();
 
   await page.getByRole("searchbox", { name: "Search products" }).fill("SKU-0005");
-  await page.getByRole("button", { name: "Search" }).click();
+  await expect(page.getByText("Showing 1–1 of 1")).toBeVisible();
   await expect(page.getByText("Only variant")).toBeVisible();
 
   await page.getByRole("button", { name: "Clear search" }).or(page.getByRole("searchbox", { name: "Search products" })).first().waitFor();
   await page.getByRole("searchbox", { name: "Search products" }).fill("hose");
-  await page.getByRole("button", { name: "Search" }).click();
-  await expect(page.getByText(`Showing 1 to ${COUNTS.hose} of ${COUNTS.hose} variants`)).toBeVisible();
+  await expect(page.getByText(`Showing 1–${COUNTS.hose} of ${COUNTS.hose}`)).toBeVisible();
 
   await page.getByRole("searchbox", { name: "Search products" }).fill("");
-  await page.getByRole("button", { name: "Search" }).click();
   await page.getByRole("checkbox", { name: "Show only items that need attention" }).check();
-  await expect(page.getByText(`Showing 1 to ${COUNTS.needsAttention} of ${COUNTS.needsAttention} variants`)).toBeVisible();
+  await expect(page.getByText(`Showing 1–${COUNTS.needsAttention} of ${COUNTS.needsAttention}`)).toBeVisible();
   await expect(page.getByText("This item keeps selling at 0.").first()).toBeVisible();
   await expect(page.getByText(/Shopify is not tracking stock for this item/).first()).toBeVisible();
 });
@@ -166,13 +165,13 @@ test("disconnecting asks first, and then returns to the connect form", async ({ 
   await page.goto("/settings/shopify");
   await connect(page);
 
-  await page.getByRole("button", { name: "Disconnect" }).click();
+  await page.getByRole("button", { name: "Disconnect", exact: true }).click();
   await expect(page.getByText(/the saved credentials will be deleted/i)).toBeVisible();
   await page.getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: "Disconnect" }).click();
-  await page.getByRole("button", { name: "Yes, disconnect" }).click();
+  await page.getByRole("button", { name: "Disconnect", exact: true }).click();
+  await page.getByRole("button", { name: "Disconnect Shopify" }).click();
   await expect(page.getByRole("heading", { name: "Connect your Shopify store" })).toBeVisible();
   await page.reload();
   await expect(page.getByRole("heading", { name: "Connect your Shopify store" })).toBeVisible();
@@ -232,6 +231,7 @@ test("no secret appears in any page, response, console message or browser storag
 
 test("every Shopify screen passes the accessibility scan in light and dark", async ({ page }) => {
   const scan = async (label: string) => {
+    await settle(page);
     const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
     expect(result.violations.map((v) => `${label}: ${v.id}`), label).toEqual([]);
   };

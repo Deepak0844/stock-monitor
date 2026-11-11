@@ -47,13 +47,13 @@ export function registerMappingImportRoutes(app: App, deps: Deps, audit: Audit):
     };
     const cols: Columns = { handle: column("handle"), sku: column("sku"), supplier: column("supplier"), address: column("address") };
 
-    const [supplierList, skus, links] = await Promise.all([deps.suppliers.list(), deps.mappings.liveVariantSkus(), deps.mappings.linksByVariant()]);
+    const [supplierList, skus, links, fromShopify] = await Promise.all([deps.suppliers.list(), deps.mappings.liveVariantSkus(), deps.mappings.linksByVariant(), deps.mappings.shopifyLinkSources()]);
     const suppliers = new Map(supplierList.map((s) => [s.name.toLowerCase(), { id: s.id, host: new URL(s.websiteUrl).hostname }]));
     const variantsBySku = new Map<string, string[]>();
     for (const v of skus) variantsBySku.set(v.sku.trim(), [...(variantsBySku.get(v.sku.trim()) ?? []), v.variantId]);
     const existing = new Map(links.map((l) => [l.variantId, { supplierId: l.supplierId, url: l.url }]));
 
-    const preview = buildPreview(readExport(file.rows, cols), { suppliers, variantsBySku }, existing);
+    const preview = buildPreview(readExport(file.rows, cols), { suppliers, variantsBySku, shopifyManaged: new Set(fromShopify.map((v) => v.variantId)) }, existing);
     await deps.previews.purgeOlderThan(60);
     // Only the checked rows are kept: no descriptions, no other columns.
     const previewId = await deps.previews.save(preview.good.map(({ variantId, supplierId, url, line, sku }) => ({ variantId, supplierId, url, line, sku })));
@@ -62,6 +62,7 @@ export function registerMappingImportRoutes(app: App, deps: Deps, audit: Audit):
       goodCount: preview.good.length,
       sample: preview.good.slice(0, SAMPLE),
       skippedSuppliers: preview.skippedSuppliers,
+      skippedShopify: preview.skippedShopify,
       counts: preview.counts,
       problems: preview.problems.slice(0, MAX_PROBLEMS),
       problemCount: preview.problems.length,

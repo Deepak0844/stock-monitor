@@ -11,6 +11,8 @@ export type NotificationRoutesDeps = { repo: ReturnType<typeof createNotificatio
 export function registerNotificationRoutes(app: App, { repo }: NotificationRoutesDeps): void {
   app.get("/api/notifications", async () => ({ notifications: await repo.listOpen() }));
 
+  app.post("/api/notifications/read-all", async () => ({ ok: true, count: await repo.markAllRead() }));
+
   app.post<{ Params: { id: string } }>("/api/notifications/:id/read", async (request) => {
     const { id } = request.params;
     // Reading one that is already read is harmless. Only an unknown or finished one is "not found".

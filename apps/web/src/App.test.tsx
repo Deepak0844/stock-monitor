@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { App } from "./App.js";
 import type { Owner } from "./api.js";
@@ -24,8 +24,9 @@ describe("App", () => {
   it("shows the home page for a signed-in owner", async () => {
     render(<App api={fakeApi({ getMe: vi.fn().mockResolvedValue({ email: "owner@example.com" }) })} />);
     expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Account" }));
     expect(screen.getByText("owner@example.com")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Sign out" })).toBeInTheDocument();
   });
 
   it("moves to the home page after a successful sign in", async () => {
@@ -34,14 +35,15 @@ describe("App", () => {
     await user.type(await screen.findByLabelText("Email"), "owner@example.com");
     await user.type(screen.getByLabelText("Password"), "correct horse battery");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
-    expect(await screen.findByRole("button", { name: "Sign out" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Account" })).toBeInTheDocument();
   });
 
   it("returns to the sign-in page after signing out", async () => {
     const user = userEvent.setup();
     const api = fakeApi({ getMe: vi.fn().mockResolvedValue({ email: "owner@example.com" }) });
     render(<App api={api} />);
-    await user.click(await screen.findByRole("button", { name: "Sign out" }));
+    await user.click(await screen.findByRole("button", { name: "Account" }));
+    await user.click(screen.getByRole("menuitem", { name: "Sign out" }));
     expect(await screen.findByRole("heading", { name: /sign in/i })).toBeInTheDocument();
     expect(api.logout).toHaveBeenCalled();
   });
@@ -63,8 +65,8 @@ describe("App", () => {
     it("opens the Shopify settings page at its own address, so it can be bookmarked or reloaded", async () => {
       window.history.replaceState(null, "", "/settings/shopify");
       render(<App api={signedIn()} />);
-      expect(await screen.findByRole("heading", { level: 1, name: "Shopify settings" })).toBeInTheDocument();
-      await waitFor(() => expect(document.title).toBe("Shopify settings · Stock Monitor")); // set after render, so wait for it
+      expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
+      await waitFor(() => expect(document.title).toBe("Settings · Stock Monitor")); // set after render, so wait for it
     });
 
     it("opens the products page at its own address", async () => {
@@ -77,7 +79,7 @@ describe("App", () => {
     it("treats /settings as the Shopify settings page", async () => {
       window.history.replaceState(null, "", "/settings");
       render(<App api={signedIn()} />);
-      expect(await screen.findByRole("heading", { level: 1, name: "Shopify settings" })).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
     });
 
     it("moves between pages from the sidebar without reloading", async () => {
@@ -85,9 +87,9 @@ describe("App", () => {
       render(<App api={signedIn()} />);
       expect(await screen.findByRole("heading", { level: 1, name: "Dashboard" })).toBeInTheDocument();
       await user.click(screen.getByRole("link", { name: "Settings" }));
-      expect(await screen.findByRole("heading", { level: 1, name: "Shopify settings" })).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
       expect(window.location.pathname).toBe("/settings/shopify");
-      await user.click(screen.getByRole("link", { name: "Dashboard" }));
+      await user.click(within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: "Dashboard" }));
       expect(await screen.findByRole("heading", { level: 1, name: "Dashboard" })).toBeInTheDocument();
       await waitFor(() => expect(document.title).toBe("Dashboard · Stock Monitor")); // set after render, so wait for it
     });

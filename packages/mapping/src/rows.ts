@@ -7,10 +7,13 @@ export type RowContext = {
   suppliers: Map<string, SupplierRef>;
   /** Keyed by SKU, value is every variant that has it. */
   variantsBySku: Map<string, string[]>;
+  /** Variants whose supplier and address come from Shopify's metafields. The import leaves them alone. */
+  shopifyManaged?: Set<string>;
 };
 export type RowResult =
   | { kind: "good"; variantId: string; supplierId: string; url: string }
   | { kind: "skipped_supplier" }
+  | { kind: "skipped_shopify" }
   | { kind: "problem"; message: string };
 
 /** Decides what one export row means. Messages are for the owner: they say what to fix. */
@@ -23,6 +26,8 @@ export function checkRow(row: ExportRow, ctx: RowContext): RowResult {
   if (variants.length > 1) {
     return { kind: "problem", message: `SKU ${row.sku} matches ${variants.length === 2 ? "two" : variants.length} variants.` };
   }
+
+  if (ctx.shopifyManaged?.has(variants[0] as string)) return { kind: "skipped_shopify" };
 
   const address = cleanAddress(row.addressCell);
   if (!address.ok) return { kind: "problem", message: address.message };

@@ -77,5 +77,15 @@ export function createNotificationRepository<S extends Record<string, unknown>>(
         .returning({ id: notifications.id });
       return rows.length > 0;
     },
+
+    /** Reads every open notification that is still unread. Returns how many it changed. */
+    async markAllRead(): Promise<number> {
+      const rows = await db
+        .update(notifications)
+        .set({ readAt: sql`now()` as unknown as Date })
+        .where(and(isNull(notifications.resolvedAt), isNull(notifications.readAt)))
+        .returning({ id: notifications.id });
+      return rows.length;
+    },
   };
 }

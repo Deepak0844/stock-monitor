@@ -120,6 +120,28 @@ What the pilot supplier showed when it was connected by hand (2026-11), with its
 
 Earlier trials with other suppliers showed that a supplier's bot protection can accept a login by hand and still refuse the app's automated check (the check then shows **Blocked**, never a broken link or "out of stock"). If that happens, the options are to ask the supplier for a price list or feed, or to leave that supplier paused.
 
+## Links from Shopify
+
+A Shopify sync can also set each variant's link, from two **product metafields**: the supplier's name and the supplier's page address (the SPU). **Shopify is the one source** for every variant whose product has both.
+
+### Setting it up
+
+1. In Shopify admin, **Settings > Custom data > Products**, find the two metafields and note their names in the form `namespace.key` (for example `custom.supplier_name` and `custom.spu`).
+2. If they are not those two names, set `SHOPIFY_SUPPLIER_NAME_METAFIELD` and `SHOPIFY_SPU_METAFIELD` in `.env` (see `.env.example`), then run `docker compose up -d`. Blank keeps the defaults.
+3. The supplier must already exist in the app, with a **name** that matches the metafield (capitals and spaces around it do not matter) and a **website address** that the SPU is on.
+4. **Settings > Sync from Shopify**. Afterwards the Sync card says "Links from Shopify: 12 added, 3 updated, 2 skipped" and lists each skipped product with the reason.
+
+### The rules
+
+- **Both fields present:** the sync sets the variant's one link. A different address, or a different supplier, replaces what was there, and the link's history starts again. The same again changes nothing.
+- **A field missing:** the sync leaves that variant's link alone. Add it with the **Import links** CSV or by hand.
+- **Skipped and listed, never guessed:** the supplier name matches no supplier in the app, the address is not a web address, or the address is not on the supplier's website. Fix it in Shopify and sync again.
+- **A hand edit on a link set from Shopify is undone by the next sync.** The edit page warns about it. Change the metafields in Shopify instead.
+- **The CSV import leaves those variants out** and says how many rows it skipped. A variant that Shopify supplies is never changed by an import.
+- The Products page shows each product's supplier name and address, so you can see what Shopify holds.
+- Emptying a metafield in Shopify does not delete the link. Delete it on **Links** if you no longer want it.
+- The metafields are read at product level and apply to every variant of the product.
+
 ## Stock rules
 
 Stock rules tell the app how one supplier's product pages show stock, so it can say whether an item is **In stock**, **Out of stock** or **Cannot tell**. You build them in the app, from a saved copy of a real page. Nothing is clicked, typed or scrolled on the supplier's site, and nothing is written to Shopify.
@@ -237,9 +259,9 @@ If the app cannot tell whether Shopify made a change (for example the connection
 
 Until you do, Approve is refused and nothing is ever sent. The permission is `write_inventory`, added to the app you created in Shopify; then **Connect** again in the app's Shopify settings. **Do this on a development store first, not your real store** (see the checklist below). The app only uses it when you press Approve.
 
-### Checking it against a real Shopify store (still to do)
+### Checking it against a real Shopify store
 
-All of this has been built and tested against a stand-in Shopify. Shopify's own behaviour has not yet been confirmed on a real store, so this module is **not finished until you run this check**, on a **development store** (free, from your Shopify Partners account) with a few test products:
+This check was run and passed on a Shopify development store on 2026-11-12. Repeat it after a Shopify API version change, on a **development store** (free, from your Shopify Partners account) with a few test products:
 
 1. Create the app in the development store with read and `write_inventory` access, and connect it in the app's Shopify settings. Choose a location and **Sync**.
 2. Pick a test product with stock 4. Set the supplier's stand-in answer to out of stock (or edit a suggestion by hand) so a suggestion "set to 0" appears. **Approve** it. Open the product in Shopify: **available** must now show 0 at that location.
@@ -263,7 +285,7 @@ Saved supplier sessions are decrypted in memory while a check runs, so anyone wh
 - Set `TRUST_PROXY=true` **only** if the proxy overwrites `X-Forwarded-For` with the real client address. Otherwise anyone can fake their address and dodge the sign-in rate limit. Leave it `false` with no proxy.
 - `.env` readable only by the deploy user (`chmod 600 .env`). Never commit it.
 - Back up `APP_ENCRYPTION_KEY` separately, for example in a password manager. If it is lost, saved sessions and the Shopify token cannot be read. They can be recreated by reconnecting.
-- Encrypted, off-server database backups: nightly `pg_dump` to storage such as S3 or Backblaze, and a restore test. **Not automated yet.** It is a follow-up task.
+- Database backups are manual by choice: see the README for `pg_dump` and `pg_restore`. Keep copies off the server and try a restore now and then.
 - Check the pilot supplier's terms of service on automated access before the first real check.
 
 ## Known limits

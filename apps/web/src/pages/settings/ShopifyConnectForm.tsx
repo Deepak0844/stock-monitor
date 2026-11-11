@@ -1,5 +1,8 @@
 import { useRef, useState, type FormEvent } from "react";
+import { Button } from "@/components/ui/button.js";
+import { Input } from "@/components/ui/input.js";
 import { ApiError, type ConnectionCheck, type ShopifyDetails } from "../../api.js";
+import { Field } from "../../components/Field.js";
 import { Notice } from "../../components/Notice.js";
 
 type Props = {
@@ -104,9 +107,8 @@ export function ShopifyConnectForm({ initialShop = "", onTest, onConnect, onCanc
     const error = errors[id];
     const describedBy = [opts.hint ? `${id}-hint` : null, error ? `${id}-error` : null].filter(Boolean).join(" ") || undefined;
     return (
-      <div className="field">
-        <label htmlFor={id}>{label}</label>
-        <input
+      <Field id={id} label={label} hint={opts.hint && <span id={`${id}-hint`}>{opts.hint}</span>} error={error}>
+        <Input
           id={id}
           ref={refs[id]}
           type={opts.secret ? "password" : "text"}
@@ -118,22 +120,12 @@ export function ShopifyConnectForm({ initialShop = "", onTest, onConnect, onCanc
           aria-invalid={error ? "true" : undefined}
           aria-describedby={describedBy}
         />
-        {opts.hint && (
-          <p id={`${id}-hint`} className="hint">
-            {opts.hint}
-          </p>
-        )}
-        {error && (
-          <p id={`${id}-error`} className="field-error">
-            {error}
-          </p>
-        )}
-      </div>
+      </Field>
     );
   };
 
   return (
-    <form onSubmit={submit} noValidate className="connect-form">
+    <form onSubmit={submit} noValidate className="flex flex-col gap-4">
       {field("shop", "Store address", shop, setShop, { hint: "Your store's address, like my-store.myshopify.com." })}
       {tokenMode ? (
         field("accessToken", "Access token", accessToken, setAccessToken, { secret: true })
@@ -144,18 +136,18 @@ export function ShopifyConnectForm({ initialShop = "", onTest, onConnect, onCanc
         </>
       )}
 
-      <button type="button" className="link-button" onClick={switchMode}>
+      <button type="button" className="self-start text-sm font-medium underline underline-offset-2 hover:text-muted-foreground" onClick={switchMode}>
         {tokenMode ? "Use a client ID and secret instead" : "Use an older permanent access token instead"}
       </button>
 
-      <div className="form-result" aria-live="polite">
+      <div className="flex flex-col gap-2" aria-live="polite">
         {check && (
           <Notice kind="success" role="status">
             Connection works. Store name: {check.shopName}.
           </Notice>
         )}
         {check && check.warnings.length > 0 && (
-          <ul className="warning-list">
+          <ul className="flex flex-col gap-2">
             {check.warnings.map((w) => (
               <li key={w}>
                 <Notice kind="warning">{w}</Notice>
@@ -171,17 +163,17 @@ export function ShopifyConnectForm({ initialShop = "", onTest, onConnect, onCanc
         </Notice>
       )}
 
-      <div className="actions">
-        <button type="button" className="button secondary" onClick={() => void run("test")} disabled={busy !== null}>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" variant="outline" onClick={() => void run("test")} disabled={busy !== null} loading={busy === "test"}>
           {busy === "test" ? "Testing…" : "Test connection"}
-        </button>
-        <button type="submit" className="button primary" disabled={busy !== null} aria-busy={busy === "connect"}>
+        </Button>
+        <Button type="submit" disabled={busy !== null} loading={busy === "connect"}>
           {busy === "connect" ? "Connecting…" : "Connect"}
-        </button>
+        </Button>
         {onCancel && (
-          <button type="button" className="button secondary" onClick={onCancel} disabled={busy !== null}>
+          <Button type="button" variant="outline" onClick={onCancel} disabled={busy !== null}>
             Cancel
-          </button>
+          </Button>
         )}
       </div>
     </form>

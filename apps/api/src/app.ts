@@ -77,7 +77,7 @@ const SECURITY_HEADERS = {
   "x-frame-options": "DENY",
   "referrer-policy": "no-referrer",
   "content-security-policy":
-    "default-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+    "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
 };
 
 // The screen checks the owner's cookie, the Origin and the token itself, so that every refusal can be audited. Its own

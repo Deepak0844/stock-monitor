@@ -13,19 +13,37 @@ afterEach(cleanup);
 const acme = aSupplier();
 const globex = aSupplier({ id: "22222222-2222-4222-8222-222222222222", name: "Globex", websiteUrl: "https://globex.example/login" });
 
+const statusOfRow = (s: Supplier) => (!s.enabled && s.pausedReason !== "session" ? "paused" : s.sessionStatus);
+/** A tiny fake server: filters, then slices, like the real one. */
+const serve = (getAll: () => Supplier[]) =>
+  vi.fn().mockImplementation(async (q: { page: number; pageSize: number; search?: string; status?: string }) => {
+    const found = getAll().filter((s) => (!q.search || s.name.toLowerCase().includes(q.search.toLowerCase())) && (!q.status || statusOfRow(s) === q.status));
+    return { items: found.slice((q.page - 1) * q.pageSize, q.page * q.pageSize), total: found.length, page: q.page, pageSize: q.pageSize };
+  });
+
 const setup = (suppliers: Supplier[], over: Parameters<typeof fakeApi>[0] = {}) => {
-  const api = fakeApi({ ...over, suppliers: { list: vi.fn().mockResolvedValue(suppliers), ...over.suppliers } });
+  let current = suppliers;
+  const api = fakeApi({
+    ...over,
+    suppliers: { list: vi.fn().mockImplementation(async () => current), page: serve(() => current), remove: vi.fn().mockImplementation(async (id: string) => void (current = current.filter((s) => s.id !== id))), ...over.suppliers },
+  });
   const view = render(<SuppliersPage api={api} />);
   return { api, user: userEvent.setup(), unmount: view.unmount };
 };
 
 const rowOf = (name: string) => screen.getByRole("row", { name: new RegExp(name) });
+/** Opens the "more actions" menu of one row, and returns it. */
+const openMenu = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
+  await user.click(await screen.findByRole("button", { name: `More actions for ${name}` }));
+  return screen.getByRole("menu");
+};
 
 describe("empty and loading", () => {
-  it("shows a loading message first", () => {
-    const api = fakeApi({ suppliers: { list: vi.fn().mockReturnValue(new Promise(() => {})) } });
+  it("shows shimmering rows and tells a screen reader it is loading", () => {
+    const api = fakeApi({ suppliers: { page: vi.fn().mockReturnValue(new Promise(() => {})) } });
     render(<SuppliersPage api={api} />);
-    expect(screen.getByRole("status")).toHaveTextContent("Loading…");
+    expect(screen.getByRole("status")).toHaveTextContent("Loading suppliers…");
+    expect(screen.getByRole("table", { name: "Suppliers" })).toHaveAttribute("aria-busy", "true");
   });
 
   it("says plainly there are no suppliers and offers to add one", async () => {
@@ -36,18 +54,30 @@ describe("empty and loading", () => {
   });
 
   it("shows a plain error and tries again when the list cannot load", async () => {
-    const list = vi.fn().mockRejectedValueOnce(new ApiError("Can't reach the server. Check your connection and try again.", 0)).mockResolvedValue([acme]);
-    const { user } = setup([], { suppliers: { list } });
+    const page = vi.fn().mockRejectedValueOnce(new ApiError("Can't reach the server. Check your connection and try again.", 0));
+    const { user } = setup([acme], { suppliers: { page } });
     expect(await screen.findByRole("alert")).toHaveTextContent("Can't reach the server");
-    await user.click(screen.getByRole("button", { name: "Try again" }));
+    page.mockResolvedValue({ items: [acme], total: 1, page: 1, pageSize: 10 });
+    await user.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByText("Acme Supply")).toBeInTheDocument();
+  });
+
+  it("says nothing matches, and how to get the list back, when a search finds nothing", async () => {
+    window.history.replaceState(null, "", "/suppliers?search=zzz");
+    const { user } = setup([acme]);
+    expect(await screen.findByText(/No suppliers match/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Clear search and filters" }));
+    expect(await screen.findByText("Acme Supply")).toBeInTheDocument();
+    expect(window.location.search).toBe("");
   });
 });
 
 describe("the table", () => {
   it("lists each supplier with its name, website and last-checked time, and one Add supplier link", async () => {
     setup([acme, globex]);
-    const table = await screen.findByRole("table", { name: "Suppliers" });
+    // The table shows while loading too, with placeholder rows: wait for a real row first.
+    await screen.findByRole("row", { name: /Acme Supply/ });
+    const table = screen.getByRole("table", { name: "Suppliers" });
     expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Name", "Website", "Status", "Last checked", "Automatic checks", "Actions"]);
     expect(within(rowOf("Acme Supply")).getByText("shop.acme.example")).toBeInTheDocument();
     expect(within(rowOf("Globex")).getByText("globex.example")).toBeInTheDocument();
@@ -89,87 +119,161 @@ describe("the table", () => {
     expect(within(row).queryByText("Paused")).toBeNull();
   });
 
-  it("gives each action a name that includes the supplier, so a screen reader can tell them apart", async () => {
-    setup([acme, globex]);
-    await screen.findByRole("table");
-    expect(screen.getByRole("link", { name: "Edit Acme Supply" })).toHaveAttribute("href", `/suppliers/${acme.id}/edit`);
-    expect(screen.getByRole("button", { name: "Pause Globex" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Delete Globex" })).toBeInTheDocument();
+  it("keeps the other actions in a menu named after the supplier, so a screen reader can tell them apart", async () => {
+    const { user } = setup([acme, globex]);
+    const menu = await openMenu(user, "Globex");
+    expect(within(menu).getByRole("menuitem", { name: "Stock rules" })).toHaveAttribute("href", `/suppliers/${globex.id}/rules`);
+    expect(within(menu).getByRole("menuitem", { name: "Edit" })).toHaveAttribute("href", `/suppliers/${globex.id}/edit`);
+    expect(within(menu).getByRole("menuitem", { name: "Pause" })).toBeInTheDocument();
+    expect(within(menu).getByRole("menuitem", { name: "Delete" })).toBeInTheDocument();
+  });
+});
+
+describe("the summary tiles", () => {
+  it("count suppliers by what the owner sees, and link to the matching list", async () => {
+    setup([acme, aSupplier({ id: "3", name: "Bramley", sessionStatus: "connected" }), aSupplier({ id: "4", name: "Cole", sessionStatus: "needs_reconnect" }), aSupplier({ id: "5", name: "Dunn", enabled: false, pausedReason: "owner" })]);
+    const tile = (label: string) => screen.findByRole("link", { name: new RegExp(`^${label}\\s*\\d+`) });
+    expect(await tile("Needs reconnecting")).toHaveTextContent("1");
+    expect(await tile("Needs reconnecting")).toHaveAttribute("href", "/suppliers?status=needs_reconnect");
+    expect(await tile("Connected")).toHaveTextContent("1");
+    expect(await tile("Connected")).toHaveAttribute("href", "/suppliers?status=connected");
+    expect(await tile("Paused")).toHaveTextContent("1");
+    expect(await tile("All suppliers")).toHaveTextContent("4");
+    expect(await tile("All suppliers")).toHaveAttribute("href", "/suppliers");
+  });
+});
+
+describe("paging, search and filters", () => {
+  const many = Array.from({ length: 23 }, (_, i) => aSupplier({ id: `00000000-0000-4000-8000-0000000000${String(i).padStart(2, "0")}`, name: `Supplier ${String(i + 1).padStart(2, "0")}`, sessionStatus: "connected" }));
+
+  it("asks the server for the first ten, and shows where the owner is in the list", async () => {
+    const { api } = setup(many);
+    expect(await screen.findByText("Showing 1–10 of 23")).toBeInTheDocument();
+    expect(api.suppliers.page).toHaveBeenCalledWith({ page: 1, pageSize: 10, search: undefined, status: undefined });
+    expect(screen.getAllByRole("row")).toHaveLength(11);
+  });
+
+  it("goes to the next page, and keeps the page in the address", async () => {
+    const { api, user } = setup(many);
+    await user.click(await screen.findByRole("button", { name: "Next page" }));
+    expect(await screen.findByText("Showing 11–20 of 23")).toBeInTheDocument();
+    expect(api.suppliers.page).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2 }));
+    expect(window.location.search).toBe("?page=2");
+    expect(screen.getByText("Supplier 11")).toBeInTheDocument();
+  });
+
+  it("opens on the page and filter in the address", async () => {
+    window.history.replaceState(null, "", "/suppliers?page=3&status=connected");
+    const { api } = setup(many);
+    expect(await screen.findByText("Showing 21–23 of 23")).toBeInTheDocument();
+    expect(api.suppliers.page).toHaveBeenCalledWith({ page: 3, pageSize: 10, search: undefined, status: "connected" });
+  });
+
+  it("searches on the server after a short pause, and goes back to the first page", async () => {
+    window.history.replaceState(null, "", "/suppliers?page=2");
+    const { api, user } = setup(many);
+    await screen.findByText("Showing 11–20 of 23");
+    await user.type(screen.getByRole("searchbox", { name: "Search suppliers" }), "supplier 07");
+    await waitFor(() => expect(api.suppliers.page).toHaveBeenLastCalledWith({ page: 1, pageSize: 10, search: "supplier 07", status: undefined }));
+    expect(await screen.findByText("Showing 1–1 of 1")).toBeInTheDocument();
+    expect(window.location.search).toBe("?search=supplier+07");
+  });
+
+  it("filters by status from the list", async () => {
+    const { api, user } = setup([acme, aSupplier({ id: "9", name: "Bramley", enabled: false, pausedReason: "owner" })]);
+    await screen.findByText("Acme Supply");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Filter by status" }), "paused");
+    await waitFor(() => expect(api.suppliers.page).toHaveBeenLastCalledWith(expect.objectContaining({ status: "paused" })));
+    expect(await screen.findByText("Bramley")).toBeInTheDocument();
+    expect(screen.queryByText("Acme Supply")).toBeNull();
   });
 });
 
 describe("pause and resume", () => {
   it("pauses one supplier and leaves the others alone", async () => {
     const { api, user } = setup([acme, globex]);
-    await user.click(await screen.findByRole("button", { name: "Pause Acme Supply" }));
+    const menu = await openMenu(user, "Acme Supply");
+    await user.click(within(menu).getByRole("menuitem", { name: "Pause" }));
     expect(api.suppliers.pause).toHaveBeenCalledWith(acme.id);
     expect(await within(rowOf("Acme Supply")).findByText("Paused")).toBeInTheDocument();
-    expect(within(rowOf("Acme Supply")).getByRole("button", { name: "Resume Acme Supply" })).toBeInTheDocument();
-    expect(within(rowOf("Globex")).getByRole("button", { name: "Pause Globex" })).toBeInTheDocument();
+    expect(within(await openMenu(user, "Acme Supply")).getByRole("menuitem", { name: "Resume" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(within(rowOf("Globex")).queryByText("Paused")).toBeNull();
   });
 
   it("resumes a paused supplier", async () => {
     const paused = aSupplier({ enabled: false, pausedReason: "owner" });
     const { api, user } = setup([paused]);
-    await user.click(await screen.findByRole("button", { name: "Resume Acme Supply" }));
+    await user.click(within(await openMenu(user, "Acme Supply")).getByRole("menuitem", { name: "Resume" }));
     expect(api.suppliers.resume).toHaveBeenCalledWith(paused.id);
-    expect(await screen.findByRole("button", { name: "Pause Acme Supply" })).toBeInTheDocument();
-    expect(screen.getByText("Not connected")).toBeInTheDocument();
+    expect(await within(rowOf("Acme Supply")).findByText("Not connected")).toBeInTheDocument();
   });
 
   it("shows the server's plain message when pausing fails, and keeps the row as it was", async () => {
     const pause = vi.fn().mockRejectedValue(new ApiError("That supplier does not exist.", 404, "supplier_not_found"));
     const { user } = setup([acme], { suppliers: { pause } });
-    await user.click(await screen.findByRole("button", { name: "Pause Acme Supply" }));
+    await user.click(within(await openMenu(user, "Acme Supply")).getByRole("menuitem", { name: "Pause" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("That supplier does not exist.");
-    expect(screen.getByRole("button", { name: "Pause Acme Supply" })).toBeEnabled();
+    expect(within(rowOf("Acme Supply")).getByText("Not connected")).toBeInTheDocument();
   });
 });
 
 describe("delete", () => {
-  it("asks first, names the supplier, and does nothing until confirmed", async () => {
+  const askToDelete = async (user: ReturnType<typeof userEvent.setup>, name = "Acme Supply") => {
+    await user.click(within(await openMenu(user, name)).getByRole("menuitem", { name: "Delete" }));
+    return screen.getByRole("dialog", { name: `Delete ${name}?` });
+  };
+
+  it("asks first in a dialog that names the supplier, and does nothing until confirmed", async () => {
     const { api, user } = setup([acme, globex]);
-    await user.click(await screen.findByRole("button", { name: "Delete Acme Supply" }));
-    const confirm = screen.getByRole("group", { name: "Confirm delete" });
-    expect(confirm).toHaveTextContent("Delete Acme Supply?");
-    expect(confirm).toHaveTextContent("cannot be undone");
+    const dialog = await askToDelete(user);
+    expect(dialog).toHaveTextContent("cannot undo this");
     expect(api.suppliers.remove).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
   });
 
   it("cancelling changes nothing", async () => {
     const { api, user } = setup([acme]);
-    await user.click(await screen.findByRole("button", { name: "Delete Acme Supply" }));
+    await askToDelete(user);
     await user.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByRole("group", { name: "Confirm delete" })).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(api.suppliers.remove).not.toHaveBeenCalled();
     expect(screen.getByText("Acme Supply")).toBeInTheDocument();
   });
 
   it("deletes after confirming, removes the row and says so", async () => {
     const { api, user } = setup([acme, globex]);
-    await user.click(await screen.findByRole("button", { name: "Delete Acme Supply" }));
-    await user.click(screen.getByRole("button", { name: "Yes, delete" }));
+    await askToDelete(user);
+    await user.click(screen.getByRole("button", { name: "Delete supplier" }));
     expect(api.suppliers.remove).toHaveBeenCalledWith(acme.id);
-    await waitFor(() => expect(screen.queryByText("Acme Supply", { selector: "td" })).toBeNull());
+    await waitFor(() => expect(screen.queryByText("Acme Supply", { selector: "td span" })).toBeNull());
     expect(screen.getByRole("status")).toHaveTextContent("Deleted Acme Supply.");
     expect(screen.getByText("Globex")).toBeInTheDocument();
   });
 
   it("shows the empty state after the last supplier is deleted", async () => {
     const { user } = setup([acme]);
-    await user.click(await screen.findByRole("button", { name: "Delete Acme Supply" }));
-    await user.click(screen.getByRole("button", { name: "Yes, delete" }));
+    await askToDelete(user);
+    await user.click(screen.getByRole("button", { name: "Delete supplier" }));
     expect(await screen.findByText("No suppliers yet. Add your first supplier.")).toBeInTheDocument();
   });
 
-  it("keeps the supplier and shows the message when deleting fails", async () => {
+  it("keeps the supplier and shows the reason inside the dialog when deleting fails", async () => {
     const remove = vi.fn().mockRejectedValue(new ApiError("Something went wrong. Please try again.", 500));
     const { user } = setup([acme], { suppliers: { remove } });
-    await user.click(await screen.findByRole("button", { name: "Delete Acme Supply" }));
-    await user.click(screen.getByRole("button", { name: "Yes, delete" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong");
-    expect(screen.getByText("Acme Supply")).toBeInTheDocument();
+    await askToDelete(user);
+    await user.click(screen.getByRole("button", { name: "Delete supplier" }));
+    expect(await within(screen.getByRole("dialog")).findByRole("alert")).toHaveTextContent("Something went wrong");
+    expect(screen.getByText("Acme Supply", { selector: "td span" })).toBeInTheDocument();
+  });
+
+  it("steps back a page when the last supplier on the last page is deleted", async () => {
+    window.history.replaceState(null, "", "/suppliers?page=2");
+    const eleven = Array.from({ length: 11 }, (_, i) => aSupplier({ id: `00000000-0000-4000-8000-0000000000${String(i).padStart(2, "0")}`, name: `Supplier ${String(i + 1).padStart(2, "0")}` }));
+    const { user } = setup(eleven);
+    await askToDelete(user, "Supplier 11");
+    await user.click(screen.getByRole("button", { name: "Delete supplier" }));
+    expect(await screen.findByText("Showing 1–10 of 10")).toBeInTheDocument();
+    expect(window.location.search).toBe("");
   });
 });
 
@@ -193,49 +297,74 @@ describe("connecting", () => {
   it("offers Check connection, not Connect, for a connected supplier", async () => {
     setup([aSupplier({ sessionStatus: "connected" })]);
     expect(await screen.findByRole("button", { name: "Check connection Acme Supply" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /Connect|Reconnect/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /^(Connect|Reconnect supplier) Acme Supply$/ })).toBeNull();
   });
 
   it("still offers the right action for a paused supplier", async () => {
     setup([aSupplier({ enabled: false, pausedReason: "session", sessionStatus: "needs_reconnect" })]);
     expect(await screen.findByRole("link", { name: "Reconnect supplier Acme Supply" })).toBeInTheDocument();
   });
-
-  it("puts the connect action first in each row", async () => {
-    setup([aSupplier({ sessionStatus: "needs_reconnect" })]);
-    await screen.findByRole("table");
-    const actions = within(screen.getByRole("row", { name: /Acme Supply/ })).getAllByRole("link").concat(within(screen.getByRole("row", { name: /Acme Supply/ })).getAllByRole("button"));
-    expect(actions.map((a) => a.getAttribute("aria-label"))).toEqual(
-      expect.arrayContaining(["Reconnect supplier Acme Supply", "Edit Acme Supply", "Pause Acme Supply", "Delete Acme Supply"]),
-    );
-    const first = within(screen.getByRole("row", { name: /Acme Supply/ })).getByRole("cell", { name: /Reconnect supplier/ });
-    expect(first).toBeInTheDocument();
-  });
 });
 
 describe("checking a connection", () => {
   const connected = aSupplier({ sessionStatus: "connected" });
 
-  it("asks for a check, and says plainly that it has started", async () => {
-    const { api, user } = setup([connected]);
-    await user.click(await screen.findByRole("button", { name: "Check connection Acme Supply" }));
+  it("shows a spinner on the button while the check is being asked for, then says it has started", async () => {
+    let started!: () => void;
+    const checkSession = vi.fn(() => new Promise<void>((resolve) => (started = resolve)));
+    const { api, user } = setup([connected], { suppliers: { checkSession } });
+    const button = await screen.findByRole("button", { name: "Check connection Acme Supply" });
+    await user.click(button);
     expect(api.suppliers.checkSession).toHaveBeenCalledWith(connected.id);
+    expect(button).toHaveAttribute("aria-busy", "true");
+    started();
     expect(await screen.findByText("A check of Acme Supply has started. Its status will update in a moment.")).toBeInTheDocument();
+    expect(button).not.toHaveAttribute("aria-busy");
   });
 
-  it("reads the list again a few seconds later, so the new status appears without a reload", async () => {
+  it("reads the page again a few seconds later, so the new status appears without a reload", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
     try {
-      const list = vi.fn().mockResolvedValueOnce([connected]).mockResolvedValue([aSupplier({ sessionStatus: "needs_reconnect" })]);
-      const { user } = setup([], { suppliers: { list } });
+      const page = vi
+        .fn()
+        .mockResolvedValueOnce({ items: [connected], total: 1, page: 1, pageSize: 10 })
+        .mockResolvedValue({ items: [aSupplier({ sessionStatus: "needs_reconnect" })], total: 1, page: 1, pageSize: 10 });
+      const { user } = setup([connected], { suppliers: { page } });
       await user.click(await screen.findByRole("button", { name: "Check connection Acme Supply" }));
-      expect(list).toHaveBeenCalledTimes(1);
+      expect(page).toHaveBeenCalledTimes(1);
       await act(async () => void vi.advanceTimersByTime(4_500));
-      expect(list).toHaveBeenCalledTimes(2);
+      expect(page).toHaveBeenCalledTimes(2);
       expect(await screen.findByRole("link", { name: "Reconnect supplier Acme Supply" })).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("shows a pulsing Checking… badge in the row until the new status arrives, and moves nothing else", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    try {
+      const reply = (s: Supplier) => ({ items: [s], total: 1, page: 1, pageSize: 10 });
+      const page = vi.fn().mockResolvedValueOnce(reply(connected)).mockResolvedValue(reply(aSupplier({ sessionStatus: "connected", lastSessionCheckAt: "2026-11-11T09:00:00.000Z" })));
+      const { user } = setup([connected], { suppliers: { page } });
+      const row = within(await screen.findByRole("row", { name: /Acme Supply/ }));
+      await user.click(row.getByRole("button", { name: "Check connection Acme Supply" }));
+      expect(await row.findByText("Checking…")).toBeInTheDocument();
+      expect(row.queryByText("Connected")).toBeNull();
+      expect(screen.getByText(/has started/).closest("main, section, table")).toBeNull(); // a toast, never a banner among the page content
+      await act(async () => void vi.advanceTimersByTime(4_500));
+      expect(await row.findByText("Connected")).toBeInTheDocument();
+      expect(row.queryByText("Checking…")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("takes the Checking… badge away when the check cannot be started", async () => {
+    const checkSession = vi.fn().mockRejectedValue(new ApiError("No.", 503));
+    const { user } = setup([connected], { suppliers: { checkSession } });
+    await user.click(await screen.findByRole("button", { name: "Check connection Acme Supply" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("No.");
+    expect(screen.queryByText("Checking…")).toBeNull();
   });
 
   it("shows the server's plain message when the check cannot be started", async () => {
@@ -248,22 +377,15 @@ describe("checking a connection", () => {
   it("does not leave a timer behind when the page is left", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
     try {
-      const list = vi.fn().mockResolvedValue([connected]);
-      const { user, unmount } = setup([], { suppliers: { list } });
+      const page = vi.fn().mockResolvedValue({ items: [connected], total: 1, page: 1, pageSize: 10 });
+      const { user, unmount } = setup([connected], { suppliers: { page } });
       await user.click(await screen.findByRole("button", { name: "Check connection Acme Supply" }));
       unmount();
       await act(async () => void vi.advanceTimersByTime(10_000));
-      expect(list).toHaveBeenCalledTimes(1);
+      expect(page).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }
-  });
-});
-
-describe("stock rules link", () => {
-  it("each supplier row links to its stock rules", async () => {
-    setup([acme]);
-    expect(await screen.findByRole("link", { name: "Stock rules Acme Supply" })).toHaveAttribute("href", `/suppliers/${acme.id}/rules`);
   });
 });
 
@@ -328,7 +450,7 @@ describe("automatic checks", () => {
 
   it("still shows the suppliers when the schedule cannot be read", async () => {
     setup([acme], { schedule: { overview: vi.fn().mockRejectedValue(new ApiError("No.", 500)) } });
-    expect(await screen.findByRole("table")).toBeInTheDocument();
+    expect(await screen.findByRole("row", { name: /Acme Supply/ })).toBeInTheDocument();
     expect(cellOf("Acme Supply")).toBeInTheDocument();
   });
 });

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button.js";
 import type { Api, ShopifyConnection, SyncRun } from "../../api.js";
 import { Notice } from "../../components/Notice.js";
+import { Panel } from "../../components/Panel.js";
 import { formatWhen } from "../../format.js";
 
 type Props = {
@@ -121,38 +123,44 @@ export function SyncCard({ api, connection, onFinished }: Props) {
   };
 
   return (
-    <section className="panel" aria-labelledby="sync-heading">
-      <h2 id="sync-heading">Sync</h2>
-      <p className="muted">Copies your products and the stock at the chosen location into this app. It only reads from Shopify.</p>
-
+    <Panel id="sync-heading" title="Sync" description="Copies your products and the stock at the chosen location into this app. It only reads from Shopify.">
       {error && (
         <Notice kind="error" role="alert">
           {error}
         </Notice>
       )}
-      {notStarted && (
-        <Notice kind="warning">
-          The sync has not started yet. Make sure the background worker is running, then try again.
-        </Notice>
-      )}
+      {notStarted && <Notice kind="warning">The sync has not started yet. Make sure the background worker is running, then try again.</Notice>}
 
-      <div role="status" aria-label="Sync progress" className="sync-status">
+      <div role="status" aria-label="Sync progress" className="text-sm">
         {progress()}
       </div>
       {!busy && lastRun?.status === "failed" && lastRun.error && <Notice kind="error">{lastRun.error}</Notice>}
+      {!busy && lastRun?.status === "succeeded" && lastRun.links && (
+        <div className="flex flex-col gap-2 text-sm">
+          <p>{`Links from Shopify: ${lastRun.links.added} added, ${lastRun.links.updated} updated, ${lastRun.links.skipped} skipped.`}</p>
+          {lastRun.links.problems.length > 0 && (
+            <>
+              <p className="text-muted-foreground">Skipped. Fix these in Shopify, then sync again.</p>
+              <ul className="flex flex-col gap-1">
+                {lastRun.links.problems.map((p, i) => (
+                  <li key={i}>
+                    {p.product}
+                    {p.sku ? ` (${p.sku})` : ""}: {p.message}
+                  </li>
+                ))}
+              </ul>
+              {lastRun.links.skipped > lastRun.links.problems.length && <p className="text-muted-foreground">Showing the first {lastRun.links.problems.length}.</p>}
+            </>
+          )}
+        </div>
+      )}
 
-      <div className="actions">
-        <button
-          type="button"
-          className="button primary"
-          onClick={() => void start()}
-          disabled={busy || hint !== null || loadingLastRun}
-          aria-busy={busy}
-        >
+      <div>
+        <Button onClick={() => void start()} disabled={busy || hint !== null || loadingLastRun} loading={busy}>
           {busy ? "Syncing…" : "Sync from Shopify"}
-        </button>
+        </Button>
       </div>
-      {hint && <p className="hint">{hint}</p>}
-    </section>
+      {hint && <p className="text-sm text-muted-foreground">{hint}</p>}
+    </Panel>
   );
 }

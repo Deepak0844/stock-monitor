@@ -1,0 +1,230 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* Store style: dark brown sidebar, black primary buttons, orange accent used for fills and marks only (never text on
+   white), white surfaces. Text contrast is at least 4.5:1 and input borders at least 3:1 in both themes. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: #f6f4f2;
+  --foreground: #1c1410;
+  --card: #ffffff;
+  --card-foreground: #1c1410;
+  --popover: #ffffff;
+  --popover-foreground: #1c1410;
+  --primary: #111111;
+  --primary-foreground: #ffffff;
+  --secondary: #f1ede9;
+  --secondary-foreground: #1c1410;
+  --muted: #f1ede9;
+  --muted-foreground: #5c4f46;
+  --accent: #e8873a;
+  --accent-foreground: #2a1608;
+  --destructive: #b91c1c;
+  --destructive-foreground: #ffffff;
+  --border: #e3dcd5;
+  --input: #8a7d73;
+  --ring: #1d4ed8;
+  --sidebar: #5b3420;
+  --sidebar-foreground: #f3e6dc;
+  --sidebar-active: #6f4329;
+  --success: #166534;
+  --success-soft: #dcfce7;
+  --warning: #78350f;
+  --warning-soft: #fef3c7;
+  --danger: #991b1b;
+  --danger-soft: #fee2e2;
+  --radius: 0.75rem;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --background: #120d0a;
+    --foreground: #f3ece6;
+    --card: #1c1511;
+    --card-foreground: #f3ece6;
+    --popover: #1c1511;
+    --popover-foreground: #f3ece6;
+    --primary: #f5f5f5;
+    --primary-foreground: #111111;
+    --secondary: #2a201a;
+    --secondary-foreground: #f3ece6;
+    --muted: #2a201a;
+    --muted-foreground: #b9aaa0;
+    --accent: #e8873a;
+    --accent-foreground: #2a1608;
+    --destructive: #f87171;
+    --destructive-foreground: #1c0a0a;
+    --border: #35291f;
+    --input: #8f7f73;
+    --ring: #93c5fd;
+    --sidebar: #2b1a10;
+    --sidebar-foreground: #ecd9cb;
+    --sidebar-active: #3d2616;
+    --success: #86efac;
+    --success-soft: #14301f;
+    --warning: #fcd34d;
+    --warning-soft: #3a2a08;
+    --danger: #fca5a5;
+    --danger-soft: #3b1414;
+    color-scheme: dark;
+  }
+}
+
+:root.dark {
+  --background: #120d0a;
+  --foreground: #f3ece6;
+  --card: #1c1511;
+  --card-foreground: #f3ece6;
+  --popover: #1c1511;
+  --popover-foreground: #f3ece6;
+  --primary: #f5f5f5;
+  --primary-foreground: #111111;
+  --secondary: #2a201a;
+  --secondary-foreground: #f3ece6;
+  --muted: #2a201a;
+  --muted-foreground: #b9aaa0;
+  --accent: #e8873a;
+  --accent-foreground: #2a1608;
+  --destructive: #f87171;
+  --destructive-foreground: #1c0a0a;
+  --border: #35291f;
+  --input: #8f7f73;
+  --ring: #93c5fd;
+  --sidebar: #2b1a10;
+  --sidebar-foreground: #ecd9cb;
+  --sidebar-active: #3d2616;
+  --success: #86efac;
+  --success-soft: #14301f;
+  --warning: #fcd34d;
+  --warning-soft: #3a2a08;
+  --danger: #fca5a5;
+  --danger-soft: #3b1414;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-active: var(--sidebar-active);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+  --font-sans: "Inter Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Shimmer for loading placeholders. It rests when the visitor asks for less motion. */
+.skeleton {
+  background: linear-gradient(90deg, var(--muted) 25%, color-mix(in srgb, var(--muted) 55%, var(--card)) 50%, var(--muted) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.3s linear infinite;
+}
+@keyframes skeleton-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
+
+@layer base {
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-size: 0.9375rem;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  /* Tailwind v4 leaves buttons with the arrow. Anything that can be clicked shows the hand, and what is off shows it is off. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="tab"],
+  [role="menuitem"],
+  summary,
+  select:not(:disabled),
+  label[for],
+  input[type="checkbox"]:not(:disabled),
+  input[type="file"]:not(:disabled),
+  a[href] {
+    cursor: pointer;
+  }
+  button:disabled,
+  [aria-disabled="true"],
+  select:disabled,
+  input:disabled {
+    cursor: not-allowed;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}
+
+/* On a phone a table becomes a stack of cards: one card per row, each value under its own label. The roles on the table
+   elements keep it a table for screen readers. */
+@media (max-width: 47.9375rem) {
+  table.stack,
+  table.stack tbody,
+  table.stack tr,
+  table.stack td {
+    display: block;
+  }
+  table.stack thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  table.stack tr {
+    padding: 0.75rem 1rem;
+  }
+  table.stack td {
+    padding: 0.35rem 0;
+    text-align: left !important;
+  }
+  table.stack td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+  }
+}

@@ -16,10 +16,16 @@ import {
   createSupplierSessionRepository,
 } from "@stock-monitor/db";
 import { createQueue } from "@stock-monitor/queue";
+import { parseMetafieldName } from "@stock-monitor/shopify";
 import { createLogger, loadConfig } from "@stock-monitor/shared";
 import { registerHandlers } from "./worker.js";
 
 const config = loadConfig(process.env);
+function mustParseMetafield(name: string, value: string) {
+  const parsed = parseMetafieldName(value);
+  if (!parsed) throw new Error(`Invalid configuration:\n${name}: must be namespace.key, for example custom.spu`);
+  return parsed;
+}
 const logger = createLogger({ level: config.logLevel });
 const pool = new pg.Pool({ connectionString: config.databaseUrl });
 const queue = createQueue({
@@ -32,6 +38,12 @@ await queue.start();
 await registerHandlers(queue, logger, {
   shopify: {
     repo: createShopifyRepository(db, { key: config.encryptionKey, keyId: KEY_ID }),
+    mappings: createMappingRepository(db),
+    suppliers: createSupplierRepository(db),
+    metafields: {
+      supplierName: mustParseMetafield("SHOPIFY_SUPPLIER_NAME_METAFIELD", config.shopifySupplierNameMetafield),
+      supplierUrl: mustParseMetafield("SHOPIFY_SPU_METAFIELD", config.shopifySpuMetafield),
+    },
     // Test only. The config refuses to start in production with this set.
     baseUrl: config.shopifyBaseUrlOverride ? () => config.shopifyBaseUrlOverride as string : undefined,
   },
@@ -114,6 +126,7 @@ await registerHandlers(queue, logger, {
           mappings: createMappingRepository(db),
           suppliers: createSupplierRepository(db),
           supplierSessions: createSupplierSessionRepository(db),
+          notifications: createNotificationRepository(db),
           audit: createAuditWriter(db),
           browser: createBrowserClient({ baseUrl: config.browserServiceUrl, token: config.browserControlToken }),
           key: config.encryptionKey,

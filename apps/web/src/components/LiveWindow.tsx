@@ -1,4 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button.js";
+import { Input } from "@/components/ui/input.js";
+import { Skeleton } from "@/components/ui/skeleton.js";
+import { Field } from "./Field.js";
 
 /** The part of noVNC's viewer the app uses. */
 export type RfbLike = EventTarget & {
@@ -157,53 +161,46 @@ export function LiveWindow({
   };
 
   return (
-    <div className="live-window">
+    <div className="mt-5">
       {phase === "connecting" && (
-        <p role="status" className="status">
-          Opening the login window…
-        </p>
+        <div className="mb-3 flex flex-col gap-2">
+          <p role="status" className="text-sm font-medium">
+            Opening the login window…
+          </p>
+          <Skeleton className="h-64 w-full rounded-xl" />
+        </div>
       )}
-      <div className="live-toolbar">
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-x-8 gap-y-3">
         {expiresAt && (
-          <p role="timer" className="timer">
+          <p role="timer" className="font-semibold tabular-nums">
             Time left: {clock(new Date(expiresAt).getTime() - now)}
           </p>
         )}
         {phase === "live" && (
-          <div className="paste-box">
-            <div className="field">
-              <label htmlFor="paste-text">Paste text</label>
-              <div className="search-row">
-                <input
-                  id="paste-text"
-                  type="password"
-                  autoComplete="off"
-                  value={pasteText}
-                  onChange={(e) => setPasteText(e.target.value)}
-                  aria-describedby="paste-hint"
-                />
-                <button type="button" className="button secondary" onClick={sendPaste}>
+          <div className="max-w-xl flex-1 basis-96">
+            <Field id="paste-text" label="Paste text" hint={<span id="paste-hint">For a password from your password manager: send it, click the field in the window, then press Ctrl+V.</span>}>
+              <div className="flex gap-2">
+                <Input id="paste-text" type="password" autoComplete="off" value={pasteText} onChange={(e) => setPasteText(e.target.value)} aria-describedby="paste-hint" />
+                <Button type="button" variant="outline" className="shrink-0" onClick={sendPaste}>
                   Send to the window
-                </button>
+                </Button>
               </div>
-              <p id="paste-hint" className="hint">
-                For a password from your password manager: send it, click the field in the window,
-                then press Ctrl+V.
-              </p>
-            </div>
+            </Field>
             {pasted && (
-              <p role="status" className="status">
+              <p role="status" className="mt-2 text-sm font-medium text-success">
                 Sent. Now click the field in the window and press Ctrl+V.
               </p>
             )}
           </div>
         )}
       </div>
+      {/* The remote screen is 1280 by 800. The viewer scales it to fit this box, so it is never scrolled, and the box is kept short
+          enough that the buttons above it and the window can be seen together on a laptop. */}
       <div
         ref={screenRef}
         role="group"
         aria-label="Live login window. Click it to type into the supplier's website. Use the buttons above to finish or cancel."
-        className={phase === "live" ? "screen" : "screen is-pending"}
+        className={phase === "live" ? "h-[clamp(20rem,calc(100vh-20rem),50rem)] w-full overflow-hidden rounded-xl border border-border bg-black" : "hidden"}
       />
     </div>
   );

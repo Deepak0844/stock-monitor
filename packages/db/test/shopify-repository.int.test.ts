@@ -32,6 +32,8 @@ const variant = (n: number, over: Partial<CatalogVariant> = {}): CatalogVariant 
   tracked: true,
   inventoryPolicy: "DENY",
   available: n,
+  supplierName: null,
+  supplierUrl: null,
   ...over,
 });
 
@@ -396,5 +398,27 @@ describe("the app role", () => {
   it("can use the new tables but not change the audit log", async () => {
     await expect(t.appPool.query("select count(*) from shopify_variants")).resolves.toBeDefined();
     await expect(t.appPool.query("delete from audit_events")).rejects.toThrow(/permission denied/i);
+  });
+});
+
+describe("supplier fields and link results", () => {
+  it("saves and reads a variant's supplier name and page address, and changes them on a later save", async () => {
+    await reset();
+    const store = repo().catalogStore();
+    await store.save([variant(1, { supplierName: "Acme", supplierUrl: "https://acme.example/p/1" })]);
+    expect((await store.getAll())[0]).toMatchObject({ supplierName: "Acme", supplierUrl: "https://acme.example/p/1" });
+    await store.save([variant(1, { supplierName: null, supplierUrl: null })]);
+    expect((await store.getAll())[0]).toMatchObject({ supplierName: null, supplierUrl: null });
+  });
+
+  it("keeps what the link step did on the sync run", async () => {
+    await reset();
+    const id = (await repo().startSyncRun()) as number;
+    const links = { added: 2, updated: 1, skipped: 1, problems: [{ product: "Tee", sku: "S1", message: "Supplier \"Nope\" is not in the app." }] };
+    await repo().finishSyncRun(id, { status: "succeeded", result: { added: 3, updated: 0, unchanged: 0, removed: 0, total: 3 }, links });
+    expect((await repo().lastSyncRun())?.links).toEqual(links);
+    const second = (await repo().startSyncRun()) as number;
+    await repo().finishSyncRun(second, { status: "succeeded", result: { added: 0, updated: 0, unchanged: 3, removed: 0, total: 3 } });
+    expect((await repo().lastSyncRun())?.links).toBeNull();
   });
 });

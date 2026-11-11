@@ -6,6 +6,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 import { OWNER_EMAIL, OWNER_PASSWORD } from "./constants.js";
 import { control } from "./control.js";
+import { expectSignedIn, rowMenu, settle } from "./ui.js";
 
 test.describe.configure({ mode: "serial" });
 const EXPORT = fileURLToPath(new URL("./fixtures/shopify-export.csv", import.meta.url));
@@ -19,7 +20,7 @@ async function signIn(page: Page) {
   await page.getByLabel("Email").fill(OWNER_EMAIL);
   await page.getByLabel("Password", { exact: true }).fill(OWNER_PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+  await expectSignedIn(page);
 }
 
 /** On a phone the navigation sits behind the Menu button. */
@@ -39,6 +40,7 @@ async function importExport(page: Page) {
 }
 
 const scan = async (page: Page, label: string) => {
+  await settle(page);
   const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
   expect(result.violations.map((v) => `${label}: ${v.id}`), label).toEqual([]);
 };
@@ -117,7 +119,7 @@ test("a link check needs recorded permission, then shows works, page missing, an
   await expect(page.getByRole("alert")).toContainText("You have not recorded permission to check this supplier automatically");
 
   await page.goto("/suppliers");
-  await page.getByRole("link", { name: "Edit Acme Supply" }).click();
+  await rowMenu(page, "Acme Supply", "Edit");
   const permission = page.getByRole("group", { name: "Permission to check automatically" });
   await expect(permission).toContainText("Not recorded");
   await permission.getByLabel("Permission", { exact: true }).selectOption("granted");
@@ -137,12 +139,12 @@ test("a link check needs recorded permission, then shows works, page missing, an
   await expect(blue).toContainText("Worked until");
   await expect(blue).not.toContainText("May be unavailable"); // one check is not enough
 
-  // A puzzle is the supplier's problem, not a broken link, and the supplier itself stays connected.
+  // A puzzle is the supplier's problem, not a broken link, and the supplier is marked Blocked.
   await control.browser({ page: { result: "captcha", status: 403, finalUrl: null, title: null, heading: null, softNotFound: false } });
   await blue.getByRole("button", { name: /Check now/ }).click();
   await expectStatus(page, /Blue Tee.*Medium/, "Needs login");
   await page.goto("/suppliers");
-  await expect(page.getByRole("row", { name: /Acme Supply/ })).toContainText("Connected");
+  await expect(page.getByRole("row", { name: /Acme Supply/ })).toContainText("Blocked");
 });
 
 test("the link screens pass the accessibility scan in light and dark, and never scroll sideways", async ({ page }) => {
@@ -169,7 +171,7 @@ test("the link screens pass the accessibility scan in light and dark, and never 
     await noSideScroll(page, `add link ${scheme}`);
 
     await page.goto("/mappings");
-    await page.getByRole("link", { name: "Edit link Blue Tee Large" }).click();
+    await rowMenu(page, "Blue Tee Large", "Edit");
     await expect(page.getByLabel("Supplier page address")).toBeVisible();
     await scan(page, `edit link ${scheme}`);
 
@@ -179,7 +181,7 @@ test("the link screens pass the accessibility scan in light and dark, and never 
     await noSideScroll(page, `import preview ${scheme}`);
 
     await page.goto("/suppliers");
-    await page.getByRole("link", { name: "Edit Acme Supply" }).click();
+    await rowMenu(page, "Acme Supply", "Edit");
     await expect(page.getByRole("group", { name: "Permission to check automatically" })).toBeVisible();
     await scan(page, `permission ${scheme}`);
     await noSideScroll(page, `permission ${scheme}`);

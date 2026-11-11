@@ -29,12 +29,15 @@ export type SyncRunRecord = {
   removed: number | null;
   total: number | null;
   error: string | null;
+  links: LinkSummary | null;
 };
 
 export type VariantRecord = CatalogVariant & { syncedAt: Date };
 export type VariantPage = { items: VariantRecord[]; total: number; page: number; pageSize: number };
 
-export type SyncOutcome = { status: "succeeded"; result: SyncResult } | { status: "failed"; error: string };
+/** What the step after a sync did with the supplier name and page address Shopify holds. */
+export type LinkSummary = { added: number; updated: number; skipped: number; problems: { product: string; sku: string | null; message: string }[] };
+export type SyncOutcome = { status: "succeeded"; result: SyncResult; links?: LinkSummary } | { status: "failed"; error: string };
 
 const STALE_RUN_MINUTES = 30;
 const MAX_ERROR_LENGTH = 500;
@@ -161,6 +164,8 @@ export function createShopifyRepository<S extends Record<string, unknown>>(db: N
         tracked: r.tracked,
         inventoryPolicy: r.inventoryPolicy as "DENY" | "CONTINUE",
         available: r.available,
+        supplierName: r.supplierName,
+        supplierUrl: r.supplierUrl,
         removed: r.removedAt !== null,
       }));
     },
@@ -181,6 +186,8 @@ export function createShopifyRepository<S extends Record<string, unknown>>(db: N
               tracked: v.tracked,
               inventoryPolicy: v.inventoryPolicy,
               available: v.available,
+              supplierName: v.supplierName,
+              supplierUrl: v.supplierUrl,
               quantityReadAt: sql`now()`,
               syncedAt: sql`now()`,
               removedAt: null,
@@ -198,6 +205,8 @@ export function createShopifyRepository<S extends Record<string, unknown>>(db: N
               tracked: excluded(shopifyVariants.tracked),
               inventoryPolicy: excluded(shopifyVariants.inventoryPolicy),
               available: excluded(shopifyVariants.available),
+              supplierName: excluded(shopifyVariants.supplierName),
+              supplierUrl: excluded(shopifyVariants.supplierUrl),
               quantityReadAt: sql`now()`,
               syncedAt: sql`now()`,
               removedAt: null, // saving a variant brings it back
@@ -281,6 +290,8 @@ export function createShopifyRepository<S extends Record<string, unknown>>(db: N
           tracked: r.tracked,
           inventoryPolicy: r.inventoryPolicy as "DENY" | "CONTINUE",
           available: r.available,
+          supplierName: r.supplierName,
+          supplierUrl: r.supplierUrl,
           syncedAt: r.syncedAt,
         })),
       };
@@ -322,7 +333,7 @@ export function createShopifyRepository<S extends Record<string, unknown>>(db: N
       if (outcome.status === "succeeded") {
         await db
           .update(shopifySyncRuns)
-          .set({ status: "succeeded", finishedAt: sql`now()`, ...outcome.result, error: null })
+          .set({ status: "succeeded", finishedAt: sql`now()`, ...outcome.result, links: outcome.links ?? null, error: null })
           .where(eq(shopifySyncRuns.id, id));
       } else {
         await db

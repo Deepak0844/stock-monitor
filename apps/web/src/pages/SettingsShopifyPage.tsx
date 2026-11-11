@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
+import { Button } from "@/components/ui/button.js";
+import { Skeleton } from "@/components/ui/skeleton.js";
 import type { Api, ConnectionCheck, ShopifyConnection, ShopifyDetails } from "../api.js";
 import { Notice } from "../components/Notice.js";
+import { PageHeader } from "../components/PageHeader.js";
+import { Panel } from "../components/Panel.js";
 import { useTitle } from "../useTitle.js";
 import { ConnectionCard } from "./settings/ConnectionCard.js";
 import { LocationCard } from "./settings/LocationCard.js";
@@ -14,7 +18,7 @@ type Load =
   | { kind: "ready"; connection: ShopifyConnection | null };
 
 export function SettingsShopifyPage({ api }: { api: Api }) {
-  useTitle("Shopify settings");
+  useTitle("Settings");
   const [load, setLoad] = useState<Load>({ kind: "loading" });
   const [welcome, setWelcome] = useState<ConnectionCheck | null>(null);
 
@@ -46,69 +50,68 @@ export function SettingsShopifyPage({ api }: { api: Api }) {
 
   return (
     <>
-      <div className="page-header">
-        <h1>Shopify settings</h1>
-        <p className="muted">Connect your store so this app can read your products and stock.</p>
-      </div>
+      <PageHeader title="Settings" description="Your Shopify store and how stock suggestions work." />
 
-      {load.kind === "loading" && (
-        <p role="status" className="status">
-          Loading…
-        </p>
-      )}
+      <div className="flex max-w-3xl flex-col gap-6">
+        {load.kind === "loading" && (
+          <>
+            <p role="status" className="sr-only">
+              Loading…
+            </p>
+            <Skeleton className="h-48 w-full rounded-xl" />
+            <Skeleton className="h-32 w-full rounded-xl" />
+          </>
+        )}
 
-      {load.kind === "error" && (
-        <>
-          <Notice kind="error" role="alert">
-            {load.message}
-          </Notice>
-          <div className="actions">
-            <button type="button" className="button primary" onClick={read}>
-              Try again
-            </button>
+        {load.kind === "error" && (
+          <div className="flex flex-col items-start gap-3">
+            <Notice kind="error" role="alert">
+              {load.message}
+            </Notice>
+            <Button onClick={read}>Try again</Button>
           </div>
-        </>
-      )}
+        )}
 
-      {load.kind === "ready" && load.connection === null && (
-        <section className="panel" aria-labelledby="connect-heading">
-          <h2 id="connect-heading">Connect your Shopify store</h2>
-          <p className="muted">
-            Connecting lets this app read your products and stock. It only changes a stock number when you approve a suggestion, and only if you have given the app permission to change inventory. In your Shopify admin, create an app with read access to products and inventory, then copy its client ID and secret here.
-          </p>
-          <ShopifyConnectForm onTest={(details) => api.shopify.test(details)} onConnect={connect} />
-        </section>
-      )}
+        {load.kind === "ready" && load.connection === null && (
+          <Panel
+            id="connect-heading"
+            title="Connect your Shopify store"
+            description="Connecting lets this app read your products and stock. It only changes a stock number when you approve a suggestion, and only if you have given the app permission to change inventory. In your Shopify admin, create an app with read access to products and inventory, then copy its client ID and secret here."
+          >
+            <ShopifyConnectForm onTest={(details) => api.shopify.test(details)} onConnect={connect} />
+          </Panel>
+        )}
 
-      {load.kind === "ready" && load.connection && (
-        <div className="stack">
-          <ConnectionCard
-            api={api}
-            connection={load.connection}
-            welcome={welcome}
-            onConnected={connect}
-            onDisconnected={() => {
-              setWelcome(null);
-              setLoad({ kind: "ready", connection: null });
-            }}
-          />
-          {load.connection.status === "connected" && (
-            <LocationCard
+        {load.kind === "ready" && load.connection && (
+          <>
+            <ConnectionCard
               api={api}
               connection={load.connection}
-              onChosen={(location) =>
-                setLoad((current) =>
-                  current.kind === "ready" && current.connection
-                    ? { kind: "ready", connection: { ...current.connection, locationId: location.id, locationName: location.name } }
-                    : current,
-                )
-              }
+              welcome={welcome}
+              onConnected={connect}
+              onDisconnected={() => {
+                setWelcome(null);
+                setLoad({ kind: "ready", connection: null });
+              }}
             />
-          )}
-          <SyncCard api={api} connection={load.connection} onFinished={refresh} />
-          <ProposalSettingsCard api={api} />
-        </div>
-      )}
+            {load.connection.status === "connected" && (
+              <LocationCard
+                api={api}
+                connection={load.connection}
+                onChosen={(location) =>
+                  setLoad((current) =>
+                    current.kind === "ready" && current.connection
+                      ? { kind: "ready", connection: { ...current.connection, locationId: location.id, locationName: location.name } }
+                      : current,
+                  )
+                }
+              />
+            )}
+            <SyncCard api={api} connection={load.connection} onFinished={refresh} />
+            <ProposalSettingsCard api={api} />
+          </>
+        )}
+      </div>
     </>
   );
 }

@@ -38,4 +38,9 @@ describe("checkRow", () => {
       message: "That address is not on this supplier's website.",
     });
   });
+  it("skips a row whose variant already gets its supplier and address from Shopify", () => {
+    const managed: RowContext = { ...ctx, shopifyManaged: new Set(["v1"]) };
+    expect(checkRow(row(), managed)).toEqual({ kind: "skipped_shopify" });
+    expect(checkRow(row({ sku: "ZZ" }), managed)).toEqual({ kind: "problem", message: "SKU ZZ matches no variant." });
+  });
 });

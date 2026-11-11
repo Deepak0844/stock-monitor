@@ -145,7 +145,11 @@ export function createControlServer({ token, verify, checkPage, capture, session
     const request = parse(raw);
     if (!request) return reply(res, 400, { error: "invalid_request" });
     try {
-      reply(res, 200, path === "/capture" && capture ? await capture(request) : path === "/check-page" && checkPage ? await checkPage(request) : await verify(request));
+      const answer = path === "/capture" && capture ? await capture(request) : path === "/check-page" && checkPage ? await checkPage(request) : await verify(request);
+      // Which rule decided, never the address or the page: this is what tells a real login wall from a false alarm.
+      const { result, status, signal } = answer as { result?: string; status?: number | null; signal?: string };
+      if (signal) log(`${path.slice(1)}: ${result} (${signal}) http=${status ?? "none"}`);
+      reply(res, 200, answer);
     } catch (error) {
       // The name only. A browser error message can contain the address and with it a secret.
       const what = path === "/capture" ? "capture" : path === "/check-page" ? "check-page" : "verify";

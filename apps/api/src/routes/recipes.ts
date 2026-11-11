@@ -86,6 +86,14 @@ export function registerRecipeRoutes(app: App, deps: RecipeRoutesDeps, audit: Au
     return { recipe: active };
   });
 
+  app.delete<{ Params: { id: string } }>("/api/recipes/:id", async (request) => {
+    const removed = await recipes.remove(request.params.id);
+    if (removed.result === "not_found") throw new AppError(404, "recipe_not_found", "That version does not exist.");
+    if (removed.result !== "deleted") throw new AppError(409, "recipe_active", "Turn another version on first.");
+    await record(request, "recipe.deleted", "supplier", removed.supplierId, { version: removed.version });
+    return { ok: true };
+  });
+
   app.patch<{ Params: { id: string } }>("/api/suppliers/:id/region", async (request) => {
     const input = object(request.body, ["region"]);
     const region = input.region;

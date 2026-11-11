@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { randomBytes } from "node:crypto";
 import { Writable } from "node:stream";
 import { startTestDb, type TestDb } from "@stock-monitor/db/test-harness";
-import { createShopifyRepository } from "@stock-monitor/db";
+import { createMappingRepository, createShopifyRepository, createSupplierRepository } from "@stock-monitor/db";
 import { createQueue, type Queue } from "@stock-monitor/queue";
 import { createLogger } from "@stock-monitor/shared";
 import {
@@ -195,7 +195,7 @@ describe("shopify sync handler", () => {
     await connect();
     fake.setMode("wrong_organization");
     await handler()({});
-    expect((await repo().lastSyncRun())!.error).toMatch(/different organizations/);
+    expect((await repo().lastSyncRun())!.error).toMatch(/different organisations/);
     expect((await repo().getConnection())!.status).toBe("needs_reconnect");
   });
 
@@ -275,5 +275,67 @@ describe("through the real queue", () => {
     queue = createQueue({ connectionString: t.appUrl });
     await queue.start();
     await expect(queue.enqueue("shopify.sync", { clientSecret: SECRET } as never)).rejects.toThrow(/shopify\.sync/);
+  });
+});
+
+describe("links set from Shopify's supplier fields", () => {
+  const linkDeps = () => ({ mappings: createMappingRepository(t.appDb), suppliers: createSupplierRepository(t.appDb) });
+  const withLinks = (variants: ReturnType<typeof makeVariant>[]) => fake.setGraphQL(createFakeCatalog({ locations, variants }).handler);
+  const setup = async () => {
+    await fresh();
+    await t.pool.query("truncate suppliers cascade");
+    await connect();
+    const acme = await createSupplierRepository(t.appDb).create({ name: "Acme Foods", websiteUrl: "https://acme.example/", loginUrl: null, checkIntervalMinutes: 60 });
+    if (!acme.ok) throw new Error("setup");
+    return acme.supplier.id;
+  };
+  const links = async () => (await createMappingRepository(t.appDb).list({})).map((m) => ({ sku: m.sku, supplierId: m.supplierId, url: m.url }));
+
+  it("creates a link for a product with a good supplier name and page address, skips and explains a bad one, and leaves a variant with none alone", async () => {
+    const acme = await setup();
+    withLinks([
+      makeVariant(1, { supplierName: "acme foods", supplierUrl: "https://acme.example/p/1?_pos=3" }),
+      makeVariant(2, { supplierName: "Nobody", supplierUrl: "https://acme.example/p/2" }),
+      makeVariant(3),
+    ]);
+    await handler(linkDeps())({});
+    expect(await links()).toEqual([{ sku: "SKU-1", supplierId: acme, url: "https://acme.example/p/1" }]);
+    const run = await repo().lastSyncRun();
+    expect(run).toMatchObject({ status: "succeeded" });
+    expect(run!.links).toEqual({ added: 1, updated: 0, skipped: 1, problems: [{ product: "Product 1 (Size 2)", sku: "SKU-2", message: 'Supplier "Nobody" is not in the app.' }] });
+  });
+
+  it("changes nothing on a second run, and replaces the link when Shopify's address changes (Shopify is the one source)", async () => {
+    const acme = await setup();
+    withLinks([makeVariant(1, { supplierName: "Acme Foods", supplierUrl: "https://acme.example/p/1" })]);
+    await handler(linkDeps())({});
+    await handler(linkDeps())({});
+    expect((await repo().lastSyncRun())!.links).toEqual({ added: 0, updated: 0, skipped: 0, problems: [] });
+
+    withLinks([makeVariant(1, { supplierName: "Acme Foods", supplierUrl: "https://acme.example/p/1-new" })]);
+    await handler(linkDeps())({});
+    expect((await repo().lastSyncRun())!.links).toMatchObject({ added: 0, updated: 1 });
+    expect(await links()).toEqual([{ sku: "SKU-1", supplierId: acme, url: "https://acme.example/p/1-new" }]);
+  });
+
+  it("leaves a link made by hand on a variant that has no Shopify fields", async () => {
+    const acme = await setup();
+    withLinks([makeVariant(1), makeVariant(2, { supplierName: "Acme Foods", supplierUrl: "https://acme.example/p/2" })]);
+    await handler(linkDeps())({}); // first sync saves the variants
+    const [first] = (await repo().catalogStore().getAll()).filter((v) => v.sku === "SKU-1");
+    await createMappingRepository(t.appDb).create({ variantId: first!.variantId, supplierId: acme, url: "https://acme.example/by-hand", note: "mine" });
+    await handler(linkDeps())({});
+    expect(await links()).toEqual([
+      { sku: "SKU-1", supplierId: acme, url: "https://acme.example/by-hand" },
+      { sku: "SKU-2", supplierId: acme, url: "https://acme.example/p/2" },
+    ]);
+  });
+
+  it("does not touch links, and leaves no link result, when the handler is not given the link repositories", async () => {
+    await setup();
+    withLinks([makeVariant(1, { supplierName: "Acme Foods", supplierUrl: "https://acme.example/p/1" })]);
+    await handler()({});
+    expect(await links()).toEqual([]);
+    expect((await repo().lastSyncRun())!.links).toBeNull();
   });
 });

@@ -6,6 +6,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { OWNER_EMAIL, OWNER_PASSWORD } from "./constants.js";
 import { control } from "./control.js";
+import { expectSignedIn, rowMenu, settle } from "./ui.js";
 
 test.describe.configure({ mode: "serial" });
 
@@ -23,13 +24,13 @@ async function signIn(page: Page) {
   await page.getByLabel("Email").fill(OWNER_EMAIL);
   await page.getByLabel("Password", { exact: true }).fill(OWNER_PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+  await expectSignedIn(page);
 }
 
 /** Turns automatic checks on for Acme Supply through the screen. */
 async function turnOn(page: Page, interval = "1440", anyTime = true) {
   await page.goto("/suppliers");
-  await page.getByRole("link", { name: "Edit Acme Supply" }).click();
+  await rowMenu(page, "Acme Supply", "Edit");
   await page.getByLabel("How often").selectOption(interval);
   if (anyTime) await page.getByLabel("Any time of day").check();
   await page.getByRole("button", { name: "Save automatic checks" }).click();
@@ -51,6 +52,7 @@ async function waitForRunEnd(page: Page) {
     .toBeNull();
 }
 const scan = async (page: Page, label: string) => {
+  await settle(page);
   const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
   expect(result.violations.map((v) => `${label}: ${v.id}`), label).toEqual([]);
 };
@@ -79,7 +81,7 @@ test("the owner turns on daily checks, a due check runs by itself, and the list 
   await expect(supplierRow(page)).toContainText(/Every day, next check/);
 
   // The run is in the history on the supplier's page.
-  await page.getByRole("link", { name: "Edit Acme Supply" }).click();
+  await rowMenu(page, "Acme Supply", "Edit");
   await expect(page.getByRole("table", { name: "Recent checks" })).toContainText("Scheduled");
   await expect(page.getByRole("table", { name: "Recent checks" })).toContainText(/Checked 6 links/);
 });
@@ -119,7 +121,7 @@ test("a supplier that is not recorded as allowed is not checked, and the screen 
   await signIn(page);
   await turnOn(page);
   await page.goto("/suppliers");
-  await page.getByRole("link", { name: "Edit Acme Supply" }).click();
+  await rowMenu(page, "Acme Supply", "Edit");
   await page.getByLabel("Permission", { exact: true }).selectOption("unknown");
   await page.getByRole("button", { name: "Save permission" }).click();
   await expect(page.getByText("Permission saved.")).toBeVisible();
@@ -130,7 +132,7 @@ test("a supplier that is not recorded as allowed is not checked, and the screen 
 test("the quiet hours start at 07:00 to 22:00 and an end time equal to the start is refused", async ({ page }) => {
   await signIn(page);
   await page.goto("/suppliers");
-  await page.getByRole("link", { name: "Edit Acme Supply" }).click();
+  await rowMenu(page, "Acme Supply", "Edit");
   await expect(page.getByLabel("From")).toHaveValue("07:00");
   await expect(page.getByLabel("Until")).toHaveValue("22:00");
   await page.getByLabel("How often").selectOption("360");
@@ -150,7 +152,7 @@ test("the automatic check screens pass the accessibility scan in light and dark,
     await expect(supplierRow(page)).toBeVisible();
     await scan(page, `suppliers ${scheme}`);
     await noSideScroll(page, `suppliers ${scheme}`);
-    await page.getByRole("link", { name: "Edit Acme Supply" }).click();
+    await rowMenu(page, "Acme Supply", "Edit");
     await expect(page.getByRole("table", { name: "Recent checks" })).toBeVisible();
     await scan(page, `schedule panel ${scheme}`);
     await noSideScroll(page, `schedule panel ${scheme}`);

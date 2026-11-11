@@ -160,10 +160,17 @@ export async function startGuardProxy(guard: Guard): Promise<GuardProxy> {
     secret,
     async openListener(id) {
       const own = makeServer(() => id);
+      const mine = new Set<Socket>();
+      own.on("connection", (socket) => {
+        mine.add(socket);
+        socket.on("close", () => mine.delete(socket));
+      });
       const listener = {
         port: await listen(own),
         async close() {
           extra.delete(listener);
+          // A site may keep a tunnel open after the browser quits; close() would then wait forever and block every later check.
+          for (const socket of mine) socket.destroy();
           await new Promise<void>((resolve) => own.close(() => resolve()));
         },
       };

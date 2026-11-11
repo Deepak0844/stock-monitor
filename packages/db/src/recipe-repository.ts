@@ -1,4 +1,4 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { stockRecipes } from "./schema.js";
 
@@ -8,7 +8,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function createRecipeRepository<S extends Record<string, unknown>>(db: NodePgDatabase<S>) {
   const get = async (id: string): Promise<RecipeRecord | null> => {
     if (!UUID.test(id)) return null;
-    const [row] = await db.select().from(stockRecipes).where(eq(stockRecipes.id, id)).limit(1);
+    const [row] = await db.select().from(stockRecipes).where(and(eq(stockRecipes.id, id), isNull(stockRecipes.deletedAt))).limit(1);
     return (row as RecipeRecord | undefined) ?? null;
   };
   return {
@@ -26,13 +26,22 @@ export function createRecipeRepository<S extends Record<string, unknown>>(db: No
 
     async list(supplierId: string): Promise<RecipeRecord[]> {
       if (!UUID.test(supplierId)) return [];
-      return (await db.select().from(stockRecipes).where(eq(stockRecipes.supplierId, supplierId)).orderBy(desc(stockRecipes.version))) as RecipeRecord[];
+      return (await db.select().from(stockRecipes).where(and(eq(stockRecipes.supplierId, supplierId), isNull(stockRecipes.deletedAt))).orderBy(desc(stockRecipes.version))) as RecipeRecord[];
     },
 
     async active(supplierId: string): Promise<RecipeRecord | null> {
       if (!UUID.test(supplierId)) return null;
       const [row] = await db.select().from(stockRecipes).where(sql`${stockRecipes.supplierId} = ${supplierId} and ${stockRecipes.active}`).limit(1);
       return (row as RecipeRecord | undefined) ?? null;
+    },
+
+    /** Hides a version that is not turned on. Its number is never used again. */
+    async remove(id: string): Promise<{ result: "deleted"; version: number; supplierId: string } | { result: "not_found" | "active" }> {
+      const recipe = await get(id);
+      if (!recipe) return { result: "not_found" };
+      if (recipe.active) return { result: "active" };
+      await db.update(stockRecipes).set({ deletedAt: new Date() }).where(and(eq(stockRecipes.id, id), eq(stockRecipes.active, false)));
+      return { result: "deleted", version: recipe.version, supplierId: recipe.supplierId };
     },
 
     /** Turns one version on and the supplier's other versions off, in one step. */

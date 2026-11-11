@@ -108,9 +108,11 @@ export async function startBrowserService(options: BrowserServiceOptions): Promi
     log: options.log,
     sessions,
     vncPassword: options.vncPassword,
-    // A link check always uses the headless browser: the profile checker reads only History titles, with no status or address.
-    checkPage: async (request) => checkPage(await getBrowser(), request, { navigationTimeoutMs: options.navigationTimeoutMs, proxy }),
-    capture: async (request) => capturePage(await getBrowser(), request, { navigationTimeoutMs: options.navigationTimeoutMs, proxy }),
+    // In profile mode link and stock checks run in the same logged-in browser as the session check, not in a cookie-replaying headless one.
+    checkPage: async (request) =>
+      checkInProfile?.checkPage(request, options.navigationTimeoutMs) ?? checkPage(await getBrowser(), request, { navigationTimeoutMs: options.navigationTimeoutMs, proxy }),
+    capture: async (request) =>
+      checkInProfile?.capture(request, options.navigationTimeoutMs) ?? capturePage(await getBrowser(), request, { navigationTimeoutMs: options.navigationTimeoutMs, proxy }),
     verify: async (request) =>
       checkInProfile?.(request) ??
       verifyPage(await getBrowser(), request, {

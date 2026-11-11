@@ -67,6 +67,14 @@ describe("security headers", () => {
     expect(res.headers["content-security-policy"]).toContain("frame-ancestors 'none'");
   });
 
+  it("allows inline styles for the UI library but never inline scripts", async () => {
+    const res = await withWeb().inject({ method: "GET", url: "/" });
+    const csp = String(res.headers["content-security-policy"]);
+    expect(csp).toContain("style-src 'self' 'unsafe-inline'");
+    expect(csp).not.toMatch(/script-src[^;]*unsafe-inline/);
+    expect(csp).not.toContain("unsafe-eval");
+  });
+
   it("also sends them on API errors", async () => {
     const res = await withWeb().inject({ method: "GET", url: "/api/me" });
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
