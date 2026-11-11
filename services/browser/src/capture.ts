@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Browser, BrowserContextOptions } from "playwright";
-import { classifyPage, looksLikeNotFound, type SessionState } from "@stock-monitor/supplier-session";
+import { explainPage, looksLikeNotFound, type SessionState } from "@stock-monitor/supplier-session";
 import type { GuardProxy } from "./proxy.js";
 import { CHALLENGE_WIDGET, MAX_TEXT, type BlockTracker, type CheckPageOutcome, type VerifyOptions } from "./verify.js";
 
@@ -57,8 +57,18 @@ const describePage = (arg: { limits: typeof LIMITS; challenge: string }) => {
     buttons.push({ label, enabled: !input.disabled && el.getAttribute("aria-disabled") !== "true", section });
   }
 
-  const hasPasswordField = document.querySelector('input[type="password"]') !== null;
-  const hasChallengeWidget = document.querySelector(challenge) !== null;
+  const hasPasswordField = [...document.querySelectorAll('input[type="password"]')].some((el) => {
+        // A sign-in popup that is hidden until someone clicks it is not a login wall.
+        const box = el.getBoundingClientRect();
+        const style = getComputedStyle(el);
+        return box.width > 0 && box.height > 0 && style.visibility !== "hidden" && style.display !== "none" && Number(style.opacity) > 0.1;
+      });
+  const hasChallengeWidget = [...document.querySelectorAll(challenge)].some((el) => {
+        // An invisible or off-screen widget (a form's spam guard) is not a puzzle in front of the page.
+        const box = el.getBoundingClientRect();
+        const style = getComputedStyle(el);
+        return el.getAttribute("data-size") !== "invisible" && box.width >= 50 && box.height >= 30 && style.visibility !== "hidden" && style.display !== "none" && Number(style.opacity) > 0.1 && box.bottom > 0 && box.right > 0;
+      });
   for (const el of document.querySelectorAll("textarea,select,input:not([type=submit]):not([type=button])")) (el as HTMLElement).style.display = "none";
 
   const sections: { heading: string | null; level: number; lines: string[] }[] = [{ heading: null, level: 0, lines: [] }];
@@ -153,7 +163,7 @@ export async function capturePageIn(page: import("playwright").Page, request: Ca
   // The picture first: describing the page hides its input fields.
   const picture = request.picture ? await takePicture(page) : null;
   const seen = await readPage(page);
-  const result = classifyPage({
+  const { result, signal } = explainPage({
     requestedUrl: request.url,
     loginUrl: request.loginUrl,
     page: { finalUrl: page.url(), status, title: seen.title, text: seen.text.slice(0, MAX_TEXT), hasPasswordField: seen.hasPasswordField, hasChallengeWidget: seen.hasChallengeWidget },
@@ -168,6 +178,7 @@ export async function capturePageIn(page: import("playwright").Page, request: Ca
     title,
     heading,
     softNotFound: looksLikeNotFound({ title, heading }),
+    signal,
     description: { sections: seen.sections, buttons: seen.buttons },
     picture,
   };

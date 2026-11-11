@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Browser, BrowserContextOptions, Page } from "playwright";
-import { classifyPage, looksLikeNotFound, type PageClass, type SessionState } from "@stock-monitor/supplier-session";
+import { explainPage, looksLikeNotFound, type PageClass, type SessionState } from "@stock-monitor/supplier-session";
 import type { GuardProxy } from "./proxy.js";
 
 export type VerifyRequest = { url: string; loginUrl?: string; state: SessionState };
@@ -10,7 +10,7 @@ export type VerifyOutcome = { result: PageClass; status: number | null; blockedR
  * What a link check saw. The address has no query string or fragment (they can hold secrets), and the title and
  * heading are cut short. Never the page text, prices or stock.
  */
-export type CheckPageOutcome = VerifyOutcome & { finalUrl: string | null; title: string | null; heading: string | null; softNotFound: boolean };
+export type CheckPageOutcome = VerifyOutcome & { finalUrl: string | null; title: string | null; heading: string | null; softNotFound: boolean; signal?: string };
 export type CheckPageRequest = { url: string; loginUrl?: string; state: SessionState };
 export type VerifyOptions = { navigationTimeoutMs?: number; proxy: GuardProxy };
 
@@ -77,19 +77,29 @@ export async function inspectPage(page: Page, request: CheckPageRequest, tracker
       title: document.title,
       heading: document.querySelector("h1")?.textContent ?? "",
       text: (document.body?.innerText ?? "").slice(0, 20_000),
-      hasPasswordField: document.querySelector('input[type="password"]') !== null,
-      hasChallengeWidget: document.querySelector(selector) !== null,
+      hasPasswordField: [...document.querySelectorAll('input[type="password"]')].some((el) => {
+        // A sign-in popup that is hidden until someone clicks it is not a login wall.
+        const box = el.getBoundingClientRect();
+        const style = getComputedStyle(el);
+        return box.width > 0 && box.height > 0 && style.visibility !== "hidden" && style.display !== "none" && Number(style.opacity) > 0.1;
+      }),
+      hasChallengeWidget: [...document.querySelectorAll(selector)].some((el) => {
+        // An invisible or off-screen widget (a form's spam guard) is not a puzzle in front of the page.
+        const box = el.getBoundingClientRect();
+        const style = getComputedStyle(el);
+        return el.getAttribute("data-size") !== "invisible" && box.width >= 50 && box.height >= 30 && style.visibility !== "hidden" && style.display !== "none" && Number(style.opacity) > 0.1 && box.bottom > 0 && box.right > 0;
+      }),
     }),
     CHALLENGE_WIDGET,
   );
-  const result = classifyPage({
+  const { result, signal } = explainPage({
     requestedUrl: request.url,
     loginUrl: request.loginUrl,
     page: { finalUrl: page.url(), status, title: seen.title, text: seen.text.slice(0, MAX_TEXT), hasPasswordField: seen.hasPasswordField, hasChallengeWidget: seen.hasChallengeWidget },
   });
   const title = short(seen.title);
   const heading = short(seen.heading);
-  return { result, status, blockedRequests: tracker.blocked().count, finalUrl: withoutQuery(page.url()), title, heading, softNotFound: looksLikeNotFound({ title, heading }) };
+  return { result, status, blockedRequests: tracker.blocked().count, finalUrl: withoutQuery(page.url()), title, heading, softNotFound: looksLikeNotFound({ title, heading }), signal };
 }
 
 /** The session check: only what the page was. It never reports the address, title or text. */

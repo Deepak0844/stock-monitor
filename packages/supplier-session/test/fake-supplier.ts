@@ -127,6 +127,12 @@ export async function createFakeSupplier(options: { host?: string } = {}): Promi
       const detail = loggedIn(req) ? "<p>Signed in as buyer.</p>" : "<p>Log in to see prices and stock.</p>";
       return send(200, page("", `<h1>Fake Supplier</h1>${detail}${ABOUT}`));
     }
+    if (path === "/product-with-hidden-guards") {
+      // A real product page that carries a hidden sign-in popup and a form's invisible spam guard. Neither is a wall.
+      const popup = '<div style="display:none"><input type="password" name="popup-password"></div>';
+      const guard = '<div class="g-recaptcha" data-sitekey="fake-site-key" data-size="invisible" style="position:absolute;left:-10000px"></div>';
+      return send(200, page("Blue Widget | Fake Supplier", `<h1>Blue Widget</h1><p>In stock.</p>${popup}${guard}${ABOUT}`));
+    }
     if (path === "/untitled-challenge") {
       return send(200, page("", `<h1>One moment</h1><p>Please verify you are human to continue.</p>${WIDGETS.recaptcha}${ABOUT}`));
     }

@@ -110,6 +110,10 @@ describe("a saved login", () => {
 });
 
 describe("pages that need attention", () => {
+  it("does not mistake a hidden sign-in popup or an invisible spam guard for a wall", async () => {
+    const r = await verify(`${site.url}/product-with-hidden-guards`);
+    expect(r.body.result).toBe("ok");
+  });
   it.each([["recaptcha"], ["hcaptcha"], ["turnstile"]])("reads the %s challenge page as a captcha", async (widget) => {
     expect((await verify(`${site.url}/captcha?widget=${widget}`)).body.result).toBe("captcha");
   });
