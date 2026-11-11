@@ -18,6 +18,19 @@ export function navigate(to: string): void {
   notify();
 }
 
+/** The query string of the current address, such as "?page=2". */
+export function useSearch(): string {
+  return useSyncExternalStore(subscribe, () => window.location.search, () => "");
+}
+
+/** Writes the query string without adding a history entry, so Back still leaves the page. */
+export function replaceSearch(search: string): void {
+  const next = `${window.location.pathname}${search}${window.location.hash}`;
+  if (next === `${window.location.pathname}${window.location.search}${window.location.hash}`) return;
+  window.history.replaceState(null, "", next);
+  notify();
+}
+
 export function usePath(): string {
   return useSyncExternalStore(subscribe, () => window.location.pathname, () => "/");
 }
