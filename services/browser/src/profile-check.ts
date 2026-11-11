@@ -12,6 +12,7 @@ import { classifyPage, type PageClass } from "@stock-monitor/supplier-session";
 import { plainLaunchArgs, quitCleanly, seedProfile, waitForDebuggingPort } from "./plain-window.js";
 import { cookieHash, holdProfile, PROFILE_ROOT, profileDirFor, releaseProfile } from "./profile-store.js";
 import type { GuardProxy } from "./proxy.js";
+import { createJobQueue } from "./job-queue.js";
 import { capturePageIn, type CaptureOutcome, type CaptureRequest } from "./capture.js";
 import { CHALLENGE_WIDGET, inspectPage, MAX_TEXT, type BlockTracker, type CheckPageOutcome, type CheckPageRequest, type VerifyOutcome, type VerifyRequest } from "./verify.js";
 
@@ -52,6 +53,9 @@ export function lastVisited(profile: string): { url: string; title: string } | n
 export type ProfileCheckOptions = { proxy: GuardProxy; sandbox: boolean; headless: boolean; baseDir?: string; settleMs?: number; language?: string;
   /** The screen the browser opens on. Not the one VNC shows, or a check would appear in the owner's login window. */
   display?: string };
+
+/** `signal` fires when the caller has gone away; a job still waiting is then dropped. */
+export type JobOptions = { signal?: AbortSignal };
 
 export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFILE_ROOT, settleMs = 12_000, display, language }: ProfileCheckOptions) {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -222,18 +226,14 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
   const noPage = { result: "unreachable" as const, status: null, blockedRequests: 0, finalUrl: null, title: null, heading: null, softNotFound: false };
 
   // One at a time: a profile allows one browser, and each browser takes about 900 MB.
-  let chain: Promise<unknown> = Promise.resolve();
-  const inTurn = <T>(job: () => Promise<T>): Promise<T> => {
-    const run = chain.then(job);
-    chain = run.catch(() => {});
-    return run;
-  };
+  // A person waiting (verify, capture) goes before scheduled checks; a caller that has gone never gets its job run.
+  const queue = createJobQueue();
 
-  const verify = (request: VerifyRequest): Promise<VerifyOutcome> => inTurn(() => check(request));
+  const verify = (request: VerifyRequest, opts: JobOptions = {}): Promise<VerifyOutcome> => queue.run(() => check(request), { urgent: true, signal: opts.signal });
   return Object.assign(verify, {
-    checkPage: (request: CheckPageRequest, timeoutMs = 20_000): Promise<CheckPageOutcome> =>
-      inTurn(() => inProfile(request, noPage as CheckPageOutcome, (page, tracker) => inspectPage(page, request, tracker, timeoutMs))),
-    capture: (request: CaptureRequest, timeoutMs = 20_000): Promise<CaptureOutcome> =>
-      inTurn(() => inProfile(request, { ...noPage, description: { sections: [], buttons: [] }, picture: null } as CaptureOutcome, (page, tracker) => capturePageIn(page, request, tracker, timeoutMs))),
+    checkPage: (request: CheckPageRequest, timeoutMs = 20_000, opts: JobOptions = {}): Promise<CheckPageOutcome> =>
+      queue.run(() => inProfile(request, noPage as CheckPageOutcome, (page, tracker) => inspectPage(page, request, tracker, timeoutMs)), { signal: opts.signal }),
+    capture: (request: CaptureRequest, timeoutMs = 20_000, opts: JobOptions = {}): Promise<CaptureOutcome> =>
+      queue.run(() => inProfile(request, { ...noPage, description: { sections: [], buttons: [] }, picture: null } as CaptureOutcome, (page, tracker) => capturePageIn(page, request, tracker, timeoutMs)), { urgent: true, signal: opts.signal }),
   });
 }
