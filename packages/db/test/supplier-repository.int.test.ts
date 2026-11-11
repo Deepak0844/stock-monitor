@@ -143,3 +143,48 @@ describe("suppliers table: the database enforces the rules too", () => {
     await expect(insert(", enabled, paused_reason", ", false, 'whim'")).rejects.toThrow(/suppliers_pause|paused_reason/);
   });
 });
+
+describe("supplier repository: page", () => {
+  const many = async (n: number) => {
+    for (let i = 1; i <= n; i++) {
+      const r = await repo().create({ ...acme, name: `Supplier ${String(i).padStart(2, "0")}`, websiteUrl: `https://s${i}.example/` });
+      if (!r.ok) throw new Error("setup failed");
+    }
+  };
+
+  it("returns one page in name order with the total", async () => {
+    await many(25);
+    const page = await repo().page({ page: 2, pageSize: 10 });
+    expect(page.total).toBe(25);
+    expect(page.items.map((s) => s.name)).toEqual(Array.from({ length: 10 }, (_, i) => `Supplier ${String(i + 11).padStart(2, "0")}`));
+  });
+
+  it("returns an empty page, with the total, past the last page", async () => {
+    await many(3);
+    expect(await repo().page({ page: 5, pageSize: 10 })).toMatchObject({ items: [], total: 3 });
+  });
+
+  it("searches name and website, ignoring case, and treats % and _ as plain characters", async () => {
+    await made({ ...acme, name: "50% Off Traders", websiteUrl: "https://off.example/" });
+    await made({ ...globex, name: "Globex" });
+    expect((await repo().page({ page: 1, pageSize: 10, search: "50%" })).items.map((s) => s.name)).toEqual(["50% Off Traders"]);
+    expect((await repo().page({ page: 1, pageSize: 10, search: "GLOBEX.EXAMPLE" })).items.map((s) => s.name)).toEqual(["Globex"]);
+    expect((await repo().page({ page: 1, pageSize: 10, search: "_" })).total).toBe(0);
+    expect((await repo().page({ page: 1, pageSize: 10, search: "it's \\ \"quoted\"" })).total).toBe(0);
+  });
+
+  it("filters by what the owner sees: paused wins, a session pause shows the session state", async () => {
+    const a = await made({ ...acme, name: "Ashgrove" });
+    const b = await made({ ...globex, name: "Bramley" });
+    const c = await made({ ...acme, name: "Cole", websiteUrl: "https://cole.example/" });
+    await t.pool.query("update suppliers set session_status = 'connected' where id = $1", [a.id]);
+    await t.pool.query("update suppliers set enabled = false, paused_reason = 'owner', session_status = 'connected' where id = $1", [b.id]);
+    await t.pool.query("update suppliers set enabled = false, paused_reason = 'session', session_status = 'needs_reconnect' where id = $1", [c.id]);
+    const names = async (status: "connected" | "needs_reconnect" | "blocked" | "paused" | "not_connected") =>
+      (await repo().page({ page: 1, pageSize: 10, status })).items.map((s) => s.name);
+    expect(await names("connected")).toEqual(["Ashgrove"]);
+    expect(await names("paused")).toEqual(["Bramley"]);
+    expect(await names("needs_reconnect")).toEqual(["Cole"]);
+    expect(await names("not_connected")).toEqual([]);
+  });
+});

@@ -1,4 +1,4 @@
-import { asc, eq, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, eq, ilike, or, sql, type SQL } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { suppliers } from "./schema.js";
 
@@ -35,6 +35,15 @@ export type SupplierWrite = { ok: true; supplier: SupplierRecord } | { ok: false
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const UNIQUE_VIOLATION = "23505";
 
+/** What the owner sees for a supplier. Paused wins, except when the app paused it because the login needs attention. */
+export type SupplierStatusFilter = "connected" | "needs_reconnect" | "blocked" | "paused" | "not_connected";
+export type SupplierPageQuery = { page: number; pageSize: number; search?: string; status?: SupplierStatusFilter };
+
+// In LIKE, backslash is the escape character in PostgreSQL. Escape it and the two wildcards.
+const escapeLike = (text: string) => text.replace(/[\\%_]/g, (c) => `\\${c}`);
+
+const showsAsPaused = sql`(not ${suppliers.enabled} and ${suppliers.pausedReason} is distinct from 'session')`;
+
 // drizzle wraps the driver error, so the PostgreSQL code is on the error or on its cause.
 const isNameTaken = (error: unknown) => {
   const e = error as { code?: string; cause?: { code?: string } };
@@ -59,6 +68,26 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
 
     async list(): Promise<SupplierRecord[]> {
       return (await db.select().from(suppliers).orderBy(asc(sql`lower(${suppliers.name})`))) as SupplierRecord[];
+    },
+
+    /** One page of suppliers, in the same order as `list`, with how many match in all. */
+    async page(query: SupplierPageQuery): Promise<{ items: SupplierRecord[]; total: number }> {
+      const text = query.search?.trim();
+      const like = text ? `%${escapeLike(text)}%` : undefined;
+      const where = and(
+        like ? or(ilike(suppliers.name, like), ilike(suppliers.websiteUrl, like)) : undefined,
+        query.status === "paused" ? showsAsPaused : undefined,
+        query.status && query.status !== "paused" ? and(sql`not ${showsAsPaused}`, eq(suppliers.sessionStatus, query.status)) : undefined,
+      );
+      const items = (await db
+        .select()
+        .from(suppliers)
+        .where(where)
+        .orderBy(asc(sql`lower(${suppliers.name})`), asc(suppliers.id))
+        .limit(query.pageSize)
+        .offset((query.page - 1) * query.pageSize)) as SupplierRecord[];
+      const [row] = await db.select({ n: count() }).from(suppliers).where(where);
+      return { items, total: Number(row?.n ?? 0) };
     },
 
     async create(input: SupplierInput): Promise<SupplierWrite> {
