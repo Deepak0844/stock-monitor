@@ -107,11 +107,13 @@ describe("checking links", () => {
   it("reads the list again after a check, so the new status shows without a reload", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
     try {
-      const list = vi.fn().mockResolvedValueOnce([blue]).mockResolvedValue([{ ...blue, status: "needs_login" }]);
+      const list = vi.fn().mockResolvedValueOnce([blue]).mockResolvedValue([{ ...blue, linkStatus: "needs_login", lastLinkCheckAt: "2026-11-11T08:00:00Z" }]);
       const { user } = setup([blue], { mappings: { list } });
       await user.click(await screen.findByRole("button", { name: "Check now Blue Tee Large" }));
       expect(list).toHaveBeenCalledTimes(1);
       await act(async () => void vi.advanceTimersByTime(4_500));
+      expect(list).toHaveBeenCalledTimes(2);
+      await act(async () => void vi.advanceTimersByTime(20_000)); // the answer has shown, so it stops asking
       expect(list).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
