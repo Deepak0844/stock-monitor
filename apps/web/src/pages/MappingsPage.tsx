@@ -15,6 +15,9 @@ const SEARCH_DELAY_MS = 250;
 // A check finishes some moments after it is asked for (a login-browser check takes up to half a minute), so the list is read again.
 const CHECK_REFRESH_MS = 4000;
 const CHECK_REFRESHES = 12;
+// A whole supplier run takes as long as its pauses, so it is followed longer and stops after this many unchanged reads.
+const RUN_REFRESHES = 60;
+const STILL_POLLS = 3;
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong. Please try again.");
 const where = (url: string) => {
@@ -68,13 +71,25 @@ export function MappingsPage({ api }: { api: Api }) {
   }, [api, supplierId, status, q]);
   useEffect(load, [load]);
 
+  // A check finishes some moments after it is asked for, so the list is read again until the answer shows. It stops as soon as it
+  // does, and never sets the list again when nothing changed (which would also re-read the unmapped variants).
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latest = useRef<Mapping[] | null>(null);
+  latest.current = mappings;
   useEffect(() => () => void (refreshTimer.current && clearTimeout(refreshTimer.current)), []);
-  const refreshSoon = (times: number) => {
+  /** `done` says when the answer has shown. Without it (a whole supplier run) it stops once the list has changed and then sat still. */
+  const refreshSoon = (times: number, done?: (list: Mapping[]) => boolean, sawChange = false, still = 0) => {
     if (refreshTimer.current) clearTimeout(refreshTimer.current);
     refreshTimer.current = setTimeout(() => {
-      load();
-      if (times > 1) refreshSoon(times - 1);
+      api.mappings
+        .list({ ...(supplierId ? { supplierId } : {}), ...(status ? { status } : {}), ...(q ? { search: q } : {}) })
+        .then((list) => {
+          const changed = JSON.stringify(list) !== JSON.stringify(latest.current);
+          if (changed) setMappings(list);
+          const finished = done ? done(list) : sawChange && !changed && still + 1 >= STILL_POLLS;
+          if (!finished && times > 1) refreshSoon(times - 1, done, sawChange || changed, changed ? 0 : still + 1);
+        })
+        .catch(() => {});
     }, CHECK_REFRESH_MS);
   };
 
@@ -102,19 +117,19 @@ export function MappingsPage({ api }: { api: Api }) {
   const checkOne = (m: Mapping) =>
     run(async () => {
       await api.mappings.checkLink(m.id);
-      refreshSoon(CHECK_REFRESHES);
+      refreshSoon(CHECK_REFRESHES, (list) => list.find((x) => x.id === m.id)?.lastLinkCheckAt !== m.lastLinkCheckAt);
       setDone(`A check of ${m.productTitle} (${m.variantTitle}) has started. Its status will update in a moment.`);
     });
   const checkStock = (m: Mapping) =>
     run(async () => {
       await api.stock.checkLink(m.id);
-      refreshSoon(CHECK_REFRESHES);
+      refreshSoon(CHECK_REFRESHES, (list) => list.find((x) => x.id === m.id)?.latestStock?.observedAt !== (m.latestStock?.observedAt));
       setDone(`A stock check of ${m.productTitle} (${m.variantTitle}) has started. The answer will appear here in a moment.`);
     });
   const checkAllStock = (s: Supplier) =>
     run(async () => {
       const n = await api.stock.checkSupplier(s.id);
-      refreshSoon(CHECK_REFRESHES);
+      refreshSoon(RUN_REFRESHES);
       setDone(`Checking stock for ${n} ${n === 1 ? "link" : "links"} for ${s.name}, one page at a time. Answers will appear as they finish.`);
     });
   const toggleHistory = (m: Mapping) =>
@@ -126,7 +141,7 @@ export function MappingsPage({ api }: { api: Api }) {
   const checkAll = (s: Supplier) =>
     run(async () => {
       const n = await api.mappings.checkSupplierLinks(s.id);
-      refreshSoon(CHECK_REFRESHES);
+      refreshSoon(RUN_REFRESHES);
       setDone(`Checking ${n} ${n === 1 ? "link" : "links"} for ${s.name}, one page at a time. Statuses will update as they finish.`);
     });
   const remove = (m: Mapping) =>

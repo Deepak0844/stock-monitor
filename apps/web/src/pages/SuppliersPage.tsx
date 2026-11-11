@@ -123,18 +123,23 @@ export function SuppliersPage({ api }: { api: Api }) {
   const toggle = (s: Supplier) =>
     run(async () => replace(await (s.enabled ? api.suppliers.pause(s.id) : api.suppliers.resume(s.id))));
   /** Reads the list again, a few times a few seconds apart, because a check finishes some moments after it is asked for. */
-  const refreshSoon = (times: number) => {
+  const refreshSoon = (times: number, done: (list: Supplier[]) => boolean) => {
     if (refreshTimer.current) clearTimeout(refreshTimer.current);
     refreshTimer.current = setTimeout(() => {
-      load();
-      if (times > 1) refreshSoon(times - 1);
+      api.suppliers
+        .list()
+        .then((list) => {
+          setSuppliers(list);
+          if (!done(list) && times > 1) refreshSoon(times - 1, done);
+        })
+        .catch(() => {});
     }, CHECK_REFRESH_MS);
   };
   const check = (s: Supplier) =>
     run(async () => {
       await api.suppliers.checkSession(s.id);
       setDone(`A check of ${s.name} has started. Its status will update in a moment.`);
-      refreshSoon(CHECK_REFRESHES);
+      refreshSoon(CHECK_REFRESHES, (list) => list.find((x) => x.id === s.id)?.lastSessionCheckAt !== s.lastSessionCheckAt);
     });
   const remove = (s: Supplier) =>
     run(async () => {
