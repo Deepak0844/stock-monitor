@@ -24,7 +24,7 @@ type Props<T> = {
 export function DataTable<T>({ columns, rows, rowKey, loading, error, onRetry, empty, pageSize, label }: Props<T>) {
   const showRows = !error && rows !== null && rows.length > 0;
   return (
-    <div role="region" aria-label={label} aria-busy={loading} className="min-w-0">
+    <div className="min-w-0">
       {error ? (
         <div className="flex flex-col items-start gap-3 p-4">
           <p role="alert" className="text-sm font-medium text-danger">
@@ -37,7 +37,7 @@ export function DataTable<T>({ columns, rows, rowKey, loading, error, onRetry, e
       ) : (
         <>
           {(loading && rows === null) || showRows ? (
-            <Table>
+            <Table aria-label={label} aria-busy={loading}>
               <TableHeader>
                 <tr>
                   {columns.map((c) => (

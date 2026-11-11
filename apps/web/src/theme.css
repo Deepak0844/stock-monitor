@@ -1,5 +1,9 @@
+/* The old stylesheet sits in its own layer between Tailwind's base and its utilities. Old pages keep their look over the
+   reset, and a Tailwind class on a new component always wins over an old element rule. It goes when the last page moves. */
+@layer theme, base, legacy, components, utilities;
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "./styles.css" layer(legacy);
 
 /* Store style: dark brown sidebar, black primary buttons, orange accent used for fills and marks only (never text on
    white), white surfaces. Text contrast is at least 4.5:1 and input borders at least 3:1 in both themes. */

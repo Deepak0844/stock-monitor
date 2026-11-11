@@ -32,7 +32,8 @@ export function Breadcrumbs({ items }: { items: Crumb[] }) {
         {items.map((crumb, i) => {
           const last = i === items.length - 1;
           return (
-            <li key={`${crumb.label}-${i}`} className="flex min-w-0 items-center gap-1">
+            // On a phone only the current page is shown, so it is not squeezed.
+            <li key={`${crumb.label}-${i}`} className={last ? "flex min-w-0 items-center gap-1" : "hidden min-w-0 items-center gap-1 sm:flex"}>
               {i > 0 && <ChevronRight className="size-3.5 shrink-0" aria-hidden="true" />}
               {last || !crumb.to ? (
                 <span aria-current={last ? "page" : undefined} className={last ? "truncate font-semibold text-foreground" : "truncate"}>

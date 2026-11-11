@@ -13,7 +13,7 @@ const base = { columns, rowKey: (r: Row) => r.id, onRetry: vi.fn(), empty: <p>No
 describe("DataTable", () => {
   it("shows one skeleton row per page row while loading, and marks itself busy", () => {
     const { container } = render(<DataTable {...base} rows={null} loading error={null} label="Suppliers" />);
-    expect(screen.getByRole("region", { name: "Suppliers" })).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByRole("table", { name: "Suppliers" })).toHaveAttribute("aria-busy", "true");
     expect(container.querySelectorAll("tbody tr")).toHaveLength(3);
     expect(screen.queryByText("Nothing here yet.")).not.toBeInTheDocument();
   });
@@ -34,5 +34,6 @@ describe("DataTable", () => {
   it("shows the rows", () => {
     render(<DataTable {...base} rows={[{ id: "1", name: "Ashgrove" }]} loading={false} error={null} label="Suppliers" />);
     expect(screen.getByRole("cell", { name: "Ashgrove" })).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "Suppliers" })).toHaveAttribute("aria-busy", "false");
   });
 });
