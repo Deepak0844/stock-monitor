@@ -40,6 +40,13 @@ export function AppShell({ email, onSignOut, children, notifications, proposalCo
   const path = usePath();
   const mainRef = useRef<HTMLElement>(null);
   const firstRender = useRef(true);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const nav = useRef<HTMLElement>(null);
+  /** Closes the phone menu from the keyboard or the backdrop, and puts focus back on the button that opened it. */
+  const closeMenu = () => {
+    setOpen(false);
+    menuButton.current?.focus();
+  };
 
   // After moving to another page, close the phone menu and put keyboard and screen reader focus on the new content.
   useEffect(() => {
@@ -51,9 +58,14 @@ export function AppShell({ email, onSignOut, children, notifications, proposalCo
     mainRef.current?.focus();
   }, [path]);
 
+  // Opening the menu moves focus into it.
+  useEffect(() => {
+    if (open) nav.current?.querySelector("a")?.focus();
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
-    const onKey = (event: KeyboardEvent) => event.key === "Escape" && setOpen(false);
+    const onKey = (event: KeyboardEvent) => event.key === "Escape" && closeMenu();
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
@@ -67,7 +79,7 @@ export function AppShell({ email, onSignOut, children, notifications, proposalCo
         Skip to main content
       </a>
 
-      {open && <div aria-hidden="true" className="fixed inset-0 z-30 bg-black/50 lg:hidden" onClick={() => setOpen(false)} />}
+      {open && <div aria-hidden="true" className="fixed inset-0 z-30 bg-black/50 lg:hidden" onClick={closeMenu} />}
 
       <aside
         data-open={open}
@@ -79,7 +91,7 @@ export function AppShell({ email, onSignOut, children, notifications, proposalCo
         <div className="px-5 py-5 text-white">
           <Logo />
         </div>
-        <nav id="main-nav" aria-label="Main" className="flex-1 overflow-y-auto px-3">
+        <nav ref={nav} id="main-nav" aria-label="Main" className="flex-1 overflow-y-auto px-3">
           <ul className="flex flex-col gap-1">
             {NAV.map((item) => {
               const isCurrent = item.current(path);
@@ -113,7 +125,7 @@ export function AppShell({ email, onSignOut, children, notifications, proposalCo
       <Toaster />
       <div className="min-w-0">
         <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-border bg-card px-4 py-2.5 sm:px-6">
-          <Button variant="outline" className="lg:hidden" aria-expanded={open} aria-controls="main-nav" onClick={() => setOpen((o) => !o)}>
+          <Button ref={menuButton} variant="outline" className="lg:hidden" aria-expanded={open} aria-controls="main-nav" onClick={() => (open ? closeMenu() : setOpen(true))}>
             <Menu aria-hidden="true" />
             Menu
           </Button>

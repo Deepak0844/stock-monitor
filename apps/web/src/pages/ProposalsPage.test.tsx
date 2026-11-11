@@ -190,6 +190,63 @@ describe("paging the waiting list", () => {
   });
 });
 
+describe("minor fixes", () => {
+  const deferred = <T,>() => {
+    let resolve!: (v: T) => void;
+    const promise = new Promise<T>((r) => (resolve = r));
+    return { promise, resolve };
+  };
+
+  it("does not say nothing is waiting while it reads the next page after the last one on the page is decided", async () => {
+    const reply = (items: ReturnType<typeof aProposal>[]) => ({ items, total: 11, page: 1, pageSize: 10, writePermission: ready });
+    const second = deferred<ReturnType<typeof reply>>();
+    let decided = false;
+    const openPage = vi.fn(() => (decided ? second.promise : Promise.resolve(reply([aProposal()]))));
+    const reject = vi.fn(async () => {
+      decided = true;
+      return aProposal({ state: "rejected" });
+    });
+    const { user } = await setup([], { proposals: { openPage, reject } });
+    await user.click(await screen.findByRole("button", { name: /Reject/ }));
+    await waitFor(() => expect(reject).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByRole("listitem")).toBeNull());
+    expect(screen.queryByText(/Nothing is waiting for you/)).toBeNull();
+    await act(async () => second.resolve(reply([aProposal({ id: "z", productTitle: "Red Cap" })])));
+    expect(await screen.findByText("Red Cap")).toBeInTheDocument();
+  });
+
+  it("keeps the newest history page on screen when an older, slower request answers last", async () => {
+    window.history.replaceState(null, "", "/proposals?tab=history");
+    const reply = (title: string, page: number) => ({ proposals: [aProposal({ id: title, state: "rejected", productTitle: title })], hasMore: true, total: 30, page, pageSize: 10 });
+    const two = deferred<ReturnType<typeof reply>>();
+    const three = deferred<ReturnType<typeof reply>>();
+    const history = vi.fn().mockResolvedValueOnce(reply("One Tee", 1)).mockReturnValueOnce(two.promise).mockReturnValueOnce(three.promise);
+    const { user } = await setup([], { proposals: { history } });
+    await screen.findByText("One Tee");
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    await act(async () => three.resolve(reply("Three Tee", 3)));
+    await act(async () => two.resolve(reply("Two Tee", 2)));
+    expect(await screen.findByText("Three Tee")).toBeInTheDocument();
+    expect(screen.queryByText("Two Tee")).toBeNull();
+  });
+
+  it("sends one refresh when Refresh is pressed twice, and shows it busy meanwhile", async () => {
+    const pending = deferred<undefined>();
+    const refresh = vi.fn().mockReturnValue(pending.promise);
+    const row = aProposal({ id: "c", state: "conflict", resultCode: "changed", resultQuantity: 3, productTitle: "Red Cap" });
+    const { user } = await setup([], { proposals: { refresh, history: vi.fn().mockResolvedValue({ proposals: [row], hasMore: false, total: 1, page: 1, pageSize: 10 }) } });
+    await user.click(await screen.findByRole("button", { name: "History" }));
+    const button = await screen.findByRole("button", { name: "Refresh Red Cap, Large" });
+    await user.click(button);
+    await user.click(button);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(button).toHaveAttribute("aria-busy", "true");
+    await act(async () => pending.resolve(undefined));
+    await waitFor(() => expect(button).not.toHaveAttribute("aria-busy"));
+  });
+});
+
 describe("waiting for Shopify", () => {
   it("checks again every few seconds while one is waiting, and shows when it is applied", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });

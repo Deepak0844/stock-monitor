@@ -135,31 +135,44 @@ function History({ api, params }: { api: Api; params: ListParams }) {
   const [data, setData] = useState<{ items: Proposal[]; total: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState<ReadonlySet<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
+  const latest = useRef(0);
+
   const load = useCallback(() => {
+    const mine = ++latest.current;
     setLoading(true);
     setError(null);
     api.proposals
       .history(page, pageSize)
       .then((r) => {
+        if (mine !== latest.current) return; // a newer page was asked for since
         setData({ items: r.proposals, total: r.total });
         setLoading(false);
       })
       .catch((e: unknown) => {
+        if (mine !== latest.current) return;
         setError(message(e));
         setLoading(false);
       });
   }, [api, page, pageSize]);
   useEffect(load, [load]);
 
+  const busy = useRef<Set<string>>(new Set());
   async function refresh(p: Proposal) {
+    if (busy.current.has(p.id)) return;
+    busy.current.add(p.id);
+    setRefreshing(new Set(busy.current));
     setRefreshError(null);
     try {
       await api.proposals.refresh(p.id);
       toast("Reading Shopify again. If a suggestion still applies, it will appear under Waiting in a moment.");
     } catch (e) {
       setRefreshError(message(e));
+    } finally {
+      busy.current.delete(p.id);
+      setRefreshing(new Set(busy.current));
     }
   }
 
@@ -186,7 +199,7 @@ function History({ api, params }: { api: Api; params: ListParams }) {
             {words && <span className="text-muted-foreground">{words}</span>}
             {p.decidedAt && <span className="text-muted-foreground">{formatWhen(p.decidedAt)}</span>}
             {REFRESHABLE.has(p.state) && (
-              <Button variant="outline" size="sm" aria-label={`Refresh ${name(p)}`} onClick={() => void refresh(p)}>
+              <Button variant="outline" size="sm" aria-label={`Refresh ${name(p)}`} loading={refreshing.has(p.id)} onClick={() => void refresh(p)}>
                 Refresh
               </Button>
             )}
@@ -302,7 +315,7 @@ export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => vo
 
       {tab === "open" && (
         <>
-          {open.kind === "loading" && (
+          {(open.kind === "loading" || (open.kind === "ready" && items.length === 0 && open.total > 0)) && (
             <div className="flex flex-col gap-3">
               <p role="status" className="sr-only">
                 Loading…
@@ -331,7 +344,7 @@ export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => vo
               </Notice>
             </div>
           )}
-          {open.kind === "ready" && items.length === 0 && (
+          {open.kind === "ready" && items.length === 0 && open.total === 0 && (
             <Card>
               <EmptyState title="Nothing is waiting for you." description="New suggestions appear here after a supplier check finds a difference." />
             </Card>

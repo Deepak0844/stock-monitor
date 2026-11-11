@@ -167,11 +167,33 @@ describe("AppShell top bar", () => {
     expect(screen.getByRole("button", { name: "Notifications, none unread" })).toBeInTheDocument();
   });
 
-  it("switches between the light and dark theme", async () => {
+  it("has a theme button whose name stays the same and whose pressed state says which theme is on", async () => {
     const { user } = setup();
-    await user.click(screen.getByRole("button", { name: /Switch to dark theme|Switch to light theme/ }));
-    const dark = document.documentElement.classList.contains("dark");
-    expect(screen.getByRole("button", { name: dark ? "Switch to light theme" : "Switch to dark theme" })).toBeInTheDocument();
+    const button = screen.getByRole("button", { name: "Dark theme" });
+    const before = button.getAttribute("aria-pressed");
+    expect(["true", "false"]).toContain(before);
+    await user.click(button);
+    expect(screen.getByRole("button", { name: "Dark theme" })).toHaveAttribute("aria-pressed", before === "true" ? "false" : "true");
+    expect(document.documentElement.classList.contains("dark")).toBe(before !== "true");
     document.documentElement.classList.remove("dark", "light");
+  });
+});
+
+describe("AppShell phone menu focus", () => {
+  it("moves focus to the first link when the menu opens, and back to the Menu button when Escape closes it", async () => {
+    const { user } = setup();
+    const menu = screen.getByRole("button", { name: "Menu" });
+    await user.click(menu);
+    expect(within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: "Dashboard" })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(menu).toHaveAttribute("aria-expanded", "false");
+    expect(menu).toHaveFocus();
+  });
+
+  it("puts focus on the page content, not the Menu button, after a link is followed", async () => {
+    const { user } = setup();
+    await user.click(screen.getByRole("button", { name: "Menu" }));
+    await user.click(within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: "Suppliers" }));
+    expect(screen.getByRole("main")).toHaveFocus();
   });
 });

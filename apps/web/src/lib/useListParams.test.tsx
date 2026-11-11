@@ -15,6 +15,15 @@ describe("useListParams", () => {
     expect(result.current.pageSize).toBe(10);
   });
 
+  it("treats a page number that is not a sensible whole number as page 1", () => {
+    for (const bad of ["1e20", "99999999999", "0", "-3", "2.5"]) {
+      at(`?page=${bad}`);
+      const { result, unmount } = renderHook(() => useListParams({ pageSize: 10 }));
+      expect(result.current.page, bad).toBe(1);
+      unmount();
+    }
+  });
+
   it("reads page, size, search and filters from the address", () => {
     at("?page=3&pageSize=25&search=ash&status=paused");
     const { result } = renderHook(() => useListParams({ pageSize: 10 }));

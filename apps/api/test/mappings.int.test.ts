@@ -176,6 +176,21 @@ describe("changing and removing a link", () => {
   });
 });
 
+describe("list filters are checked", () => {
+  it("answers 400, not 500, for a repeated or oversized search, an unknown status or a bad supplier id", async () => {
+    for (const query of ["search=a&search=b", `search=${"x".repeat(101)}`, "status=bogus", "supplierId=not-an-id", "status=works&status=moved"]) {
+      expect((await call("GET", `/api/mappings?${query}`)).status, query).toBe(400);
+      expect((await call("GET", `/api/mappings?page=1&${query}`)).status, `page=1&${query}`).toBe(400);
+    }
+    expect((await call("GET", "/api/variants?mapped=false&search=a&search=b")).status).toBe(400);
+    expect((await call("GET", `/api/variants?mapped=false&search=${"x".repeat(101)}`)).status).toBe(400);
+  });
+  it("still accepts a normal search and status, with or without a page", async () => {
+    expect((await call("GET", "/api/mappings?search=tee&status=works")).status).toBe(200);
+    expect((await call("GET", "/api/mappings?page=1&search=tee&status=works")).status).toBe(200);
+  });
+});
+
 describe("unmapped variants", () => {
   it("counts and lists variants with no link", async () => {
     await create();

@@ -2,6 +2,8 @@ import { useCallback, useMemo } from "react";
 import { replaceSearch, useSearch } from "../router.js";
 
 export const PAGE_SIZES = [10, 25, 50] as const;
+/** Larger than any real list; a bigger number in the address is nonsense and means page 1. */
+const MAX_PAGE = 1_000_000;
 const RESERVED = new Set(["page", "pageSize", "search"]);
 
 export type ListParams = {
@@ -20,7 +22,7 @@ export function useListParams(defaults: { pageSize: number }): ListParams {
   const params = useMemo(() => new URLSearchParams(query), [query]);
 
   const rawPage = Number(params.get("page"));
-  const page = Number.isInteger(rawPage) && rawPage >= 1 ? rawPage : 1;
+  const page = Number.isInteger(rawPage) && rawPage >= 1 && rawPage <= MAX_PAGE ? rawPage : 1;
   const rawSize = Number(params.get("pageSize"));
   const pageSize = (PAGE_SIZES as readonly number[]).includes(rawSize) ? rawSize : defaults.pageSize;
   const search = params.get("search") ?? "";

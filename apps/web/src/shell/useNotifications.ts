@@ -21,12 +21,16 @@ export function useNotifications(api: Api, enabled: boolean): NotificationsState
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
   const alive = useRef(true);
+  /** Goes up whenever something is marked read, so an answer to an older request can be told apart. */
+  const changes = useRef(0);
 
   const reload = useCallback(() => {
+    const asked = changes.current;
     api.notifications
       .list()
       .then((rows) => {
-        if (!alive.current) return;
+        // Asked for before something was marked read: it may still show that as unread. The next read is right.
+        if (!alive.current || asked !== changes.current) return;
         setItems(rows);
         setError(null);
       })
@@ -51,6 +55,7 @@ export function useNotifications(api: Api, enabled: boolean): NotificationsState
   // The count changes at once. If saving fails, the list is read again so it shows what is true.
   const markRead = useCallback(
     async (id: string) => {
+      changes.current++;
       const now = new Date().toISOString();
       setItems((rows) => rows.map((n) => (n.id === id && n.readAt === null ? { ...n, readAt: now } : n)));
       try {
@@ -63,6 +68,7 @@ export function useNotifications(api: Api, enabled: boolean): NotificationsState
   );
 
   const markAllRead = useCallback(async () => {
+    changes.current++;
     const now = new Date().toISOString();
     setItems((rows) => rows.map((n) => (n.readAt === null ? { ...n, readAt: now } : n)));
     try {

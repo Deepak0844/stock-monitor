@@ -269,6 +269,20 @@ describe("variants with no link", () => {
     await waitFor(() => expect(unmapped).toHaveBeenLastCalledWith("green"));
   });
 
+  it("reads them again after a link is deleted, but not when only the page of links changes", async () => {
+    const many = Array.from({ length: 12 }, (_, i) => aMapping({ id: `00000000-0000-4000-8000-0000000000${String(i).padStart(2, "0")}`, variantId: `v${i}`, productTitle: `Tee ${i}`, variantTitle: "Large" }));
+    const unmapped = vi.fn().mockResolvedValue({ total: 20, unmapped: 8, items: [] });
+    const { user } = setup(many, { mappings: { unmapped } });
+    await screen.findByText("Tee 0");
+    expect(unmapped).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    await screen.findByText("Tee 10");
+    expect(unmapped).toHaveBeenCalledTimes(1);
+    await user.click(within(await openMenu(user, "Tee 10 Large")).getByRole("menuitem", { name: "Delete" }));
+    await user.click(screen.getByRole("button", { name: "Delete link" }));
+    await waitFor(() => expect(unmapped).toHaveBeenCalledTimes(2));
+  });
+
   it("says when every variant is mapped", async () => {
     setup([blue], { mappings: { unmapped: vi.fn().mockResolvedValue({ total: 5, unmapped: 0, items: [] }) } });
     expect(await screen.findByText("Every variant has a link.")).toBeInTheDocument();

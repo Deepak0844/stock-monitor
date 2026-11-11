@@ -95,7 +95,6 @@ export function MappingsPage({ api }: { api: Api }) {
         if (mine !== latestCall.current) return;
         setData({ items: result.items, total: result.total });
         setLoading(false);
-        setReloaded((n) => n + 1);
       })
       .catch((e: unknown) => {
         if (mine !== latestCall.current) return;
@@ -199,6 +198,7 @@ export function MappingsPage({ api }: { api: Api }) {
   const remove = async (m: Mapping) => {
     await api.mappings.remove(m.id);
     toast(`Deleted the link for ${m.productTitle} (${m.variantTitle}).`);
+    setReloaded((n) => n + 1); // its variant now has no link
     load();
   };
 
