@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { ApiError, type VariantPage, type VariantQuery } from "../api.js";
 import { aConnection, aPage, aVariant, fakeApi } from "../test/fake-api.js";
@@ -33,7 +33,7 @@ describe("loading and failing", () => {
     const variants = vi.fn().mockRejectedValueOnce(new ApiError("Can't reach the server. Check your connection and try again.", 0)).mockResolvedValue(aPage(some(1)));
     const { user } = setup(variants);
     expect(await screen.findByRole("alert")).toHaveTextContent("Can't reach the server");
-    await user.click(screen.getByRole("button", { name: "Try again" }));
+    await user.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByText("Product 1")).toBeInTheDocument();
   });
 });
@@ -109,32 +109,25 @@ describe("the list", () => {
 
   it("says how many are shown", async () => {
     setup(async () => aPage(some(2)));
-    expect(await screen.findByText("Showing 1 to 2 of 2 variants")).toBeInTheDocument();
+    expect(await screen.findByText("Showing 1–2 of 2")).toBeInTheDocument();
   });
 });
 
 describe("searching", () => {
-  it("searches when the form is sent, and goes back to page one", async () => {
+  it("searches after a short pause in typing, goes back to page one and keeps the search in the address", async () => {
     const { variantsSpy, user } = setup(async () => aPage(some(2)));
     await screen.findByText("Product 1");
     await user.type(screen.getByRole("searchbox", { name: "Search products" }), "glove");
-    expect(variantsSpy).toHaveBeenCalledTimes(1); // typing alone sends nothing
-    await user.click(screen.getByRole("button", { name: "Search" }));
-    expect(variantsSpy).toHaveBeenLastCalledWith({ page: 1, pageSize: 25, search: "glove", warningsOnly: false });
-  });
-
-  it("searches when Enter is pressed", async () => {
-    const { variantsSpy, user } = setup(async () => aPage(some(2)));
-    await screen.findByText("Product 1");
-    await user.type(screen.getByRole("searchbox", { name: "Search products" }), "hose{Enter}");
-    expect(variantsSpy).toHaveBeenLastCalledWith(expect.objectContaining({ search: "hose" }));
+    expect(variantsSpy).toHaveBeenCalledTimes(1); // typing alone sends nothing yet
+    await waitFor(() => expect(variantsSpy).toHaveBeenLastCalledWith({ page: 1, pageSize: 25, search: "glove", warningsOnly: false }));
+    expect(window.location.search).toBe("?search=glove");
   });
 
   it("says when nothing matches, and clears the search", async () => {
     const variants = vi.fn(async (q: VariantQuery) => (q.search ? aPage([]) : aPage(some(2))));
     const { variantsSpy, user } = setup(variants);
     await screen.findByText("Product 1");
-    await user.type(screen.getByRole("searchbox", { name: "Search products" }), "zzz{Enter}");
+    await user.type(screen.getByRole("searchbox", { name: "Search products" }), "zzz");
     expect(await screen.findByText("No products match your search.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Clear search" }));
     expect(await screen.findByText("Product 1")).toBeInTheDocument();
@@ -144,11 +137,12 @@ describe("searching", () => {
 });
 
 describe("the attention filter", () => {
-  it("shows only items that need attention", async () => {
+  it("shows only items that need attention, and keeps that in the address", async () => {
     const { variantsSpy, user } = setup(async () => aPage(some(2)));
     await screen.findByText("Product 1");
     await user.click(screen.getByRole("checkbox", { name: "Show only items that need attention" }));
     expect(variantsSpy).toHaveBeenLastCalledWith({ page: 1, pageSize: 25, search: undefined, warningsOnly: true });
+    expect(window.location.search).toBe("?attention=1");
   });
 
   it("explains an empty result for the filter", async () => {
@@ -162,9 +156,17 @@ describe("the attention filter", () => {
   it("combines with a search", async () => {
     const { variantsSpy, user } = setup(async () => aPage(some(2)));
     await screen.findByText("Product 1");
-    await user.type(screen.getByRole("searchbox", { name: "Search products" }), "glove{Enter}");
+    await user.type(screen.getByRole("searchbox", { name: "Search products" }), "glove");
     await user.click(screen.getByRole("checkbox", { name: "Show only items that need attention" }));
-    expect(variantsSpy).toHaveBeenLastCalledWith({ page: 1, pageSize: 25, search: "glove", warningsOnly: true });
+    await waitFor(() => expect(variantsSpy).toHaveBeenLastCalledWith({ page: 1, pageSize: 25, search: "glove", warningsOnly: true }));
+  });
+
+  it("opens with the search, filter and page from the address", async () => {
+    window.history.replaceState(null, "", "/products?search=hose&attention=1&page=2");
+    const { variantsSpy } = setup(async () => aPage(some(2), { total: 60, page: 2 }));
+    await waitFor(() => expect(variantsSpy).toHaveBeenCalledWith({ page: 2, pageSize: 25, search: "hose", warningsOnly: true }));
+    expect(screen.getByRole("searchbox", { name: "Search products" })).toHaveValue("hose");
+    expect(screen.getByRole("checkbox", { name: "Show only items that need attention" })).toBeChecked();
   });
 });
 
@@ -176,48 +178,52 @@ describe("paging", () => {
     return aPage(Array.from({ length: count }, (_, i) => aVariant(first + i + 1)), { total: 60, page: q.page });
   };
 
-  it("shows where the owner is and moves forward and back", async () => {
+  it("shows where the owner is and moves forward and back, keeping the page in the address", async () => {
     const { variantsSpy, user } = setup(big);
-    expect(await screen.findByText("Page 1 of 3")).toBeInTheDocument();
-    expect(screen.getByText("Showing 1 to 25 of 60 variants")).toBeInTheDocument();
+    expect(await screen.findByText("Showing 1–25 of 60")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Previous page" })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "Next page" }));
-    expect(await screen.findByText("Page 2 of 3")).toBeInTheDocument();
+    expect(await screen.findByText("Showing 26–50 of 60")).toBeInTheDocument();
     expect(variantsSpy).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2 }));
-    expect(screen.getByText("Showing 26 to 50 of 60 variants")).toBeInTheDocument();
+    expect(window.location.search).toBe("?page=2");
     await user.click(screen.getByRole("button", { name: "Previous page" }));
-    expect(await screen.findByText("Page 1 of 3")).toBeInTheDocument();
+    expect(await screen.findByText("Showing 1–25 of 60")).toBeInTheDocument();
   });
 
   it("stops at the last page", async () => {
     const { user } = setup(big);
-    await screen.findByText("Page 1 of 3");
-    await user.click(screen.getByRole("button", { name: "Next page" }));
-    await user.click(await screen.findByRole("button", { name: "Next page" }));
-    expect(await screen.findByText("Page 3 of 3")).toBeInTheDocument();
+    await screen.findByText("Showing 1–25 of 60");
+    await user.click(screen.getByRole("button", { name: "Page 3" }));
+    expect(await screen.findByText("Showing 51–60 of 60")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled();
-    expect(screen.getByText("Showing 51 to 60 of 60 variants")).toBeInTheDocument();
   });
 
-  it("has no paging controls when everything fits on one page", async () => {
+  it("lets the owner choose how many to show on a page", async () => {
+    const { variantsSpy, user } = setup(big);
+    await screen.findByText("Showing 1–25 of 60");
+    await user.selectOptions(screen.getByLabelText("Rows per page"), "50");
+    await waitFor(() => expect(variantsSpy).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, pageSize: 50 })));
+  });
+
+  it("has nothing to page through when everything fits on one page", async () => {
     setup(async () => aPage(some(3)));
-    await screen.findByText("Product 1");
-    expect(screen.queryByRole("button", { name: "Next page" })).not.toBeInTheDocument();
+    expect(await screen.findByText("Showing 1–3 of 3")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Previous page" })).toBeDisabled();
   });
 
   it("keeps showing the current page, dimmed and marked busy, while the next one loads", async () => {
     let release!: (p: VariantPage) => void;
     const variants = vi.fn((q: VariantQuery) => (q.page === 2 ? new Promise<VariantPage>((r) => (release = r)) : big(q)));
     const { user } = setup(variants);
-    await screen.findByText("Page 1 of 3");
+    await screen.findByText("Showing 1–25 of 60");
     await user.click(screen.getByRole("button", { name: "Next page" }));
     expect(screen.getByRole("table", { name: "Products from Shopify" })).toHaveAttribute("aria-busy", "true");
     expect(screen.getByText("Product 1")).toBeInTheDocument();
     expect(screen.getByRole("searchbox", { name: "Search products" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled();
     release(await big({ page: 2, pageSize: 25 }));
-    expect(await screen.findByText("Page 2 of 3")).toBeInTheDocument();
-    expect(screen.getByRole("table", { name: "Products from Shopify" })).not.toHaveAttribute("aria-busy", "true");
+    expect(await screen.findByText("Showing 26–50 of 60")).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "Products from Shopify" })).toHaveAttribute("aria-busy", "false");
   });
 
   it("ignores an answer that arrives after a newer request", async () => {
@@ -227,11 +233,12 @@ describe("paging", () => {
       if (q.search === "fast") return Promise.resolve(aPage([aVariant(2, { productTitle: "Fast result" })]));
       return Promise.resolve(aPage(some(1)));
     });
-    const { user } = setup(variants);
+    const { variantsSpy, user } = setup(variants);
     const box = await screen.findByRole("searchbox", { name: "Search products" });
-    await user.type(box, "slow{Enter}");
+    await user.type(box, "slow");
+    await waitFor(() => expect(variantsSpy).toHaveBeenLastCalledWith(expect.objectContaining({ search: "slow" })));
     await user.clear(box);
-    await user.type(box, "fast{Enter}");
+    await user.type(box, "fast");
     expect(await screen.findByText("Fast result")).toBeInTheDocument();
     releaseSlow(aPage([aVariant(9, { productTitle: "Slow result" })]));
     await new Promise((r) => setTimeout(r, 20));
@@ -243,7 +250,8 @@ describe("paging", () => {
 describe("supplier fields from Shopify", () => {
   it("shows each product's supplier name and page address, and a dash when it has none", async () => {
     setup(async () => aPage([aVariant(1, { supplierName: "Acme Foods", supplierUrl: "https://acme.example/p/1" }), aVariant(2)]));
-    const rows = await screen.findAllByRole("row");
+    await screen.findByText("Acme Foods");
+    const rows = screen.getAllByRole("row");
     expect(within(rows[1]!).getByText("Acme Foods")).toBeInTheDocument();
     expect(within(rows[1]!).getByText("https://acme.example/p/1")).toBeInTheDocument();
     expect(within(rows[2]!).getByText("No supplier in Shopify")).toBeInTheDocument();
