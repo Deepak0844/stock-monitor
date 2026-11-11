@@ -324,8 +324,7 @@ Git: `master` holds releases, and `develop` is where work comes together. Work o
 | `packages/browser-client`                     | How the API and worker talk to the browser service.                                                |
 | `packages/queue`, `audit`, `crypto`, `shared` | The job queue, audit log, encryption and shared types.                                             |
 | `e2e`                                         | Playwright journeys, with a fake supplier site and a fake Shopify.                                 |
-| `docs`                                        | Deployment guide, pilot walk-through, intent and spike notes.                                      |
-| `SPEC-*.md`, `CAPABILITY-MAP.md`              | The approved design for each module.                                                               |
+| `docs`                                        | Deployment guide, pilot walk-through and project status.                                           |
 
 ## Security notes
 
@@ -341,5 +340,4 @@ Git: `master` holds releases, and `develop` is where work comes together. Work o
 
 - [docs/pilot-flow.md](docs/pilot-flow.md): the full flow, from an empty app to stock suggestions, with worked stock rule examples.
 - [docs/deployment.md](docs/deployment.md): running on a server, the browser service in depth, statuses, Shopify permissions and server hardening.
-- [CAPABILITY-MAP.md](CAPABILITY-MAP.md) and the `SPEC-*.md` files: what each module does and why.
-- [docs/intent/stock-monitor.md](docs/intent/stock-monitor.md): the original goal of the project.
+- [docs/status.md](docs/status.md): where the app stands, and the problems we hit with how each was fixed.
