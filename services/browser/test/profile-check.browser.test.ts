@@ -43,6 +43,26 @@ const verify = async (path: string, state: unknown) =>
     body: JSON.stringify({ url: `${site.url}${path}`, state }),
   })).json()) as { result: string; status: number | null };
 
+const post = async (route: string, path: string, state: unknown) =>
+  (await (await fetch(`${svc.url}${route}`, {
+    method: "POST", headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({ url: `${site.url}${path}`, state }),
+  })).json()) as { result: string; status: number | null; finalUrl?: string; description: { sections: unknown[] } };
+
+describe.skipIf(!linux)("link and stock checks run in the profile browser", () => {
+  it("check-page reaches a signed-in page and reports its status, address and title", async () => {
+    expect(await post("/check-page", "/products/blue-widget", await login())).toMatchObject({ result: "ok", status: 200, finalUrl: `${site.url}/products/blue-widget` });
+  });
+  it("check-page sends a person with no session to the login page", async () => {
+    expect((await post("/check-page", "/products/blue-widget", { cookies: [], origins: [] })).result).toBe("login_required");
+  });
+  it("capture describes the page", async () => {
+    const r = await post("/capture", "/products/blue-widget", await login());
+    expect(r).toMatchObject({ result: "ok", status: 200 });
+    expect(r.description.sections.length).toBeGreaterThan(0);
+  });
+});
+
 describe.skipIf(!linux)("profile check (spike)", () => {
   it("reaches a page that needs the login, using the saved cookies from an ordinary browser", async () => {
     const state = await login();
