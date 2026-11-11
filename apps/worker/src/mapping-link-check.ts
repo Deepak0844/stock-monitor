@@ -1,14 +1,16 @@
 import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
 import type { BrowserClient } from "@stock-monitor/browser-client";
-import type { createMappingRepository, createSupplierRepository, createSupplierSessionRepository, LinkCheckResult, MappingRow, SupplierRecord } from "@stock-monitor/db";
+import type { createMappingRepository, createNotificationRepository, createSupplierRepository, createSupplierSessionRepository, LinkCheckResult, MappingRow, SupplierRecord } from "@stock-monitor/db";
 import { decideLinkStatus, isSupplierWide, whyNotChecked, type CheckGateReason, type LinkState, type LinkStatus, type Observation } from "@stock-monitor/mapping";
 import { unsealSessionState } from "@stock-monitor/supplier-session";
+import { raiseNeedsAttention } from "./supplier-verify.js";
 
 export type LinkCheckDeps = {
   mappings: ReturnType<typeof createMappingRepository>;
   suppliers: ReturnType<typeof createSupplierRepository>;
   supplierSessions: ReturnType<typeof createSupplierSessionRepository>;
+  notifications: ReturnType<typeof createNotificationRepository>;
   audit: ReturnType<typeof createAuditWriter>;
   browser: BrowserClient;
   /** Opens saved sessions. The browser service never has it. */
@@ -35,12 +37,15 @@ export const toState = (m: MappingRow): LinkState => ({
 });
 
 /**
- * Link checks only ever say what happened to the LINK. They never read stock, never change the supplier's own
- * status or raise its notifications (the session check does that), and never put an address, a session or page
- * text in a log, an audit event or a job.
+ * Link checks only ever say what happened to the LINK. They never read stock and never put an address, a session or
+ * page text in a log, an audit event or a job. The one thing they do beyond the link: a page that asked for a login,
+ * showed a puzzle or refused us means the supplier's session is no good, so the supplier is marked as needing the
+ * owner, exactly as a failed session check would (the home page the session check reads can look fine while the
+ * pages behind the login do not).
  */
 export function createLinkChecker(deps: LinkCheckDeps) {
   const { mappings, suppliers, supplierSessions, audit, browser, logger } = deps;
+  const needsOwner = (result: string): result is "login_required" | "captcha" | "blocked" => result === "login_required" || result === "captcha" || result === "blocked";
   const sleep = deps.sleep ?? wait;
   const now = deps.now ?? (() => new Date());
 
@@ -90,7 +95,10 @@ export function createLinkChecker(deps: LinkCheckDeps) {
       if (!mapping.enabled) return { kind: "skipped", reason: "link_off" };
       const gated = await gate(mapping.supplierId);
       if ("reason" in gated) return { kind: "skipped", reason: gated.reason };
-      return { kind: "checked", status: await save(gated.supplier, mapping, await observe(gated.supplier, mapping), false) };
+      const observation = await observe(gated.supplier, mapping);
+      const status = await save(gated.supplier, mapping, observation, false);
+      if (needsOwner(observation.result)) await raiseNeedsAttention(deps, gated.supplier, observation.result);
+      return { kind: "checked", status };
     },
 
     /**
@@ -116,6 +124,8 @@ export function createLinkChecker(deps: LinkCheckDeps) {
       );
       const supplierWide = isSupplierWide(trial);
       for (const { mapping, observation } of seen) await save(first.supplier, mapping, observation, supplierWide);
+      const refused = seen.map((s) => s.observation.result).find(needsOwner);
+      if (refused) await raiseNeedsAttention(deps, first.supplier, refused);
       return { kind: "done", checked: seen.length, supplierWide };
     },
   };

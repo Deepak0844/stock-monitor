@@ -137,12 +137,12 @@ test("a link check needs recorded permission, then shows works, page missing, an
   await expect(blue).toContainText("Worked until");
   await expect(blue).not.toContainText("May be unavailable"); // one check is not enough
 
-  // A puzzle is the supplier's problem, not a broken link, and the supplier itself stays connected.
+  // A puzzle is the supplier's problem, not a broken link, and the supplier is marked Blocked.
   await control.browser({ page: { result: "captcha", status: 403, finalUrl: null, title: null, heading: null, softNotFound: false } });
   await blue.getByRole("button", { name: /Check now/ }).click();
   await expectStatus(page, /Blue Tee.*Medium/, "Needs login");
   await page.goto("/suppliers");
-  await expect(page.getByRole("row", { name: /Acme Supply/ })).toContainText("Connected");
+  await expect(page.getByRole("row", { name: /Acme Supply/ })).toContainText("Blocked");
 });
 
 test("the link screens pass the accessibility scan in light and dark, and never scroll sideways", async ({ page }) => {
