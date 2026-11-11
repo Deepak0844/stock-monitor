@@ -164,6 +164,12 @@ describe("reading and changing captures", () => {
     expect(pic.raw.toString()).toBe("PNG-bytes");
   });
 
+  it("serves a JPEG picture as a JPEG", async () => {
+    const c = await captures().create({ supplierId: acme, mappingId: link, name: "Long page" });
+    await captures().fill(c.id, { status: "ready", pageClass: "ok", description, picture: Buffer.from([0xff, 0xd8, 0xff, 0xe0]) });
+    expect((await call("GET", `/api/captures/${c.id}/picture`)).headers["content-type"]).toBe("image/jpeg");
+  });
+
   it("a capture with no picture, an unknown capture and a made-up id are plain 404s", async () => {
     const c = await captures().create({ supplierId: acme, mappingId: link, name: "" });
     expect((await call("GET", `/api/captures/${c.id}/picture`)).body.error.code).toBe("picture_not_found");

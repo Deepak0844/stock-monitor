@@ -113,13 +113,21 @@ export async function readPage(page: import("playwright").Page) {
   return page.evaluate(describePage, { limits: LIMITS, challenge: CHALLENGE_WIDGET });
 }
 
-async function takePicture(page: import("playwright").Page): Promise<string | null> {
-  for (const fullPage of [true, false]) {
+// Whole page sharp, then whole page as a JPEG (long photo-heavy pages are far smaller that way), then only the visible part.
+const PICTURE_TRIES = [
+  { type: "png", fullPage: true },
+  { type: "jpeg", quality: 80, fullPage: true },
+  { type: "png", fullPage: false },
+] as const;
+
+/** Exported for a test. */
+export async function takePicture(page: import("playwright").Page): Promise<string | null> {
+  for (const options of PICTURE_TRIES) {
     try {
-      const png = await page.screenshot({ type: "png", fullPage, timeout: 10_000 });
-      if (png.length <= MAX_PICTURE_BYTES) return png.toString("base64");
+      const picture = await page.screenshot({ ...options, timeout: 10_000 });
+      if (picture.length <= MAX_PICTURE_BYTES) return picture.toString("base64");
     } catch {
-      // A page too big to draw: try the visible part, then go without a picture.
+      // A page too big to draw: try the next way, then go without a picture.
     }
   }
   return null;
