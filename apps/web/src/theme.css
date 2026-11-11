@@ -138,3 +138,20 @@
   --radius-sm: calc(var(--radius) - 4px);
   --font-sans: "Inter Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
+
+/* Shimmer for loading placeholders. It rests when the visitor asks for less motion. */
+.skeleton {
+  background: linear-gradient(90deg, var(--muted) 25%, color-mix(in srgb, var(--muted) 55%, var(--card)) 50%, var(--muted) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.3s linear infinite;
+}
+@keyframes skeleton-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
