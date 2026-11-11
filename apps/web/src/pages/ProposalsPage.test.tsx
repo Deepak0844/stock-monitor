@@ -15,7 +15,7 @@ afterEach(() => {
 
 const ready = { state: "ready" as const, message: "Shopify allows this app to change stock." };
 const setup = async (open = [aProposal()], over: { writePermission?: typeof ready | { state: "missing" | "not_connected"; message: string }; proposals?: NonNullable<Parameters<typeof fakeApi>[0]>["proposals"] } = {}) => {
-  const api = fakeApi({ proposals: { open: vi.fn().mockResolvedValue({ proposals: open, writePermission: over.writePermission ?? ready }), ...over.proposals } });
+  const api = fakeApi({ proposals: { openPage: vi.fn().mockResolvedValue({ items: open, total: open.length, page: 1, pageSize: 10, writePermission: over.writePermission ?? ready }), ...over.proposals } });
   render(<ProposalsPage api={api} />);
   // Wait for the list (or the empty message) so tests start from a loaded page.
   await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
@@ -25,7 +25,7 @@ const card = (name: RegExp | string) => screen.getByRole("listitem", { name });
 
 describe("loading, empty and errors", () => {
   it("says it is loading, then says plainly there is nothing waiting", async () => {
-    const api = fakeApi({ proposals: { open: vi.fn().mockReturnValue(new Promise(() => {})) } });
+    const api = fakeApi({ proposals: { openPage: vi.fn().mockReturnValue(new Promise(() => {})) } });
     render(<ProposalsPage api={api} />);
     expect(screen.getByRole("status")).toHaveTextContent("Loading…");
     cleanup();
@@ -34,8 +34,8 @@ describe("loading, empty and errors", () => {
   });
 
   it("shows a plain error and tries again", async () => {
-    const open = vi.fn().mockRejectedValueOnce(new ApiError("Can't reach the server. Check your connection and try again.", 0)).mockResolvedValue({ proposals: [aProposal()], writePermission: ready });
-    const { user } = await setup([], { proposals: { open } });
+    const openPage = vi.fn().mockRejectedValueOnce(new ApiError("Can't reach the server. Check your connection and try again.", 0)).mockResolvedValue({ items: [aProposal()], total: 1, page: 1, pageSize: 10, writePermission: ready });
+    const { user } = await setup([], { proposals: { openPage } });
     expect(await screen.findByRole("alert")).toHaveTextContent("Can't reach the server");
     await user.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByText("Blue Tee")).toBeInTheDocument();
@@ -159,23 +159,52 @@ describe("approving, editing and rejecting", () => {
   });
 });
 
+describe("paging the waiting list", () => {
+  it("asks the server for ten at a time and moves between pages", async () => {
+    const reply = (items: ReturnType<typeof aProposal>[], page: number) => ({ items, total: 12, page, pageSize: 10, writePermission: ready });
+    const openPage = vi.fn().mockResolvedValueOnce(reply([aProposal()], 1)).mockResolvedValue(reply([aProposal({ id: "2", productTitle: "Red Cap" })], 2));
+    const { user } = await setup([], { proposals: { openPage } });
+    expect(await screen.findByText("Showing 1–10 of 12")).toBeInTheDocument();
+    expect(openPage).toHaveBeenCalledWith({ page: 1, pageSize: 10 });
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    expect(await screen.findByText("Red Cap")).toBeInTheDocument();
+    expect(openPage).toHaveBeenLastCalledWith({ page: 2, pageSize: 10 });
+    expect(window.location.search).toBe("?page=2");
+  });
+
+  it("shows a spinner on Approve while it is sent, and none on the other buttons", async () => {
+    const approve = vi.fn(() => new Promise<never>(() => {}));
+    const { user } = await setup([aProposal()], { proposals: { approve } });
+    const item = within(card(/Blue Tee/));
+    await user.click(item.getByRole("button", { name: /Approve/ }));
+    expect(item.getByRole("button", { name: /Approve/ })).toHaveAttribute("aria-busy", "true");
+    expect(item.getByRole("button", { name: /Reject/ })).not.toHaveAttribute("aria-busy");
+  });
+
+  it("opens on the History tab when the address says so", async () => {
+    window.history.replaceState(null, "", "/proposals?tab=history");
+    const hist = vi.fn().mockResolvedValue({ proposals: [aProposal({ state: "rejected" })], hasMore: false, total: 1, page: 1, pageSize: 10 });
+    await setup([], { proposals: { history: hist } });
+    expect(await screen.findByRole("table", { name: "Past suggestions" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "History" })).toHaveAttribute("aria-pressed", "true");
+  });
+});
+
 describe("waiting for Shopify", () => {
   it("checks again every few seconds while one is waiting, and shows when it is applied", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    const open = vi
-      .fn()
-      .mockResolvedValueOnce({ proposals: [aProposal({ state: "approved", approvedQuantity: 0 })], writePermission: ready })
-      .mockResolvedValue({ proposals: [], writePermission: ready });
-    await setup([], { proposals: { open } });
+    const reply = (items: ReturnType<typeof aProposal>[]) => ({ items, total: items.length, page: 1, pageSize: 10, writePermission: ready });
+    const openPage = vi.fn().mockResolvedValueOnce(reply([aProposal({ state: "approved", approvedQuantity: 0 })])).mockResolvedValue(reply([]));
+    await setup([], { proposals: { openPage } });
     expect(await screen.findByText(/Waiting for Shopify/)).toBeInTheDocument();
     await act(async () => void (await vi.advanceTimersByTimeAsync(5500)));
-    expect(open).toHaveBeenCalledTimes(2);
+    expect(openPage).toHaveBeenCalledTimes(2);
     expect(await screen.findByText(/Nothing is waiting for you/)).toBeInTheDocument();
   });
 });
 
 describe("history", () => {
-  const history = (rows: ReturnType<typeof aProposal>[], hasMore = false) => vi.fn().mockResolvedValue({ proposals: rows, hasMore, page: 1 });
+  const history = (rows: ReturnType<typeof aProposal>[], hasMore = false) => vi.fn().mockResolvedValue({ proposals: rows, hasMore, total: rows.length, page: 1, pageSize: 10 });
 
   it("lists decided suggestions with their result in plain words", async () => {
     const rows = [
@@ -197,13 +226,18 @@ describe("history", () => {
   });
 
   it("says plainly when there is no history, and pages when there is more", async () => {
-    const hist = vi.fn().mockResolvedValueOnce({ proposals: [aProposal({ state: "rejected" })], hasMore: true, page: 1 }).mockResolvedValueOnce({ proposals: [aProposal({ id: "z", state: "rejected", productTitle: "Older Tee" })], hasMore: false, page: 2 });
+    const hist = vi
+      .fn()
+      .mockResolvedValueOnce({ proposals: [aProposal({ state: "rejected" })], hasMore: true, total: 11, page: 1, pageSize: 10 })
+      .mockResolvedValueOnce({ proposals: [aProposal({ id: "z", state: "rejected", productTitle: "Older Tee" })], hasMore: false, total: 11, page: 2, pageSize: 10 });
     const { user } = await setup([], { proposals: { history: hist } });
     await user.click(await screen.findByRole("button", { name: "History" }));
-    await user.click(await screen.findByRole("button", { name: "Older" }));
-    expect(hist).toHaveBeenLastCalledWith(2);
+    expect(await screen.findByText("Showing 1–10 of 11")).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Next page" }));
+    expect(hist).toHaveBeenLastCalledWith(2, 10);
     expect(await screen.findByText("Older Tee")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Older" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled();
+    expect(window.location.search).toBe("?tab=history&page=2");
   });
 
   it("an empty history says so", async () => {
@@ -223,7 +257,7 @@ describe("refresh", () => {
   ];
 
   it("offers Refresh on a suggestion that was not applied or expired, and on no other", async () => {
-    const { user } = await setup([], { proposals: { history: vi.fn().mockResolvedValue({ proposals: rows, hasMore: false, page: 1 }) } });
+    const { user } = await setup([], { proposals: { history: vi.fn().mockResolvedValue({ proposals: rows, hasMore: false, total: rows.length, page: 1, pageSize: 10 }) } });
     await user.click(await screen.findByRole("button", { name: "History" }));
     const table = await screen.findByRole("table", { name: "Past suggestions" });
     for (const name of ["Red Cap", "Green Hat", "Pink Scarf"]) {
@@ -235,7 +269,7 @@ describe("refresh", () => {
 
   it("asks for a refresh and says where the new suggestion will appear", async () => {
     const refresh = vi.fn().mockResolvedValue(undefined);
-    const { user } = await setup([], { proposals: { refresh, history: vi.fn().mockResolvedValue({ proposals: rows, hasMore: false, page: 1 }) } });
+    const { user } = await setup([], { proposals: { refresh, history: vi.fn().mockResolvedValue({ proposals: rows, hasMore: false, total: rows.length, page: 1, pageSize: 10 }) } });
     await user.click(await screen.findByRole("button", { name: "History" }));
     await user.click(await screen.findByRole("button", { name: "Refresh Red Cap, Large" }));
     expect(refresh).toHaveBeenCalledWith("c");
@@ -244,7 +278,7 @@ describe("refresh", () => {
 
   it("shows the plain reason when a refresh cannot start", async () => {
     const refresh = vi.fn().mockRejectedValue(new ApiError("Could not start that. Try again in a minute.", 503));
-    const { user } = await setup([], { proposals: { refresh, history: vi.fn().mockResolvedValue({ proposals: rows, hasMore: false, page: 1 }) } });
+    const { user } = await setup([], { proposals: { refresh, history: vi.fn().mockResolvedValue({ proposals: rows, hasMore: false, total: rows.length, page: 1, pageSize: 10 }) } });
     await user.click(await screen.findByRole("button", { name: "History" }));
     await user.click(await screen.findByRole("button", { name: "Refresh Green Hat, Large" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not start that.");
