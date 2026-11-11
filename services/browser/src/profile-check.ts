@@ -116,8 +116,18 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
           (selector) => ({
             title: document.title,
             text: (document.body?.innerText ?? "").slice(0, 20_000),
-            hasPasswordField: document.querySelector('input[type="password"]') !== null,
-            hasChallengeWidget: document.querySelector(selector) !== null,
+            hasPasswordField: [...document.querySelectorAll('input[type="password"]')].some((el) => {
+        // A sign-in popup that is hidden until someone clicks it is not a login wall.
+        const box = el.getBoundingClientRect();
+        const style = getComputedStyle(el);
+        return box.width > 0 && box.height > 0 && style.visibility !== "hidden" && style.display !== "none" && Number(style.opacity) > 0.1;
+      }),
+            hasChallengeWidget: [...document.querySelectorAll(selector)].some((el) => {
+        // An invisible or off-screen widget (a form's spam guard) is not a puzzle in front of the page.
+        const box = el.getBoundingClientRect();
+        const style = getComputedStyle(el);
+        return el.getAttribute("data-size") !== "invisible" && box.width >= 50 && box.height >= 30 && style.visibility !== "hidden" && style.display !== "none" && Number(style.opacity) > 0.1 && box.bottom > 0 && box.right > 0;
+      }),
           }),
           CHALLENGE_WIDGET,
         );
