@@ -104,3 +104,20 @@ describe("decide", () => {
     expect(decide(p, recipe, null)).toEqual(decide(p, recipe, null));
   });
 });
+
+describe("main product scope", () => {
+  const page = {
+    url: "https://x.test/p", title: "t", status: 200, pageClass: "ok",
+    sections: [
+      { heading: "Product A", level: 1, lines: ["Out of stock"] },
+      { heading: "Details", level: 2, lines: ["blurb"] },
+      { heading: "You may also like", level: 2, lines: [] },
+      { heading: "Product B", level: 3, lines: ["10 in stock"] },
+    ],
+    buttons: [{ label: "Add to basket", enabled: true, section: "Product B" }],
+  } as unknown as Parameters<typeof decide>[0];
+  const recipe = { pageChecks: [], inStock: [{ type: "button", label: "Add to basket" }], outOfStock: [{ type: "text", text: "Out of stock" }] } as Parameters<typeof decide>[1];
+  it("ignores a suggested product's button when the main product is out of stock", () => {
+    expect(decide(page, recipe, null).answer).toBe("out_of_stock");
+  });
+});
