@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { App } from "./App.js";
 import type { Owner } from "./api.js";
@@ -87,7 +87,7 @@ describe("App", () => {
       await user.click(screen.getByRole("link", { name: "Settings" }));
       expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
       expect(window.location.pathname).toBe("/settings/shopify");
-      await user.click(screen.getByRole("link", { name: "Dashboard" }));
+      await user.click(within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: "Dashboard" }));
       expect(await screen.findByRole("heading", { level: 1, name: "Dashboard" })).toBeInTheDocument();
       await waitFor(() => expect(document.title).toBe("Dashboard · Stock Monitor")); // set after render, so wait for it
     });

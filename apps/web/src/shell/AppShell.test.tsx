@@ -5,13 +5,15 @@ import { act, cleanup, render, screen, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { AppShell } from "./AppShell.js";
 import { navigate } from "../router.js";
+import type { NotificationsState } from "./useNotifications.js";
 
 beforeEach(() => window.history.replaceState(null, "", "/"));
 afterEach(cleanup);
 
+const quiet: NotificationsState = { items: [], unread: 0, loading: false, error: null, markRead: vi.fn(), markAllRead: vi.fn(), reload: vi.fn() };
 const setup = (onSignOut = vi.fn(), proposalCount?: number, attentionCount?: number) => {
   render(
-    <AppShell email="owner@example.com" onSignOut={onSignOut} proposalCount={proposalCount} attentionCount={attentionCount}>
+    <AppShell email="owner@example.com" onSignOut={onSignOut} proposalCount={proposalCount} attentionCount={attentionCount} notifications={quiet}>
       <h1>Page title</h1>
     </AppShell>,
   );
@@ -69,7 +71,7 @@ describe("AppShell", () => {
     const nav = screen.getByRole("navigation", { name: "Main" });
     const link = within(nav).getByRole("link", { name: "Proposals" });
     expect(link).toHaveAttribute("href", "/proposals");
-    expect(link.querySelector(".badge")).toBeNull();
+    expect(link.querySelector("[data-count]")).toBeNull();
   });
 
   it("shows how many things need attention beside Dashboard, and says so to a screen reader", () => {
@@ -151,5 +153,24 @@ describe("AppShell", () => {
   it("shows the page inside the main area", () => {
     setup();
     expect(within(screen.getByRole("main")).getByRole("heading", { name: "Page title" })).toBeInTheDocument();
+  });
+});
+
+describe("AppShell top bar", () => {
+  it("shows the breadcrumb trail for the page and a notification bell", () => {
+    window.history.replaceState(null, "", "/suppliers/new");
+    setup();
+    const trail = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(within(trail).getByRole("link", { name: "Suppliers" })).toHaveAttribute("href", "/suppliers");
+    expect(within(trail).getByText("Add supplier")).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Notifications, none unread" })).toBeInTheDocument();
+  });
+
+  it("switches between the light and dark theme", async () => {
+    const { user } = setup();
+    await user.click(screen.getByRole("button", { name: /Switch to dark theme|Switch to light theme/ }));
+    const dark = document.documentElement.classList.contains("dark");
+    expect(screen.getByRole("button", { name: dark ? "Switch to light theme" : "Switch to dark theme" })).toBeInTheDocument();
+    document.documentElement.classList.remove("dark", "light");
   });
 });
