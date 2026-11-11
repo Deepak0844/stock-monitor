@@ -29,7 +29,8 @@ export type BrowserClient = {
   /** Loads one page with a saved session and says what happened to it: the status, where it ended, its title and heading. */
   checkPage(request: { url: string; loginUrl?: string; state: SessionState }): Promise<CheckPageOutcome>;
   /** Loads one page with a saved session and describes it, for stock rules. A picture is taken only when asked for. */
-  capture(request: { url: string; loginUrl?: string; state: SessionState; picture?: boolean }): Promise<CaptureOutcome>;
+  /** `scheduled`: an automatic stock check. It waits behind captures a person asked for. */
+  capture(request: { url: string; loginUrl?: string; state: SessionState; picture?: boolean; scheduled?: boolean }): Promise<CaptureOutcome>;
   /** Loads a page with a saved session in a throw-away browser and says what it was. */
   verify(request: { url: string; loginUrl?: string; state: SessionState }): Promise<VerifyOutcome>;
 };
@@ -129,8 +130,8 @@ export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, fetchI
       };
     },
 
-    async capture({ url, loginUrl, state, picture }) {
-      const r = await call("POST", "/capture", { url, ...(loginUrl ? { loginUrl } : {}), state, ...(picture ? { picture: true } : {}) }, timeoutMs * CAPTURE_LIMIT_FACTOR);
+    async capture({ url, loginUrl, state, picture, scheduled }) {
+      const r = await call("POST", "/capture", { url, ...(loginUrl ? { loginUrl } : {}), state, ...(picture ? { picture: true } : {}), ...(scheduled ? { scheduled: true } : {}) }, timeoutMs * CAPTURE_LIMIT_FACTOR);
       if (!r) return { ok: false, reason: "unavailable" };
       if (r.status === 503) return { ok: false, reason: "busy" };
       const j = r.json;

@@ -234,6 +234,6 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
     checkPage: (request: CheckPageRequest, timeoutMs = 20_000, opts: JobOptions = {}): Promise<CheckPageOutcome> =>
       queue.run(() => inProfile(request, noPage as CheckPageOutcome, (page, tracker) => inspectPage(page, request, tracker, timeoutMs)), { signal: opts.signal }),
     capture: (request: CaptureRequest, timeoutMs = 20_000, opts: JobOptions = {}): Promise<CaptureOutcome> =>
-      queue.run(() => inProfile(request, { ...noPage, description: { sections: [], buttons: [] }, picture: null } as CaptureOutcome, (page, tracker) => capturePageIn(page, request, tracker, timeoutMs)), { urgent: true, signal: opts.signal }),
+      queue.run(() => inProfile(request, { ...noPage, description: { sections: [], buttons: [] }, picture: null } as CaptureOutcome, (page, tracker) => capturePageIn(page, request, tracker, timeoutMs)), { urgent: !request.scheduled, signal: opts.signal }),
   });
 }

@@ -15,7 +15,7 @@ type Waiter = { start: () => void; drop: () => void; signal?: AbortSignal; onAbo
 /**
  * Runs jobs one at a time. Urgent jobs (a person is waiting) go before ordinary ones (scheduled checks), each lane first come first
  * served. A running job is never interrupted. A waiting job whose caller has gone is dropped without running. At most `maxWaiting`
- * jobs wait; the running one does not count.
+ * jobs wait in each lane, so a pile of scheduled checks never turns away a person; the running one does not count.
  */
 export function createJobQueue({ maxWaiting = MAX_WAITING }: { maxWaiting?: number } = {}) {
   const urgentLane: Waiter[] = [];
@@ -45,8 +45,8 @@ export function createJobQueue({ maxWaiting = MAX_WAITING }: { maxWaiting?: numb
       running = true;
       return execute();
     }
-    if (urgentLane.length + ordinaryLane.length >= maxWaiting) return Promise.reject(new QueueFullError());
     const lane = urgent ? urgentLane : ordinaryLane;
+    if (lane.length >= maxWaiting) return Promise.reject(new QueueFullError());
     return new Promise<T>((resolve, reject) => {
       const waiter: Waiter = {
         signal,

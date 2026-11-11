@@ -192,6 +192,13 @@ describe("capture", () => {
     expect(await client({ baseUrl: "http://127.0.0.1:1" }).capture({ url: "https://a.example/", state })).toEqual({ ok: false, reason: "unavailable" });
   });
 
+  it("says it is a scheduled check only when asked to", async () => {
+    await client().capture({ url: "https://shop.acme.example/p", state });
+    await client().capture({ url: "https://shop.acme.example/p", state, scheduled: true });
+    expect((fake.requests[0]?.body as Record<string, unknown>).scheduled).toBeUndefined();
+    expect(fake.requests[1]?.body).toMatchObject({ scheduled: true });
+  });
+
   it("says busy when the service answers 503", async () => {
     fake.behaviour.capture = "busy";
     expect(await client().capture({ url: "https://a.example/", state })).toEqual({ ok: false, reason: "busy" });

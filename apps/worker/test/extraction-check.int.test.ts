@@ -105,7 +105,7 @@ describe("one link", () => {
     expect(requests("/check-page")).toHaveLength(0);
     expect(await latest(id)).toMatchObject({ answer: "in_stock", matchedText: "Add to cart", recipeVersion: version, checkResult: "ok", quantityMismatch: false });
     expect(await mapping(id)).toMatchObject({ linkStatus: "works", lastLinkCheckAt: T0 });
-    expect(requests("/capture")[0]?.body).toMatchObject({ url: "https://shop.acme.example/p/v1", loginUrl: "https://shop.acme.example/login", state });
+    expect(requests("/capture")[0]?.body).toMatchObject({ url: "https://shop.acme.example/p/v1", loginUrl: "https://shop.acme.example/login", state, scheduled: true });
   });
 
   it("out of stock", async () => {

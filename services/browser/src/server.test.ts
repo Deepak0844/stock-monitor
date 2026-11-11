@@ -262,6 +262,12 @@ describe("POST /capture", () => {
     expect(capture).toHaveBeenCalledWith(expect.objectContaining({ url: body.url, picture: true }), expect.anything());
   });
 
+  it("passes on that a capture is a scheduled check, and refuses a value that is not yes or no", async () => {
+    expect((await call(TOKEN, { ...body, scheduled: true })).status).toBe(200);
+    expect(capture).toHaveBeenCalledWith(expect.objectContaining({ scheduled: true }), expect.anything());
+    expect((await call(TOKEN, { ...body, scheduled: "yes" })).status).toBe(400);
+  });
+
   it("refuses a picture setting that is not yes or no, and an address that is not a web address", async () => {
     expect((await call(TOKEN, { ...body, picture: "yes" })).status).toBe(400);
     expect((await call(TOKEN, { url: "ftp://x.test", state })).status).toBe(400);

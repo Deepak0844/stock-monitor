@@ -91,7 +91,7 @@ export function createStockChecker(deps: StockCheckDeps) {
     } catch {
       state = null;
     }
-    const outcome = state ? await browser.capture({ url: mapping.url, loginUrl: supplier.loginUrl ?? undefined, state, picture: true }) : null;
+    const outcome = state ? await browser.capture({ url: mapping.url, loginUrl: supplier.loginUrl ?? undefined, state, picture: true, scheduled: true }) : null;
     if (!outcome || !outcome.ok) {
       if (outcome) logger.warn({ mappingId: mapping.id }, "stock check could not run: the browser service did not answer");
       const obs: Observation = { result: "service_unavailable", status: null, finalUrl: null, title: null, heading: null, softNotFound: false };

@@ -58,7 +58,7 @@ async function readBody(req: IncomingMessage, limit: number): Promise<string | n
   return Buffer.concat(chunks).toString("utf8");
 }
 
-function parse(raw: string): (VerifyRequest & { picture?: boolean }) | null {
+function parse(raw: string): (VerifyRequest & { picture?: boolean; scheduled?: boolean }) | null {
   let body: unknown;
   try {
     body = JSON.parse(raw);
@@ -66,11 +66,12 @@ function parse(raw: string): (VerifyRequest & { picture?: boolean }) | null {
     return null;
   }
   if (typeof body !== "object" || body === null || Array.isArray(body)) return null;
-  const { url, loginUrl, state, picture } = body as Record<string, unknown>;
+  const { url, loginUrl, state, picture, scheduled } = body as Record<string, unknown>;
   if (!isWebUrl(url) || !isSessionState(state)) return null;
   if (loginUrl !== undefined && (typeof loginUrl !== "string" || loginUrl.length > MAX_URL)) return null;
   if (picture !== undefined && typeof picture !== "boolean") return null;
-  return { url, state, ...(loginUrl === undefined ? {} : { loginUrl }), ...(picture === undefined ? {} : { picture }) };
+  if (scheduled !== undefined && typeof scheduled !== "boolean") return null;
+  return { url, state, ...(loginUrl === undefined ? {} : { loginUrl }), ...(picture === undefined ? {} : { picture }), ...(scheduled === undefined ? {} : { scheduled }) };
 }
 
 const SESSION_PATH = /^\/sessions(?:\/([^/]+?)(\/finish)?)?$/;

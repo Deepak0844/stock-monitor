@@ -4,7 +4,8 @@ import { explainPage, looksLikeNotFound, type SessionState } from "@stock-monito
 import type { GuardProxy } from "./proxy.js";
 import { CHALLENGE_WIDGET, MAX_TEXT, type BlockTracker, type CheckPageOutcome, type VerifyOptions } from "./verify.js";
 
-export type CaptureRequest = { url: string; loginUrl?: string; state: SessionState; picture?: boolean };
+/** `scheduled`: an automatic stock check, not a person waiting, so it queues behind people. */
+export type CaptureRequest = { url: string; loginUrl?: string; state: SessionState; picture?: boolean; scheduled?: boolean };
 /** What the browser was showing, as words: headings with the lines under them, and the buttons. Never raw HTML. */
 export type PageSections = { heading: string | null; level: number; lines: string[] }[];
 export type PageButtons = { label: string; enabled: boolean; section: string | null }[];

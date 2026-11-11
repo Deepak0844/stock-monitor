@@ -144,4 +144,57 @@ describe("createJobQueue", () => {
     await expect(q.run(async () => { ran = true; }, { signal: gone.signal })).rejects.toBeInstanceOf(AbandonedError);
     expect(ran).toBe(false);
   });
+
+  it("a full ordinary lane does not turn away an urgent job", async () => {
+    const log: string[] = [];
+    const q = createJobQueue({ maxWaiting: 2 });
+    const [a, b, c, u] = ["a", "b", "c", "u"].map((n) => makeJob(n, log));
+    const all = [q.run(a.job), q.run(b.job), q.run(c.job)];
+    await tick();
+    await expect(q.run(async () => "x")).rejects.toBeInstanceOf(QueueFullError); // ordinary lane is full
+    all.push(q.run(u.job, { urgent: true })); // a person is still let in
+    for (const j of [a, u, b, c]) {
+      j.release();
+      await tick();
+      await tick();
+    }
+    await Promise.all(all);
+    expect(log.filter((l) => l.startsWith("start"))).toEqual(["start a", "start u", "start b", "start c"]);
+  });
+
+  it("a waiting job that has started and then loses its caller still finishes", async () => {
+    const log: string[] = [];
+    const q = createJobQueue();
+    const a = makeJob("a", log), b = makeJob("b", log);
+    const gone = new AbortController();
+    const pa = q.run(a.job);
+    const pb = q.run(b.job, { signal: gone.signal });
+    await tick();
+    a.release();
+    await pa;
+    await tick();
+    expect(log).toContain("start b");
+    gone.abort();
+    b.release();
+    await expect(pb).resolves.toBe("b");
+  });
+
+  it("aborted waiters stop counting toward the limit", async () => {
+    const log: string[] = [];
+    const q = createJobQueue({ maxWaiting: 1 });
+    const a = makeJob("a", log), b = makeJob("b", log);
+    const gone = new AbortController();
+    const pa = q.run(a.job);
+    const dropped = q.run(async () => "x", { signal: gone.signal });
+    const rejected = expect(dropped).rejects.toBeInstanceOf(AbandonedError);
+    await tick();
+    gone.abort();
+    await rejected;
+    const pb = q.run(b.job); // accepted: the dropped waiter no longer takes the place
+    a.release();
+    await pa;
+    await tick();
+    b.release();
+    await expect(pb).resolves.toBe("b");
+  });
 });

@@ -33,7 +33,7 @@ All in `services/browser/src/profile-check.ts` and `server.ts`, plus the client 
    service picks the lane from the route, so no request format changes. Within a lane, first come first served. The running job is never interrupted.
 2. **Drop abandoned jobs.** The server notes when the caller's connection closes before the answer. A queued job whose caller is gone is
    skipped when its turn comes. A job already running finishes.
-3. **Bounded queue.** At most 8 jobs wait. A ninth gets `503 {"error":"busy"}` straight away.
+3. **Bounded queue.** At most 8 jobs wait in each lane, so scheduled checks never turn a person away. A ninth gets `503 {"error":"busy"}` straight away.
 4. **Client.** `/capture` and `/verify` wait up to 90 s (the queue is short now). A 503 becomes the outcome `busy`.
    A capture that is busy is recorded as `browser_busy` and shown as "The browser is busy with other checks. Try again in a minute."
    Scheduled checks treat busy as "could not check", as they treat a timeout today.
