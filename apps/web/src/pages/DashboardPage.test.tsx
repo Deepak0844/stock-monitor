@@ -170,6 +170,33 @@ describe("Supplier connections", () => {
   });
 });
 
+describe("links to the lists behind the numbers", () => {
+  it("sends Supplier connections to the suppliers that need reconnecting when there are some, else to all suppliers", async () => {
+    const list = vi.fn().mockResolvedValue([aSupplier({ id: "a", sessionStatus: "connected" }), aSupplier({ id: "b", name: "B", sessionStatus: "needs_reconnect" })]);
+    setup({ suppliers: { list } });
+    const c = within(card("Supplier connections"));
+    expect(await c.findByRole("link", { name: "See suppliers that need reconnecting" })).toHaveAttribute("href", "/suppliers?status=needs_reconnect");
+  });
+
+  it("sends Supplier connections to all suppliers when none need attention", async () => {
+    setup({ suppliers: { list: vi.fn().mockResolvedValue([aSupplier({ sessionStatus: "connected" })]) } });
+    expect(await within(card("Supplier connections")).findByRole("link", { name: "See suppliers" })).toHaveAttribute("href", "/suppliers");
+  });
+
+  it("shows a shimmer and says it is busy while a card loads", () => {
+    setup({ suppliers: { list: vi.fn().mockReturnValue(new Promise(() => {})) } });
+    expect(card("Supplier connections")).toHaveAttribute("aria-busy", "true");
+  });
+
+  it("lets the owner try again when the links cannot be loaded, without reloading the rest", async () => {
+    const unmapped = vi.fn().mockRejectedValueOnce(new ApiError("x", 500)).mockResolvedValue({ total: 10, unmapped: 4, items: [] });
+    const { user } = setup({ mappings: { unmapped } });
+    const c = await screen.findByRole("heading", { level: 2, name: "Supplier links" }).then((h) => within(h.closest("section")!));
+    await user.click(await c.findByRole("button", { name: "Try again" }));
+    expect(await c.findByText("4 of 10")).toBeInTheDocument();
+  });
+});
+
 describe("stock rules on the dashboard", () => {
   it("a changed-pages notification links to the stock rules, not to Reconnect", async () => {
     setup({ notifications: { list: vi.fn().mockResolvedValue([aNotification({ kind: "recipe_needs_review", reason: "page_changed", message: "Acme Supply's pages changed. Review its stock rules." })]) } });
