@@ -340,4 +340,5 @@ Git: `master` holds releases, and `develop` is where work comes together. Work o
 
 - [docs/pilot-flow.md](docs/pilot-flow.md): the full flow, from an empty app to stock suggestions, with worked stock rule examples.
 - [docs/deployment.md](docs/deployment.md): running on a server, the browser service in depth, statuses, Shopify permissions and server hardening.
+- [docs/google-cloud.md](docs/google-cloud.md): running on one Google Cloud VM, backing it up to your computer over SSH, and shutting it down.
 - [docs/status.md](docs/status.md): where the app stands, and the problems we hit with how each was fixed.
