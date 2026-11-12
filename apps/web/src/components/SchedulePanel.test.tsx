@@ -46,7 +46,8 @@ describe("Automatic checks panel", () => {
     const { api, user } = setup(supplier, {}, [row({ intervalMinutes: 720, window: { start: "08:00", end: "20:00" }, status: { state: "waiting" }, nextCheckAt: "2026-11-11T03:30:00.000Z" })]);
     expect(await screen.findByLabelText("How often")).toHaveValue("720");
     expect(screen.getByLabelText("From")).toHaveValue("08:00");
-    expect(screen.getByText(/Next check:/)).toBeInTheDocument();
+    // The schedule row loads after the supplier, so wait for it.
+    expect(await screen.findByText(/Next check:/)).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("How often"), "off");
     await user.click(screen.getByRole("button", { name: "Save automatic checks" }));
     expect(api.schedule.set).toHaveBeenCalledWith(supplier.id, { intervalMinutes: null, window: { start: "08:00", end: "20:00" } });
