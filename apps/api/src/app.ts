@@ -100,9 +100,19 @@ export function buildApp({ db, logger, secureCookies = false, webRoot, trustProx
   if (webRoot) app.register(fastifyStatic, { root: webRoot, wildcard: false });
   app.decorateRequest("user", null);
 
+  // Behind a proxy with TRUST_PROXY off, every visitor shares the proxy's address, so five wrong passwords from anyone
+  // lock the owner out of sign-in. Said once in the log, so the setting can be fixed.
+  let warnedProxy = false;
+
   app.addHook("onRequest", async (request, reply) => {
     reply.header("x-request-id", request.id);
     reply.headers(SECURITY_HEADERS);
+    // HTTPS deployments only (the same switch as the secure cookie): on plain-http localhost it would do harm.
+    if (secureCookies) reply.header("strict-transport-security", "max-age=31536000");
+    if (!trustProxy && !warnedProxy && request.headers["x-forwarded-for"]) {
+      warnedProxy = true;
+      request.log.warn("A proxy forwarded this request but TRUST_PROXY is false: sign-in limits treat every visitor as the proxy. Set TRUST_PROXY=true if the proxy overwrites X-Forwarded-For.");
+    }
     // Judge the route the router matched, not the raw address: the router decodes %61 to "a", so /%61pi/me runs /api/me.
     // With no match there is no handler to protect, and the raw path decides only between a 404 and the web app.
     const path = request.routeOptions.url ?? request.url.split("?")[0] ?? "";
