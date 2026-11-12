@@ -37,7 +37,7 @@ async function main() {
   let email: string, password: string, repeat: string;
   try {
     email = await prompt.ask("Owner email: ", false);
-    password = await prompt.ask("Password (min 12 characters): ", true);
+    password = await prompt.ask("Password (min 8 characters): ", true);
     repeat = await prompt.ask("Repeat password: ", true);
   } finally {
     prompt.close();

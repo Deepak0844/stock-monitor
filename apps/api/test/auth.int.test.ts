@@ -45,9 +45,9 @@ describe("createOwner", () => {
 });
 
 describe("createOwner validation", () => {
-  it("rejects a password shorter than 12 characters", async () => {
-    await expect(createOwner(t.appDb, { email: "x@example.com", password: "short" })).rejects.toThrow(
-      /at least 12/i,
+  it("rejects a password shorter than 8 characters", async () => {
+    await expect(createOwner(t.appDb, { email: "x@example.com", password: "1234567" })).rejects.toThrow(
+      /at least 8 characters/i,
     );
   });
 

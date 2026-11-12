@@ -7,7 +7,7 @@ import { createAuditWriter } from "@stock-monitor/audit";
 
 const input = z.object({
   email: z.email("Enter a valid email address.").transform((e) => e.trim().toLowerCase()),
-  password: z.string().min(12, "Password must be at least 12 characters."),
+  password: z.string().min(8, "Password must be at least 8 characters."),
 });
 
 export async function createOwner<S extends Record<string, unknown>>(
