@@ -37,5 +37,14 @@
     "apps/*",
     "packages/*",
     "services/*"
-  ]
+  ],
+  "overrides": {
+    "minimatch@>=7.0.0 <11.0.1": "^11.0.8",
+    "archiver-utils": {
+      "glob": "^14.0.2"
+    },
+    "@esbuild-kit/core-utils": {
+      "esbuild": ">=0.25.0"
+    }
+  }
 }

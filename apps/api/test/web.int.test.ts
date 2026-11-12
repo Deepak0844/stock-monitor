@@ -84,6 +84,31 @@ describe("security headers", () => {
     expect(csp).not.toContain("unsafe-eval");
   });
 
+  it("tells browsers to keep to HTTPS when the app runs behind HTTPS", async () => {
+    const res = await buildApp({ db: t.appDb, logger: logger(), webRoot, secureCookies: true }).inject({ method: "GET", url: "/" });
+    expect(res.headers["strict-transport-security"]).toBe("max-age=31536000");
+  });
+
+  it("sends no HTTPS-only header on a plain-http run, so localhost keeps working", async () => {
+    const res = await withWeb().inject({ method: "GET", url: "/" });
+    expect(res.headers["strict-transport-security"]).toBeUndefined();
+  });
+
+  it("warns once when a proxy forwards requests but TRUST_PROXY is off", async () => {
+    const lines: string[] = [];
+    const log = createLogger({ level: "warn", stream: new Writable({ write: (c, _e, cb) => (lines.push(String(c)), cb()) }) });
+    const a = buildApp({ db: t.appDb, logger: log, webRoot });
+    for (let i = 0; i < 3; i++) await a.inject({ method: "GET", url: "/", headers: { "x-forwarded-for": "203.0.113.9" } });
+    expect(lines.filter((l) => l.includes("TRUST_PROXY"))).toHaveLength(1);
+  });
+
+  it("does not warn about the proxy when TRUST_PROXY is on", async () => {
+    const lines: string[] = [];
+    const log = createLogger({ level: "warn", stream: new Writable({ write: (c, _e, cb) => (lines.push(String(c)), cb()) }) });
+    await buildApp({ db: t.appDb, logger: log, webRoot, trustProxy: true }).inject({ method: "GET", url: "/", headers: { "x-forwarded-for": "203.0.113.9" } });
+    expect(lines.filter((l) => l.includes("TRUST_PROXY"))).toHaveLength(0);
+  });
+
   it("also sends them on API errors", async () => {
     const res = await withWeb().inject({ method: "GET", url: "/api/me" });
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
