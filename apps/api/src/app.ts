@@ -103,7 +103,9 @@ export function buildApp({ db, logger, secureCookies = false, webRoot, trustProx
   app.addHook("onRequest", async (request, reply) => {
     reply.header("x-request-id", request.id);
     reply.headers(SECURITY_HEADERS);
-    const path = request.url.split("?")[0] ?? "";
+    // Judge the route the router matched, not the raw address: the router decodes %61 to "a", so /%61pi/me runs /api/me.
+    // With no match there is no handler to protect, and the raw path decides only between a 404 and the web app.
+    const path = request.routeOptions.url ?? request.url.split("?")[0] ?? "";
     if (PUBLIC_ROUTES.has(path) || (loginScreen && isScreenPath(path))) return;
     // The web app's own files and pages are public. Only the API needs a session.
     if (webRoot && !isApiPath(path) && (request.method === "GET" || request.method === "HEAD")) return;

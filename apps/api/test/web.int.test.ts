@@ -51,6 +51,15 @@ describe("serving the web app", () => {
     expect((await a.inject({ method: "GET", url: "/api/anything" })).statusCode).toBe(401);
   });
 
+  it("protects the API when the address is percent-encoded", async () => {
+    // The router decodes %61 to "a", so /%61pi/me reaches the /api/me handler. It must still need a login.
+    const a = withWeb();
+    for (const url of ["/%61pi/me", "/%61%70%69/me", "/%61pi/me?x=1"]) {
+      const res = await a.inject({ method: "GET", url });
+      expect(res.statusCode, url).toBe(401);
+    }
+  });
+
   it("does not serve pages when no web folder is configured", async () => {
     const res = await withoutWeb().inject({ method: "GET", url: "/" });
     expect(res.statusCode).toBe(401);
