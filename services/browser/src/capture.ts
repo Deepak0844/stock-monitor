@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Browser, BrowserContextOptions } from "playwright";
 import { explainPage, looksLikeNotFound, type SessionState } from "@stock-monitor/supplier-session";
 import type { GuardProxy } from "./proxy.js";
-import { CHALLENGE_WIDGET, MAX_TEXT, type BlockTracker, type CheckPageOutcome, type VerifyOptions } from "./verify.js";
+import { CHALLENGE_WIDGET, MAX_TEXT, withFreshState, type BlockTracker, type CheckPageOutcome, type VerifyOptions } from "./verify.js";
 
 export type CaptureRequest = { url: string; loginUrl?: string; state: SessionState; picture?: boolean };
 /** What the browser was showing, as words: headings with the lines under them, and the buttons. Never raw HTML. */
@@ -148,7 +148,8 @@ export async function capturePage(browser: Browser, request: CaptureRequest, opt
     proxy: { server: `http://127.0.0.1:${options.proxy.port}`, username: id, password: options.proxy.secret, bypass: "<-loopback>" },
   });
   try {
-    return await capturePageIn(await context.newPage(), request, tracker, options.navigationTimeoutMs ?? DEFAULT_TIMEOUT_MS);
+    const outcome = await capturePageIn(await context.newPage(), request, tracker, options.navigationTimeoutMs ?? DEFAULT_TIMEOUT_MS);
+    return await withFreshState(outcome, async () => (await context.storageState()) as SessionState);
   } finally {
     tracker.stop();
     await context.close();

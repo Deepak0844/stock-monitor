@@ -83,7 +83,21 @@ describe("a saved login", () => {
     const { state } = await loginState();
     const r = await verify(`${site.url}/account`, state);
     expect(r.status).toBe(200);
-    expect(r.body).toEqual({ result: "ok", status: 200, blockedRequests: 0 });
+    expect(r.body).toMatchObject({ result: "ok", status: 200, blockedRequests: 0 });
+  });
+
+  it("returns the cookies the browser ended with after an ok check, including a fresh one", async () => {
+    const { state, value } = await loginState();
+    const { body } = (await verify(`${site.url}/account`, state)) as unknown as { body: { state: { cookies: { name: string; value: string }[] } } };
+    expect(body.state.cookies).toEqual(expect.arrayContaining([expect.objectContaining({ name: "supplier_session", value }), expect.objectContaining({ name: "last_visit", value: "FRESH-COOKIE" })]));
+  });
+
+  it("returns no session when the page asked for a login", async () => {
+    const { state } = await loginState();
+    site.expireSessions();
+    const r = await verify(`${site.url}/account`, state);
+    expect(r.body.result).toBe("login_required");
+    expect(r.body).not.toHaveProperty("state");
   });
 
   it("is sent to the login page by a fresh context with no saved state", async () => {
@@ -176,10 +190,12 @@ describe("addresses on private networks are blocked", () => {
 });
 
 describe("the saved session stays in memory", () => {
-  it("is never echoed in an answer", async () => {
+  it("is never echoed in an answer, except as the refreshed state of an ok check", async () => {
     const { state, value } = await loginState();
-    const r = await verify(`${site.url}/account`, state);
-    expect(r.text).not.toContain(value);
+    const ok = await verify(`${site.url}/account`, state);
+    expect(JSON.stringify({ ...ok.body, state: undefined })).not.toContain(value);
+    site.expireSessions();
+    expect((await verify(`${site.url}/account`, state)).text).not.toContain(value);
   });
 
   it("is not written to any file the browser keeps", async () => {
@@ -223,6 +239,12 @@ describe("POST /check-page (real Chromium, fake supplier)", () => {
     });
     return { status: res.status, body: (await res.json()) as { result: string; status: number | null; finalUrl: string | null; title: string | null; heading: string | null; softNotFound: boolean } };
   };
+
+  it("returns the refreshed session after an ok check, and none for a login page", async () => {
+    const ok = (await check("/account", (await loginState()).state)).body as unknown as { state?: { cookies: { name: string }[] } };
+    expect(ok.state?.cookies.map((c) => c.name)).toContain("last_visit");
+    expect((await check("/account")).body).not.toHaveProperty("state");
+  });
 
   it("reads the title, heading and address of a normal page", async () => {
     const { body } = await check("/products/blue-widget", (await loginState()).state);
@@ -311,11 +333,24 @@ describe("POST /capture (real Chromium, fake supplier)", () => {
   });
 
   it("never returns form values, hidden text, scripts, styles or cookies", async () => {
-    const { text } = await capture("/stock/form", true);
+    const { body } = await capture("/stock/form", true);
+    // The refreshed session is the one place a cookie may travel, and only to the worker.
+    const text = JSON.stringify({ ...body, state: undefined });
     for (const secret of ["TYPED-SECRET-VALUE", "HIDDEN-MARKER", "TEXTAREA-SECRET", "SELECT-SECRET", "SCRIPT-MARKER", "STYLE-MARKER", "HIDDEN-TEXT", "DISPLAY-NONE-TEXT", "NOSCRIPT-TEXT", "COOKIE-MARKER"]) {
       expect(text, secret).not.toContain(secret);
     }
     expect(text).toContain("Visible text");
+  });
+
+  it("returns the refreshed session after an ok capture", async () => {
+    const res = await fetch(`${service.url}/capture`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ url: `${site.url}/account`, state: (await loginState()).state }),
+    });
+    const body = (await res.json()) as { result: string; state?: { cookies: { name: string }[] } };
+    expect(body.result).toBe("ok");
+    expect(body.state?.cookies.map((c) => c.name)).toContain("last_visit");
   });
 
   it("takes a picture only when asked, and it is a PNG", async () => {

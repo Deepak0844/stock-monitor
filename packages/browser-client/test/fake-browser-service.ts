@@ -26,6 +26,8 @@ export type FakeBrowserService = {
     pageFor?: (url: string) => FakeBrowserService["behaviour"]["page"] | undefined;
     /** A page with no `finalUrl` ends on the address that was asked for. */
     page: { result: string; status: number | null; finalUrl?: string | null; title: string | null; heading: string | null; softNotFound: boolean };
+    /** The refreshed session a check, page check or capture sends back as `state`. Left out, it sends none. */
+    refreshed?: unknown;
     /** What a check says the page was, when verify is "ok". */
     verifyResult: string;
     state: unknown;
@@ -54,6 +56,7 @@ export async function createFakeBrowserService(): Promise<FakeBrowserService> {
     }
     const path = (req.url ?? "").split("?")[0] as string;
     requests.push({ method: req.method ?? "", path, auth: req.headers.authorization, body });
+    const fresh = () => (behaviour.refreshed === undefined ? {} : { state: behaviour.refreshed });
     const reply = (status: number, payload?: unknown) => {
       res.writeHead(status, { "content-type": "application/json" });
       res.end(payload === undefined ? undefined : typeof payload === "string" ? payload : JSON.stringify(payload));
@@ -75,21 +78,21 @@ export async function createFakeBrowserService(): Promise<FakeBrowserService> {
     if (req.method === "POST" && path === "/verify") {
       if (behaviour.verify === "fail") return reply(500, { error: "verify_failed" });
       if (behaviour.verify === "garbage") return reply(200, { result: "maybe" });
-      return reply(200, { result: behaviour.verifyResult, status: behaviour.verifyResult === "unreachable" ? null : 200, blockedRequests: 0 });
+      return reply(200, { result: behaviour.verifyResult, status: behaviour.verifyResult === "unreachable" ? null : 200, blockedRequests: 0, ...fresh() });
     }
     if (req.method === "POST" && path === "/check-page") {
       if (behaviour.checkPage === "fail") return reply(500, { error: "check_failed" });
       if (behaviour.checkPage === "garbage") return reply(200, { result: "maybe" });
       const asked = (body as { url?: string } | undefined)?.url ?? "";
       const page = behaviour.pageFor?.(asked) ?? behaviour.page;
-      return reply(200, { ...page, finalUrl: page.finalUrl === undefined ? asked : page.finalUrl, blockedRequests: 0 });
+      return reply(200, { ...page, finalUrl: page.finalUrl === undefined ? asked : page.finalUrl, blockedRequests: 0, ...fresh() });
     }
     if (req.method === "POST" && path === "/capture") {
       if (behaviour.capture === "fail") return reply(500, { error: "capture_failed" });
       if (behaviour.capture === "garbage") return reply(200, { result: "maybe" });
       const asked = body as { url?: string; picture?: boolean } | undefined;
       const page = behaviour.pageFor?.(asked?.url ?? "") ?? behaviour.page;
-      return reply(200, { ...page, finalUrl: page.finalUrl === undefined ? (asked?.url ?? null) : page.finalUrl, blockedRequests: 0, description: behaviour.descriptionFor?.(asked?.url ?? "") ?? behaviour.description, picture: asked?.picture ? behaviour.picture : null });
+      return reply(200, { ...page, finalUrl: page.finalUrl === undefined ? (asked?.url ?? null) : page.finalUrl, blockedRequests: 0, description: behaviour.descriptionFor?.(asked?.url ?? "") ?? behaviour.description, picture: asked?.picture ? behaviour.picture : null, ...fresh() });
     }
     const finish = /^\/sessions\/([^/]+)\/finish$/.exec(path);
     if (req.method === "POST" && finish) {

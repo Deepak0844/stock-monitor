@@ -169,3 +169,34 @@ describe("a session check that could not reach the supplier", () => {
     expect(after!.lastSessionCheckAt!.getTime()).toBeGreaterThanOrEqual(before!.lastSessionCheckAt!.getTime());
   });
 });
+
+describe("supplier session repository: refresh", () => {
+  const fresh = () => ({ cookies: [{ name: "session", value: "REFRESHED", domain: "shop.acme.example", path: "/" }], origins: [] });
+
+  it("replaces the session when it is still the one the check started from, keeping when the owner logged in", async () => {
+    const { sealed, state: s } = seal();
+    await sessions().save(a, sealed, s);
+    const before = await sessions().facts(a);
+    const next = sealSessionState(fresh(), key, "v1");
+    expect(await sessions().refresh(a, sealed.iv, next, fresh())).toBe(true);
+    expect(await sessions().getSealed(a)).toEqual(next);
+    const after = await sessions().facts(a);
+    expect(after).toMatchObject({ cookieCount: 1, domains: ["shop.acme.example"] });
+    expect(after!.savedAt).toEqual(before!.savedAt);
+    expect(after!.lastVerifiedAt).toBeInstanceOf(Date);
+  });
+
+  it("refuses when the owner logged in again since the check started, and keeps the new login", async () => {
+    const old = seal();
+    await sessions().save(a, old.sealed, old.state);
+    const relogin = seal(state("relogin.acme.example"));
+    await sessions().save(a, relogin.sealed, relogin.state);
+    expect(await sessions().refresh(a, old.sealed.iv, sealSessionState(fresh(), key, "v1"), fresh())).toBe(false);
+    expect(await sessions().getSealed(a)).toEqual(relogin.sealed);
+  });
+
+  it("refuses when the session is gone", async () => {
+    const { sealed } = seal();
+    expect(await sessions().refresh(a, sealed.iv, sealSessionState(fresh(), key, "v1"), fresh())).toBe(false);
+  });
+});

@@ -70,3 +70,23 @@ const PER_PAGE_EXTRA_SECONDS = 120;
 export function runExpirySeconds(links: number, pauseSeconds: number): number {
   return Math.min(6 * 3600, Math.max(15 * 60, links * (pauseSeconds + PER_PAGE_EXTRA_SECONDS)));
 }
+
+/** How long before a scheduled run the supplier's login is checked, so the owner can log in again before the run. */
+export const SESSION_CHECK_LEAD_MINUTES = 120;
+
+/**
+ * True when the supplier's login should be checked now, ahead of its next run: the run is due within the lead time, now is
+ * inside the supplier's window, nothing proved the login since the lead time began, and no early check was queued for this run.
+ */
+export function needsSessionPrecheck(
+  input: { now: Date; nextCheckAt: Date | null; window: Window; lastVerifiedAt: Date | null; precheckFor: Date | null },
+  timeZone: string,
+): boolean {
+  const { now, nextCheckAt, window, lastVerifiedAt, precheckFor } = input;
+  if (!nextCheckAt || nextCheckAt <= now) return false;
+  const leadStart = nextCheckAt.getTime() - SESSION_CHECK_LEAD_MINUTES * MINUTE;
+  if (now.getTime() < leadStart) return false;
+  if (!insideWindow(now, window, timeZone)) return false;
+  if (lastVerifiedAt && lastVerifiedAt.getTime() >= leadStart) return false;
+  return precheckFor?.getTime() !== nextCheckAt.getTime();
+}
