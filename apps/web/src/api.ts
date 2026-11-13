@@ -54,9 +54,9 @@ export type VariantItem = {
   inventoryPolicy: "DENY" | "CONTINUE";
   /** Stock at the chosen location. null means the variant is not stocked there, which is not the same as 0. */
   available: number | null;
-  /** The product's supplier name and page address (SPU) from Shopify. null when it has none. */
+  /** The product's supplier name from Shopify, null when it has none, and its supplier page addresses (SPU), empty when none. */
   supplierName: string | null;
-  supplierUrl: string | null;
+  supplierUrls: string[];
   syncedAt: string;
   warnings: VariantWarning[];
 };

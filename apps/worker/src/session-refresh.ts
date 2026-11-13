@@ -1,3 +1,4 @@
+import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
 import type { Encrypted } from "@stock-monitor/crypto";
 import type { createSupplierSessionRepository } from "@stock-monitor/db";
@@ -7,6 +8,7 @@ export type SessionRefreshDeps = {
   supplierSessions: ReturnType<typeof createSupplierSessionRepository>;
   audit: ReturnType<typeof createAuditWriter>;
   key: Buffer;
+  logger: Logger;
 };
 
 /** A saved session as a check loaded it: the sealed row (its `iv` says which login it is) and what it holds. */
@@ -22,8 +24,18 @@ export async function saveRefreshedSession(
   supplierId: string,
   loaded: LoadedSession,
   fresh: SessionState | undefined,
-): Promise<"saved" | "unchanged" | "stale" | "none"> {
+): Promise<"saved" | "unchanged" | "stale" | "none" | "failed"> {
   if (!fresh) return "none";
+  try {
+    return await save(deps, supplierId, loaded, fresh);
+  } catch (error) {
+    // A side task: the check's own result stands. The error's name only, since a message could hold session data.
+    deps.logger.warn({ supplierId, err: error instanceof Error ? error.name : "unknown" }, "refreshed session could not be saved");
+    return "failed";
+  }
+}
+
+async function save(deps: SessionRefreshDeps, supplierId: string, loaded: LoadedSession, fresh: SessionState): Promise<"saved" | "unchanged" | "stale"> {
   const merged = mergeSessionState(loaded.state, fresh, Date.now() / 1000);
   if (sameSessionState(merged, loaded.state)) {
     await deps.supplierSessions.markVerified(supplierId);

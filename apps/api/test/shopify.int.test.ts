@@ -408,18 +408,23 @@ describe("GET /api/shopify/variants", () => {
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ total: 1, page: 1, pageSize: 25 });
     expect(Object.keys(at(res.body, "items.0") as object).sort()).toEqual(
-      ["available", "inventoryPolicy", "options", "productTitle", "sku", "supplierName", "supplierUrl", "syncedAt", "tracked", "variantId", "variantTitle", "warnings"],
+      ["available", "inventoryPolicy", "options", "productTitle", "sku", "supplierName", "supplierUrls", "syncedAt", "tracked", "variantId", "variantTitle", "warnings"],
     );
     expect(at(res.body, "items.0.warnings")).toEqual([]);
   });
 
-  it("shows a variant's supplier name and page address from Shopify", async () => {
+  it("shows a variant's supplier name and every page address from Shopify", async () => {
     await fresh();
-    await save([base(1, { supplierName: "Acme Foods", supplierUrl: "https://acme.example/p/1" }), base(2)]);
+    await save([
+      base(1, { supplierName: "Acme Foods", supplierUrl: '["https://acme.example/p/1","https://bolt.example/p/2"]' }),
+      base(2, { supplierName: "Acme Foods", supplierUrl: "https://acme.example/p/3" }),
+      base(3),
+    ]);
     const res = await call(app(), "GET", "/api/shopify/variants");
-    expect((at(res.body, "items") as { supplierName: string | null; supplierUrl: string | null }[]).map((v) => [v.supplierName, v.supplierUrl])).toEqual([
-      ["Acme Foods", "https://acme.example/p/1"],
-      [null, null],
+    expect((at(res.body, "items") as { supplierName: string | null; supplierUrls: string[] }[]).map((v) => [v.supplierName, v.supplierUrls])).toEqual([
+      ["Acme Foods", ["https://acme.example/p/1", "https://bolt.example/p/2"]],
+      ["Acme Foods", ["https://acme.example/p/3"]],
+      [null, []],
     ]);
   });
 

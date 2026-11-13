@@ -12,7 +12,7 @@ const expired = (c: Cookie, nowSeconds: number) => typeof c.expires === "number"
 export function mergeSessionState(saved: SessionState, fresh: SessionState, nowSeconds: number): SessionState {
   const cookies = new Map<string, Cookie>();
   for (const c of saved.cookies) if (!expired(c, nowSeconds)) cookies.set(keyOf(c), c);
-  for (const c of fresh.cookies) cookies.set(keyOf(c), c);
+  for (const c of fresh.cookies) if (!expired(c, nowSeconds)) cookies.set(keyOf(c), c);
   return { cookies: [...cookies.values()], origins: fresh.origins.length > 0 ? fresh.origins : saved.origins };
 }
 

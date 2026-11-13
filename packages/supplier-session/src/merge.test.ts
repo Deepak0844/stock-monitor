@@ -16,6 +16,9 @@ describe("mergeSessionState", () => {
   it("drops a left-out saved cookie that has expired", () =>
     expect(mergeSessionState({ cookies: [c("old", "x", 500)], origins: [] }, { cookies: [], origins: [] }, 1000).cookies).toEqual([]));
 
+  it("drops a fresh cookie that has already expired", () =>
+    expect(mergeSessionState({ cookies: [], origins: [] }, { cookies: [c("gone", "x", 500), c("sid", "y")], origins: [] }, 1000).cookies).toEqual([c("sid", "y")]));
+
   it("treats the same name on another path as another cookie", () =>
     expect(mergeSessionState({ cookies: [c("sid", "a", -1, ".acme.example", "/a")], origins: [] }, { cookies: [c("sid", "b")], origins: [] }, 1000).cookies).toHaveLength(2));
 

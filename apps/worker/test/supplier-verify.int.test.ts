@@ -82,7 +82,7 @@ describe("the early check before a run", () => {
 
   it("does not mark the supplier for an unclear page: the run would not stop on one either", async () => {
     fake.behaviour.verifyResult = "unknown";
-    expect(await verifySupplierSession(deps(), acme, { early: true })).toEqual({ kind: "needs_attention", result: "unknown" });
+    expect(await verifySupplierSession(deps(), acme, { early: true })).toEqual({ kind: "unclear" });
     expect(await supplier(acme)).toMatchObject({ sessionStatus: "connected", enabled: true });
     expect(await unread()).toHaveLength(0);
     expect((await audit()).map((r) => r.details.result)).toEqual(["unknown"]);
