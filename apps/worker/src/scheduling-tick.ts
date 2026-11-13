@@ -2,7 +2,7 @@ import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
 import type { createCheckRunRepository, createMappingRepository, createProposalRepository, createRecipeRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
 import type { Queue } from "@stock-monitor/queue";
-import { pickDue, runExpirySeconds } from "@stock-monitor/scheduling";
+import { needsSessionPrecheck, pickDue, runExpirySeconds } from "@stock-monitor/scheduling";
 import { stockGate, type SkipReason } from "./extraction-check.js";
 
 export type TickDeps = {
@@ -58,6 +58,7 @@ export async function runTick(deps: TickDeps): Promise<{ started: string[]; skip
       continue;
     }
     const window = supplier.scheduleWindowStart && supplier.scheduleWindowEnd ? { start: supplier.scheduleWindowStart, end: supplier.scheduleWindowEnd } : null;
+    await precheckLogin(deps, supplier, window, now);
     candidates.push({ id: supplier.id, nextCheckAt: supplier.nextCheckAt ?? now, window, pause: supplier.checkPauseSeconds });
   }
 
@@ -79,6 +80,18 @@ export async function runTick(deps: TickDeps): Promise<{ started: string[]; skip
     started.push(id);
   }
   return { started, skipped };
+}
+
+/**
+ * Queues one check of the supplier's login ahead of its next run, so the owner can log in again before the run starts. The
+ * run it was queued for is recorded first: a check that cannot reach the supplier proves nothing, and must not be queued
+ * again on every tick.
+ */
+async function precheckLogin(deps: TickDeps, supplier: { id: string; nextCheckAt: Date | null; sessionPrecheckFor: Date | null }, window: { start: string; end: string } | null, now: Date) {
+  const lastVerifiedAt = (await deps.supplierSessions.facts(supplier.id))?.lastVerifiedAt ?? null;
+  if (!needsSessionPrecheck({ now, nextCheckAt: supplier.nextCheckAt, window, lastVerifiedAt, precheckFor: supplier.sessionPrecheckFor }, deps.timezone)) return;
+  await deps.suppliers.markPrecheckQueued(supplier.id, supplier.nextCheckAt as Date);
+  await deps.queue.enqueue("supplier.session.verify", { supplierId: supplier.id, early: true }, { retryLimit: 0 }).catch(() => deps.logger.warn({ supplierId: supplier.id }, "early login check could not be queued"));
 }
 
 /** At start-up nothing is running any more, so every run still marked running is stopped. */

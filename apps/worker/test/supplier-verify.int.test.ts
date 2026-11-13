@@ -77,6 +77,37 @@ describe("nothing to check", () => {
   });
 });
 
+describe("the early check before a run", () => {
+  const unread = async () => (await notes().listOpen()).filter((n) => n.supplierId === acme);
+
+  it("does not mark the supplier for an unclear page: the run would not stop on one either", async () => {
+    fake.behaviour.verifyResult = "unknown";
+    expect(await verifySupplierSession(deps(), acme, { early: true })).toEqual({ kind: "needs_attention", result: "unknown" });
+    expect(await supplier(acme)).toMatchObject({ sessionStatus: "connected", enabled: true });
+    expect(await unread()).toHaveLength(0);
+    expect((await audit()).map((r) => r.details.result)).toEqual(["unknown"]);
+  });
+
+  it("raises the usual notice for a login page", async () => {
+    fake.behaviour.verifyResult = "login_required";
+    await verifySupplierSession(deps(), acme, { early: true });
+    expect(await supplier(acme)).toMatchObject({ sessionStatus: "needs_reconnect" });
+    expect(await unread()).toHaveLength(1);
+  });
+
+  it("the job passes the early flag through", async () => {
+    fake.behaviour.verifyResult = "unknown";
+    await createSupplierVerifyHandler(deps())({ supplierId: acme, early: true });
+    expect(await supplier(acme)).toMatchObject({ sessionStatus: "connected" });
+  });
+
+  it("an ordinary check of an unclear page still asks for a reconnect", async () => {
+    fake.behaviour.verifyResult = "unknown";
+    await verifySupplierSession(deps(), acme);
+    expect(await supplier(acme)).toMatchObject({ sessionStatus: "needs_reconnect" });
+  });
+});
+
 describe("a refreshed session", () => {
   const fresh = { cookies: [{ name: "session", value: "REFRESHED", domain: "shop.acme.example", path: "/" }], origins: [] };
 

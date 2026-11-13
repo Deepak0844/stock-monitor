@@ -61,7 +61,7 @@ export async function raiseNeedsAttention(
  * what the page was. A supplier that cannot be reached is tried again before anything is decided, and an
  * unreachable supplier alone never marks a session broken.
  */
-export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId: string): Promise<CheckOutcome> {
+export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId: string, options: { early?: boolean } = {}): Promise<CheckOutcome> {
   const { suppliers, supplierSessions, notifications, audit, browser, logger } = deps;
   const supplier = await suppliers.get(supplierId);
   if (!supplier) return { kind: "skipped", reason: "no_supplier" };
@@ -116,14 +116,19 @@ export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId
       logger.warn({ supplierId }, "session check could not run: the browser service did not answer");
       return { kind: "service_unavailable" };
     default:
+      // The early check before a run must not be stricter than the run, which does not stop on an unclear page.
+      if (options.early && result === "unknown") {
+        await record(result);
+        return { kind: "needs_attention", result };
+      }
       return needsAttention(result);
   }
 }
 
-/** The `supplier.session.verify` job. The payload is only the supplier's id. */
+/** The `supplier.session.verify` job. The payload is the supplier's id, and `early` for the check the scheduler queues before a run. */
 export function createSupplierVerifyHandler(deps: SupplierVerifyDeps) {
-  return async function handleSupplierVerify(payload: { supplierId: string }): Promise<void> {
-    const outcome = await verifySupplierSession(deps, payload.supplierId);
+  return async function handleSupplierVerify(payload: { supplierId: string; early?: true }): Promise<void> {
+    const outcome = await verifySupplierSession(deps, payload.supplierId, { early: payload.early === true });
     deps.logger.info({ supplierId: payload.supplierId, outcome: outcome.kind, ...(outcome.kind === "needs_attention" && { result: outcome.result }) }, "session check finished");
   };
 }
