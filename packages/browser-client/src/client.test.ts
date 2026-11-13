@@ -16,7 +16,29 @@ afterAll(async () => {
 });
 beforeEach(() => {
   fake.requests.length = 0;
-  Object.assign(fake.behaviour, { open: "ok", finish: "ok", cancel: "ok", verify: "ok", verifyResult: "ok", checkPage: "ok", capture: "ok", state: { cookies: [], origins: [] }, vncPassword: "Ab3dE6gH", delayMs: 0 });
+  Object.assign(fake.behaviour, { open: "ok", finish: "ok", cancel: "ok", verify: "ok", verifyResult: "ok", checkPage: "ok", capture: "ok", state: { cookies: [], origins: [] }, refreshed: undefined, vncPassword: "Ab3dE6gH", delayMs: 0 });
+});
+
+describe("the refreshed session after a check", () => {
+  const state = { cookies: [{ name: "s", value: COOKIE, domain: "shop.acme.example", path: "/" }], origins: [] };
+  const fresh = { cookies: [{ name: "s", value: "NEW", domain: "shop.acme.example", path: "/" }], origins: [] };
+  const calls = {
+    verify: () => client().verify({ url: "https://shop.acme.example/p", state }),
+    checkPage: () => client().checkPage({ url: "https://shop.acme.example/p", state }),
+    capture: () => client().capture({ url: "https://shop.acme.example/p", state }),
+  };
+
+  it.each(Object.keys(calls) as (keyof typeof calls)[])("%s passes it through", async (name) => {
+    fake.behaviour.refreshed = fresh;
+    expect(await calls[name]()).toMatchObject({ ok: true, state: fresh });
+  });
+
+  it.each(Object.keys(calls) as (keyof typeof calls)[])("%s drops one that is not a session, and still answers", async (name) => {
+    fake.behaviour.refreshed = { cookies: "x" };
+    const r = await calls[name]();
+    expect(r.ok).toBe(true);
+    expect(r).not.toHaveProperty("state");
+  });
 });
 
 describe("openSession", () => {
