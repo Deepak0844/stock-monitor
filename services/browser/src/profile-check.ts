@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { chromium } from "playwright";
 import { classifyPage, mergeSessionState, type PageClass, type SessionState } from "@stock-monitor/supplier-session";
 import { readCookies } from "./chromium-cookies.js";
-import { cookieStore, plainLaunchArgs, quitCleanly, seedProfile, waitForDebuggingPort } from "./plain-window.js";
+import { cookieStore, forgetOpenTabs, plainLaunchArgs, quitCleanly, seedProfile, waitForDebuggingPort } from "./plain-window.js";
 import { cookieHash, holdProfile, PROFILE_ROOT, profileDirFor, releaseProfile } from "./profile-store.js";
 import type { GuardProxy } from "./proxy.js";
 import { capturePageIn, type CaptureOutcome, type CaptureRequest } from "./capture.js";
@@ -61,6 +61,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
   async function launch(profile: string, url: string, debuggable: boolean) {
     // A clean quit leaves the last port behind, and a new launch must not be mistaken for it.
     if (debuggable) await rm(join(profile, "DevToolsActivePort"), { force: true });
+    await forgetOpenTabs(profile);
     const id = randomUUID();
     const tracker = proxy.track(id);
     const listener = await proxy.openListener(id);
