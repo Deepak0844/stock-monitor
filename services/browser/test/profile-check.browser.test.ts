@@ -1,6 +1,6 @@
 // SPIKE: the persistent-profile check against real Chromium and the fake supplier. Linux only, like the plain window.
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFakeSupplier, FAKE_PASSWORD, FAKE_USERNAME, type FakeSupplier } from "@stock-monitor/supplier-session/testing";
@@ -20,7 +20,8 @@ beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "sm-test-profiles-"));
   site = await createFakeSupplier();
   svc = await startBrowserService({
-    token: TOKEN, port: 0, host: "127.0.0.1", headedWindows: false, sandbox: !process.env.CI,
+    // Headed when a display exists (run under xvfb-run), as on the server: only a headed Chromium restores earlier tabs.
+    token: TOKEN, port: 0, host: "127.0.0.1", headedWindows: Boolean(process.env.DISPLAY), sandbox: !process.env.CI,
     verifyMode: "profile", profileSettleMs: 3000, profileDir: dir,
     guard: { allowHosts: [`127.0.0.1:${site.port}`] },
   });
@@ -94,6 +95,26 @@ describe.skipIf(!linux)("profile check (spike)", () => {
     writeFileSync(sentinel, "");
     expect((await verify("/account", stored)).result).toBe("ok");
     expect(existsSync(sentinel)).toBe(true);
+  });
+  it("does not pile up tabs: each check opens only its own page, not the tabs of earlier checks", async () => {
+    // As the worker does: each check gets the session the last one returned, so the profile is kept between checks.
+    let state: unknown = await login();
+    const tabsSaved = () => {
+      const sessions = join(profileDirFor(dir, `${site.url}/account`), "Default", "Sessions");
+      const files = existsSync(sessions) ? readdirSync(sessions).filter((f) => f.startsWith("Session_")).sort() : [];
+      const newest = files.at(-1);
+      return newest ? (readFileSync(join(sessions, newest)).toString("latin1").match(/\/account/g) ?? []).length : 0;
+    };
+    const check = async () => {
+      const r = (await verify("/account", state)) as unknown as { result: string; state: unknown };
+      expect(r.result).toBe("ok"); // the login (a cookie with no expiry) still survives each restart
+      state = r.state;
+    };
+    await check();
+    const first = tabsSaved();
+    await check();
+    await check();
+    expect(tabsSaved()).toBe(first);
   });
   it("returns no session when the page asks for a login", async () => {
     expect(await verify("/account", { cookies: [], origins: [] })).not.toHaveProperty("state");
