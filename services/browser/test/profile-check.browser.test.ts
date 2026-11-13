@@ -1,9 +1,10 @@
 // SPIKE: the persistent-profile check against real Chromium and the fake supplier. Linux only, like the plain window.
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFakeSupplier, FAKE_PASSWORD, FAKE_USERNAME, type FakeSupplier } from "@stock-monitor/supplier-session/testing";
+import { mergeSessionState } from "@stock-monitor/supplier-session";
 import { startBrowserService, type BrowserService } from "../src/service.js";
 import { cookieHash, profileDirFor } from "../src/profile-store.js";
 
@@ -81,6 +82,18 @@ describe.skipIf(!linux)("profile check (spike)", () => {
     expect(r.state?.cookies.map((c) => c.name)).toEqual(expect.arrayContaining(["supplier_session", "last_visit"]));
     const marker = readFileSync(join(profileDirFor(dir, `${site.url}/account`), "seeded"), "utf8");
     expect(marker).toBe(cookieHash(r.state?.cookies ?? []));
+  });
+  it("keeps the profile for the next check of the session the worker saved, even when the site cleared a cookie", async () => {
+    const saved = await login();
+    saved.cookies.push({ ...saved.cookies[0]!, name: "login_redirect", value: "/account" });
+    const r = (await verify("/account", saved)) as unknown as { result: string; state: typeof saved };
+    expect(r.result).toBe("ok");
+    // What the worker stores: the saved session merged with the refreshed one.
+    const stored = mergeSessionState(saved as never, r.state as never, Date.now() / 1000);
+    const sentinel = join(profileDirFor(dir, `${site.url}/account`), "kept");
+    writeFileSync(sentinel, "");
+    expect((await verify("/account", stored)).result).toBe("ok");
+    expect(existsSync(sentinel)).toBe(true);
   });
   it("returns no session when the page asks for a login", async () => {
     expect(await verify("/account", { cookies: [], origins: [] })).not.toHaveProperty("state");

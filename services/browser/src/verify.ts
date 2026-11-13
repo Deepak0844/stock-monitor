@@ -57,9 +57,17 @@ export async function checkPage(browser: Browser, request: CheckPageRequest, opt
   }
 }
 
-/** Adds the session the browser ended with, only when the page was ok: a login, puzzle or block page must never replace a session. */
+/**
+ * Adds the session the browser ended with, only when the page was ok: a login, puzzle or block page must never replace a session.
+ * Refreshing is a side task, so a session that cannot be read leaves the answer as it was.
+ */
 export async function withFreshState<T extends VerifyOutcome>(outcome: T, read: () => Promise<SessionState>): Promise<T> {
-  return outcome.result === "ok" ? { ...outcome, state: await read() } : outcome;
+  if (outcome.result !== "ok") return outcome;
+  try {
+    return { ...outcome, state: await read() };
+  } catch {
+    return outcome;
+  }
 }
 
 /** What a page load blocked, as the guard proxy counted it. */

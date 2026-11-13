@@ -8,7 +8,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { chromium } from "playwright";
-import { classifyPage, type PageClass, type SessionState } from "@stock-monitor/supplier-session";
+import { classifyPage, mergeSessionState, type PageClass, type SessionState } from "@stock-monitor/supplier-session";
 import { readCookies } from "./chromium-cookies.js";
 import { cookieStore, plainLaunchArgs, quitCleanly, seedProfile, waitForDebuggingPort } from "./plain-window.js";
 import { cookieHash, holdProfile, PROFILE_ROOT, profileDirFor, releaseProfile } from "./profile-store.js";
@@ -154,7 +154,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
     // The owner is logging in to this site in this profile. A check says nothing and is tried again.
     if (!holdProfile(profile)) return { result: "unreachable", status: null, blockedRequests: 0 };
     try {
-      return await withFreshState(await checkHeld(request, profile, hash), () => profileState(profile));
+      return await withFreshState(await checkHeld(request, profile, hash), () => profileState(profile, request.state));
     } finally {
       releaseProfile(profile);
     }
@@ -191,13 +191,15 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
    * cannot be driven, the answer is `unavailable`, which the caller treats as "could not check".
    */
   /**
-   * The session the profile holds after the browser quit cleanly, read from its cookie file. The profile is marked as seeded
-   * with it, so the next check of the refreshed session keeps the profile instead of seeding it again.
+   * The session after the browser quit cleanly: the request's session merged with the profile's cookie file, the same merge
+   * the worker stores. The profile is marked as seeded with it, so the next check of the stored session keeps the profile
+   * instead of wiping and seeding it again (the file alone can lack a cookie the merge keeps).
    */
-  async function profileState(profile: string): Promise<SessionState> {
-    const cookies = readCookies(cookieStore(profile));
-    await writeFile(join(profile, "seeded"), cookieHash(cookies));
-    return { cookies, origins: [] } as unknown as SessionState;
+  async function profileState(profile: string, sent: SessionState): Promise<SessionState> {
+    const file = { cookies: readCookies(cookieStore(profile)), origins: [] } as unknown as SessionState;
+    const state = mergeSessionState(sent, file, Date.now() / 1000);
+    await writeFile(join(profile, "seeded"), cookieHash(state.cookies));
+    return state;
   }
 
   async function inProfile<T extends VerifyOutcome>(request: VerifyRequest, unavailable: T, run: (page: import("playwright").Page, tracker: BlockTracker) => Promise<T>): Promise<T> {
@@ -226,7 +228,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
       } finally {
         await b.stop(); // a clean quit writes the cookie file read below
       }
-      return await withFreshState(outcome, () => profileState(profile));
+      return await withFreshState(outcome, () => profileState(profile, request.state));
     } finally {
       releaseProfile(profile);
     }

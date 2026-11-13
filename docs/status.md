@@ -39,7 +39,8 @@ Known open points:
 - After any check that finds a logged-in page, the cookies the browser ended with are merged into the saved session and saved
   again. Suppliers that extend a session on each visit then stay logged in. A new login by the owner is never overwritten.
 - Two hours before each scheduled run (never in quiet hours), the login is checked. An expired login raises the usual "needs
-  you to log in again" notice, so the owner can reconnect before the run.
+  you to log in again" notice, so the owner can reconnect before the run. Known gap: a run at the start of the window (for
+  example 07:00) has its two hours in quiet hours, so it gets no early check. The run itself still finds an expired login.
 - Logging in automatically with a stored password was decided against: it would store supplier passwords, and captchas still
   need the owner. Design: `docs/superpowers/specs/2026-11-13-session-refresh-design.md`.
 
