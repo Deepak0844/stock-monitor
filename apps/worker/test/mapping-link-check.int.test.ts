@@ -7,7 +7,7 @@ import { createAuditWriter } from "@stock-monitor/audit";
 import { createBrowserClient } from "@stock-monitor/browser-client";
 import { createFakeBrowserService, FAKE_CONTROL_TOKEN, type FakeBrowserService } from "@stock-monitor/browser-client/testing";
 import { createLogger } from "@stock-monitor/shared";
-import { sealSessionState } from "@stock-monitor/supplier-session";
+import { sealSessionState, unsealSessionState } from "@stock-monitor/supplier-session";
 import { checkLink, checkSupplierLinks, type LinkCheckDeps } from "../src/mapping-link-check.js";
 
 let t: TestDb;
@@ -75,13 +75,23 @@ beforeEach(async () => {
   sleeps.length = 0;
   onSleep = () => {};
   now = T0;
-  Object.assign(fake.behaviour, { checkPage: "ok", page: normal, pageFor: undefined, delayMs: 0 });
+  Object.assign(fake.behaviour, { checkPage: "ok", page: normal, pageFor: undefined, refreshed: undefined, delayMs: 0 });
   const a = await suppliers().create({ name: "Acme", websiteUrl: "https://shop.acme.example/", loginUrl: "https://shop.acme.example/login", checkIntervalMinutes: 60 });
   if (!a.ok) throw new Error("setup");
   acme = a.supplier.id;
   await createSupplierSessionRepository(t.appDb).save(acme, sealSessionState(state, key, "v1"), state);
   await suppliers().markConnected(acme);
   await suppliers().setPermission(acme, { status: "granted", note: null });
+});
+
+describe("a refreshed session", () => {
+  it("is kept after a link check that found a logged-in page", async () => {
+    const fresh = { cookies: [{ name: "session", value: "REFRESHED", domain: "shop.acme.example", path: "/" }], origins: [] };
+    fake.behaviour.refreshed = fresh;
+    await checkLink(deps(), await link("v1"));
+    const stored = unsealSessionState((await createSupplierSessionRepository(t.appDb).getSealed(acme))!, key);
+    expect(stored.cookies).toEqual(expect.arrayContaining(fresh.cookies));
+  });
 });
 
 describe("one link", () => {

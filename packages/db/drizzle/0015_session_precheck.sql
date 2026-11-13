@@ -1,0 +1,1 @@
+ALTER TABLE "suppliers" ADD COLUMN "session_precheck_for" timestamp with time zone;

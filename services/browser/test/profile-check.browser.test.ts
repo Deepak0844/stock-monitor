@@ -1,10 +1,12 @@
 // SPIKE: the persistent-profile check against real Chromium and the fake supplier. Linux only, like the plain window.
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFakeSupplier, FAKE_PASSWORD, FAKE_USERNAME, type FakeSupplier } from "@stock-monitor/supplier-session/testing";
+import { mergeSessionState } from "@stock-monitor/supplier-session";
 import { startBrowserService, type BrowserService } from "../src/service.js";
+import { cookieHash, profileDirFor } from "../src/profile-store.js";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 const linux = process.platform === "linux";
@@ -18,7 +20,8 @@ beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "sm-test-profiles-"));
   site = await createFakeSupplier();
   svc = await startBrowserService({
-    token: TOKEN, port: 0, host: "127.0.0.1", headedWindows: false, sandbox: !process.env.CI,
+    // Headed when a display exists (run under xvfb-run), as on the server: only a headed Chromium restores earlier tabs.
+    token: TOKEN, port: 0, host: "127.0.0.1", headedWindows: Boolean(process.env.DISPLAY), sandbox: !process.env.CI,
     verifyMode: "profile", profileSettleMs: 3000, profileDir: dir,
     guard: { allowHosts: [`127.0.0.1:${site.port}`] },
   });
@@ -56,6 +59,13 @@ describe.skipIf(!linux)("link and stock checks run in the profile browser", () =
   it("check-page sends a person with no session to the login page", async () => {
     expect((await post("/check-page", "/products/blue-widget", { cookies: [], origins: [] })).result).toBe("login_required");
   });
+  it("check-page and capture return the refreshed session after an ok page, and none for a login page", async () => {
+    for (const route of ["/check-page", "/capture"]) {
+      const ok = (await post(route, "/account", await login())) as unknown as { state?: { cookies: { name: string }[] } };
+      expect(ok.state?.cookies.map((c) => c.name), route).toContain("last_visit");
+      expect(await post(route, "/account", { cookies: [], origins: [] }), route).not.toHaveProperty("state");
+    }
+  });
   it("capture describes the page", async () => {
     const r = await post("/capture", "/products/blue-widget", await login());
     expect(r).toMatchObject({ result: "ok", status: 200 });
@@ -67,6 +77,47 @@ describe.skipIf(!linux)("profile check (spike)", () => {
   it("reaches a page that needs the login, using the saved cookies from an ordinary browser", async () => {
     const state = await login();
     expect(await verify("/account", state)).toMatchObject({ result: "ok", status: null });
+  });
+  it("returns the cookies the profile ended with after an ok check, and marks the profile as seeded with them", async () => {
+    const r = (await verify("/account", await login())) as unknown as { state?: { cookies: { name: string; domain: string; path: string; value: string }[] } };
+    expect(r.state?.cookies.map((c) => c.name)).toEqual(expect.arrayContaining(["supplier_session", "last_visit"]));
+    const marker = readFileSync(join(profileDirFor(dir, `${site.url}/account`), "seeded"), "utf8");
+    expect(marker).toBe(cookieHash(r.state?.cookies ?? []));
+  });
+  it("keeps the profile for the next check of the session the worker saved, even when the site cleared a cookie", async () => {
+    const saved = await login();
+    saved.cookies.push({ ...saved.cookies[0]!, name: "login_redirect", value: "/account" });
+    const r = (await verify("/account", saved)) as unknown as { result: string; state: typeof saved };
+    expect(r.result).toBe("ok");
+    // What the worker stores: the saved session merged with the refreshed one.
+    const stored = mergeSessionState(saved as never, r.state as never, Date.now() / 1000);
+    const sentinel = join(profileDirFor(dir, `${site.url}/account`), "kept");
+    writeFileSync(sentinel, "");
+    expect((await verify("/account", stored)).result).toBe("ok");
+    expect(existsSync(sentinel)).toBe(true);
+  });
+  it("does not pile up tabs: each check opens only its own page, not the tabs of earlier checks", async () => {
+    // As the worker does: each check gets the session the last one returned, so the profile is kept between checks.
+    let state: unknown = await login();
+    const tabsSaved = () => {
+      const sessions = join(profileDirFor(dir, `${site.url}/account`), "Default", "Sessions");
+      const files = existsSync(sessions) ? readdirSync(sessions).filter((f) => f.startsWith("Session_")).sort() : [];
+      const newest = files.at(-1);
+      return newest ? (readFileSync(join(sessions, newest)).toString("latin1").match(/\/account/g) ?? []).length : 0;
+    };
+    const check = async () => {
+      const r = (await verify("/account", state)) as unknown as { result: string; state: unknown };
+      expect(r.result).toBe("ok"); // the login (a cookie with no expiry) still survives each restart
+      state = r.state;
+    };
+    await check();
+    const first = tabsSaved();
+    await check();
+    await check();
+    expect(tabsSaved()).toBe(first);
+  });
+  it("returns no session when the page asks for a login", async () => {
+    expect(await verify("/account", { cookies: [], origins: [] })).not.toHaveProperty("state");
   });
   it("keeps the profile for the next check while the session is unchanged", async () => {
     const state = await login();

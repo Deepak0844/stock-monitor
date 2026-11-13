@@ -16,7 +16,29 @@ afterAll(async () => {
 });
 beforeEach(() => {
   fake.requests.length = 0;
-  Object.assign(fake.behaviour, { open: "ok", finish: "ok", cancel: "ok", verify: "ok", verifyResult: "ok", checkPage: "ok", capture: "ok", state: { cookies: [], origins: [] }, vncPassword: "Ab3dE6gH", delayMs: 0 });
+  Object.assign(fake.behaviour, { open: "ok", finish: "ok", cancel: "ok", verify: "ok", verifyResult: "ok", checkPage: "ok", capture: "ok", state: { cookies: [], origins: [] }, refreshed: undefined, vncPassword: "Ab3dE6gH", delayMs: 0 });
+});
+
+describe("the refreshed session after a check", () => {
+  const state = { cookies: [{ name: "s", value: COOKIE, domain: "shop.acme.example", path: "/" }], origins: [] };
+  const fresh = { cookies: [{ name: "s", value: "NEW", domain: "shop.acme.example", path: "/" }], origins: [] };
+  const calls = {
+    verify: () => client().verify({ url: "https://shop.acme.example/p", state }),
+    checkPage: () => client().checkPage({ url: "https://shop.acme.example/p", state }),
+    capture: () => client().capture({ url: "https://shop.acme.example/p", state }),
+  };
+
+  it.each(Object.keys(calls) as (keyof typeof calls)[])("%s passes it through", async (name) => {
+    fake.behaviour.refreshed = fresh;
+    expect(await calls[name]()).toMatchObject({ ok: true, state: fresh });
+  });
+
+  it.each(Object.keys(calls) as (keyof typeof calls)[])("%s drops one that is not a session, and still answers", async (name) => {
+    fake.behaviour.refreshed = { cookies: "x" };
+    const r = await calls[name]();
+    expect(r.ok).toBe(true);
+    expect(r).not.toHaveProperty("state");
+  });
 });
 
 describe("openSession", () => {
@@ -163,6 +185,15 @@ describe("checkPage", () => {
 
 describe("capture", () => {
   const state = { cookies: [{ name: "s", value: COOKIE, domain: "shop.acme.example", path: "/" }], origins: [] };
+
+  it("waits for a page longer than for other calls: the service loads pages one at a time in a fresh browser", async () => {
+    fake.behaviour.delayMs = 200;
+    const c = client({ timeoutMs: 100, pageTimeoutMs: 1_000 });
+    expect((await c.capture({ url: "https://shop.acme.example/p", state })).ok).toBe(true);
+    expect((await c.checkPage({ url: "https://shop.acme.example/p", state })).ok).toBe(true);
+    expect(await c.openSession("https://a.example/")).toEqual({ ok: false, reason: "unavailable" });
+    expect(await client({ pageTimeoutMs: 100 }).capture({ url: "https://shop.acme.example/p", state })).toEqual({ ok: false, reason: "unavailable" });
+  });
 
   it("sends the address and session with the token, and returns the description without a picture unless asked", async () => {
     const r = await client().capture({ url: "https://shop.acme.example/p", state });

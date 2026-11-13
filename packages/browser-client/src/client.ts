@@ -4,13 +4,16 @@ export type OpenOutcome =
   | { ok: true; id: string; expiresAt: string; vncPassword?: string }
   | { ok: false; reason: "busy" | "failed" | "unavailable" };
 export type FinishOutcome = { ok: true; state: SessionState } | { ok: false; reason: "not_found" | "failed" | "unavailable" };
-/** What a check of a saved session found. It says what the page was, never anything the page held. */
+/**
+ * What a check of a saved session found. It says what the page was, never anything the page held. After an ok page, `state` is
+ * the session the browser ended with, for the worker to keep.
+ */
 export type VerifyOutcome =
-  | { ok: true; result: PageClass; status: number | null; blockedRequests: number }
+  | { ok: true; result: PageClass; status: number | null; blockedRequests: number; state?: SessionState }
   | { ok: false; reason: "failed" | "unavailable" };
 /** What a link check saw: the page's address (no query string), title and first heading, never its text. */
 export type CheckPageOutcome =
-  | { ok: true; result: PageClass; status: number | null; finalUrl: string | null; title: string | null; heading: string | null; softNotFound: boolean; blockedRequests: number }
+  | { ok: true; result: PageClass; status: number | null; finalUrl: string | null; title: string | null; heading: string | null; softNotFound: boolean; blockedRequests: number; state?: SessionState }
   | { ok: false; reason: "failed" | "unavailable" };
 /** A page as the browser showed it: headings with their lines, and the buttons. The picture is for the owner's eyes only. */
 export type PageDescriptionParts = { sections: { heading: string | null; level: number; lines: string[] }[]; buttons: { label: string; enabled: boolean; section: string | null }[] };
@@ -37,6 +40,8 @@ export type BrowserClientOptions = {
   baseUrl: string;
   token: string;
   timeoutMs?: number;
+  /** How long to wait for a page check or capture. The service loads pages one at a time, each in a fresh browser, so one can wait behind another. */
+  pageTimeoutMs?: number;
   fetchImpl?: typeof fetch;
 };
 
@@ -48,7 +53,7 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "obj
  * Talks to the browser service over the private network. It never throws and never puts a token, an
  * address or a session in a message: every problem becomes a short reason the caller turns into plain words.
  */
-export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, fetchImpl = fetch }: BrowserClientOptions): BrowserClient {
+export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, pageTimeoutMs = 120_000, fetchImpl = fetch }: BrowserClientOptions): BrowserClient {
   const root = baseUrl.replace(/\/+$/, "");
 
   /** The status and JSON body, or null when nothing answered in time. */
@@ -104,11 +109,12 @@ export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, fetchI
         result: j.result as PageClass,
         status: typeof j.status === "number" ? j.status : null,
         blockedRequests: typeof j.blockedRequests === "number" ? j.blockedRequests : 0,
+        ...(isSessionState(j.state) ? { state: j.state } : {}),
       };
     },
 
     async checkPage({ url, loginUrl, state }) {
-      const r = await call("POST", "/check-page", { url, ...(loginUrl ? { loginUrl } : {}), state });
+      const r = await call("POST", "/check-page", { url, ...(loginUrl ? { loginUrl } : {}), state }, pageTimeoutMs);
       if (!r) return { ok: false, reason: "unavailable" };
       const j = r.json;
       if (r.status !== 200 || !isObject(j) || typeof j.result !== "string" || !PAGE_CLASSES.includes(j.result)) return { ok: false, reason: "failed" };
@@ -122,11 +128,12 @@ export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, fetchI
         heading: text(j.heading),
         softNotFound: j.softNotFound === true,
         blockedRequests: typeof j.blockedRequests === "number" ? j.blockedRequests : 0,
+        ...(isSessionState(j.state) ? { state: j.state } : {}),
       };
     },
 
     async capture({ url, loginUrl, state, picture }) {
-      const r = await call("POST", "/capture", { url, ...(loginUrl ? { loginUrl } : {}), state, ...(picture ? { picture: true } : {}) });
+      const r = await call("POST", "/capture", { url, ...(loginUrl ? { loginUrl } : {}), state, ...(picture ? { picture: true } : {}) }, pageTimeoutMs);
       if (!r) return { ok: false, reason: "unavailable" };
       const j = r.json;
       if (r.status !== 200 || !isObject(j) || typeof j.result !== "string" || !PAGE_CLASSES.includes(j.result) || !isObject(j.description)) return { ok: false, reason: "failed" };
@@ -142,6 +149,7 @@ export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, fetchI
         heading: text(j.heading),
         softNotFound: j.softNotFound === true,
         blockedRequests: typeof j.blockedRequests === "number" ? j.blockedRequests : 0,
+        ...(isSessionState(j.state) ? { state: j.state } : {}),
         description: { sections: d.sections as PageDescriptionParts["sections"], buttons: d.buttons as PageDescriptionParts["buttons"] },
         picture: typeof j.picture === "string" ? Buffer.from(j.picture, "base64") : null,
       };

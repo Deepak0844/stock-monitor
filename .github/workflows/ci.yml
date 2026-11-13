@@ -36,7 +36,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:browser
+      # Under a virtual display, so the profile checks run headed as on the server (only a headed Chromium restores tabs).
+      - run: xvfb-run -a npm run test:browser
 
   # The browser service inside its real container: Xvfb, VNC and a visible Chromium window.
   browser-container:

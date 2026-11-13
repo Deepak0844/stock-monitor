@@ -51,6 +51,18 @@ const credentialsBody = z.union([
   z.object({ shop: z.string().max(300), accessToken: z.string().trim().min(1).max(512) }).strict(),
 ]);
 const locationBody = z.object({ id: z.string().regex(/^gid:\/\/shopify\/Location\/\d+$/) }).strict();
+/** The SPU metafield is a list of URLs, which Shopify sends as JSON text. A plain address from an older sync is a list of one. */
+function supplierUrls(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const list: unknown = JSON.parse(raw);
+    if (Array.isArray(list)) return list.filter((u): u is string => typeof u === "string" && u.trim() !== "").map((u) => u.trim());
+  } catch {
+    // not JSON: a single address
+  }
+  return [raw];
+}
+
 const variantsQuery = z.object({
   search: z.string().trim().max(100).optional(),
   page: z.coerce.number().int().min(1).default(1),
@@ -237,7 +249,7 @@ export function registerShopifyRoutes(app: App, deps: ShopifyRoutesDeps, audit: 
         inventoryPolicy: v.inventoryPolicy,
         available: v.available,
         supplierName: v.supplierName,
-        supplierUrl: v.supplierUrl,
+        supplierUrls: supplierUrls(v.supplierUrl),
         syncedAt: v.syncedAt,
         warnings: warningsFor(v),
       })),

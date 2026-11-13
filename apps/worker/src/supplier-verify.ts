@@ -2,7 +2,8 @@ import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
 import type { BrowserClient } from "@stock-monitor/browser-client";
 import type { createNotificationRepository, createSupplierRepository, createSupplierSessionRepository, NotificationReason } from "@stock-monitor/db";
-import { unsealSessionState, type PageClass } from "@stock-monitor/supplier-session";
+import { unsealSessionState, type PageClass, type SessionState } from "@stock-monitor/supplier-session";
+import { saveRefreshedSession } from "./session-refresh.js";
 
 export type SupplierVerifyDeps = {
   suppliers: ReturnType<typeof createSupplierRepository>;
@@ -29,6 +30,8 @@ export type CheckOutcome =
   | { kind: "skipped"; reason: "no_supplier" | "no_session" }
   | { kind: "ok" }
   | { kind: "needs_attention"; result: SessionReason }
+  /** An early check found a page it could not read clearly. Nothing is marked: the run does not stop on one either. */
+  | { kind: "unclear" }
   | { kind: "unreachable" }
   | { kind: "service_unavailable" };
 
@@ -60,7 +63,7 @@ export async function raiseNeedsAttention(
  * what the page was. A supplier that cannot be reached is tried again before anything is decided, and an
  * unreachable supplier alone never marks a session broken.
  */
-export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId: string): Promise<CheckOutcome> {
+export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId: string, options: { early?: boolean } = {}): Promise<CheckOutcome> {
   const { suppliers, supplierSessions, notifications, audit, browser, logger } = deps;
   const supplier = await suppliers.get(supplierId);
   if (!supplier) return { kind: "skipped", reason: "no_supplier" };
@@ -88,10 +91,12 @@ export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId
   const delays = deps.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   let result: PageClass | "service_unavailable" = "unreachable";
+  let fresh: SessionState | undefined;
   for (let attempt = 0; attempt <= delays.length; attempt++) {
     if (attempt > 0) await sleep(delays[attempt - 1] as number);
     const outcome = await browser.verify({ url: supplier.websiteUrl, loginUrl: supplier.loginUrl ?? undefined, state });
     result = outcome.ok ? outcome.result : "service_unavailable";
+    fresh = outcome.ok ? outcome.state : undefined;
     httpStatus = outcome.ok ? outcome.status : null;
     if (result !== "unreachable" && result !== "service_unavailable") break; // a clear answer
   }
@@ -99,7 +104,8 @@ export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId
   switch (result) {
     case "ok":
       await suppliers.markVerified(supplierId);
-      await supplierSessions.markVerified(supplierId);
+      // Keeps a session the supplier extended, and records the check either way.
+      if ((await saveRefreshedSession(deps, supplierId, { sealed, state }, fresh)) === "none") await supplierSessions.markVerified(supplierId);
       await notifications.resolve("supplier_needs_reconnect", supplierId);
       await record("ok");
       return { kind: "ok" };
@@ -112,14 +118,19 @@ export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId
       logger.warn({ supplierId }, "session check could not run: the browser service did not answer");
       return { kind: "service_unavailable" };
     default:
+      // The early check before a run must not be stricter than the run, which does not stop on an unclear page.
+      if (options.early && result === "unknown") {
+        await record(result);
+        return { kind: "unclear" };
+      }
       return needsAttention(result);
   }
 }
 
-/** The `supplier.session.verify` job. The payload is only the supplier's id. */
+/** The `supplier.session.verify` job. The payload is the supplier's id, and `early` for the check the scheduler queues before a run. */
 export function createSupplierVerifyHandler(deps: SupplierVerifyDeps) {
-  return async function handleSupplierVerify(payload: { supplierId: string }): Promise<void> {
-    const outcome = await verifySupplierSession(deps, payload.supplierId);
+  return async function handleSupplierVerify(payload: { supplierId: string; early?: true }): Promise<void> {
+    const outcome = await verifySupplierSession(deps, payload.supplierId, { early: payload.early === true });
     deps.logger.info({ supplierId: payload.supplierId, outcome: outcome.kind, ...(outcome.kind === "needs_attention" && { result: outcome.result }) }, "session check finished");
   };
 }

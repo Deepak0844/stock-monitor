@@ -26,10 +26,18 @@ const columns: Column<VariantItem>[] = [
   {
     header: "Supplier",
     cell: (v) =>
-      v.supplierName || v.supplierUrl ? (
+      v.supplierName || v.supplierUrls.length > 0 ? (
         <>
           <span>{v.supplierName ?? <span className="text-muted-foreground">No name</span>}</span>
-          {v.supplierUrl && <span className="block break-all text-muted-foreground">{v.supplierUrl}</span>}
+          {v.supplierUrls.length > 0 && (
+            <ul className="flex flex-col gap-1">
+              {v.supplierUrls.map((url, i) => (
+                <li key={i} className="break-all text-muted-foreground">
+                  {url}
+                </li>
+              ))}
+            </ul>
+          )}
         </>
       ) : (
         <span className="text-muted-foreground">No supplier in Shopify</span>

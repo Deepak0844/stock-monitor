@@ -201,3 +201,43 @@ describe("a restart", () => {
     expect((await runTick(deps())).started).toEqual([id]);
   });
 });
+
+describe("the early login check before a run", () => {
+  const early = () => enqueued.filter((e) => e.name === "supplier.session.verify");
+
+  it("queues one check of the login when the run is within two hours, and not again on the next tick", async () => {
+    const id = await ready("Acme", -90);
+    await runTick(deps());
+    expect(early()).toEqual([{ name: "supplier.session.verify", payload: { supplierId: id, early: true }, options: { retryLimit: 0 } }]);
+    now = new Date(now.getTime() + MIN);
+    await runTick(deps());
+    expect(early()).toHaveLength(1);
+  });
+
+  it("does not check before the lead time", async () => {
+    await ready("Acme", -150);
+    await runTick(deps());
+    expect(early()).toEqual([]);
+  });
+
+  it("does not check in quiet hours", async () => {
+    const id = await ready("Acme", -90);
+    await suppliers().setSchedule(id, { intervalMinutes: 1440, window: { start: "11:00", end: "22:00" }, nextCheckAt: new Date(now.getTime() + 90 * MIN) });
+    await runTick(deps());
+    expect(early()).toEqual([]);
+  });
+
+  it("does not check when a check in the lead time already proved the login", async () => {
+    const id = await ready("Acme", -90);
+    await createSupplierSessionRepository(t.appDb).markVerified(id);
+    await runTick(deps());
+    expect(early()).toEqual([]);
+  });
+
+  it("does not check a supplier the stock gate refuses", async () => {
+    const id = await ready("Acme", -90);
+    await suppliers().markNeedsAttention(id, "needs_reconnect");
+    await runTick(deps());
+    expect(early()).toEqual([]);
+  });
+});

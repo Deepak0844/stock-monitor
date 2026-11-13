@@ -8,12 +8,13 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { chromium } from "playwright";
-import { classifyPage, type PageClass } from "@stock-monitor/supplier-session";
-import { plainLaunchArgs, quitCleanly, seedProfile, waitForDebuggingPort } from "./plain-window.js";
+import { classifyPage, mergeSessionState, type PageClass, type SessionState } from "@stock-monitor/supplier-session";
+import { readCookies } from "./chromium-cookies.js";
+import { cookieStore, forgetOpenTabs, plainLaunchArgs, quitCleanly, seedProfile, waitForDebuggingPort } from "./plain-window.js";
 import { cookieHash, holdProfile, PROFILE_ROOT, profileDirFor, releaseProfile } from "./profile-store.js";
 import type { GuardProxy } from "./proxy.js";
 import { capturePageIn, type CaptureOutcome, type CaptureRequest } from "./capture.js";
-import { CHALLENGE_WIDGET, inspectPage, MAX_TEXT, type BlockTracker, type CheckPageOutcome, type CheckPageRequest, type VerifyOutcome, type VerifyRequest } from "./verify.js";
+import { CHALLENGE_WIDGET, inspectPage, MAX_TEXT, withFreshState, type BlockTracker, type CheckPageOutcome, type CheckPageRequest, type VerifyOutcome, type VerifyRequest } from "./verify.js";
 
 const CHALLENGE_TITLE = /just a moment|attention required|verify|human|captcha|security check|checking your browser/i;
 const BLOCKED_TITLE = /access denied|forbidden|blocked|error 1020|too many requests/i;
@@ -60,6 +61,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
   async function launch(profile: string, url: string, debuggable: boolean) {
     // A clean quit leaves the last port behind, and a new launch must not be mistaken for it.
     if (debuggable) await rm(join(profile, "DevToolsActivePort"), { force: true });
+    await forgetOpenTabs(profile);
     const id = randomUUID();
     const tracker = proxy.track(id);
     const listener = await proxy.openListener(id);
@@ -153,7 +155,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
     // The owner is logging in to this site in this profile. A check says nothing and is tried again.
     if (!holdProfile(profile)) return { result: "unreachable", status: null, blockedRequests: 0 };
     try {
-      return await checkHeld(request, profile, hash);
+      return await withFreshState(await checkHeld(request, profile, hash), () => profileState(profile, request.state));
     } finally {
       releaseProfile(profile);
     }
@@ -189,7 +191,19 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
    * profile's cookies and history; the debugging channel is open only for the length of `run`. If the profile is busy or the browser
    * cannot be driven, the answer is `unavailable`, which the caller treats as "could not check".
    */
-  async function inProfile<T>(request: VerifyRequest, unavailable: T, run: (page: import("playwright").Page, tracker: BlockTracker) => Promise<T>): Promise<T> {
+  /**
+   * The session after the browser quit cleanly: the request's session merged with the profile's cookie file, the same merge
+   * the worker stores. The profile is marked as seeded with it, so the next check of the stored session keeps the profile
+   * instead of wiping and seeding it again (the file alone can lack a cookie the merge keeps).
+   */
+  async function profileState(profile: string, sent: SessionState): Promise<SessionState> {
+    const file = { cookies: readCookies(cookieStore(profile)), origins: [] } as unknown as SessionState;
+    const state = mergeSessionState(sent, file, Date.now() / 1000);
+    await writeFile(join(profile, "seeded"), cookieHash(state.cookies));
+    return state;
+  }
+
+  async function inProfile<T extends VerifyOutcome>(request: VerifyRequest, unavailable: T, run: (page: import("playwright").Page, tracker: BlockTracker) => Promise<T>): Promise<T> {
     const profile = profileDirFor(baseDir, request.url);
     if (!holdProfile(profile)) return unavailable;
     try {
@@ -199,21 +213,23 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
         await writeFile(join(profile, "seeded"), hash);
       }
       const b = await launch(profile, "about:blank", true);
+      let outcome: T;
       try {
         const port = await waitForDebuggingPort(profile, b.child, 20_000);
         const cdp = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
         try {
           const context = cdp.contexts()[0];
           const page = context?.pages()[0] ?? (await context?.newPage());
-          return page ? await run(page, b.tracker) : unavailable;
+          outcome = page ? await run(page, b.tracker) : unavailable;
         } finally {
           await cdp.close().catch(() => {});
         }
       } catch {
         return unavailable;
       } finally {
-        await b.stop();
+        await b.stop(); // a clean quit writes the cookie file read below
       }
+      return await withFreshState(outcome, () => profileState(profile, request.state));
     } finally {
       releaseProfile(profile);
     }

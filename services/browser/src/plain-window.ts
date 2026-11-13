@@ -80,6 +80,15 @@ export async function seedProfile(profile: string, language?: string): Promise<v
   await writeFile(join(profile, "Default", "Preferences"), JSON.stringify(preferences));
 }
 
+/**
+ * Forgets the tabs a kept profile had open. `restore_on_startup: 1` is what keeps cookies with no expiry, but it also reopens
+ * every earlier tab, so without this each launch adds one more tab and the browser grows in memory.
+ */
+export async function forgetOpenTabs(profile: string): Promise<void> {
+  // Newer Chromium keeps an encrypted copy of the same tabs beside the plain one, and restores from either.
+  for (const dir of ["Sessions", "Sessions_Encrypted"]) await rm(join(profile, "Default", dir), { recursive: true, force: true });
+}
+
 // A browser killed by a signal has no exit code, only a signal code.
 const hasExited = (child: ChildProcess) => child.exitCode !== null || child.signalCode !== null;
 
@@ -132,7 +141,7 @@ const waitForStart = async (child: ChildProcess) => {
 };
 
 /** The browser's cookie store. Its place in the profile depends on the Chromium version. */
-const cookieStore = (profile: string) =>
+export const cookieStore = (profile: string) =>
   [join(profile, "Default", "Network", "Cookies"), join(profile, "Default", "Cookies")].find(
     existsSync,
   ) ?? "";
@@ -166,6 +175,7 @@ export function createPlainWindowOpener({
       }
       await mkdir(profile, { recursive: true });
       await rm(join(profile, "DevToolsActivePort"), { force: true });
+      await forgetOpenTabs(profile);
     } else {
       profile = await mkdtemp(join(tmpdir(), "sm-plain-"));
     }

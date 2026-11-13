@@ -249,12 +249,13 @@ describe("paging", () => {
 });
 
 describe("supplier fields from Shopify", () => {
-  it("shows each product's supplier name and page address, and a dash when it has none", async () => {
-    setup(async () => aPage([aVariant(1, { supplierName: "Acme Foods", supplierUrl: "https://acme.example/p/1" }), aVariant(2)]));
+  it("shows each product's supplier name and every page address, and a note when it has none", async () => {
+    setup(async () => aPage([aVariant(1, { supplierName: "Acme Foods", supplierUrls: ["https://acme.example/p/1", "https://bolt.example/p/2"] }), aVariant(2)]));
     await screen.findByText("Acme Foods");
     const rows = screen.getAllByRole("row");
     expect(within(rows[1]!).getByText("Acme Foods")).toBeInTheDocument();
     expect(within(rows[1]!).getByText("https://acme.example/p/1")).toBeInTheDocument();
+    expect(within(rows[1]!).getByText("https://bolt.example/p/2")).toBeInTheDocument();
     expect(within(rows[2]!).getByText("No supplier in Shopify")).toBeInTheDocument();
   });
 });

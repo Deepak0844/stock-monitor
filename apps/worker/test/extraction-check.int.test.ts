@@ -10,7 +10,7 @@ import { createAuditWriter } from "@stock-monitor/audit";
 import { createBrowserClient } from "@stock-monitor/browser-client";
 import { createFakeBrowserService, FAKE_CONTROL_TOKEN, type FakeBrowserService } from "@stock-monitor/browser-client/testing";
 import { createLogger } from "@stock-monitor/shared";
-import { sealSessionState } from "@stock-monitor/supplier-session";
+import { sealSessionState, unsealSessionState } from "@stock-monitor/supplier-session";
 import { checkStock, checkSupplierStock, type StockCheckDeps } from "../src/extraction-check.js";
 
 let t: TestDb;
@@ -87,13 +87,37 @@ beforeEach(async () => {
   sleeps.length = 0;
   onSleep = () => {};
   now = T0;
-  Object.assign(fake.behaviour, { capture: "ok", page: normal, pageFor: undefined, description: inStock, descriptionFor: undefined, delayMs: 0 });
+  Object.assign(fake.behaviour, { capture: "ok", page: normal, pageFor: undefined, description: inStock, descriptionFor: undefined, refreshed: undefined, delayMs: 0 });
   const a = await suppliers().create({ name: "Acme", websiteUrl: "https://shop.acme.example/", loginUrl: "https://shop.acme.example/login", checkIntervalMinutes: 60 });
   if (!a.ok) throw new Error("setup");
   acme = a.supplier.id;
   await createSupplierSessionRepository(t.appDb).save(acme, sealSessionState(state, key, "v1"), state);
   await suppliers().markConnected(acme);
   await suppliers().setPermission(acme, { status: "granted", note: null });
+});
+
+describe("a refreshed session", () => {
+  const fresh = { cookies: [{ name: "session", value: "REFRESHED", domain: "shop.acme.example", path: "/" }], origins: [] };
+  const stored = async () => unsealSessionState((await createSupplierSessionRepository(t.appDb).getSealed(acme))!, key);
+
+  it("is kept after each logged-in page, so the next page in the run uses it", async () => {
+    await link("v1");
+    await link("v2");
+    await turnOn();
+    fake.behaviour.refreshed = fresh;
+    await runAll();
+    expect((await stored()).cookies).toEqual(expect.arrayContaining(fresh.cookies));
+    const second = requests("/capture")[1]?.body as { state: { cookies: { value: string }[] } };
+    expect(second.state.cookies.map((c) => c.value)).toContain("REFRESHED");
+  });
+
+  it("is never kept from a login page, even if the browser sent one", async () => {
+    const id = await link("v1");
+    await turnOn();
+    Object.assign(fake.behaviour, { page: { ...normal, result: "login_required" }, refreshed: fresh });
+    await checkStock(deps(), id);
+    expect(await stored()).toEqual(state);
+  });
 });
 
 describe("one link", () => {

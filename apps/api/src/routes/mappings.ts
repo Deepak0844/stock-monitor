@@ -4,6 +4,7 @@ import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
 import type { createImportPreviewRepository, createMappingRepository, createObservationRepository, createProposalRepository, ObservationRecord, createSupplierRepository, createSupplierSessionRepository, MappingRow } from "@stock-monitor/db";
 import type { Queue } from "@stock-monitor/queue";
+import { runExpirySeconds } from "@stock-monitor/scheduling";
 import { isUnavailableCandidate, sameSite, whyNotChecked } from "@stock-monitor/mapping";
 import { validateSupplierUrl, verifyPublicHost, type HostLookup } from "@stock-monitor/supplier-session";
 import { AppError } from "../errors.js";
@@ -204,10 +205,7 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
     return supplier;
   }
   // A run waits the supplier's pause between pages, so it can take far longer than the queue's default 15 minutes. If the
-  // queue gave up on it half way it would start the whole run again at the same time as the first.
-  const RUN_MIN_SECONDS = 15 * 60;
-  const RUN_MAX_SECONDS = 6 * 60 * 60;
-  const PER_PAGE_EXTRA_SECONDS = 30;
+  // queue gave up on it half way it would start the whole run again at the same time as the first. runExpirySeconds allows for that.
   const NOT_STARTED = () => new AppError(503, "check_not_started", "The check could not be started. Please try again in a minute.");
 
   app.post<{ Params: { id: string } }>("/api/mappings/:id/check-link", async (request, reply) => {
@@ -229,11 +227,10 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
     const links = (await mappings.forSupplier(supplier.id)).filter((m) => m.enabled).length;
     if (links === 0) throw new AppError(409, "no_links", "This supplier has no links to check yet.");
     try {
-      const seconds = links * (supplier.checkPauseSeconds + PER_PAGE_EXTRA_SECONDS);
       await queue.enqueue(
         "mapping.links.check",
         { supplierId: supplier.id },
-        { expireInSeconds: Math.min(RUN_MAX_SECONDS, Math.max(RUN_MIN_SECONDS, seconds)), retryLimit: 0 },
+        { expireInSeconds: runExpirySeconds(links, supplier.checkPauseSeconds), retryLimit: 0 },
       );
     } catch {
       throw NOT_STARTED();

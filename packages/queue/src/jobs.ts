@@ -8,7 +8,7 @@ export const jobSchemas = {
   "shopify.sync": z.object({}).strict(),
   // Which supplier to check, and nothing else. The worker reads the saved session from the database, so no
   // session, cookie or token is ever in a job.
-  "supplier.session.verify": z.object({ supplierId: z.uuid() }).strict(),
+  "supplier.session.verify": z.object({ supplierId: z.uuid(), early: z.literal(true).optional() }).strict(),
   // Which link to check, and nothing else. A run for a whole supplier is just the supplier's id. The worker reads the
   // saved session and the address from the database, so no session, cookie or address is ever in a job.
   // Stock rules. Ids only: the worker reads the saved session, the address and the recipe from the database.

@@ -4,8 +4,11 @@ import { explainPage, looksLikeNotFound, type PageClass, type SessionState } fro
 import type { GuardProxy } from "./proxy.js";
 
 export type VerifyRequest = { url: string; loginUrl?: string; state: SessionState };
-/** The answer. It says what the page was and nothing else: never the session, the address it ended on or its text. */
-export type VerifyOutcome = { result: PageClass; status: number | null; blockedRequests: number };
+/**
+ * The answer. It says what the page was: never the address it ended on or its text. After an ok page only, `state` is the
+ * session the browser ended with, so the worker can keep a session the supplier extended. It goes only to the worker.
+ */
+export type VerifyOutcome = { result: PageClass; status: number | null; blockedRequests: number; state?: SessionState };
 /**
  * What a link check saw. The address has no query string or fragment (they can hold secrets), and the title and
  * heading are cut short. Never the page text, prices or stock.
@@ -46,10 +49,24 @@ export async function checkPage(browser: Browser, request: CheckPageRequest, opt
     proxy: { server: `http://127.0.0.1:${options.proxy.port}`, username: id, password: options.proxy.secret, bypass: "<-loopback>" },
   });
   try {
-    return await inspectPage(await context.newPage(), request, tracker, options.navigationTimeoutMs ?? DEFAULT_TIMEOUT_MS);
+    const outcome = await inspectPage(await context.newPage(), request, tracker, options.navigationTimeoutMs ?? DEFAULT_TIMEOUT_MS);
+    return await withFreshState(outcome, async () => (await context.storageState()) as SessionState);
   } finally {
     tracker.stop();
     await context.close();
+  }
+}
+
+/**
+ * Adds the session the browser ended with, only when the page was ok: a login, puzzle or block page must never replace a session.
+ * Refreshing is a side task, so a session that cannot be read leaves the answer as it was.
+ */
+export async function withFreshState<T extends VerifyOutcome>(outcome: T, read: () => Promise<SessionState>): Promise<T> {
+  if (outcome.result !== "ok") return outcome;
+  try {
+    return { ...outcome, state: await read() };
+  } catch {
+    return outcome;
   }
 }
 
@@ -104,6 +121,6 @@ export async function inspectPage(page: Page, request: CheckPageRequest, tracker
 
 /** The session check: only what the page was. It never reports the address, title or text. */
 export async function verifyPage(browser: Browser, request: VerifyRequest, options: VerifyOptions): Promise<VerifyOutcome> {
-  const { result, status, blockedRequests } = await checkPage(browser, request, options);
-  return { result, status, blockedRequests };
+  const { result, status, blockedRequests, state } = await checkPage(browser, request, options);
+  return { result, status, blockedRequests, ...(state ? { state } : {}) };
 }

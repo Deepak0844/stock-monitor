@@ -75,7 +75,7 @@ export async function createFakeSupplier(options: { host?: string } = {}): Promi
     const url = new URL(req.url ?? "/", "http://fake.invalid");
     const path = url.pathname;
     requests.push({ method: req.method ?? "GET", path });
-    const send = (status: number, html: string, headers: Record<string, string> = {}) => {
+    const send = (status: number, html: string, headers: Record<string, string | string[]> = {}) => {
       res.writeHead(status, { "content-type": "text/html; charset=utf-8", ...headers });
       res.end(html);
     };
@@ -144,6 +144,9 @@ export async function createFakeSupplier(options: { host?: string } = {}): Promi
           "Your account | Fake Supplier",
           `<h1>Your account</h1><p>Signed in as buyer.</p>${ABOUT}<a href="/products/blue-widget">Blue Widget</a>`,
         ),
+        // Like a real shop that extends a session on each visit: a fresh cookie comes back with the page.
+        // It also clears a one-time cookie, as shops do with a "where to go after login" cookie.
+        { "set-cookie": ["last_visit=FRESH-COOKIE; Path=/; Max-Age=86400; SameSite=Lax", "login_redirect=; Path=/; Max-Age=0"] },
       );
     }
     const product = /^\/products\/([a-z-]+)$/.exec(path)?.[1];

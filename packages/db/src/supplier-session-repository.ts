@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type { Encrypted } from "@stock-monitor/crypto";
 import { supplierSessions } from "./schema.js";
@@ -39,6 +39,28 @@ export function createSupplierSessionRepository<S extends Record<string, unknown
         lastVerifiedAt: null,
       };
       await db.insert(supplierSessions).values({ supplierId, ...values }).onConflictDoUpdate({ target: supplierSessions.supplierId, set: values });
+    },
+
+    /**
+     * Saves a session a check refreshed, only while the stored session is still the one the check started from (its `iv` is
+     * new on every seal). A login the owner made since then wins. When the owner logged in (`saved_at`) does not change.
+     */
+    async refresh(supplierId: string, expectedIv: string, sealed: Encrypted, state: State): Promise<boolean> {
+      const rows = await db
+        .update(supplierSessions)
+        .set({
+          stateCiphertext: sealed.ciphertext,
+          stateIv: sealed.iv,
+          stateTag: sealed.tag,
+          stateKeyId: sealed.keyId,
+          cookieCount: state.cookies.length,
+          domains: domainsOf(state),
+          sizeBytes: Buffer.byteLength(JSON.stringify(state)),
+          lastVerifiedAt: sql`now()` as unknown as Date,
+        })
+        .where(and(eq(supplierSessions.supplierId, supplierId), eq(supplierSessions.stateIv, expectedIv)))
+        .returning({ id: supplierSessions.supplierId });
+      return rows.length > 0;
     },
 
     async facts(supplierId: string): Promise<SessionFacts | null> {

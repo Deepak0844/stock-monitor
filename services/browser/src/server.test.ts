@@ -114,6 +114,13 @@ describe("POST /verify", () => {
     expect(logs.join("\n")).not.toContain(MARKER);
   });
 
+  it("passes a refreshed session back to the worker, and keeps it out of the log", async () => {
+    verify.mockResolvedValue({ result: "ok", status: 200, blockedRequests: 0, signal: "title", state });
+    expect(((await (await post(body)).json()) as { state: unknown }).state).toEqual(state);
+    expect(logs.join("\n")).toContain("verify: ok");
+    expect(logs.join("\n")).not.toContain(MARKER);
+  });
+
   it("only accepts POST", async () => {
     expect((await fetch(`${base}/verify`, { headers: { authorization: `Bearer ${TOKEN}` } })).status).toBe(404);
   });

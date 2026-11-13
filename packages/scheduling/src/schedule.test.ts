@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { backoffMs, runExpirySeconds, insideWindow, intoWindow, isStale, nextCheckAt, pickDue } from "./schedule.js";
+import { backoffMs, runExpirySeconds, insideWindow, intoWindow, isStale, needsSessionPrecheck, nextCheckAt, pickDue, SESSION_CHECK_LEAD_MINUTES } from "./schedule.js";
 
 const KOLKATA = "Asia/Kolkata"; // UTC+5:30, no daylight saving
 const day = { start: "07:00", end: "22:00" };
@@ -84,9 +84,28 @@ describe("pickDue", () => {
 });
 
 describe("runExpirySeconds", () => {
-  it("allows each link its pause plus 30 seconds, never under 15 minutes or over 6 hours", () => {
+  it("allows each link its pause plus the 2-minute page wait, never under 15 minutes or over 6 hours", () => {
     expect(runExpirySeconds(1, 10)).toBe(900);
-    expect(runExpirySeconds(60, 60)).toBe(60 * 90);
+    expect(runExpirySeconds(60, 60)).toBe(60 * 180);
     expect(runExpirySeconds(10_000, 60)).toBe(6 * 3600);
   });
+});
+
+describe("needsSessionPrecheck", () => {
+  // 10:00 in Kolkata is 04:30 UTC. The run is 90 minutes away.
+  const now = new Date("2026-11-13T04:30:00Z");
+  const run = new Date("2026-11-13T06:00:00Z");
+  const base = { now, nextCheckAt: run, window: day, lastVerifiedAt: null, precheckFor: null };
+  const needs = (over: Partial<typeof base> | Record<string, unknown> = {}) => needsSessionPrecheck({ ...base, ...over } as typeof base, KOLKATA);
+
+  it("leads by two hours", () => expect(SESSION_CHECK_LEAD_MINUTES).toBe(120));
+  it("checks a login never verified, inside the lead time and the window", () => expect(needs()).toBe(true));
+  it("not when nothing is scheduled", () => expect(needs({ nextCheckAt: null })).toBe(false));
+  it("not when the run is already due: the run itself will find out", () => expect(needs({ nextCheckAt: now })).toBe(false));
+  it("not when the run is more than two hours away", () => expect(needs({ nextCheckAt: new Date("2026-11-13T06:30:01Z") })).toBe(false));
+  it("not in quiet hours", () => expect(needs({ window: { start: "11:00", end: "22:00" } })).toBe(false));
+  it("not when a check in the lead time already proved the login", () => expect(needs({ lastVerifiedAt: new Date("2026-11-13T04:01:00Z") })).toBe(false));
+  it("yes when the last proof is older than the lead time", () => expect(needs({ lastVerifiedAt: new Date("2026-11-13T03:59:00Z") })).toBe(true));
+  it("not twice for the same run", () => expect(needs({ precheckFor: new Date(run) })).toBe(false));
+  it("yes for the next run after an earlier one was checked", () => expect(needs({ precheckFor: new Date("2026-11-12T06:00:00Z") })).toBe(true));
 });

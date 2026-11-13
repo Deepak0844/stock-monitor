@@ -59,7 +59,7 @@ export const aVariant = (n: number, over: Partial<VariantItem> = {}): VariantIte
   inventoryPolicy: "DENY",
   available: n,
   supplierName: null,
-  supplierUrl: null,
+  supplierUrls: [],
   syncedAt: "2026-11-08T10:00:00.000Z",
   warnings: [],
   ...over,

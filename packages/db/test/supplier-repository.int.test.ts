@@ -188,3 +188,13 @@ describe("supplier repository: page", () => {
     expect(await names("not_connected")).toEqual([]);
   });
 });
+
+describe("supplier repository: early session check", () => {
+  it("records which run the early check was queued for, to the millisecond", async () => {
+    const s = await made();
+    expect(s.sessionPrecheckFor).toBeNull();
+    const forRun = new Date("2026-11-13T10:15:30.123Z");
+    await repo().markPrecheckQueued(s.id, forRun);
+    expect((await repo().get(s.id))?.sessionPrecheckFor).toEqual(forRun);
+  });
+});
