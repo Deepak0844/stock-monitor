@@ -84,9 +84,9 @@ describe("pickDue", () => {
 });
 
 describe("runExpirySeconds", () => {
-  it("allows each link its pause plus 30 seconds, never under 15 minutes or over 6 hours", () => {
+  it("allows each link its pause plus the 2-minute page wait, never under 15 minutes or over 6 hours", () => {
     expect(runExpirySeconds(1, 10)).toBe(900);
-    expect(runExpirySeconds(60, 60)).toBe(60 * 90);
+    expect(runExpirySeconds(60, 60)).toBe(60 * 180);
     expect(runExpirySeconds(10_000, 60)).toBe(6 * 3600);
   });
 });

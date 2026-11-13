@@ -161,7 +161,7 @@ describe("check all of a supplier's links", () => {
       await createMappingRepository(t.appDb).create({ variantId: `w${n}`, supplierId: acme, url: `https://shop.acme.example/p/${n}`, note: null });
     }
     await call("POST", `/api/suppliers/${acme}/check-stock`);
-    expect(queued[0]?.options).toEqual({ expireInSeconds: 60 * (60 + 30), retryLimit: 0 });
+    expect(queued[0]?.options).toEqual({ expireInSeconds: 60 * (60 + 120), retryLimit: 0 });
   });
   it("is refused when the supplier is not allowed or has no rules on, or has no links, or is unknown", async () => {
     await t.pool.query("update stock_recipes set active = false");

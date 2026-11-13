@@ -133,7 +133,7 @@ describe("check all of a supplier's links", () => {
     }
     await post(`/api/suppliers/${acme}/check-links`);
     // 60 links, a 60 second pause and some time for each page itself: well over the queue's default 15 minutes.
-    expect(queued[0]?.options).toEqual({ expireInSeconds: 60 * (60 + 30), retryLimit: 0 });
+    expect(queued[0]?.options).toEqual({ expireInSeconds: 60 * (60 + 120), retryLimit: 0 });
   });
   it("refuses when the supplier has no recorded permission", async () => {
     await suppliers().setPermission(acme, { status: "unknown", note: null });
