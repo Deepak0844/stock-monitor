@@ -30,6 +30,8 @@ export type CheckOutcome =
   | { kind: "skipped"; reason: "no_supplier" | "no_session" }
   | { kind: "ok" }
   | { kind: "needs_attention"; result: SessionReason }
+  /** An early check found a page it could not read clearly. Nothing is marked: the run does not stop on one either. */
+  | { kind: "unclear" }
   | { kind: "unreachable" }
   | { kind: "service_unavailable" };
 
@@ -119,7 +121,7 @@ export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId
       // The early check before a run must not be stricter than the run, which does not stop on an unclear page.
       if (options.early && result === "unknown") {
         await record(result);
-        return { kind: "needs_attention", result };
+        return { kind: "unclear" };
       }
       return needsAttention(result);
   }
