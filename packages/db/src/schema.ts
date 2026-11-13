@@ -157,6 +157,7 @@ export const suppliers = pgTable(
     scheduleWindowStart: text("schedule_window_start"),
     scheduleWindowEnd: text("schedule_window_end"),
     nextCheckAt: timestamp("next_check_at", { withTimezone: true }),
+    sessionPrecheckFor: timestamp("session_precheck_for", { withTimezone: true }),
     /** Failed runs in a row, for the retry delay. */
     failureCount: integer("failure_count").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

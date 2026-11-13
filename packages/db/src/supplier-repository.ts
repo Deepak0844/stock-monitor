@@ -23,6 +23,8 @@ export type SupplierRecord = {
   scheduleWindowStart: string | null;
   scheduleWindowEnd: string | null;
   nextCheckAt: Date | null;
+  /** The run an early session check was queued for, so each run gets at most one. */
+  sessionPrecheckFor: Date | null;
   failureCount: number;
   createdAt: Date;
   updatedAt: Date;
@@ -174,6 +176,11 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
     /** The next check time and failure count, written when a run ends. */
     async recordRunEnd(id: string, input: { nextCheckAt: Date; failureCount: number }): Promise<void> {
       await set(id, { nextCheckAt: input.nextCheckAt, failureCount: input.failureCount });
+    },
+
+    /** An early session check was queued for the run due at `forRun`. */
+    async markPrecheckQueued(id: string, forRun: Date): Promise<void> {
+      await set(id, { sessionPrecheckFor: forRun });
     },
 
     /** Suppliers that have automatic checks turned on. */
