@@ -4,6 +4,7 @@ import type { BrowserClient } from "@stock-monitor/browser-client";
 import type { createMappingRepository, createNotificationRepository, createSupplierRepository, createSupplierSessionRepository, LinkCheckResult, MappingRow, SupplierRecord } from "@stock-monitor/db";
 import { decideLinkStatus, isSupplierWide, whyNotChecked, type CheckGateReason, type LinkState, type LinkStatus, type Observation } from "@stock-monitor/mapping";
 import { unsealSessionState } from "@stock-monitor/supplier-session";
+import { saveRefreshedSession } from "./session-refresh.js";
 import { raiseNeedsAttention } from "./supplier-verify.js";
 
 export type LinkCheckDeps = {
@@ -73,6 +74,7 @@ export function createLinkChecker(deps: LinkCheckDeps) {
       logger.warn({ mappingId: mapping.id }, "link check could not run: the browser service did not answer");
       return { result: "service_unavailable", status: null, finalUrl: null, title: null, heading: null, softNotFound: false };
     }
+    if (sealed && outcome.result === "ok") await saveRefreshedSession(deps, supplier.id, { sealed, state }, outcome.state);
     return { result: outcome.result, status: outcome.status, finalUrl: outcome.finalUrl, title: outcome.title, heading: outcome.heading, softNotFound: outcome.softNotFound };
   }
 

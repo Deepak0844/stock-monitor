@@ -8,6 +8,7 @@ import type {
 import { decide, isSupplierWideChange, validateRecipe, type Answer, type Decision, type PageDescription, type Reason, type Recipe } from "@stock-monitor/extraction";
 import { decideLinkStatus, isSupplierWide, whyNotChecked, type CheckGateReason, type LinkStatus, type Observation } from "@stock-monitor/mapping";
 import { unsealSessionState } from "@stock-monitor/supplier-session";
+import { saveRefreshedSession } from "./session-refresh.js";
 import { backoffMs, nextCheckAt } from "@stock-monitor/scheduling";
 import { toState } from "./mapping-link-check.js";
 import { raiseNeedsAttention } from "./supplier-verify.js";
@@ -98,6 +99,8 @@ export function createStockChecker(deps: StockCheckDeps) {
       const trial = decideLinkStatus(toState(mapping), obs, { requestedUrl: mapping.url, homeUrl: supplier.websiteUrl, now: now(), supplierWide: false });
       return { mapping, obs, page: null, picture: null, checkResult: state ? "service_unavailable" : "session_unreadable", decision: tell("check_failed"), linkTrial: trial.status };
     }
+    // Each page loads the session again, so the next page in a run uses the one kept here.
+    if (sealed && state && outcome.result === "ok") await saveRefreshedSession(deps, supplier.id, { sealed, state }, outcome.state);
     const obs: Observation = { result: outcome.result, status: outcome.status, finalUrl: outcome.finalUrl, title: outcome.title, heading: outcome.heading, softNotFound: outcome.softNotFound };
     const trial = decideLinkStatus(toState(mapping), obs, { requestedUrl: mapping.url, homeUrl: supplier.websiteUrl, now: now(), supplierWide: false }).status;
     const page: PageDescription = {

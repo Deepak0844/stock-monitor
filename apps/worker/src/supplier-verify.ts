@@ -2,7 +2,8 @@ import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
 import type { BrowserClient } from "@stock-monitor/browser-client";
 import type { createNotificationRepository, createSupplierRepository, createSupplierSessionRepository, NotificationReason } from "@stock-monitor/db";
-import { unsealSessionState, type PageClass } from "@stock-monitor/supplier-session";
+import { unsealSessionState, type PageClass, type SessionState } from "@stock-monitor/supplier-session";
+import { saveRefreshedSession } from "./session-refresh.js";
 
 export type SupplierVerifyDeps = {
   suppliers: ReturnType<typeof createSupplierRepository>;
@@ -88,10 +89,12 @@ export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId
   const delays = deps.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   let result: PageClass | "service_unavailable" = "unreachable";
+  let fresh: SessionState | undefined;
   for (let attempt = 0; attempt <= delays.length; attempt++) {
     if (attempt > 0) await sleep(delays[attempt - 1] as number);
     const outcome = await browser.verify({ url: supplier.websiteUrl, loginUrl: supplier.loginUrl ?? undefined, state });
     result = outcome.ok ? outcome.result : "service_unavailable";
+    fresh = outcome.ok ? outcome.state : undefined;
     httpStatus = outcome.ok ? outcome.status : null;
     if (result !== "unreachable" && result !== "service_unavailable") break; // a clear answer
   }
@@ -99,7 +102,8 @@ export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId
   switch (result) {
     case "ok":
       await suppliers.markVerified(supplierId);
-      await supplierSessions.markVerified(supplierId);
+      // Keeps a session the supplier extended, and records the check either way.
+      if ((await saveRefreshedSession(deps, supplierId, { sealed, state }, fresh)) === "none") await supplierSessions.markVerified(supplierId);
       await notifications.resolve("supplier_needs_reconnect", supplierId);
       await record("ok");
       return { kind: "ok" };

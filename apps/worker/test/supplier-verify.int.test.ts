@@ -7,7 +7,7 @@ import { createAuditWriter } from "@stock-monitor/audit";
 import { createBrowserClient } from "@stock-monitor/browser-client";
 import { createFakeBrowserService, FAKE_CONTROL_TOKEN, type FakeBrowserService } from "@stock-monitor/browser-client/testing";
 import { createLogger } from "@stock-monitor/shared";
-import { sealSessionState } from "@stock-monitor/supplier-session";
+import { sealSessionState, unsealSessionState } from "@stock-monitor/supplier-session";
 import { createSupplierVerifyHandler, verifySupplierSession, type SupplierVerifyDeps } from "../src/supplier-verify.js";
 
 let t: TestDb;
@@ -52,7 +52,7 @@ beforeEach(async () => {
   fake.requests.length = 0;
   logLines.length = 0;
   sleeps.length = 0;
-  Object.assign(fake.behaviour, { verify: "ok", verifyResult: "ok", delayMs: 0 });
+  Object.assign(fake.behaviour, { verify: "ok", verifyResult: "ok", refreshed: undefined, delayMs: 0 });
   const a = await suppliers().create({ name: "Acme", websiteUrl: "https://shop.acme.example/account", loginUrl: "https://shop.acme.example/login", checkIntervalMinutes: 60 });
   const g = await suppliers().create({ name: "Globex", websiteUrl: "https://globex.example/", loginUrl: null, checkIntervalMinutes: 60 });
   if (!a.ok || !g.ok) throw new Error("setup");
@@ -74,6 +74,22 @@ describe("nothing to check", () => {
     await sessions().remove(acme);
     expect(await verifySupplierSession(deps(), acme)).toEqual({ kind: "skipped", reason: "no_session" });
     expect(verifies()).toHaveLength(0);
+  });
+});
+
+describe("a refreshed session", () => {
+  const fresh = { cookies: [{ name: "session", value: "REFRESHED", domain: "shop.acme.example", path: "/" }], origins: [] };
+
+  it("replaces the stored session after an ok check, keeping the saved storage", async () => {
+    fake.behaviour.refreshed = fresh;
+    expect(await verifySupplierSession(deps(), acme)).toEqual({ kind: "ok" });
+    expect(unsealSessionState((await sessions().getSealed(acme))!, key)).toEqual({ cookies: fresh.cookies, origins: state.origins });
+  });
+
+  it("is never stored from a login page, even if the browser sent one", async () => {
+    Object.assign(fake.behaviour, { verifyResult: "login_required", refreshed: fresh });
+    await verifySupplierSession(deps(), acme);
+    expect(unsealSessionState((await sessions().getSealed(acme))!, key)).toEqual(state);
   });
 });
 
