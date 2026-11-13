@@ -64,7 +64,8 @@ export function pickDue(candidates: DueCandidate[], now: Date, running: number, 
     .map((c) => c.id);
 }
 
-const PER_PAGE_EXTRA_SECONDS = 30;
+// The browser client waits up to 2 minutes for one page (pageTimeoutMs), so a slow page must not end the run.
+const PER_PAGE_EXTRA_SECONDS = 120;
 /** How long the queue may let a whole-supplier run go before giving up on it. It waits the supplier's pause between pages, so it is long. */
 export function runExpirySeconds(links: number, pauseSeconds: number): number {
   return Math.min(6 * 3600, Math.max(15 * 60, links * (pauseSeconds + PER_PAGE_EXTRA_SECONDS)));
