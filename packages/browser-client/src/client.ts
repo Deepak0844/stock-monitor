@@ -37,6 +37,8 @@ export type BrowserClientOptions = {
   baseUrl: string;
   token: string;
   timeoutMs?: number;
+  /** How long to wait for a page check or capture. The service loads pages one at a time, each in a fresh browser, so one can wait behind another. */
+  pageTimeoutMs?: number;
   fetchImpl?: typeof fetch;
 };
 
@@ -48,7 +50,7 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "obj
  * Talks to the browser service over the private network. It never throws and never puts a token, an
  * address or a session in a message: every problem becomes a short reason the caller turns into plain words.
  */
-export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, fetchImpl = fetch }: BrowserClientOptions): BrowserClient {
+export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, pageTimeoutMs = 120_000, fetchImpl = fetch }: BrowserClientOptions): BrowserClient {
   const root = baseUrl.replace(/\/+$/, "");
 
   /** The status and JSON body, or null when nothing answered in time. */
@@ -108,7 +110,7 @@ export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, fetchI
     },
 
     async checkPage({ url, loginUrl, state }) {
-      const r = await call("POST", "/check-page", { url, ...(loginUrl ? { loginUrl } : {}), state });
+      const r = await call("POST", "/check-page", { url, ...(loginUrl ? { loginUrl } : {}), state }, pageTimeoutMs);
       if (!r) return { ok: false, reason: "unavailable" };
       const j = r.json;
       if (r.status !== 200 || !isObject(j) || typeof j.result !== "string" || !PAGE_CLASSES.includes(j.result)) return { ok: false, reason: "failed" };
@@ -126,7 +128,7 @@ export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, fetchI
     },
 
     async capture({ url, loginUrl, state, picture }) {
-      const r = await call("POST", "/capture", { url, ...(loginUrl ? { loginUrl } : {}), state, ...(picture ? { picture: true } : {}) });
+      const r = await call("POST", "/capture", { url, ...(loginUrl ? { loginUrl } : {}), state, ...(picture ? { picture: true } : {}) }, pageTimeoutMs);
       if (!r) return { ok: false, reason: "unavailable" };
       const j = r.json;
       if (r.status !== 200 || !isObject(j) || typeof j.result !== "string" || !PAGE_CLASSES.includes(j.result) || !isObject(j.description)) return { ok: false, reason: "failed" };

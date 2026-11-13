@@ -164,6 +164,15 @@ describe("checkPage", () => {
 describe("capture", () => {
   const state = { cookies: [{ name: "s", value: COOKIE, domain: "shop.acme.example", path: "/" }], origins: [] };
 
+  it("waits for a page longer than for other calls: the service loads pages one at a time in a fresh browser", async () => {
+    fake.behaviour.delayMs = 200;
+    const c = client({ timeoutMs: 100, pageTimeoutMs: 1_000 });
+    expect((await c.capture({ url: "https://shop.acme.example/p", state })).ok).toBe(true);
+    expect((await c.checkPage({ url: "https://shop.acme.example/p", state })).ok).toBe(true);
+    expect(await c.openSession("https://a.example/")).toEqual({ ok: false, reason: "unavailable" });
+    expect(await client({ pageTimeoutMs: 100 }).capture({ url: "https://shop.acme.example/p", state })).toEqual({ ok: false, reason: "unavailable" });
+  });
+
   it("sends the address and session with the token, and returns the description without a picture unless asked", async () => {
     const r = await client().capture({ url: "https://shop.acme.example/p", state });
     expect(r).toMatchObject({ ok: true, result: "ok", picture: null, description: { buttons: [{ label: "Add to cart", enabled: true, section: "Blue Tee" }] } });
