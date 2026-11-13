@@ -1,10 +1,11 @@
 // SPIKE: the persistent-profile check against real Chromium and the fake supplier. Linux only, like the plain window.
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFakeSupplier, FAKE_PASSWORD, FAKE_USERNAME, type FakeSupplier } from "@stock-monitor/supplier-session/testing";
 import { startBrowserService, type BrowserService } from "../src/service.js";
+import { cookieHash, profileDirFor } from "../src/profile-store.js";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 const linux = process.platform === "linux";
@@ -56,6 +57,13 @@ describe.skipIf(!linux)("link and stock checks run in the profile browser", () =
   it("check-page sends a person with no session to the login page", async () => {
     expect((await post("/check-page", "/products/blue-widget", { cookies: [], origins: [] })).result).toBe("login_required");
   });
+  it("check-page and capture return the refreshed session after an ok page, and none for a login page", async () => {
+    for (const route of ["/check-page", "/capture"]) {
+      const ok = (await post(route, "/account", await login())) as unknown as { state?: { cookies: { name: string }[] } };
+      expect(ok.state?.cookies.map((c) => c.name), route).toContain("last_visit");
+      expect(await post(route, "/account", { cookies: [], origins: [] }), route).not.toHaveProperty("state");
+    }
+  });
   it("capture describes the page", async () => {
     const r = await post("/capture", "/products/blue-widget", await login());
     expect(r).toMatchObject({ result: "ok", status: 200 });
@@ -67,6 +75,15 @@ describe.skipIf(!linux)("profile check (spike)", () => {
   it("reaches a page that needs the login, using the saved cookies from an ordinary browser", async () => {
     const state = await login();
     expect(await verify("/account", state)).toMatchObject({ result: "ok", status: null });
+  });
+  it("returns the cookies the profile ended with after an ok check, and marks the profile as seeded with them", async () => {
+    const r = (await verify("/account", await login())) as unknown as { state?: { cookies: { name: string; domain: string; path: string; value: string }[] } };
+    expect(r.state?.cookies.map((c) => c.name)).toEqual(expect.arrayContaining(["supplier_session", "last_visit"]));
+    const marker = readFileSync(join(profileDirFor(dir, `${site.url}/account`), "seeded"), "utf8");
+    expect(marker).toBe(cookieHash(r.state?.cookies ?? []));
+  });
+  it("returns no session when the page asks for a login", async () => {
+    expect(await verify("/account", { cookies: [], origins: [] })).not.toHaveProperty("state");
   });
   it("keeps the profile for the next check while the session is unchanged", async () => {
     const state = await login();

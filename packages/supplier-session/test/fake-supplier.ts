@@ -144,6 +144,8 @@ export async function createFakeSupplier(options: { host?: string } = {}): Promi
           "Your account | Fake Supplier",
           `<h1>Your account</h1><p>Signed in as buyer.</p>${ABOUT}<a href="/products/blue-widget">Blue Widget</a>`,
         ),
+        // Like a real shop that extends a session on each visit: a fresh cookie comes back with the page.
+        { "set-cookie": "last_visit=FRESH-COOKIE; Path=/; Max-Age=86400; SameSite=Lax" },
       );
     }
     const product = /^\/products\/([a-z-]+)$/.exec(path)?.[1];

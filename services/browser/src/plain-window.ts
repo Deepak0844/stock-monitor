@@ -132,7 +132,7 @@ const waitForStart = async (child: ChildProcess) => {
 };
 
 /** The browser's cookie store. Its place in the profile depends on the Chromium version. */
-const cookieStore = (profile: string) =>
+export const cookieStore = (profile: string) =>
   [join(profile, "Default", "Network", "Cookies"), join(profile, "Default", "Cookies")].find(
     existsSync,
   ) ?? "";
