@@ -63,6 +63,13 @@ describe("classifyPage details", () => {
     expect(classifyPage(at({ finalUrl: "https://shop.acme.example/products/login-kit" }))).toBe("ok");
   });
 
+  it("ignores a 'login to purchase' button label that sits on its own line, but not the same words in a sentence", () => {
+    const cards = "Product Code: 0013144\nLOGIN TO PURCHASE\n".repeat(11) + "Acme wholesale catalogue. ".repeat(30);
+    expect(classifyPage(at({ text: cards }))).toBe("ok");
+    expect(classifyPage(at({ text: `${"Acme wholesale catalogue. ".repeat(30)}\nLog in to purchase these items` }))).toBe("login_required");
+    expect(classifyPage(at({ text: `${cards}\nPlease log in` }))).toBe("login_required");
+  });
+
   it("puts a challenge before a block, because it can be solved by hand", () => {
     expect(classifyPage(at({ status: 403, hasChallengeWidget: true }))).toBe("captcha");
   });
