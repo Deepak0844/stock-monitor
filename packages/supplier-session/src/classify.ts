@@ -41,6 +41,9 @@ const LOGIN_WORDS = [
   /session (?:has )?(?:expired|timed out)/, /you(?:'ve| have) been (?:logged|signed) out/,
   /please (?:log ?in|sign ?in)/, /login required/,
 ];
+// A product card's own "LOGIN TO PURCHASE" button, alone on its line. Some suppliers show it on every page, logged in or not.
+const BUTTON_LABEL = /^\s*(?:log ?in|sign ?in) to (?:purchase|buy|order)\s*$/i;
+
 const ERROR_WORDS = [/page not found/, /no longer available/, /(?:page|site) (?:doesn't|does not) exist/, /something went wrong/];
 const LOGIN_PATH = /\/(?:log-?in|sign-?in|sign_in|log_in)(?:[/?#.]|$)/;
 
@@ -77,7 +80,7 @@ export function explainPage(facts: PageFacts): { result: PageClass; signal: stri
   if (status !== null && status >= 500) return { result: "unreachable", signal: "status_5xx" }; // the supplier's server is struggling: try again later
 
   const title = normalise(page.title);
-  const text = normalise(page.text);
+  const text = normalise(page.text.split("\n").filter((line) => !BUTTON_LABEL.test(line)).join("\n"));
   const short = text.length <= SHORT_PAGE;
   const says = (words: RegExp[]) => matches(words, title) || (short && matches(words, text));
 
