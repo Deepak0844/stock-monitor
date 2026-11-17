@@ -186,6 +186,16 @@ function startSite(): Promise<Server> {
       case "latechoice":
         return html(page(`<div id="slot"></div><script>setTimeout(()=>{document.getElementById("slot").innerHTML=${JSON.stringify('<button type="button" onclick="document.getElementById(\'f\').style.display=\'block\';this.remove()">Use password</button><div id="f" style="display:none">' + userAndPasswordForm("latechoice") + "</div>")}},2500)</script>`));
       case "neverbox": return html(page("<p>Trade supplies. Nothing to see.</p>"));
+      // A page that inserts a box in front of the username the moment the username gets focus (a search or suggestion widget), which
+      // moves every later box one place along. A box found by its position would now be the wrong one.
+      case "shiftbox":
+        return html(
+          page(
+            form("/shiftbox/login", '<label>Email <input id="u" type="email" name="username"></label><label>Password <input type="password" name="password"></label>') +
+              `<script>document.getElementById("u").addEventListener("focus",function(){if(window.__x)return;window.__x=1;var x=document.createElement("input");x.type="text";x.name="suggest";x.value="${"x".repeat(50)}";var l=document.getElementById("u").parentNode;l.parentNode.insertBefore(x,l)})</script>`,
+          ),
+        );
+      case "maxbox": return html(page(form("/maxbox/login", '<label>Email <input type="email" name="username" maxlength="5"></label><label>Password <input type="password" name="password"></label>')));
       case "choice": return html(page(form("/choice/user", '<input type="email" name="username">')));
       case "modal":
         return html(page(`<p>Trade supplies.</p><button type="button" onclick="document.getElementById('m').style.display='block'">Sign in</button><div id="m" style="display:none">${form("/modal/login", userAndPassword)}</div>`));
@@ -299,17 +309,19 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     expect((await checker().login(ask("banner2"))).result).toBe("unknown");
     expect(posts.banner2.length).toBe(0);
   });
-  it("past the login deadline nothing is typed or pressed", async () => {
+  it("past the login deadline nothing is typed or pressed, and the log says so", async () => {
     posts.one = [];
-    expect((await checker(undefined, 3000, 1).login(ask("one"))).result).toBe("unknown");
+    const lines: string[] = [];
+    expect((await checker((line) => lines.push(line), 3000, 1).login(ask("one"))).result).toBe("unknown");
     expect(posts.one.length).toBe(0);
+    expect(lines).toContain("login result: unknown (deadline)");
   });
   it("a page that shows its boxes 2.5 s late: ok, one POST with the exact values", async () => {
     posts.latebox = [];
     expect((await checker().login(ask("latebox"))).result).toBe("ok");
     expect(posts.latebox.length).toBe(1);
-    expect(posts.latebox[0].get("username")).toBe(USER);
-    expect(posts.latebox[0].get("password")).toBe(PASSWORD);
+    expect(posts.latebox[0]!.get("username")).toBe(USER);
+    expect(posts.latebox[0]!.get("password")).toBe(PASSWORD);
   });
   it("a late page and an Open login override that is not on it: the boxes appear, the override is never needed", async () => {
     posts.latebox = [];
@@ -321,10 +333,34 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     expect((await checker().login(ask("latechoice"))).result).toBe("ok");
     expect(posts.latechoice.length).toBe(1);
   });
-  it("a page that never shows a box: form_not_found after the wait, nothing sent", async () => {
+  it("a page that inserts a box in front of the username on focus: the typing still lands in the right boxes", async () => {
+    posts.shiftbox = [];
+    const lines: string[] = [];
+    expect((await checker((line) => lines.push(line)).login(ask("shiftbox"))).result).toBe("ok");
+    expect(posts.shiftbox.length).toBe(1);
+    expect(posts.shiftbox[0]!.get("username")).toBe(USER);
+    expect(posts.shiftbox[0]!.get("password")).toBe(PASSWORD);
+    // The inserted box was never typed into: not the username, and above all not the password.
+    expect(posts.shiftbox[0]!.get("suggest")).toBe("x".repeat(50));
+  });
+  it("a box that cuts the typing short: unknown, nothing sent, and the log says how it differs (lengths and flags only)", async () => {
+    posts.maxbox = [];
+    const lines: string[] = [];
+    expect((await checker((line) => lines.push(line)).login(ask("maxbox"))).result).toBe("unknown");
+    expect(posts.maxbox.length).toBe(0);
+    // Lengths and yes/no flags only: never the typed text nor the box's content.
+    expect(lines).toContain("login result: unknown (username_not_typed typed=18 box=5 samecase=false maxlength=5 focus=true readonly=false)");
+    expect(lines.join("\n")).not.toContain(USER);
+  });
+  it("a page that never shows a box: form_not_found after the wait, nothing sent, and the log says why", async () => {
     const t0 = Date.now();
-    expect((await checker(undefined, 3000, undefined, 1500).login(ask("neverbox"))).result).toBe("form_not_found");
+    const lines: string[] = [];
+    expect((await checker((line) => lines.push(line), 3000, undefined, 1500).login(ask("neverbox"))).result).toBe("form_not_found");
     expect(Date.now() - t0).toBeLessThan(20_000);
+    // A fixed reason code, never page content or anything typed: it tells the owner which rule stopped the login.
+    // Plus counts and the page's path only (never the host, the query, page text or anything typed): what the login saw.
+    // `locator` is a plain count of input elements; `evalfailed` counts frames where reading them failed.
+    expect(lines.some((l) => /^login result: form_not_found \(no_opener frames=1 inputs=0 locator=0 evalfailed=0 visible=0 password=0 username=0 path=\/neverbox\/login\)$/.test(l))).toBe(true);
   });
   it("stay signed in", async () => {
     expect((await checker().login(ask("stay"))).result).toBe("ok");
@@ -446,10 +482,12 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     expect((await checker().login(ask("webforms"))).result).toBe("ok");
     expect(posts.webforms.length).toBe(1);
   });
-  it("a submit that never sends anything is unknown, never a wrong password", async () => {
+  it("a submit that never sends anything is unknown, never a wrong password, and the log says why", async () => {
     posts.dead = [];
-    expect((await checker().login(ask("dead"))).result).toBe("unknown");
+    const lines: string[] = [];
+    expect((await checker((line) => lines.push(line)).login(ask("dead"))).result).toBe("unknown");
     expect(posts.dead.length).toBe(0);
+    expect(lines).toContain("login result: unknown (nothing_sent)");
   });
   it("puzzle", async () => {
     const out = await checker().login(ask("puzzle"));

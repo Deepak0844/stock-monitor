@@ -174,7 +174,7 @@ export function createControlServer({ token, verify, checkPage, capture, login, 
   }
 
   return createServer(async (req, res) => {
-    const path = (req.url ?? "").split("?")[0];
+    const path = (req.url ?? "").split("?")[0] ?? "";
     if (req.method === "GET" && path === "/health") return reply(res, 200, { status: "ok" });
     // Nothing else is answered, not even "no such page", until the caller has shown the token.
     if (!authorised(req.headers.authorization)) return reply(res, 401, { error: "unauthorised" });
@@ -187,7 +187,7 @@ export function createControlServer({ token, verify, checkPage, capture, login, 
       if (!request) return reply(res, 400, { error: "invalid_request" });
       try {
         const outcome = await login(request);
-        log(`login: ${outcome.result}`);
+        log(`login: ${outcome.result}${outcome.why ? ` (${outcome.why})` : ""}`);
         return reply(res, 200, outcome);
       } catch (error) {
         // The name only. The message could hold the address, and the request holds a password.

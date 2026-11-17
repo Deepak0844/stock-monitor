@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Browser, BrowserContextOptions } from "playwright";
 import { explainPage, looksLikeNotFound, type SessionState } from "@stock-monitor/supplier-session";
+import { NAME_SHIM } from "./page-shim.js";
 import type { GuardProxy } from "./proxy.js";
 import { CHALLENGE_WIDGET, MAX_TEXT, withFreshState, type BlockTracker, type CheckPageOutcome, type VerifyOptions } from "./verify.js";
 
@@ -103,9 +104,6 @@ const describePage = (arg: { limits: typeof LIMITS; challenge: string }) => {
   };
 };
 
-// The container runs this file through tsx, which wraps named inner functions of describePage in __name(...). That helper does
-// not exist inside the page, so the read would fail with "ReferenceError: __name is not defined". This gives the page one.
-const NAME_SHIM = "globalThis.__name = globalThis.__name || ((fn) => fn)";
 
 /** Reads what the page is showing. Exported so a test can run it under tsx, the way the container does. */
 export async function readPage(page: import("playwright").Page) {

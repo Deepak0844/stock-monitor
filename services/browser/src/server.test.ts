@@ -118,7 +118,7 @@ describe("POST /verify", () => {
   });
 
   it("passes a refreshed session back to the worker, and keeps it out of the log", async () => {
-    verify.mockResolvedValue({ result: "ok", status: 200, blockedRequests: 0, signal: "title", state });
+    verify.mockResolvedValue({ result: "ok", status: 200, blockedRequests: 0, signal: "title", state } as Awaited<ReturnType<VerifyFn>>);
     expect(((await (await post(body)).json()) as { state: unknown }).state).toEqual(state);
     expect(logs.join("\n")).toContain("verify: ok");
     expect(logs.join("\n")).not.toContain(MARKER);
@@ -342,6 +342,21 @@ describe("POST /login", () => {
     expect(login).toHaveBeenCalledWith(full);
     expect(logs).toEqual(["login: ok"]);
     expect(logs.join("\n")).not.toContain(PASSWORD);
+  });
+
+  it("logs the fixed reason code when no login form was found, and nothing else about the page", async () => {
+    login.mockResolvedValue({ result: "form_not_found", why: "no_submit_button" });
+    const res = await send(good);
+    expect(res.status).toBe(200);
+    expect(logs).toEqual(["login: form_not_found (no_submit_button)"]);
+    expect(logs.join("\n")).not.toContain(PASSWORD);
+  });
+
+  it("logs the reason code for an unknown result too", async () => {
+    login.mockResolvedValue({ result: "unknown", why: "nothing_sent" });
+    const res = await send(good);
+    expect(res.status).toBe(200);
+    expect(logs).toEqual(["login: unknown (nothing_sent)"]);
   });
 
   it("answers 500 and logs only the error name when login throws", async () => {
