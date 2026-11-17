@@ -174,6 +174,8 @@ Ask the developer for the right values for a supplier.
 
 **Only shows when logged in.** Some suppliers show their product pages to everyone and only hide the stock and prices when you are logged out, so the app cannot tell it was logged out. Type a word or phrase you see on the supplier's pages only when logged in, like "Log out" or your account name, then press **Save page fields**. From then on a page without it counts as logged out, for checks and for automatic login. Capitals and extra spaces do not matter. Leave it empty for any other supplier.
 
+Pick text you can see near the top of every page without opening a menu, like a "Log out" link in the header. The text must appear on every page the app opens for that supplier: product pages, the home page, and the login page when you are already logged in. Text hidden inside a menu you have to open, or only at the very bottom of a long page, may not be found. If the app keeps saying the supplier needs you to log in when you are logged in, pick different text. With a marker set, a login check loads the page one extra time.
+
 ### Things to know
 
 - **Some suppliers allow only one login at a time per account.** Then the app's login logs you out of your own browser, and your login logs the app out. If the supplier allows it, give the app its own supplier user.
