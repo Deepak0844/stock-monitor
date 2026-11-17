@@ -104,7 +104,6 @@ const describePage = (arg: { limits: typeof LIMITS; challenge: string }) => {
   };
 };
 
-
 /** Reads what the page is showing. Exported so a test can run it under tsx, the way the container does. */
 export async function readPage(page: import("playwright").Page) {
   await page.evaluate(NAME_SHIM);

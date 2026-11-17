@@ -7,7 +7,7 @@ import { CHALLENGE_WIDGET, MAX_TEXT } from "./verify.js";
 
 export type LoginResult = "ok" | "captcha" | "code_required" | "wrong_password" | "account_locked" | "blocked" | "form_not_found" | "unreachable" | "unknown";
 export type LoginRequest = { loginUrl: string; checkUrl: string; username: string; password: string; account?: string; stealth: boolean; selectors?: LoginSelectors; loggedInMarker?: string };
-/** `state` only when `result` is `ok`. `why` only with form_not_found: a fixed reason code naming the rule that stopped the login, never page content or anything typed. */
+/** `state` only when `result` is `ok`. `why` only when the login stopped with form_not_found or unknown: a fixed reason code naming the rule that stopped it, never page content or anything typed. */
 export type LoginOutcome = { result: LoginResult; state?: SessionState; why?: string };
 export type AfterSubmitFacts = {
   challengeVisible: boolean;
@@ -88,9 +88,10 @@ async function inputsOf(frame: Frame, overrides: LoginSelectors): Promise<Input[
         els.map((node, index) => {
           const el = node as HTMLInputElement;
           let mark = el.getAttribute(markAttr);
-          if (!mark) {
-            const seen = window as unknown as { __smBox?: number };
-            seen.__smBox = (seen.__smBox ?? 0) + 1;
+          // Only a plain number is ours: a value the page put there itself (or a counter it spoiled) is replaced.
+          if (!mark || !/^\d+$/.test(mark)) {
+            const seen = window as unknown as { __smBox?: unknown };
+            seen.__smBox = (typeof seen.__smBox === "number" && Number.isFinite(seen.__smBox) ? seen.__smBox : 0) + 1;
             mark = String(seen.__smBox);
             el.setAttribute(markAttr, mark);
           }
@@ -145,11 +146,12 @@ async function findFields(page: Page, overrides: LoginSelectors): Promise<Fields
 }
 
 /**
- * Counts and the page's path only, never values, page text, the host or the query: what the login saw when it found no form.
+ * Counts and one yes/no only, never values, page text, the host, the query or the path (a path can carry a username or a token):
+ * what the login saw when it found no form. `samepath` is whether the page is still at the login address.
  * `locator` is a plain count of input elements; `evalfailed` counts frames where reading them in detail failed (the reading
  * swallows its errors, so a page it cannot read looks empty).
  */
-async function sawCounts(page: Page, overrides: LoginSelectors): Promise<string> {
+async function sawCounts(page: Page, overrides: LoginSelectors, loginUrl: string): Promise<string> {
   let frames = 0;
   let inputs = 0;
   let located = 0;
@@ -170,13 +172,14 @@ async function sawCounts(page: Page, overrides: LoginSelectors): Promise<string>
       if (r.usernameLike) usernames++;
     }
   }
-  let path = "?";
+  let samePath = "no";
   try {
-    path = new URL(page.url()).pathname.slice(0, 40);
+    const here = new URL(page.url()).pathname.replace(/\/$/, "");
+    if (here === new URL(loginUrl).pathname.replace(/\/$/, "")) samePath = "yes";
   } catch {
     // an address that is not a URL says nothing
   }
-  return `frames=${frames} inputs=${inputs} locator=${located} evalfailed=${evalFailed} visible=${visible} password=${passwords} username=${usernames} path=${path}`;
+  return `frames=${frames} inputs=${inputs} locator=${located} evalfailed=${evalFailed} visible=${visible} password=${passwords} username=${usernames} samepath=${samePath}`;
 }
 
 /** The first visible button or link, in any frame, whose name is one of `words`. */
@@ -225,24 +228,31 @@ const typingDelay = () => 40 + Math.floor(Math.random() * 81);
 const type = (field: Locator, value: string) => field.pressSequentially(value, { delay: typingDelay(), timeout: 5000 + value.length * 200 });
 
 /** Whether the box holds exactly `want`; only the username box may be trimmed (an email box does). A yes or no: the value never leaves the page. */
-const holds = (field: Locator, want: string, trimOk = false) =>
+const holds = (field: Locator, want: string, trimOk = false, mustBe?: string) =>
   field
-    .evaluate((el, { w, trimOk }) => {
+    .evaluate((el, { w, trimOk, mustBe }) => {
       const box = el as HTMLInputElement;
+      // A password box that has stopped being one (a page turning it into a text box) is not the box that was found.
+      if (mustBe && box.type !== mustBe) return false;
       return box.value === w || (trimOk && box.type === "email" && box.value === w.trim());
-    }, { w: want, trimOk }, { timeout: 5000 })
+    }, { w: want, trimOk, mustBe }, { timeout: 5000 })
     .catch(() => false);
 
 /**
  * How a box differs from what was typed in it, as lengths and yes/no flags only: never the text, never the box's content. It
- * goes into the reason code when typing fails, so the owner can see whether a page cuts, rewrites or locks the box.
+ * goes into the reason code when typing fails, so the owner can see whether a page cuts, rewrites or locks the box. For a
+ * password only a shorter, longer or same-length hint is given: its length and its capitals are not for a log.
  */
-const boxFacts = (field: Locator, want: string) =>
+const boxFacts = (field: Locator, want: string, secret: boolean) =>
   field
-    .evaluate((el, w) => {
+    .evaluate((el, { w, secret }) => {
       const box = el as HTMLInputElement;
+      if (secret) {
+        const rel = box.value.length < w.length ? "shorter" : box.value.length > w.length ? "longer" : "same-length";
+        return `rel=${rel} type=${box.type} maxlength=${box.maxLength} focus=${box.ownerDocument.activeElement === box} readonly=${box.readOnly || box.disabled}`;
+      }
       return `typed=${w.length} box=${box.value.length} samecase=${box.value.toLowerCase() === w.toLowerCase()} maxlength=${box.maxLength} focus=${box.ownerDocument.activeElement === box} readonly=${box.readOnly || box.disabled}`;
-    }, want, { timeout: 3000 })
+    }, { w: want, secret }, { timeout: 3000 })
     .catch(() => "box unreadable");
 
 /**
@@ -250,7 +260,12 @@ const boxFacts = (field: Locator, want: string) =>
  * opened can swallow the first keystrokes. Nothing is submitted yet, so a short box is cleared and typed again, twice at most.
  * Only a yes or no leaves the page, never the value. false: the box still differs, so nothing may be submitted.
  */
-async function typeVerified(page: Page, field: Locator, value: string, trimOk = false, report?: (facts: string) => void): Promise<boolean> {
+async function typeVerified(
+  page: Page,
+  field: Locator,
+  value: string,
+  { trimOk = false, mustBe, secret = false, report }: { trimOk?: boolean; mustBe?: string; secret?: boolean; report?: (facts: string) => void } = {},
+): Promise<boolean> {
   await page.bringToFront().catch(() => {});
   // Wait (3 s at most) for the page to be loaded and the box to hold the focus before the first keystroke.
   const ready = Date.now() + 3000;
@@ -269,16 +284,16 @@ async function typeVerified(page: Page, field: Locator, value: string, trimOk = 
     } catch {
       // checked below
     }
-    if (await holds(field, value, trimOk)) return true;
+    if (await holds(field, value, trimOk, mustBe)) return true;
   }
-  report?.(await boxFacts(field, value));
+  report?.(await boxFacts(field, value, secret));
   return false;
 }
 
 /** How long a step waits for a page that is still loading to show a box, a choice button or a puzzle. */
 export const FORM_WAIT_MS = 10_000;
 
-/** `onWhy` hears a fixed reason code whenever the result is form_not_found: which rule stopped the login. Never page content, never anything typed. */
+/** `onWhy` hears a fixed reason code whenever the login stops with form_not_found or unknown: which rule stopped it. Never page content, never anything typed. */
 export type StepOptions = { settleMs: number; stepWaitMs?: number; maxSteps?: number; deadlineMs?: number; formWaitMs?: number; onWhy?: (why: string) => void };
 
 /**
@@ -287,6 +302,8 @@ export type StepOptions = { settleMs: number; stepWaitMs?: number; maxSteps?: nu
  */
 export async function runLogin(page: Page, request: LoginRequest, { settleMs, stepWaitMs = 15_000, maxSteps = 5, deadlineMs = 150_000, formWaitMs = FORM_WAIT_MS, onWhy }: StepOptions): Promise<LoginResult> {
   const selectors = request.selectors ?? {};
+  /** What the password box must still be after it is typed in. Not when the owner named it by hand: a show-password box is text. */
+  const passwordType = selectors.password ? undefined : "password";
   /** Past this, nothing more is typed or pressed. Never checked after the submit press: from there the login only waits and decides. */
   const deadline = Date.now() + deadlineMs;
   const expired = () => Date.now() > deadline;
@@ -497,7 +514,7 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
         if (opened) return notFound("opener_clicked_no_boxes");
         opened = true;
         const opener = selectors.open ? await firstVisible(page, selectors.open) : await findButton(page, whole(OPEN_WORDS));
-        if (!opener) return notFound(`no_opener ${await sawCounts(page, selectors)}`);
+        if (!opener) return notFound(`no_opener ${await sawCounts(page, selectors, request.loginUrl)}`);
         if (!(await afterAction(() => click(opener), stepWaitMs))) return notFound("opener_no_change");
         continue;
       }
@@ -510,27 +527,27 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
 
       let last: Locator | null = null;
       /** The boxes typed in this step and what they must still hold when the button is pressed. */
-      const typed: { field: Locator; value: string }[] = [];
+      const typed: { field: Locator; value: string; mustBe?: string }[] = [];
       const frame = (f.password ?? f.username ?? f.account)!.frame;
       if (f.account?.empty) {
         if (!request.account) return notFound("account_needed"); // the page needs an account number and none is saved
         if (expired()) return unclear("deadline");
-        if (!(await typeVerified(page, f.account.field, request.account, false, (x) => (typingNote = x)))) return unclear(`account_not_typed ${typingNote}`);
+        if (!(await typeVerified(page, f.account.field, request.account, { report: (x) => (typingNote = x) }))) return unclear(`account_not_typed ${typingNote}`);
         typed.push({ field: f.account.field, value: request.account });
         typedAccount = true;
         last = f.account.field;
       }
       if (f.username?.empty) {
         if (expired()) return unclear("deadline");
-        if (!(await typeVerified(page, f.username.field, request.username, true, (x) => (typingNote = x)))) return unclear(`username_not_typed ${typingNote}`);
+        if (!(await typeVerified(page, f.username.field, request.username, { trimOk: true, report: (x) => (typingNote = x) }))) return unclear(`username_not_typed ${typingNote}`);
         typed.push({ field: f.username.field, value: request.username });
         typedUsername = true;
         last = f.username.field;
       }
       if (f.password) {
         if (expired()) return unclear("deadline");
-        if (!(await typeVerified(page, f.password.field, request.password, false, (x) => (typingNote = x)))) return unclear(`password_not_typed ${typingNote}`);
-        typed.push({ field: f.password.field, value: request.password });
+        if (!(await typeVerified(page, f.password.field, request.password, { mustBe: passwordType, secret: true, report: (x) => (typingNote = x) }))) return unclear(`password_not_typed ${typingNote}`);
+        typed.push({ field: f.password.field, value: request.password, mustBe: passwordType });
         last = f.password.field;
         const remember = await findCheckbox(frame, within(REMEMBER_ME_WORDS));
         if (remember) await click(remember);
@@ -549,7 +566,7 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
       const password = f.password?.field;
       if (expired()) return unclear("deadline");
       const verify = async () => {
-        for (const t of typed) if (!(await holds(t.field, t.value, t.field === f.username?.field))) return false;
+        for (const t of typed) if (!(await holds(t.field, t.value, t.field === f.username?.field, t.mustBe))) return false;
         return true;
       };
       // A remember-me click, a re-render or a lost focus can change a box: every typed box is checked again right before the press.

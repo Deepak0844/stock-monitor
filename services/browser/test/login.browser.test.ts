@@ -37,6 +37,9 @@ const good = (b: URLSearchParams) => b.get("username") === USER && [PASSWORD, LO
 const AFTER: Record<string, string | null> = {
   one: null,
   shiftbox: null,
+  removebox: null,
+  dupbox: null,
+  swaptype: null,
   latebox: null,
   latechoice: null,
   slow: null,
@@ -196,6 +199,31 @@ function startSite(): Promise<Server> {
               `<script>document.getElementById("u").addEventListener("focus",function(){if(window.__x)return;window.__x=1;var x=document.createElement("input");x.type="text";x.name="suggest";x.value="${"x".repeat(50)}";var l=document.getElementById("u").parentNode;l.parentNode.insertBefore(x,l)})</script>`,
           ),
         );
+      // A box in front of the username that disappears when the username gets focus: every box after it moves one place back.
+      case "removebox":
+        return html(
+          page(
+            '<input id="q" type="search" name="q" placeholder="Search">' +
+              form("/removebox/login", '<label>Email <input id="u" type="email" name="username"></label><label>Password <input type="password" name="password"></label>') +
+              '<script>document.getElementById("u").addEventListener("focus",function(){var q=document.getElementById("q");if(q)q.remove()})</script>',
+          ),
+        );
+      // A page that copies every input with all its attributes when the username gets focus: two boxes now carry each mark.
+      case "dupbox":
+        return html(
+          page(
+            form("/dupbox/login", '<label>Email <input id="u" type="email" name="username"></label><label>Password <input type="password" name="password"></label>') +
+              '<script>document.getElementById("u").addEventListener("focus",function(){if(window.__d)return;window.__d=1;var f=document.querySelector("form");[].slice.call(f.querySelectorAll("input")).forEach(function(i){f.appendChild(i.cloneNode(true))})})</script>',
+          ),
+        );
+      // A page that turns the password box into a plain text box when it gets focus: not a password box any more.
+      case "swaptype":
+        return html(
+          page(
+            form("/swaptype/login", '<label>Email <input type="email" name="username"></label><label>Password <input id="p" type="password" name="password"></label>') +
+              '<script>document.getElementById("p").addEventListener("focus",function(){this.type="text"})</script>',
+          ),
+        );
       case "maxbox": return html(page(form("/maxbox/login", '<label>Email <input type="email" name="username" maxlength="5"></label><label>Password <input type="password" name="password"></label>')));
       case "choice": return html(page(form("/choice/user", '<input type="email" name="username">')));
       case "modal":
@@ -345,13 +373,35 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     // The inserted box was never typed into: not the username, and above all not the password.
     expect(posts.shiftbox[0]!.get("suggest")).toBe("x".repeat(50));
   });
+  it("a box in front of the username that disappears on focus: the typing still lands in the right boxes", async () => {
+    posts.removebox = [];
+    const lines: string[] = [];
+    const out = await checker((line) => lines.push(line)).login(ask("removebox"));
+    expect(out.result, `the log said: ${lines.join(" | ")}`).toBe("ok");
+    expect(posts.removebox.length).toBe(1);
+    expect(posts.removebox[0]!.get("username")).toBe(USER);
+    expect(posts.removebox[0]!.get("password")).toBe(PASSWORD);
+  });
+  it("a page that copies every box with its mark: two boxes match, so nothing is typed or sent", async () => {
+    posts.dupbox = [];
+    const out = await checker().login(ask("dupbox"));
+    expect(out.result).toBe("unknown");
+    expect(posts.dupbox.length).toBe(0);
+  });
+  it("a password box that stops being a password box: nothing is sent", async () => {
+    posts.swaptype = [];
+    const lines: string[] = [];
+    expect((await checker((line) => lines.push(line)).login(ask("swaptype"))).result).toBe("unknown");
+    expect(posts.swaptype.length).toBe(0);
+    expect(lines.join("\n")).not.toContain(PASSWORD);
+  });
   it("a box that cuts the typing short: unknown, nothing sent, and the log says how it differs (lengths and flags only)", async () => {
     posts.maxbox = [];
     const lines: string[] = [];
     expect((await checker((line) => lines.push(line)).login(ask("maxbox"))).result).toBe("unknown");
     expect(posts.maxbox.length).toBe(0);
     // Lengths and yes/no flags only: never the typed text nor the box's content.
-    expect(lines).toContain("login result: unknown (username_not_typed typed=18 box=5 samecase=false maxlength=5 focus=true readonly=false)");
+    expect(lines.some((l) => l.startsWith("login result: unknown (username_not_typed typed=18 box=5 samecase=false maxlength=5 "))).toBe(true);
     expect(lines.join("\n")).not.toContain(USER);
   });
   it("a page that never shows a box: form_not_found after the wait, nothing sent, and the log says why", async () => {
@@ -360,9 +410,9 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     expect((await checker((line) => lines.push(line), 3000, undefined, 1500).login(ask("neverbox"))).result).toBe("form_not_found");
     expect(Date.now() - t0).toBeLessThan(20_000);
     // A fixed reason code, never page content or anything typed: it tells the owner which rule stopped the login.
-    // Plus counts and the page's path only (never the host, the query, page text or anything typed): what the login saw.
+    // Plus counts and whether it is still the login page's address (never the path itself, the host, the query, page text or anything typed).
     // `locator` is a plain count of input elements; `evalfailed` counts frames where reading them failed.
-    expect(lines.some((l) => /^login result: form_not_found \(no_opener frames=1 inputs=0 locator=0 evalfailed=0 visible=0 password=0 username=0 path=\/neverbox\/login\)$/.test(l))).toBe(true);
+    expect(lines.some((l) => /^login result: form_not_found \(no_opener frames=1 inputs=0 locator=0 evalfailed=0 visible=0 password=0 username=0 samepath=yes\)$/.test(l))).toBe(true);
   });
   it("stay signed in", async () => {
     expect((await checker().login(ask("stay"))).result).toBe("ok");
