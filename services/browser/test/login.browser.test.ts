@@ -300,8 +300,9 @@ const cookieNames = (o: { state?: { cookies: { name?: unknown }[] } }) => o.stat
 
 describe.skipIf(!linux)("automatic login in the persistent profile", () => {
   it("logs in on a one-step form", async () => {
-    const out = await checker().login(ask("one"));
-    expect(out.result).toBe("ok");
+    const lines: string[] = [];
+    const out = await checker((line) => lines.push(line)).login(ask("one"));
+    expect(out.result, `the log said: ${lines.join(" | ")}`).toBe("ok");
     expect(cookieNames(out as never)).toContain("sid");
   });
   it("waits for a slow supplier's answer before it reads the page: a right password is never called wrong", async () => {
