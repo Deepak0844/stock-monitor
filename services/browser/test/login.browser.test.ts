@@ -71,8 +71,10 @@ async function body(req: IncomingMessage) {
 const diag = { on: false, seen: [] as string[], report: "" };
 const DIAG_SCRIPT = `<script>
 const t0=performance.now(),first={},count={},at=(n)=>n+"@"+Math.round(performance.now()-t0)+"ms focus="+document.hasFocus()+" vis="+document.visibilityState;
+const bub={};
+addEventListener("click",(e)=>{bub.click={defaultPrevented:e.defaultPrevented,readyState:document.readyState}});
 for(const n of["focusin","keydown","input","pointerdown","mousedown","click","submit"])addEventListener(n,(e)=>{count[n]=(count[n]||0)+1;first[n]??=at(n)+" on "+(e.target.name||e.target.tagName)},true);
-const send=()=>navigator.sendBeacon("/diag/report",JSON.stringify({usernameLength:document.querySelector("[name=username]").value.length,passwordLength:document.querySelector("[name=password]").value.length,count,first,now:at("report")}));
+const send=()=>{const f=document.querySelector("form"),b=f.querySelector("button");navigator.sendBeacon("/diag/report",JSON.stringify({clickBubble:bub.click,submitFired:!!count.submit,formValid:f.checkValidity(),invalidFieldNames:[...f.elements].filter(x=>!x.validity.valid).map(x=>x.name),button:{type:b.type,disabled:b.disabled,formIsForm:b.form===f},usernameLength:document.querySelector("[name=username]").value.length,passwordLength:document.querySelector("[name=password]").value.length,count,first,now:at("report")}))};
 setTimeout(send,8000);addEventListener("pagehide",send);
 </script>`;
 
