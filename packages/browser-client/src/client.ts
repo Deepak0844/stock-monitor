@@ -51,6 +51,8 @@ export type BrowserClientOptions = {
   timeoutMs?: number;
   /** How long to wait for a page check or capture. The service loads pages one at a time, each in a fresh browser, so one can wait behind another. */
   pageTimeoutMs?: number;
+  /** How long to wait for a login: the service types slowly, waits for a second step and lets the page settle. */
+  loginTimeoutMs?: number;
   fetchImpl?: typeof fetch;
 };
 
@@ -63,7 +65,7 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "obj
  * Talks to the browser service over the private network. It never throws and never puts a token, an
  * address or a session in a message: every problem becomes a short reason the caller turns into plain words.
  */
-export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, pageTimeoutMs = 120_000, fetchImpl = fetch }: BrowserClientOptions): BrowserClient {
+export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, pageTimeoutMs = 120_000, loginTimeoutMs = 240_000, fetchImpl = fetch }: BrowserClientOptions): BrowserClient {
   const root = baseUrl.replace(/\/+$/, "");
 
   /** The status and JSON body, or null when nothing answered in time. */
@@ -124,7 +126,7 @@ export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, pageTi
     },
 
     async login(request) {
-      const r = await call("POST", "/login", request, pageTimeoutMs);
+      const r = await call("POST", "/login", request, loginTimeoutMs);
       if (!r) return { ok: false, reason: "unavailable" };
       const j = r.json;
       if (r.status !== 200 || !isObject(j) || typeof j.result !== "string" || !LOGIN_RESULTS.includes(j.result)) return { ok: false, reason: "failed" };

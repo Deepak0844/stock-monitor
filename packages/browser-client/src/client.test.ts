@@ -251,4 +251,17 @@ describe("login", () => {
     expect(await withReply(200, { result: "weird" }).login(request)).toEqual({ ok: false, reason: "failed" });
     expect(await withReply(500, { error: "login_failed" }).login(request)).toEqual({ ok: false, reason: "failed" });
   });
+  it("waits for a login by its own limit, not the page limit", async () => {
+    // Answers after 200 ms, unless the call gave up first.
+    const slow = (async (_url: string, init: RequestInit) => {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, 200);
+        init.signal?.addEventListener("abort", () => (clearTimeout(timer), reject(new Error("aborted"))));
+      });
+      return new Response(JSON.stringify({ result: "captcha" }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const c = (over: { loginTimeoutMs?: number; pageTimeoutMs?: number }) => createBrowserClient({ baseUrl: "http://x.test", token: "t", fetchImpl: slow, ...over });
+    expect(await c({ pageTimeoutMs: 50, loginTimeoutMs: 1_000 }).login(request)).toEqual({ ok: true, outcome: { result: "captcha" } });
+    expect(await c({ pageTimeoutMs: 1_000, loginTimeoutMs: 50 }).login(request)).toEqual({ ok: false, reason: "unavailable" });
+  });
 });
