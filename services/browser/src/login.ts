@@ -172,8 +172,35 @@ async function challengeVisible(page: Page): Promise<boolean> {
 const typingDelay = () => 40 + Math.floor(Math.random() * 81);
 const type = (field: Locator, value: string) => field.pressSequentially(value, { delay: typingDelay() });
 
-/** How long a submit may take to leave the page before it is sent once more another way. */
-const SEND_WAIT_MS = 2000;
+/**
+ * Types `value` and checks, inside the page, that the box holds exactly it (an email box may trim): a browser that has just
+ * opened can swallow the first keystrokes. Nothing is submitted yet, so a short box is cleared and typed again, twice at most.
+ * Only a yes or no leaves the page, never the value. false: the box still differs, so nothing may be submitted.
+ */
+async function typeVerified(page: Page, field: Locator, value: string): Promise<boolean> {
+  await page.bringToFront().catch(() => {});
+  // Wait (3 s at most) for the page to be loaded and the box to hold the focus before the first keystroke.
+  const ready = Date.now() + 3000;
+  await field.focus({ timeout: 3000 }).catch(() => {});
+  while (Date.now() < ready) {
+    const ok = await field.evaluate((el) => el.ownerDocument.readyState === "complete" && el.ownerDocument.activeElement === el).catch(() => false);
+    if (ok) break;
+    await field.focus({ timeout: 1000 }).catch(() => {});
+    await page.waitForTimeout(100);
+  }
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await field.fill("");
+    await type(field, value);
+    const same = await field
+      .evaluate((el, want) => {
+        const box = el as HTMLInputElement;
+        return box.value === want || (box.type === "email" && box.value === want.trim());
+      }, value)
+      .catch(() => false);
+    if (same) return true;
+  }
+  return false;
+}
 
 export type StepOptions = { settleMs: number; stepWaitMs?: number; maxSteps?: number };
 
@@ -362,18 +389,17 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
       const frame = (f.password ?? f.username ?? f.account)!.frame;
       if (f.account?.empty) {
         if (!request.account) return "form_not_found"; // the page needs an account number and none is saved
-        await type(f.account.field, request.account);
+        if (!(await typeVerified(page, f.account.field, request.account))) return "unknown";
         typedAccount = true;
         last = f.account.field;
       }
       if (f.username?.empty) {
-        await type(f.username.field, request.username);
+        if (!(await typeVerified(page, f.username.field, request.username))) return "unknown";
         typedUsername = true;
         last = f.username.field;
       }
       if (f.password) {
-        await f.password.field.fill("");
-        await type(f.password.field, request.password);
+        if (!(await typeVerified(page, f.password.field, request.password))) return "unknown";
         last = f.password.field;
         const remember = await findCheckbox(frame, within(REMEMBER_ME_WORDS));
         if (remember) await click(remember);
@@ -390,20 +416,27 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
       const requestsBefore = requests.length;
       const site = siteOf(frame.url());
       const password = f.password?.field;
-      // Did the send start at all? Listeners for the submit event, the click at the button, or Enter in the password box.
-      if (password) await watchSubmit(password, next).catch(() => {});
+      // A click the page never received (a window that has just opened) cannot double-send: it is made once more.
+      const button = next ? await next.elementHandle({ timeout: 1000 }).catch(() => null) : null;
+      if (button) {
+        await frame
+          .evaluate(
+            ({ b, key }) => {
+              const w = window as unknown as Record<string, boolean>;
+              w[key] = false;
+              window.addEventListener("click", (e) => b.contains(e.target as Node) && void (w[key] = true), { capture: true });
+            },
+            { b: button, key: REACHED },
+          )
+          .catch(() => {});
+      }
+      const reached = () => frame.evaluate((k) => (window as unknown as Record<string, boolean>)[k] === true, REACHED).catch(() => true);
       const changed = await afterAction(async () => {
         await (next ? click(next) : target.press("Enter", { noWaitAfter: true }));
-        if (!password) return;
-        // A submit that never happened (a first click lost on a window that just opened) is sent once more, another way.
-        // Only when nothing started: no submit event and no request of any frame or kind within the wait, and then only if the
-        // page did not cancel the click and the button is a real submit button (see resubmit). A login doing slow work
-        // first (a token fetch, a captcha frame, hashing) has started, and sending it again would send the password twice.
-        const happened = async () => requests.length > requestsBefore || (await submitFired(frame));
-        const end = Date.now() + SEND_WAIT_MS;
-        while (Date.now() < end && !(await happened())) await page.waitForTimeout(100);
-        if (await happened()) return;
-        await resubmit(password, next);
+        if (!password || !button) return;
+        const end = Date.now() + 1500;
+        while (Date.now() < end && !(await reached()) && requests.length === requestsBefore) await page.waitForTimeout(100);
+        if (!(await reached()) && requests.length === requestsBefore) await click(next!);
       }, submitWait, f.password ? undefined : frame);
       // Too many requests: the supplier is busy, not refusing the login.
       if (status === 429) return "unreachable";
@@ -468,58 +501,7 @@ function siteOf(url: string): string {
   }
 }
 
-const WATCH = "__stockMonitorSubmitWatch";
-type Watch = { submit: boolean; reached: boolean; seen: boolean; prevented: boolean };
-
-/**
- * Arms listeners on the window that tell what happened to the password's send: the form's submit event, the click reaching the
- * button (or Enter the password box), and, from a bubble-phase listener registered after the page's own handlers, whether the
- * page cancelled that click or Enter. Once the page has taken over, the password must never be sent again.
- */
-async function watchSubmit(password: Locator, next: Locator | null): Promise<void> {
-  const button = next ? await next.elementHandle({ timeout: 1000 }).catch(() => null) : null;
-  await password.evaluate(
-    (el, { button, key }) => {
-      const w = window as unknown as Record<string, Watch>;
-      const st: Watch = (w[key] = { submit: false, reached: false, seen: false, prevented: false });
-      window.addEventListener("submit", () => void (st.submit = true), { capture: true });
-      const hit = (e: Event) => (button ? button.contains(e.target as Node) : e.target === el && (e as KeyboardEvent).key === "Enter");
-      const type = button ? "click" : "keydown";
-      window.addEventListener(type, (e) => hit(e) && void (st.reached = true), { capture: true });
-      window.addEventListener(type, (e) => hit(e) && void ((st.seen = true), (st.prevented = e.defaultPrevented)));
-    },
-    { button, key: WATCH },
-  );
-}
-
-/** Whether the send started by itself: a submit event fired. A frame that cannot answer (it navigated away) counts as yes. */
-async function submitFired(frame: Frame): Promise<boolean> {
-  return frame.evaluate((key) => (window as unknown as Record<string, Watch>)[key]?.submit === true, WATCH).catch(() => true);
-}
-
-/**
- * Sends the password's form once more, but only when the browser ignored a click the page left alone: the target is a real submit
- * button of that form (or Enter was used on a form), the page did not cancel the click, the form is valid. Otherwise nothing is sent.
- */
-async function resubmit(password: Locator, next: Locator | null): Promise<void> {
-  const button = next ? await next.elementHandle({ timeout: 1000 }).catch(() => null) : null;
-  await password
-    .evaluate(
-      (el, { button, key }) => {
-        const st = (window as unknown as Record<string, Watch>)[key];
-        const form = (el as HTMLInputElement).form;
-        if (!form || !st || st.submit) return;
-        // Reached but never seen in the bubble phase: the page stopped it. Seen and cancelled: the page took over.
-        if (st.reached && (!st.seen || st.prevented)) return;
-        const b = button as HTMLButtonElement | HTMLInputElement | null;
-        if (b && !(b.form === form && (b.type === "submit" || b.type === "image"))) return;
-        if (!form.checkValidity()) return;
-        form.requestSubmit(b ?? undefined); // the button's name and value go with it, as some servers need
-      },
-      { button, key: WATCH },
-    )
-    .catch(() => {});
-}
+const REACHED = "__stockMonitorClickReached";
 
 async function firstEmptyPassword(page: Page): Promise<boolean> {
   for (const frame of page.frames()) {

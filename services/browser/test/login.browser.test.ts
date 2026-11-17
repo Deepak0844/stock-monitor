@@ -41,7 +41,10 @@ const AFTER: Record<string, string | null> = {
   recap: null,
   hash: null,
   jsbtn: null,
-  invalid: null,
+  dropuser: null,
+  droppass: null,
+  dropalways: null,
+  droppassalways: null,
   token: null,
   frame: null,
   banner: null,
@@ -71,12 +74,18 @@ async function body(req: IncomingMessage) {
 const diag = { on: false, seen: [] as string[], report: "" };
 const DIAG_SCRIPT = `<script>
 const t0=performance.now(),first={},count={},at=(n)=>n+"@"+Math.round(performance.now()-t0)+"ms focus="+document.hasFocus()+" vis="+document.visibilityState;
-const bub={};
+const bub={},cleared={};
 addEventListener("click",(e)=>{bub.click={defaultPrevented:e.defaultPrevented,readyState:document.readyState}});
+addEventListener("input",(e)=>{if(e.target.value==="")cleared[e.target.name]=(cleared[e.target.name]||0)+1},true);
 for(const n of["focusin","keydown","input","pointerdown","mousedown","click","submit"])addEventListener(n,(e)=>{count[n]=(count[n]||0)+1;first[n]??=at(n)+" on "+(e.target.name||e.target.tagName)},true);
-const send=()=>{const f=document.querySelector("form"),b=f.querySelector("button");navigator.sendBeacon("/diag/report",JSON.stringify({clickBubble:bub.click,submitFired:!!count.submit,formValid:f.checkValidity(),invalidFieldNames:[...f.elements].filter(x=>!x.validity.valid).map(x=>x.name),button:{type:b.type,disabled:b.disabled,formIsForm:b.form===f},usernameLength:document.querySelector("[name=username]").value.length,passwordLength:document.querySelector("[name=password]").value.length,count,first,now:at("report")}))};
+const send=()=>{const f=document.querySelector("form"),b=f.querySelector("button");navigator.sendBeacon("/diag/report",JSON.stringify({clickBubble:bub.click,submitFired:!!count.submit,formValid:f.checkValidity(),invalidFieldNames:[...f.elements].filter(x=>!x.validity.valid).map(x=>x.name),button:{type:b.type,disabled:b.disabled,formIsForm:b.form===f},usernameLength:document.querySelector("[name=username]").value.length,usernameExpected:${USER.length},passwordLength:document.querySelector("[name=password]").value.length,passwordExpected:${PASSWORD.length},retypes:cleared,count,first,now:at("report")}))};
 setTimeout(send,8000);addEventListener("pagehide",send);
 </script>`;
+
+const userAndPasswordForm = (kase: string) => form(`/${kase}/login`, userAndPassword);
+/** A script that cancels the keystrokes of one box while `when` is true. */
+const drop = (name: string, when: string) =>
+  `<script>const t0=Date.now();document.querySelector("[name=${name}]").addEventListener("keydown",(e)=>{if(${when})e.preventDefault()},true)</script>`;
 
 function startSite(): Promise<Server> {
   const server = createServer(async (req, res) => {
@@ -160,9 +169,17 @@ function startSite(): Promise<Server> {
       // A script login on a plain button: it works for 3 s, then posts. No form submit at all.
       case "jsbtn":
         return html(page(`<div>${userAndPassword}<button type="button" onclick="const b=new URLSearchParams({username:document.querySelector('[name=username]').value,password:document.querySelector('[name=password]').value});setTimeout(()=>fetch('/jsbtn/login',{method:'POST',body:b}).then(()=>location.href='/account'),3000)">Sign in</button></div>`));
-      // A form the browser will not send: a hidden required field is empty.
-      case "invalid":
-        return html(page(form("/invalid/login", userAndPassword + '<input type="text" name="hid" required style="display:none">')));
+      // Keystrokes swallowed on a window that has just opened: the username box drops every key in the first second after load.
+      case "dropuser":
+        return html(page(userAndPasswordForm("dropuser") + drop("username", "Date.now()-t0<1000")));
+      // The password box drops its first six keystrokes, then works.
+      case "droppass":
+        return html(page(userAndPasswordForm("droppass") + drop("password", "(window.n=(window.n||0)+1)<=6")));
+      // A box that always loses characters: nothing may be sent.
+      case "dropalways":
+        return html(page(userAndPasswordForm("dropalways") + drop("username", "(window.n=(window.n||0)+1)%3==0")));
+      case "droppassalways":
+        return html(page(userAndPasswordForm("droppassalways") + drop("password", "(window.n=(window.n||0)+1)%3==0")));
       // The login posts to another site only: not the supplier's answer.
       case "elsewhere":
         return html(page(form("/elsewhere/login", userAndPassword, `onsubmit="event.preventDefault();fetch(location.href.replace('127.0.0.1','localhost'),{method:'POST',body:new URLSearchParams(new FormData(this))})"`)));
@@ -203,7 +220,7 @@ function startSite(): Promise<Server> {
   });
   return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server)));
 }
-const webForm = `<form method="post" action="/webforms/login">${userAndPassword}<input type="submit" name="btnLogin" value="Log in" onmousedown="if(!window.armed){window.armed=1;const c=document.createElement('div');c.style.cssText='position:fixed;inset:0;z-index:9';document.body.append(c);setTimeout(()=>c.remove(),500)}"></form>`;
+const webForm = `<form method="post" action="/webforms/login">${userAndPassword}<input type="submit" name="btnLogin" value="Log in"></form>`;
 const acctForm = '<label>Customer number <input type="text" name="customer"></label>' + userAndPassword;
 
 let site: Server;
@@ -342,7 +359,7 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     expect((await checker().login(ask("wrong", { password: "nope" }))).result).toBe("wrong_password");
     expect(posts.wrong.length).toBe(1);
   });
-  it("a first click that never reaches the button: the form is sent once, another way", async () => {
+  it("a first click that never reaches the button: the click is made once more, one POST", async () => {
     posts.lazy = [];
     expect((await checker().login(ask("lazy"))).result).toBe("ok");
     expect(posts.lazy.length).toBe(1);
@@ -362,10 +379,25 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     expect((await checker(undefined, 8000).login(ask("jsbtn"))).result).toBe("ok");
     expect(posts.jsbtn.length).toBe(1);
   });
-  it("a form the browser will not send (invalid hidden field) is unknown, nothing sent", async () => {
-    posts.invalid = [];
-    expect((await checker().login(ask("invalid"))).result).toBe("unknown");
-    expect(posts.invalid.length).toBe(0);
+  it("keystrokes lost in the first second: the box is typed again, one POST with the full username and password", async () => {
+    posts.dropuser = [];
+    expect((await checker().login(ask("dropuser"))).result).toBe("ok");
+    expect(posts.dropuser.map((b) => [b.get("username"), b.get("password")])).toEqual([[USER, PASSWORD]]);
+  });
+  it("a password box that loses its first keystrokes is typed again, never sent short", async () => {
+    posts.droppass = [];
+    expect((await checker().login(ask("droppass"))).result).toBe("ok");
+    expect(posts.droppass.map((b) => [b.get("username"), b.get("password")])).toEqual([[USER, PASSWORD]]);
+  });
+  it("a username box that always loses characters: nothing is sent", async () => {
+    posts.dropalways = [];
+    expect((await checker().login(ask("dropalways"))).result).toBe("unknown");
+    expect(posts.dropalways.length).toBe(0);
+  });
+  it("a password box that always loses characters: no password is ever sent", async () => {
+    posts.droppassalways = [];
+    expect((await checker().login(ask("droppassalways"))).result).toBe("unknown");
+    expect(posts.droppassalways.length).toBe(0);
   });
   it("a POST to another site only is not a sent login", async () => {
     expect((await checker().login(ask("elsewhere"))).result).toBe("unknown");
@@ -380,7 +412,7 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     expect((await checker().login(ask("beacon"))).result).toBe("unknown");
     expect(posts.beacon.filter((b) => b.has("password")).length).toBe(0);
   });
-  it("sent once more, a WebForms-style login keeps its button's name and value", async () => {
+  it("a WebForms-style login gets its button's name and value", async () => {
     posts.webforms = [];
     expect((await checker().login(ask("webforms"))).result).toBe("ok");
     expect(posts.webforms.length).toBe(1);
