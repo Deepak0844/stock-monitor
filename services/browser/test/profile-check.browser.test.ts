@@ -40,10 +40,10 @@ const login = async () => {
   const value = /supplier_session=([0-9a-f]+)/.exec(res.headers.get("set-cookie") ?? "")?.[1] ?? "";
   return { cookies: [{ name: "supplier_session", value, domain: new URL(site.url).hostname, path: "/", expires: -1, httpOnly: true, secure: false, sameSite: "Lax" }], origins: [] };
 };
-const verify = async (path: string, state: unknown) =>
+const verify = async (path: string, state: unknown, loggedInMarker?: string) =>
   (await (await fetch(`${svc.url}/verify`, {
     method: "POST", headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
-    body: JSON.stringify({ url: `${site.url}${path}`, state }),
+    body: JSON.stringify({ url: `${site.url}${path}`, state, loggedInMarker }),
   })).json()) as { result: string; status: number | null };
 
 const post = async (route: string, path: string, state: unknown) =>
@@ -144,5 +144,10 @@ describe.skipIf(!linux)("profile check (spike)", () => {
   });
   it("sees a challenge page", async () => {
     expect((await verify("/captcha", await login())).result).toBe("captcha");
+  });
+  it("reads a page whose title looks fine when a logged-in marker is set, and finds the marker missing", async () => {
+    expect((await verify("/collections/widgets", { cookies: [], origins: [] })).result).toBe("ok");
+    expect((await verify("/collections/widgets", { cookies: [], origins: [] }, "Signed in as"))).toMatchObject({ result: "login_required", status: 200 });
+    expect((await verify("/account", await login(), "Signed in as")).result).toBe("ok");
   });
 });

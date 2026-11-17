@@ -87,7 +87,14 @@ export async function runTick(deps: TickDeps): Promise<{ started: string[]; skip
  * run it was queued for is recorded first: a check that cannot reach the supplier proves nothing, and must not be queued
  * again on every tick.
  */
-async function precheckLogin(deps: TickDeps, supplier: { id: string; nextCheckAt: Date | null; sessionPrecheckFor: Date | null }, window: { start: string; end: string } | null, now: Date) {
+async function precheckLogin(
+  deps: TickDeps,
+  supplier: { id: string; nextCheckAt: Date | null; sessionPrecheckFor: Date | null; autoLogin: boolean; autoLoginPausedReason: string | null },
+  window: { start: string; end: string } | null,
+  now: Date,
+) {
+  // The run logs in by itself, and a login two hours early would not last until the run anyway.
+  if (supplier.autoLogin && !supplier.autoLoginPausedReason) return;
   const lastVerifiedAt = (await deps.supplierSessions.facts(supplier.id))?.lastVerifiedAt ?? null;
   if (!needsSessionPrecheck({ now, nextCheckAt: supplier.nextCheckAt, window, lastVerifiedAt, precheckFor: supplier.sessionPrecheckFor }, deps.timezone)) return;
   await deps.suppliers.markPrecheckQueued(supplier.id, supplier.nextCheckAt as Date);

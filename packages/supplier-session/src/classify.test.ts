@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyPage, type PageFacts } from "./classify.js";
+import { classifyPage, explainPage, type PageFacts } from "./classify.js";
 import { fixtures } from "../test/fixtures.js";
 
 describe("classifyPage on saved example pages", () => {
@@ -75,5 +75,33 @@ describe("classifyPage details", () => {
   it("ignores warning wording buried in a long page, but not in the title", () => {
     expect(classifyPage(at({ text: `${"Acme wholesale catalogue. ".repeat(200)} access denied` }))).toBe("ok");
     expect(classifyPage(at({ title: "Access denied", text: "Acme wholesale catalogue. ".repeat(200) }))).toBe("blocked");
+  });
+});
+
+describe("classifyPage with a logged-in marker", () => {
+  const at = (over: Partial<NonNullable<PageFacts["page"]>>, extra: Partial<PageFacts> = {}): PageFacts => ({
+    requestedUrl: "https://shop.acme.example/a",
+    page: { finalUrl: "https://shop.acme.example/a", status: 200, title: "Acme", text: "Acme wholesale catalogue. ".repeat(30), hasPasswordField: false, hasChallengeWidget: false, ...over },
+    ...extra,
+  });
+
+  it("calls a page that looks ok, but lacks the marker, a login page", () => {
+    expect(explainPage(at({}, { loggedInMarker: "Log out" }))).toEqual({ result: "login_required", signal: "marker_missing" });
+  });
+
+  it("finds the marker whatever its case and spacing", () => {
+    const text = `${"Acme wholesale catalogue. ".repeat(30)} LOG\n   OUT`;
+    expect(explainPage(at({ text }, { loggedInMarker: "  log  out " }))).toEqual({ result: "ok", signal: "looks_real" });
+  });
+
+  it("checks the other rules first: a puzzle page with a marker set is still a puzzle", () => {
+    expect(classifyPage(at({ hasChallengeWidget: true }, { loggedInMarker: "Log out" }))).toBe("captcha");
+    expect(classifyPage(at({ status: 429 }, { loggedInMarker: "Log out" }))).toBe("blocked");
+    expect(classifyPage(at({ text: "short" }, { loggedInMarker: "Log out" }))).toBe("unknown");
+  });
+
+  it("changes nothing when no marker is set", () => {
+    expect(explainPage(at({}))).toEqual({ result: "ok", signal: "looks_real" });
+    expect(explainPage(at({}, { loggedInMarker: "" }))).toEqual({ result: "ok", signal: "looks_real" });
   });
 });

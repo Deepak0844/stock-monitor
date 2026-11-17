@@ -41,8 +41,10 @@ Known open points:
 - Two hours before each scheduled run (never in quiet hours), the login is checked. An expired login raises the usual "needs
   you to log in again" notice, so the owner can reconnect before the run. Known gap: a run at the start of the window (for
   example 07:00) has its two hours in quiet hours, so it gets no early check. The run itself still finds an expired login.
-- Logging in automatically with a stored password was decided against: it would store supplier passwords, and captchas still
-  need the owner. Design: `docs/superpowers/specs/2026-11-13-session-refresh-design.md`.
+- Automatic login is a per-supplier choice (owner's decision, 2026-11-17). It needs a saved username and password and
+  `VERIFY_MODE=profile`. The app logs in before a check when the saved session has ended. It never solves a puzzle or a
+  code: it stops and asks the owner. Design: `docs/superpowers/specs/2026-11-17-auto-login-design.md`. The earlier session
+  refresh design is `docs/superpowers/specs/2026-11-13-session-refresh-design.md`.
 
 ## Problems we hit and how we fixed them
 

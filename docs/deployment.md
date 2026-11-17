@@ -55,7 +55,7 @@ Server-level steps that are not in Compose:
 
 ## Connecting a supplier
 
-This is how you give the app access to a supplier's website, so it can check stock without you. **You log in yourself, by hand.** The app never asks for your supplier password, never stores it, and never logs in for you.
+This is how you give the app access to a supplier's website, so it can check stock without you. **You log in yourself, by hand.** The app never asks for your supplier password, never stores it, and never logs in for you, unless you switch on "Automatic login" for that supplier (see "Automatic login" below).
 
 ### Before you start
 
@@ -119,6 +119,72 @@ What the pilot supplier showed when it was connected by hand (2026-11), with its
 - **The owner read the supplier's terms and recorded the permission decision** on the supplier's Edit page before any check.
 
 Earlier trials with other suppliers showed that a supplier's bot protection can accept a login by hand and still refuse the app's automated check (the check then shows **Blocked**, never a broken link or "out of stock"). If that happens, the options are to ask the supplier for a price list or feed, or to leave that supplier paused.
+
+## Automatic login
+
+This lets the app log in to a supplier for you when the saved login has ended, so you do not have to reconnect by hand. It is off until you turn it on, one supplier at a time. The app never solves a puzzle (CAPTCHA) or types a code for you.
+
+### Before you start
+
+1. **Check the supplier's terms.** Some suppliers forbid automated access. If you use automatic login, the supplier may notice and ban the account. This is your decision, not the app's.
+2. **Set `VERIFY_MODE=profile` in `.env`**, then run `docker compose up -d`. The app logs in inside the supplier's saved browser, so it needs this mode. If `VERIFY_MODE` is not `profile`, automatic login is skipped and checks run as before.
+3. **On the supplier's Edit page, set "Allows automatic checks" to Yes.** Automatic login stays switched off until you do.
+4. **We suggest connecting by hand once first** (see "Connecting a supplier"), so the supplier gets to know the app's browser. It is not required. If you have never connected the supplier, press **Test login now** once after turning automatic login on. Scheduled checks only start once the supplier has a saved login, and a successful test login gives it one.
+
+### Turning it on
+
+1. Open the supplier's page and find the **Automatic login** card.
+2. Type the **Username** and **Password**. If the supplier also asks for an account number, type it in **Account number**.
+3. Press **Save**. The boxes go empty and the card says "Password saved" with the date. The app never shows a saved username or password again.
+4. Switch **Automatic login** on, then press **Test login now**. The result is shown on the card.
+
+**Remove** deletes the saved details.
+
+### What happens when a check needs a login
+
+If the saved login has ended, the app logs in with your saved details, then carries on with the check. If the login is still good, it does nothing.
+
+### When the app cannot log in
+
+If the supplier shows a puzzle, or asks for a code, a text message or an approval on your phone, the app stops. It leaves a message on the Dashboard. Press **Reconnect supplier**, log in through the live window, and type the code there.
+
+### When a login box changes what the app types
+
+Some login boxes change what is typed into them: they add dashes or spaces, switch capitals and small letters, or cut the text short. The app checks every box after typing and again just before it presses the button. If a box does not hold exactly what the app typed, automatic login stops with "login did not finish", and no password is sent (a first step that asks only for the username may already have gone out). The way out is to log in by hand in the live window. If the app picked the wrong box, use the advanced field settings on the supplier's page.
+
+### When automatic login pauses
+
+The app pauses automatic login for that supplier, so it does not keep trying and get the account locked. The card says why, and the Dashboard shows a message.
+
+| You see | It means | What to do |
+|---|---|---|
+| The supplier refused the saved password | The username or password is wrong. | Save the password again (or press **Resume**). |
+| The supplier says the account is locked | Too many wrong tries, or the supplier locked it. | Sort it out with the supplier, then save the password again or press **Resume**. |
+| Two automatic logins failed in a row | Something keeps going wrong. | Press **Resume**, then **Test login now** to see why. |
+
+Logging in yourself through the live window, saving the password again, or pressing **Resume** all start automatic login again. They also start a supplier the app had stopped. A supplier you paused yourself stays paused.
+
+### The login page fields (advanced)
+
+Under **Login page fields (advanced)** you can tell the app where things are on the supplier's login page. Leave them empty first. Use them only when **Test login now** says it could not find the login form.
+
+- **Open login button.** For a page that shows a "Sign in" button you must press before the form appears.
+- **Account.** The box for an account number, if the supplier asks for one.
+- **Username.** The box for the username or email.
+- **Password.** The box for the password.
+- **Login button.** The button that sends the form.
+
+Ask the developer for the right values for a supplier.
+
+**Only shows when logged in.** Some suppliers show their product pages to everyone and only hide the stock and prices when you are logged out, so the app cannot tell it was logged out. Type a word or phrase you see on the supplier's pages only when logged in, like "Log out" or your account name, then press **Save page fields**. From then on a page without it counts as logged out, for checks and for automatic login. Capitals and extra spaces do not matter. Leave it empty for any other supplier.
+
+Pick text you can see near the top of every page without opening a menu, like a "Log out" link in the header. The text must appear on every page the app opens for that supplier: product pages, the home page, and the login page when you are already logged in. Text hidden inside a menu you have to open, or only at the very bottom of a long page, may not be found. If the app keeps saying the supplier needs you to log in when you are logged in, pick different text. With a marker set, a login check loads the page one extra time.
+
+### Things to know
+
+- **Some suppliers allow only one login at a time per account.** Then the app's login logs you out of your own browser, and your login logs the app out. If the supplier allows it, give the app its own supplier user.
+- **Your details are stored by the app.** Keep the server safe (see "Server hardening").
+- **A failed login never counts as "out of stock".**
 
 ## Links from Shopify
 
@@ -276,7 +342,7 @@ This check was run and passed on a Shopify development store on 2026-11-12. Repe
 
 ## Server hardening (the checklist from the design discussion)
 
-Saved supplier sessions are decrypted in memory while a check runs, so anyone who controls the server could use them. Encryption protects the database and backups, not a compromised server.
+Saved supplier sessions, and the username and password of any supplier with Automatic login on, are decrypted in memory while a check runs, so anyone who controls the server could use them. Encryption protects the database and backups, not a compromised server.
 
 - SSH with keys only. Password login off, root login off.
 - Firewall: allow only 22, 80 and 443. Nothing else is published.
@@ -284,7 +350,7 @@ Saved supplier sessions are decrypted in memory while a check runs, so anyone wh
 - HTTPS through a reverse proxy (Caddy or nginx) in front of `127.0.0.1:3000`. Set `COOKIE_SECURE=true`.
 - Set `TRUST_PROXY=true` **only** if the proxy overwrites `X-Forwarded-For` with the real client address. Otherwise anyone can fake their address and dodge the sign-in rate limit. Leave it `false` with no proxy.
 - `.env` readable only by the deploy user (`chmod 600 .env`). Never commit it.
-- Back up `APP_ENCRYPTION_KEY` separately, for example in a password manager. If it is lost, saved sessions and the Shopify token cannot be read. They can be recreated by reconnecting.
+- Back up `APP_ENCRYPTION_KEY` separately, for example in a password manager. If it is lost, saved sessions, saved supplier passwords and the Shopify token cannot be read. They can be recreated by reconnecting and saving the passwords again.
 - Database backups are manual by choice: see the README for `pg_dump` and `pg_restore`. Keep copies off the server and try a restore now and then.
 - Check the pilot supplier's terms of service on automated access before the first real check.
 

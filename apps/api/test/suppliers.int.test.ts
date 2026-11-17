@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createHash, randomBytes } from "node:crypto";
 import { Writable } from "node:stream";
 import { startTestDb, type TestDb } from "@stock-monitor/db/test-harness";
-import { createSupplierRepository } from "@stock-monitor/db";
+import { createSupplierCredentialsRepository, createSupplierRepository } from "@stock-monitor/db";
 import { createLogger } from "@stock-monitor/shared";
 import type { HostLookup } from "@stock-monitor/supplier-session";
 import { buildApp } from "../src/app.js";
@@ -20,7 +20,17 @@ const lookup: HostLookup = async (host) => {
   return answer;
 };
 const logger = createLogger({ level: "silent", stream: new Writable({ write: (_c, _e, cb) => cb() }) });
-const app = () => buildApp({ db: t.appDb, logger, suppliers: { repo: createSupplierRepository(t.appDb), lookup } });
+const queued: { name: string; payload: unknown }[] = [];
+const queue = { enqueue: async (name: string, payload: unknown) => void queued.push({ name, payload }) };
+const key = { key: randomBytes(32), keyId: "test-key" };
+const supplierDeps = (db = t.appDb) => ({
+  repo: createSupplierRepository(db),
+  lookup,
+  credentials: createSupplierCredentialsRepository(db),
+  key,
+  queue: queue as never,
+});
+const app = (log = logger) => buildApp({ db: t.appDb, logger: log, suppliers: supplierDeps() });
 
 beforeAll(async () => {
   t = await startTestDb();
@@ -38,6 +48,7 @@ afterAll(async () => {
 beforeEach(async () => {
   await t.pool.query("truncate suppliers, audit_events cascade");
   lookedUp.length = 0;
+  queued.length = 0;
   for (const k of Object.keys(dns)) delete dns[k];
 });
 
@@ -52,7 +63,7 @@ type Supplier = {
   pausedReason: string | null;
 };
 type Body = { supplier: Supplier; suppliers: Supplier[]; error: { code: string; message: string }; ok: boolean };
-type Method = "GET" | "POST" | "PATCH" | "DELETE";
+type Method = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
 async function call(method: Method, url: string, payload?: unknown, cookie = true) {
   const res = await app().inject({ method, url, payload: payload as never, cookies: cookie ? { sid } : {} });
   return { status: res.statusCode, body: res.json() as Body };
@@ -77,6 +88,10 @@ describe("every supplier route needs a signed-in owner", () => {
     ["DELETE", `/api/suppliers/${UNKNOWN}`],
     ["POST", `/api/suppliers/${UNKNOWN}/pause`],
     ["POST", `/api/suppliers/${UNKNOWN}/resume`],
+    ["PUT", `/api/suppliers/${UNKNOWN}/credentials`],
+    ["DELETE", `/api/suppliers/${UNKNOWN}/credentials`],
+    ["POST", `/api/suppliers/${UNKNOWN}/auto-login/test`],
+    ["POST", `/api/suppliers/${UNKNOWN}/auto-login/resume`],
   ] as const)("%s %s returns 401 without a session", async (method, url) => {
     const res = await call(method, url, method === "GET" || method === "DELETE" ? undefined : {}, false);
     expect(res.status).toBe(401);
@@ -312,4 +327,151 @@ describe("GET /api/suppliers with a page", () => {
       expect(res.body.error.code).toBe("invalid_input");
     },
   );
+});
+
+describe("automatic login", () => {
+  const SECRET = "hunter2-very-secret";
+  const creds = { username: "buyer@acme.example", password: SECRET };
+  const grant = (id: string) => createSupplierRepository(t.appDb).setPermission(id, { status: "granted", note: null });
+  type Full = Supplier & { autoLogin: boolean; stealth: boolean; credentialsSavedAt: string | null; autoLoginPausedReason: string | null; lastAutoLoginAt: string | null; lastAutoLoginResult: string | null; loggedInMarker: string | null };
+  const get = async (id: string) => (await call("GET", `/api/suppliers/${id}`)).body.supplier as Full;
+
+  it("saves credentials and never returns, stores in clear or audits the password", async () => {
+    const s = await create();
+    const res = await app().inject({ method: "PUT", url: `/api/suppliers/${s.id}/credentials`, payload: creds, cookies: { sid } });
+    expect(res.statusCode).toBe(200);
+    expect(Object.keys(res.json())).toEqual(["savedAt"]);
+    expect(res.body).not.toContain(SECRET);
+    const got = await call("GET", `/api/suppliers/${s.id}`);
+    expect(JSON.stringify(got.body)).not.toContain(SECRET);
+    expect((await get(s.id)).credentialsSavedAt).toEqual(expect.any(String));
+    const audit = await t.pool.query("select * from audit_events");
+    expect(JSON.stringify(audit.rows)).not.toContain(SECRET);
+    const [event] = await events("supplier.credentials_saved");
+    expect(event).toMatchObject({ entity_id: s.id });
+    const row = await t.pool.query("select ciphertext from supplier_credentials");
+    expect(JSON.stringify(row.rows)).not.toContain(SECRET);
+  });
+
+  it.each([
+    ["a 201-character password", { username: "u", password: "x".repeat(201) }],
+    ["an empty username", { username: "", password: "p" }],
+    ["a missing password", { username: "u" }],
+    ["an empty account", { username: "u", password: "p", account: "" }],
+  ])("refuses %s", async (_n, body) => {
+    const s = await create();
+    expect((await call("PUT", `/api/suppliers/${s.id}/credentials`, body)).status).toBe(400);
+  });
+
+  it("returns 404 for an unknown supplier", async () => {
+    expect((await call("PUT", `/api/suppliers/${UNKNOWN}/credentials`, creds)).status).toBe(404);
+  });
+
+  it("refuses to turn automatic login on without credentials, then without permission, then allows it", async () => {
+    const s = await create();
+    const first = await call("PATCH", `/api/suppliers/${s.id}`, { autoLogin: true });
+    expect(first.status).toBe(409);
+    expect(first.body.error).toMatchObject({ code: "no_credentials", message: "Save a username and password first." });
+    await call("PUT", `/api/suppliers/${s.id}/credentials`, creds);
+    const second = await call("PATCH", `/api/suppliers/${s.id}`, { autoLogin: true });
+    expect(second.status).toBe(409);
+    expect(second.body.error).toMatchObject({ code: "not_granted", message: "Mark this supplier as allowing automatic checks first." });
+    await grant(s.id);
+    const third = await call("PATCH", `/api/suppliers/${s.id}`, { autoLogin: true });
+    expect(third.status).toBe(200);
+    expect(third.body.supplier).toMatchObject({ autoLogin: true, credentialsSavedAt: expect.any(String) });
+  });
+
+  it("changes nothing when a refused automatic login comes with other fields", async () => {
+    const s = await create();
+    const res = await call("PATCH", `/api/suppliers/${s.id}`, { name: "Renamed", autoLogin: true });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe("no_credentials");
+    expect((await get(s.id)).name).toBe("Acme Supply");
+  });
+
+  it("saves login selectors and rejects bad ones", async () => {
+    const s = await create();
+    const bad = await call("PATCH", `/api/suppliers/${s.id}`, { loginSelectors: { nope: 1 } });
+    expect(bad.status).toBe(400);
+    const none = await call("PATCH", `/api/suppliers/${s.id}`, { loginSelectors: null });
+    expect(none.status).toBe(200);
+  });
+
+  it("saves the logged-in marker, returns it, and clears it with null", async () => {
+    const s = await create();
+    expect((await get(s.id)).loggedInMarker).toBeNull();
+    const saved = await call("PATCH", `/api/suppliers/${s.id}`, { loggedInMarker: "Log out" });
+    expect(saved.status).toBe(200);
+    expect(saved.body.supplier).toMatchObject({ loggedInMarker: "Log out" });
+    expect((await get(s.id)).loggedInMarker).toBe("Log out");
+    const cleared = await call("PATCH", `/api/suppliers/${s.id}`, { loggedInMarker: null });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.supplier).toMatchObject({ loggedInMarker: null });
+  });
+
+  it.each([
+    ["201 characters", "m".repeat(201)],
+    ["an empty marker", ""],
+    ["a number", 7],
+  ])("refuses a logged-in marker of %s and changes nothing", async (_n, loggedInMarker) => {
+    const s = await create();
+    const res = await call("PATCH", `/api/suppliers/${s.id}`, { name: "Renamed", loggedInMarker });
+    expect(res.status).toBe(400);
+    expect(await get(s.id)).toMatchObject({ name: "Acme Supply", loggedInMarker: null });
+  });
+
+  it("turns automatic login off when permission is revoked", async () => {
+    const s = await create();
+    await call("PUT", `/api/suppliers/${s.id}/credentials`, creds);
+    await grant(s.id);
+    await call("PATCH", `/api/suppliers/${s.id}`, { autoLogin: true });
+    expect((await get(s.id)).autoLogin).toBe(true);
+    await createSupplierRepository(t.appDb).setPermission(s.id, { status: "not_granted", note: null });
+    expect((await get(s.id)).autoLogin).toBe(false);
+  });
+
+  it("removing credentials switches automatic login off and audits it", async () => {
+    const s = await create();
+    await call("PUT", `/api/suppliers/${s.id}/credentials`, creds);
+    await grant(s.id);
+    await call("PATCH", `/api/suppliers/${s.id}`, { autoLogin: true });
+    const res = await app().inject({ method: "DELETE", url: `/api/suppliers/${s.id}/credentials`, cookies: { sid } });
+    expect(res.statusCode).toBe(204);
+    const after = await get(s.id);
+    expect(after).toMatchObject({ autoLogin: false, credentialsSavedAt: null });
+    expect(await events("supplier.credentials_removed")).toHaveLength(1);
+  });
+
+  it("queues one test login and limits it to one a minute per supplier", async () => {
+    const s = await create();
+    const other = await create({ name: "Other", websiteUrl: "https://other.example/" });
+    const a = app();
+    const post = (id: string) => a.inject({ method: "POST", url: `/api/suppliers/${id}/auto-login/test`, cookies: { sid } });
+    expect((await post(s.id)).statusCode).toBe(202);
+    expect(queued).toEqual([{ name: "supplier.session.login", payload: { supplierId: s.id } }]);
+    expect((await post(s.id)).statusCode).toBe(429);
+    expect(queued).toHaveLength(1);
+    expect((await post(other.id)).statusCode).toBe(202);
+  });
+
+  it("resume clears the pause", async () => {
+    const s = await create();
+    await t.pool.query("update suppliers set auto_login_failures = 2, auto_login_paused_reason = 'too_many_failures' where id = $1", [s.id]);
+    expect((await get(s.id)).autoLoginPausedReason).toBe("too_many_failures");
+    const res = await app().inject({ method: "POST", url: `/api/suppliers/${s.id}/auto-login/resume`, cookies: { sid } });
+    expect(res.statusCode).toBe(204);
+    expect((await get(s.id)).autoLoginPausedReason).toBeNull();
+  });
+
+  it("never writes the username or password to the log", async () => {
+    const lines: string[] = [];
+    const logged = createLogger({ level: "trace", stream: new Writable({ write: (c, _e, cb) => (lines.push(String(c)), cb()) }) });
+    const s = await create();
+    const res = await app(logged).inject({ method: "PUT", url: `/api/suppliers/${s.id}/credentials`, payload: creds, cookies: { sid } });
+    expect(res.statusCode).toBe(200);
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.join("")).not.toContain(SECRET);
+    expect(lines.join("")).not.toContain(creds.username);
+  });
 });

@@ -4,6 +4,7 @@ import { Card } from "@/components/ui/card.js";
 import { Input } from "@/components/ui/input.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
 import { ApiError, type Api, type Supplier, type SupplierInput } from "../api.js";
+import { AutoLoginCard } from "../components/AutoLoginCard.js";
 import { Field as FormField } from "../components/Field.js";
 import { Notice } from "../components/Notice.js";
 import { PageHeader } from "../components/PageHeader.js";
@@ -40,6 +41,15 @@ export function SupplierFormPage({ api, id }: { api: Api; id?: string }) {
       .catch((e: unknown) => setLoad({ kind: "error", message: message(e) }));
   }, [api, id]);
 
+  /** Loads the supplier again without the loading screen, so the page keeps what the owner typed. */
+  const reload = () => {
+    if (id === undefined) return;
+    api.suppliers
+      .get(id)
+      .then((supplier) => setLoad({ kind: "ready", supplier }))
+      .catch(() => undefined);
+  };
+
   return (
     <>
       <PageHeader
@@ -75,13 +85,16 @@ export function SupplierFormPage({ api, id }: { api: Api; id?: string }) {
           {load.supplier && (
             <>
               <Card className="p-6">
-                <PermissionPanel api={api} supplier={load.supplier} />
+                <PermissionPanel api={api} supplier={load.supplier} onSaved={reload} />
               </Card>
               <Card className="p-6">
                 <RegionPanel api={api} supplier={load.supplier} />
               </Card>
               <Card className="p-6">
                 <SchedulePanel api={api} supplier={load.supplier} />
+              </Card>
+              <Card className="p-6">
+                <AutoLoginCard api={api} supplier={load.supplier} onChange={reload} />
               </Card>
             </>
           )}

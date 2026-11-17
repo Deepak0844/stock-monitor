@@ -131,6 +131,17 @@ describe("verify", () => {
     expect("loginUrl" in (fake.requests[1]?.body as Record<string, unknown>)).toBe(false);
   });
 
+  it("sends the logged-in marker on verify, check-page and capture when there is one, and leaves it out when there is not", async () => {
+    const url = "https://a.example/";
+    await client().verify({ url, state, loggedInMarker: "Log out" });
+    await client().checkPage({ url, state, loggedInMarker: "Log out" });
+    await client().capture({ url, state, loggedInMarker: "Log out" });
+    await client().verify({ url, state });
+    const bodies = fake.requests.map((r) => r.body as Record<string, unknown>);
+    expect(bodies.slice(0, 3).map((b) => b.loggedInMarker)).toEqual(["Log out", "Log out", "Log out"]);
+    expect("loggedInMarker" in bodies[3]!).toBe(false);
+  });
+
   it.each(["ok", "login_required", "captcha", "blocked", "unreachable", "unknown"])("passes the answer %s through", async (result) => {
     fake.behaviour.verifyResult = result;
     expect(await client().verify({ url: "https://a.example/", state })).toMatchObject({ ok: true, result });
@@ -219,5 +230,52 @@ describe("capture", () => {
   it("never puts the session in an error", async () => {
     fake.behaviour.capture = "fail";
     expect(JSON.stringify(await client().capture({ url: "https://a.example/", state }))).not.toContain(COOKIE);
+  });
+});
+
+describe("login", () => {
+  const request = { loginUrl: "https://shop.acme.example/login", checkUrl: "https://shop.acme.example/a", username: "u", password: "p", stealth: false };
+  const session = { cookies: [], origins: [] };
+  const withReply = (status: number, json: unknown) =>
+    createBrowserClient({ baseUrl: "http://x.test", token: "t", fetchImpl: (async () => new Response(JSON.stringify(json), { status })) as typeof fetch });
+
+  it("maps a 200 to the outcome, keeping the session on ok", async () => {
+    expect(await withReply(200, { result: "ok", state: session }).login(request)).toEqual({ ok: true, outcome: { result: "ok", state: session } });
+  });
+  it("drops the session unless the result is ok", async () => {
+    expect(await withReply(200, { result: "captcha", state: session }).login(request)).toEqual({ ok: true, outcome: { result: "captcha" } });
+  });
+  it("drops a state that is not a session", async () => {
+    expect(await withReply(200, { result: "ok", state: { cookies: "x" } }).login(request)).toEqual({ ok: true, outcome: { result: "ok" } });
+  });
+  it("says unavailable on a network error", async () => {
+    const c = createBrowserClient({
+      baseUrl: "http://x.test",
+      token: "t",
+      fetchImpl: (async () => {
+        throw new Error("down");
+      }) as typeof fetch,
+    });
+    expect(await c.login(request)).toEqual({ ok: false, reason: "unavailable" });
+  });
+  it("says failed on a result it does not know, or a non-200", async () => {
+    expect(await withReply(200, { result: "weird" }).login(request)).toEqual({ ok: false, reason: "failed" });
+    expect(await withReply(500, { error: "login_failed" }).login(request)).toEqual({ ok: false, reason: "failed" });
+  });
+  it("says not_supported when the service has no login (it is not in profile mode)", async () => {
+    expect(await withReply(404, { error: "not_found" }).login(request)).toEqual({ ok: false, reason: "not_supported" });
+  });
+  it("waits for a login by its own limit, not the page limit", async () => {
+    // Answers after 200 ms, unless the call gave up first.
+    const slow = (async (_url: string, init: RequestInit) => {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, 200);
+        init.signal?.addEventListener("abort", () => (clearTimeout(timer), reject(new Error("aborted"))));
+      });
+      return new Response(JSON.stringify({ result: "captcha" }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const c = (over: { loginTimeoutMs?: number; pageTimeoutMs?: number }) => createBrowserClient({ baseUrl: "http://x.test", token: "t", fetchImpl: slow, ...over });
+    expect(await c({ pageTimeoutMs: 50, loginTimeoutMs: 1_000 }).login(request)).toEqual({ ok: true, outcome: { result: "captcha" } });
+    expect(await c({ pageTimeoutMs: 1_000, loginTimeoutMs: 50 }).login(request)).toEqual({ ok: false, reason: "unavailable" });
   });
 });

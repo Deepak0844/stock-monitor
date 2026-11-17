@@ -1,9 +1,13 @@
 import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
 import type { BrowserClient } from "@stock-monitor/browser-client";
-import type { createMappingRepository, createNotificationRepository, createSupplierRepository, createSupplierSessionRepository, LinkCheckResult, MappingRow, SupplierRecord } from "@stock-monitor/db";
+import type {
+  createMappingRepository, createNotificationRepository, createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository, LinkCheckResult, MappingRow, SupplierRecord,
+} from "@stock-monitor/db";
 import { decideLinkStatus, isSupplierWide, whyNotChecked, type CheckGateReason, type LinkState, type LinkStatus, type Observation } from "@stock-monitor/mapping";
 import { unsealSessionState } from "@stock-monitor/supplier-session";
+import { ensureLoggedIn, loginCheckUrl } from "./auto-login.js";
+import type { StopReason } from "./extraction-check.js";
 import { saveRefreshedSession } from "./session-refresh.js";
 import { raiseNeedsAttention } from "./supplier-verify.js";
 
@@ -11,6 +15,8 @@ export type LinkCheckDeps = {
   mappings: ReturnType<typeof createMappingRepository>;
   suppliers: ReturnType<typeof createSupplierRepository>;
   supplierSessions: ReturnType<typeof createSupplierSessionRepository>;
+  /** The saved login, for automatic login. */
+  supplierCredentials: ReturnType<typeof createSupplierCredentialsRepository>;
   notifications: ReturnType<typeof createNotificationRepository>;
   audit: ReturnType<typeof createAuditWriter>;
   browser: BrowserClient;
@@ -23,7 +29,8 @@ export type LinkCheckDeps = {
 
 export type SkipReason = CheckGateReason | "no_mapping" | "no_supplier" | "link_off";
 export type LinkOutcome = { kind: "skipped"; reason: SkipReason } | { kind: "checked"; status: LinkStatus };
-export type SupplierRunOutcome = { kind: "skipped"; reason: SkipReason } | { kind: "done"; checked: number; supplierWide: boolean };
+/** `stopped` is set when an automatic login failed and ended the run. */
+export type SupplierRunOutcome = { kind: "skipped"; reason: SkipReason } | { kind: "done"; checked: number; supplierWide: boolean; stopped?: StopReason };
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -69,7 +76,7 @@ export function createLinkChecker(deps: LinkCheckDeps) {
     }
     // A session that cannot be opened cannot be used. That is the session check's business, so nothing is concluded here.
     if (!state) return { result: "service_unavailable", status: null, finalUrl: null, title: null, heading: null, softNotFound: false };
-    const outcome = await browser.checkPage({ url: mapping.url, loginUrl: supplier.loginUrl ?? undefined, state });
+    const outcome = await browser.checkPage({ url: mapping.url, loginUrl: supplier.loginUrl ?? undefined, ...(supplier.loggedInMarker ? { loggedInMarker: supplier.loggedInMarker } : {}), state });
     if (!outcome.ok) {
       logger.warn({ mappingId: mapping.id }, "link check could not run: the browser service did not answer");
       return { result: "service_unavailable", status: null, finalUrl: null, title: null, heading: null, softNotFound: false };
@@ -97,9 +104,23 @@ export function createLinkChecker(deps: LinkCheckDeps) {
       if (!mapping.enabled) return { kind: "skipped", reason: "link_off" };
       const gated = await gate(mapping.supplierId);
       if ("reason" in gated) return { kind: "skipped", reason: gated.reason };
-      const observation = await observe(gated.supplier, mapping);
+      // A failed automatic login already told the owner what went wrong, so the check must not replace that notice.
+      let toldOwner = false;
+      const login = await ensureLoggedIn(deps, gated.supplier, { force: false, checkUrl: mapping.url });
+      let observation: Observation;
+      if (login !== "ready" && login !== "skipped") {
+        observation = { result: login === "supplier_not_ready" ? "unreachable" : login, status: null, finalUrl: null, title: null, heading: null, softNotFound: false };
+        toldOwner = true;
+      } else {
+        observation = await observe(gated.supplier, mapping);
+        if (observation.result === "login_required") {
+          const again = await ensureLoggedIn(deps, gated.supplier, { force: true, checkUrl: mapping.url });
+          if (again === "ready") observation = await observe(gated.supplier, mapping);
+          else if (again !== "skipped") toldOwner = true;
+        }
+      }
       const status = await save(gated.supplier, mapping, observation, false);
-      if (needsOwner(observation.result)) await raiseNeedsAttention(deps, gated.supplier, observation.result);
+      if (!toldOwner && needsOwner(observation.result)) await raiseNeedsAttention(deps, gated.supplier, observation.result);
       return { kind: "checked", status };
     },
 
@@ -114,11 +135,28 @@ export function createLinkChecker(deps: LinkCheckDeps) {
       if ("reason" in first) return { kind: "skipped", reason: first.reason };
       const links = (await mappings.forSupplier(supplierId)).filter((m) => m.enabled);
       const seen: { mapping: MappingRow; observation: Observation }[] = [];
-      for (const [index, mapping] of links.entries()) {
+      const checkUrl = loginCheckUrl(first.supplier, links);
+      // A failed automatic login already told the owner, and ends the run.
+      let stopped: StopReason | undefined;
+      if (links.length > 0) {
+        const login = await ensureLoggedIn(deps, first.supplier, { force: false, checkUrl });
+        if (login !== "ready" && login !== "skipped") stopped = login;
+      }
+      // One automatic login when a page asks for one, at most, per run.
+      let loggedInAgain = false;
+      for (const [index, mapping] of stopped ? [] : links.entries()) {
         if (index > 0) await sleep(first.supplier.checkPauseSeconds * 1000);
         const gated = await gate(supplierId);
         if ("reason" in gated) break;
-        seen.push({ mapping, observation: await observe(gated.supplier, mapping) });
+        let observation = await observe(gated.supplier, mapping);
+        if (observation.result === "login_required" && !loggedInAgain) {
+          loggedInAgain = true;
+          const login = await ensureLoggedIn(deps, gated.supplier, { force: true, checkUrl });
+          if (login === "ready") observation = await observe(gated.supplier, mapping);
+          else if (login !== "skipped") stopped = login;
+        }
+        seen.push({ mapping, observation });
+        if (stopped) break;
       }
       // What each link would be on its own, to see whether the run as a whole looks like a site change or outage.
       const trial = seen.map(({ mapping, observation }) =>
@@ -127,8 +165,8 @@ export function createLinkChecker(deps: LinkCheckDeps) {
       const supplierWide = isSupplierWide(trial);
       for (const { mapping, observation } of seen) await save(first.supplier, mapping, observation, supplierWide);
       const refused = seen.map((s) => s.observation.result).find(needsOwner);
-      if (refused) await raiseNeedsAttention(deps, first.supplier, refused);
-      return { kind: "done", checked: seen.length, supplierWide };
+      if (refused && !stopped) await raiseNeedsAttention(deps, first.supplier, refused);
+      return { kind: "done", checked: seen.length, supplierWide, ...(stopped ? { stopped } : {}) };
     },
   };
 }
@@ -146,7 +184,7 @@ export function createLinkCheckHandlers(deps: LinkCheckDeps) {
     },
     async links(payload: { supplierId: string }): Promise<void> {
       const outcome = await checkSupplierLinks(deps, payload.supplierId);
-      deps.logger.info({ supplierId: payload.supplierId, outcome: outcome.kind, ...(outcome.kind === "skipped" ? { reason: outcome.reason } : { checked: outcome.checked, supplierWide: outcome.supplierWide }) }, "supplier link check finished");
+      deps.logger.info({ supplierId: payload.supplierId, outcome: outcome.kind, ...(outcome.kind === "skipped" ? { reason: outcome.reason } : { checked: outcome.checked, supplierWide: outcome.supplierWide, stopped: outcome.stopped ?? null }) }, "supplier link check finished");
     },
   };
 }

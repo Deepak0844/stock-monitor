@@ -1,4 +1,4 @@
-const SECRET_KEY = /pass(word)?|token|cookie|secret|authorization|api[-_]?key|private[-_]?key/i;
+const SECRET_KEY = /pass(word)?|username|token|cookie|secret|authorization|api[-_]?key|private[-_]?key/i;
 export const REDACTED = "[REDACTED]";
 
 export function redactSecrets<T>(value: T): T {

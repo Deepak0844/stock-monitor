@@ -103,9 +103,25 @@ export type Supplier = {
   checkPauseSeconds: number;
   /** The region label stock checks look for on this supplier's pages, unless a link has its own. */
   defaultRegion: string | null;
+  /** Log in for the owner before each check, with the saved username and password. */
+  autoLogin: boolean;
+  stealth: boolean;
+  /** The owner's own selectors for the login page. Only the keys that were set. */
+  loginSelectors: LoginSelectors | null;
+  /** Text that only shows when logged in. Set, a page without it counts as logged out. */
+  loggedInMarker: string | null;
+  /** When a password was saved, never the password. */
+  credentialsSavedAt: string | null;
+  lastAutoLoginAt: string | null;
+  lastAutoLoginResult: AutoLoginResult | null;
+  autoLoginPausedReason: "wrong_password" | "account_locked" | "too_many_failures" | null;
   createdAt: string;
   updatedAt: string;
 };
+
+export type LoginSelectors = { open?: string; account?: string; username?: string; password?: string; submit?: string };
+export type AutoLoginResult = "ok" | "captcha" | "code_required" | "wrong_password" | "account_locked" | "blocked" | "form_not_found" | "unreachable" | "unknown";
+export type CredentialsInput = { username: string; password: string; account?: string };
 
 /** One run of checks for one supplier. Counts and a fixed stop code only. */
 export type CheckRun = {
@@ -163,6 +179,15 @@ export type SuppliersApi = {
   setRegion(id: string, region: string | null): Promise<Supplier>;
   /** Records whether the supplier allows automatic checks, and the pause between pages. */
   setPermission(id: string, input: PermissionInput): Promise<Supplier>;
+  /** Saves the supplier login. The server seals it and never returns it. */
+  saveCredentials(id: string, input: CredentialsInput): Promise<{ savedAt: string }>;
+  removeCredentials(id: string): Promise<void>;
+  /** Turns automatic login on or off, and/or sets the login page selectors (null clears them). */
+  setAutoLogin(id: string, patch: { autoLogin?: boolean; loginSelectors?: LoginSelectors | null; loggedInMarker?: string | null }): Promise<Supplier>;
+  /** Asks for one test login. The answer arrives later, as the last automatic login. */
+  testAutoLogin(id: string): Promise<void>;
+  /** Clears the pause after a failed automatic login. */
+  resumeAutoLogin(id: string): Promise<void>;
 };
 
 export type LinkStatus = "not_checked" | "works" | "never_worked" | "page_missing" | "moved" | "looks_different" | "needs_login" | "could_not_check";
@@ -461,6 +486,12 @@ async function request<T>(path: string, init: { method: string; json?: unknown; 
   }
 }
 
+/** For answers with no body we need (204, or 202 with a small body we do not read). */
+async function done(path: string, init: { method: string; json?: unknown }): Promise<void> {
+  const res = await send(path, init);
+  if (!res.ok) throw await failure(res);
+}
+
 const shopify: ShopifyApi = {
   async getConnection() {
     return (await request<{ connection: ShopifyConnection | null }>("/api/shopify/connection", { method: "GET" })).connection;
@@ -516,6 +547,11 @@ const suppliers: SuppliersApi = {
   },
   setRegion: (id, region) => supplier(`/api/suppliers/${encodeURIComponent(id)}/region`, { method: "PATCH", json: { region } }),
   setPermission: (id, input) => supplier(`/api/suppliers/${encodeURIComponent(id)}/permission`, { method: "PATCH", json: input }),
+  saveCredentials: (id, input) => request(`/api/suppliers/${encodeURIComponent(id)}/credentials`, { method: "PUT", json: input }),
+  removeCredentials: (id) => done(`/api/suppliers/${encodeURIComponent(id)}/credentials`, { method: "DELETE" }),
+  setAutoLogin: (id, patch) => supplier(`/api/suppliers/${encodeURIComponent(id)}`, { method: "PATCH", json: patch }),
+  testAutoLogin: (id) => done(`/api/suppliers/${encodeURIComponent(id)}/auto-login/test`, { method: "POST" }),
+  resumeAutoLogin: (id) => done(`/api/suppliers/${encodeURIComponent(id)}/auto-login/resume`, { method: "POST" }),
 };
 
 const enc = encodeURIComponent;

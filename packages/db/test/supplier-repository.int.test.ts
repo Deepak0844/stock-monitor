@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { startTestDb, type TestDb } from "./harness.js";
 import { createSupplierRepository, type SupplierInput } from "../src/supplier-repository.js";
+import { createSupplierCredentialsRepository } from "../src/supplier-credentials-repository.js";
 
 let t: TestDb;
 // Runs as the restricted app role, like the API.
@@ -196,5 +197,99 @@ describe("supplier repository: early session check", () => {
     const forRun = new Date("2026-11-13T10:15:30.123Z");
     await repo().markPrecheckQueued(s.id, forRun);
     expect((await repo().get(s.id))?.sessionPrecheckFor).toEqual(forRun);
+  });
+});
+
+describe("supplier repository: automatic login", () => {
+  const creds = { ciphertext: "c", iv: "i", tag: "t", keyId: "k" };
+  const grant = (id: string) => repo().setPermission(id, { status: "granted", note: null });
+  const save = (id: string) => createSupplierCredentialsRepository(t.appDb).save(id, creds);
+
+  it("needs permission, then credentials, to turn auto login on", async () => {
+    const s = await made();
+    expect(await repo().setAutoLogin(s.id, { autoLogin: true })).toEqual({ ok: false, reason: "not_granted" });
+    await grant(s.id);
+    expect(await repo().setAutoLogin(s.id, { autoLogin: true })).toEqual({ ok: false, reason: "no_credentials" });
+    await save(s.id);
+    const r = await repo().setAutoLogin(s.id, { autoLogin: true, stealth: true, loginSelectors: { username: "#u" } });
+    expect(r).toMatchObject({ ok: true, supplier: { autoLogin: true, stealth: true, loginSelectors: { username: "#u" } } });
+  });
+
+  it("saves and clears the logged-in marker, which needs no permission, and keeps it to 1 to 200 characters", async () => {
+    const s = await made();
+    expect(s.loggedInMarker).toBeNull();
+    expect(await repo().setAutoLogin(s.id, { loggedInMarker: "Log out" })).toMatchObject({ ok: true, supplier: { loggedInMarker: "Log out" } });
+    expect((await repo().get(s.id))?.loggedInMarker).toBe("Log out");
+    expect(await repo().setAutoLogin(s.id, { loggedInMarker: null })).toMatchObject({ ok: true, supplier: { loggedInMarker: null } });
+    await expect(t.pool.query("update suppliers set logged_in_marker = '' where id = $1", [s.id])).rejects.toThrow(/suppliers_logged_in_marker/);
+    await expect(t.pool.query("update suppliers set logged_in_marker = repeat('m', 201) where id = $1", [s.id])).rejects.toThrow(/suppliers_logged_in_marker/);
+  });
+
+  it("pauses after two failed logins in a row", async () => {
+    const s = await made();
+    expect((await repo().recordAutoLogin(s.id, "captcha", "failed")).autoLoginPausedReason).toBeNull();
+    const r = await repo().recordAutoLogin(s.id, "captcha", "failed");
+    expect(r).toMatchObject({ autoLoginFailures: 2, autoLoginPausedReason: "too_many_failures", lastAutoLoginResult: "captcha" });
+    expect(r.lastAutoLoginAt).toBeInstanceOf(Date);
+  });
+
+  it("pauses at once for a wrong password or a locked account", async () => {
+    const a = await made();
+    expect((await repo().recordAutoLogin(a.id, "wrong_password", "pause_wrong_password")).autoLoginPausedReason).toBe("wrong_password");
+    const b = await made(globex);
+    expect((await repo().recordAutoLogin(b.id, "account_locked", "pause_account_locked")).autoLoginPausedReason).toBe("account_locked");
+  });
+
+  it("reset zeroes failures and unchanged keeps them", async () => {
+    const s = await made();
+    await repo().recordAutoLogin(s.id, "captcha", "failed");
+    expect((await repo().recordAutoLogin(s.id, "unreachable", "unchanged")).autoLoginFailures).toBe(1);
+    expect((await repo().recordAutoLogin(s.id, "ok", "reset")).autoLoginFailures).toBe(0);
+  });
+
+  it("resume clears failures and pause", async () => {
+    const s = await made();
+    await repo().recordAutoLogin(s.id, "wrong_password", "pause_wrong_password");
+    expect(await repo().resumeAutoLogin(s.id)).toBe(true);
+    expect(await repo().get(s.id)).toMatchObject({ autoLoginFailures: 0, autoLoginPausedReason: null });
+  });
+
+  it("resume also lifts a pause the app made because the session needed attention", async () => {
+    const s = await made();
+    await repo().recordAutoLogin(s.id, "wrong_password", "pause_wrong_password");
+    await repo().markNeedsAttention(s.id, "needs_reconnect");
+    expect(await repo().resumeAutoLogin(s.id)).toBe(true);
+    expect(await repo().get(s.id)).toMatchObject({ enabled: true, pausedReason: null, sessionStatus: "needs_reconnect" });
+  });
+
+  it("resume leaves a pause the owner made", async () => {
+    const s = await made();
+    await repo().recordAutoLogin(s.id, "wrong_password", "pause_wrong_password");
+    await repo().pause(s.id);
+    expect(await repo().resumeAutoLogin(s.id)).toBe(true);
+    expect(await repo().get(s.id)).toMatchObject({ enabled: false, pausedReason: "owner", autoLoginPausedReason: null });
+  });
+
+  it("a live-window login (markConnected) clears the failures and the pause", async () => {
+    const s = await made();
+    await repo().recordAutoLogin(s.id, "wrong_password", "pause_wrong_password");
+    await repo().markConnected(s.id);
+    expect(await repo().get(s.id)).toMatchObject({ autoLoginFailures: 0, autoLoginPausedReason: null });
+  });
+
+  it("a plain session check (markVerified) keeps a wrong password pause", async () => {
+    const s = await made();
+    await repo().recordAutoLogin(s.id, "wrong_password", "pause_wrong_password");
+    await repo().markVerified(s.id);
+    expect(await repo().get(s.id)).toMatchObject({ autoLoginFailures: 1, autoLoginPausedReason: "wrong_password" });
+  });
+
+  it("turns auto login and stealth off when permission is revoked", async () => {
+    const s = await made();
+    await grant(s.id);
+    await save(s.id);
+    await repo().setAutoLogin(s.id, { autoLogin: true, stealth: true });
+    await repo().setPermission(s.id, { status: "not_granted", note: null });
+    expect(await repo().get(s.id)).toMatchObject({ autoLogin: false, stealth: false });
   });
 });

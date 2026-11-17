@@ -12,6 +12,7 @@ import {
   createRecipeRepository,
   createNotificationRepository,
   createShopifyRepository,
+  createSupplierCredentialsRepository,
   createSupplierRepository,
   createSupplierSessionRepository,
 } from "@stock-monitor/db";
@@ -53,8 +54,26 @@ await registerHandlers(queue, logger, {
       ? {
           suppliers: createSupplierRepository(db),
           supplierSessions: createSupplierSessionRepository(db),
+          supplierCredentials: createSupplierCredentialsRepository(db),
+          mappings: createMappingRepository(db),
           notifications: createNotificationRepository(db),
           audit: createAuditWriter(db),
+          browser: createBrowserClient({ baseUrl: config.browserServiceUrl, token: config.browserControlToken }),
+          key: config.encryptionKey,
+        }
+      : undefined,
+  // "Test login now": one automatic login through the same browser service.
+  autoLoginTest:
+    config.browserServiceUrl && config.browserControlToken
+      ? {
+          suppliers: createSupplierRepository(db),
+          supplierSessions: createSupplierSessionRepository(db),
+          supplierCredentials: createSupplierCredentialsRepository(db),
+          notifications: createNotificationRepository(db),
+          audit: createAuditWriter(db),
+          checkRuns: createCheckRunRepository(db),
+          mappings: createMappingRepository(db),
+          timezone: config.timezone,
           browser: createBrowserClient({ baseUrl: config.browserServiceUrl, token: config.browserControlToken }),
           key: config.encryptionKey,
         }
@@ -78,6 +97,7 @@ await registerHandlers(queue, logger, {
           mappings: createMappingRepository(db),
           suppliers: createSupplierRepository(db),
           supplierSessions: createSupplierSessionRepository(db),
+          supplierCredentials: createSupplierCredentialsRepository(db),
           recipes: createRecipeRepository(db),
           observations: createObservationRepository(db),
           captures: createCaptureRepository(db),
@@ -126,6 +146,7 @@ await registerHandlers(queue, logger, {
           mappings: createMappingRepository(db),
           suppliers: createSupplierRepository(db),
           supplierSessions: createSupplierSessionRepository(db),
+          supplierCredentials: createSupplierCredentialsRepository(db),
           notifications: createNotificationRepository(db),
           audit: createAuditWriter(db),
           browser: createBrowserClient({ baseUrl: config.browserServiceUrl, token: config.browserControlToken }),

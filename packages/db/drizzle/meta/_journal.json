@@ -113,6 +113,20 @@
       "when": 1794575943113,
       "tag": "0015_session_precheck",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1794904133789,
+      "tag": "0016_auto_login",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1794911584282,
+      "tag": "0017_logged_in_marker",
+      "breakpoints": true
     }
   ]
 }

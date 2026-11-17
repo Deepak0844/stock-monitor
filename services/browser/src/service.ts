@@ -108,6 +108,8 @@ export async function startBrowserService(options: BrowserServiceOptions): Promi
     log: options.log,
     sessions,
     vncPassword: options.vncPassword,
+    // Only in profile mode: the login happens inside the supplier's persistent profile.
+    ...(checkInProfile ? { login: (request) => checkInProfile.login(request) } : {}),
     // In profile mode link and stock checks run in the same logged-in browser as the session check, not in a cookie-replaying headless one.
     checkPage: async (request) =>
       checkInProfile?.checkPage(request, options.navigationTimeoutMs) ?? checkPage(await getBrowser(), request, { navigationTimeoutMs: options.navigationTimeoutMs, proxy }),

@@ -249,3 +249,18 @@ describe("default region", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("up to 200 characters");
   });
 });
+
+describe("permission and automatic login on the same page", () => {
+  it("enables the Automatic login switch after permission is saved as Allowed", async () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    window.history.replaceState(null, "", `/suppliers/${id}`);
+    const get = vi.fn().mockResolvedValueOnce(aSupplier()).mockResolvedValue(aSupplier({ automationPermission: "granted" }));
+    const api = fakeApi({ suppliers: { get } });
+    render(<SupplierFormPage api={api} id={id} />);
+    const user = userEvent.setup();
+    expect(await screen.findByRole("switch", { name: "Automatic login" })).toBeDisabled();
+    await user.selectOptions(screen.getByLabelText("Permission"), "granted");
+    await user.click(screen.getByRole("button", { name: "Save permission" }));
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Automatic login" })).toBeEnabled());
+  });
+});

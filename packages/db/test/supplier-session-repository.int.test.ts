@@ -200,3 +200,20 @@ describe("supplier session repository: refresh", () => {
     expect(await sessions().refresh(a, sealed.iv, sealSessionState(fresh(), key, "v1"), fresh())).toBe(false);
   });
 });
+
+describe("supplier session repository: saveIfAbsent", () => {
+  it("saves when there is no session yet", async () => {
+    const { sealed, state: s } = seal();
+    expect(await sessions().saveIfAbsent(a, sealed, s)).toBe(true);
+    expect(await sessions().getSealed(a)).toEqual(sealed);
+    expect(await sessions().facts(a)).toMatchObject({ cookieCount: 2, domains: ["shop.acme.example"] });
+  });
+
+  it("keeps a session saved first, such as the owner's live-window login", async () => {
+    const owner = seal();
+    await sessions().save(a, owner.sealed, owner.state);
+    const app = seal(state("app.acme.example"));
+    expect(await sessions().saveIfAbsent(a, app.sealed, app.state)).toBe(false);
+    expect(await sessions().getSealed(a)).toEqual(owner.sealed);
+  });
+});

@@ -46,4 +46,9 @@ describe("schema", () => {
     expect(rows[0].at).toBeInstanceOf(Date);
     expect(rows[0].details).toEqual({});
   });
+  it.each(["auto_login", "stealth"])("rejects %s unless the supplier granted permission", async (column) => {
+    await expect(
+      t.pool.query(`insert into suppliers (name, website_url, ${column}) values ('Perm ${column}', 'https://p.example/', true)`),
+    ).rejects.toThrow(new RegExp(`suppliers_${column === "auto_login" ? "auto_login" : "stealth"}_permission`));
+  });
 });

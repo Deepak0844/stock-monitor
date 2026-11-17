@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import { createControlServer, type CaptureFn, type CheckPageFn, type SessionsApi, type VerifyFn } from "./server.js";
+import { createControlServer, type CaptureFn, type CheckPageFn, type LoginFn, type SessionsApi, type VerifyFn } from "./server.js";
 
 const TOKEN = "t".repeat(40);
 const MARKER = "SESSION-COOKIE-MARKER-4c1e";
@@ -91,6 +91,9 @@ describe("POST /verify", () => {
     ["no state", { url: body.url }, undefined],
     ["a state of the wrong shape", { url: body.url, state: { cookies: "x", origins: [] } }, undefined],
     ["a login address that is not text", { ...body, loginUrl: 7 }, undefined],
+    ["an empty logged-in marker", { ...body, loggedInMarker: "" }, undefined],
+    ["a 201-character logged-in marker", { ...body, loggedInMarker: "m".repeat(201) }, undefined],
+    ["a logged-in marker that is not text", { ...body, loggedInMarker: 7 }, undefined],
     ["an address over 2048 characters", { url: `https://shop.acme.example/${"a".repeat(2100)}`, state }, undefined],
   ])("refuses %s with a plain 400 and does nothing", async (_n, payload, raw) => {
     const res = await post(payload, TOKEN, raw);
@@ -240,6 +243,11 @@ describe("POST /check-page", () => {
     expect(checkPage).toHaveBeenCalledWith(expect.objectContaining({ url: body.url }));
   });
 
+  it("passes on the logged-in marker", async () => {
+    expect((await call(TOKEN, { ...body, loggedInMarker: "Log out" })).status).toBe(200);
+    expect(checkPage).toHaveBeenCalledWith(expect.objectContaining({ url: body.url, loggedInMarker: "Log out" }));
+  });
+
   it("refuses a request that is not an address and a session", async () => {
     expect((await call(TOKEN, { url: "ftp://x.test", state })).status).toBe(400);
     expect(checkPage).not.toHaveBeenCalled();
@@ -268,6 +276,11 @@ describe("POST /capture", () => {
     expect(capture).toHaveBeenCalledWith(expect.objectContaining({ url: body.url, picture: true }));
   });
 
+  it("passes on the logged-in marker", async () => {
+    expect((await call(TOKEN, { ...body, loggedInMarker: "Log out" })).status).toBe(200);
+    expect(capture).toHaveBeenCalledWith(expect.objectContaining({ url: body.url, loggedInMarker: "Log out" }));
+  });
+
   it("refuses a picture setting that is not yes or no, and an address that is not a web address", async () => {
     expect((await call(TOKEN, { ...body, picture: "yes" })).status).toBe(400);
     expect((await call(TOKEN, { url: "ftp://x.test", state })).status).toBe(400);
@@ -280,5 +293,62 @@ describe("POST /capture", () => {
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: "capture_failed" });
     expect(logs.join("\n")).not.toContain(MARKER);
+  });
+});
+
+describe("POST /login", () => {
+  const PASSWORD = "s3cret-test";
+  const good = { loginUrl: "https://shop.acme.example/login", checkUrl: "https://shop.acme.example/account", username: "buyer", password: PASSWORD, stealth: false };
+  let login: ReturnType<typeof vi.fn<LoginFn>>;
+  let lserver: Server;
+  let lbase: string;
+  beforeEach(async () => {
+    login = vi.fn<LoginFn>().mockResolvedValue({ result: "ok", state });
+    lserver = createControlServer({ token: TOKEN, verify, login, log: (line) => logs.push(line), maxBodyBytes: 100_000 });
+    await new Promise<void>((resolve) => lserver.listen(0, "127.0.0.1", resolve));
+    lbase = `http://127.0.0.1:${(lserver.address() as AddressInfo).port}`;
+  });
+  afterEach(async () => {
+    lserver.closeAllConnections();
+    await new Promise<void>((resolve) => lserver.close(() => resolve()));
+  });
+  const send = (payload: unknown, token: string | null = TOKEN) =>
+    fetch(`${lbase}/login`, { method: "POST", headers: token === null ? {} : { authorization: `Bearer ${token}` }, body: JSON.stringify(payload) });
+
+  it("refuses a call without the token", async () => {
+    expect((await send(good, null)).status).toBe(401);
+    expect(login).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["an empty password", { ...good, password: "" }],
+    ["a 201-character username", { ...good, username: "u".repeat(201) }],
+    ["an extra key", { ...good, extra: 1 }],
+    ["an ftp address", { ...good, loginUrl: "ftp://shop.acme.example/login" }],
+    ["a non-boolean stealth", { ...good, stealth: "yes" }],
+    ["bad selectors", { ...good, selectors: { nope: "a" } }],
+    ["an empty logged-in marker", { ...good, loggedInMarker: "" }],
+    ["a 201-character logged-in marker", { ...good, loggedInMarker: "m".repeat(201) }],
+  ])("answers 400 for %s", async (_n, payload) => {
+    expect((await send(payload)).status).toBe(400);
+    expect(login).not.toHaveBeenCalled();
+  });
+
+  it("passes the parsed request to login and returns the outcome", async () => {
+    const full = { ...good, account: "A1", selectors: { submit: "#go" }, stealth: true, loggedInMarker: "Log out" };
+    const res = await send(full);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ result: "ok", state });
+    expect(login).toHaveBeenCalledWith(full);
+    expect(logs).toEqual(["login: ok"]);
+    expect(logs.join("\n")).not.toContain(PASSWORD);
+  });
+
+  it("answers 500 and logs only the error name when login throws", async () => {
+    login.mockRejectedValue(new TypeError(`bad ${PASSWORD}`));
+    const res = await send(good);
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "login_failed" });
+    expect(logs).toEqual(["login failed: TypeError"]);
   });
 });

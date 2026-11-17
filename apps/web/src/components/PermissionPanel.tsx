@@ -19,7 +19,7 @@ const message = (e: unknown) => (e instanceof Error ? e.message : "Something wen
  * The owner's record of whether a supplier allows automatic checks, and how long to wait between two pages. A reminder and a
  * record, not a legal control: the owner sets it. Link checks refuse a supplier that is not recorded as allowed.
  */
-export function PermissionPanel({ api, supplier }: { api: Api; supplier: Supplier }) {
+export function PermissionPanel({ api, supplier, onSaved }: { api: Api; supplier: Supplier; onSaved?: () => void }) {
   const [status, setStatus] = useState(supplier.automationPermission);
   const [note, setNote] = useState(supplier.permissionNote ?? "");
   const [pause, setPause] = useState(String(supplier.checkPauseSeconds));
@@ -38,6 +38,7 @@ export function PermissionPanel({ api, supplier }: { api: Api; supplier: Supplie
       const updated = await api.suppliers.setPermission(supplier.id, { status, note: note.trim() || null, pauseSeconds: seconds });
       setStatus(updated.automationPermission);
       toast("Permission saved.");
+      onSaved?.();
     } catch (e) {
       setError(message(e));
     } finally {
