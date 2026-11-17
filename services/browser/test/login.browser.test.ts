@@ -36,6 +36,7 @@ const good = (b: URLSearchParams) => b.get("username") === USER && [PASSWORD, LO
 /** What a correct password leads to, per case. `null` = log in and go to the account page. */
 const AFTER: Record<string, string | null> = {
   one: null,
+  shiftbox: null,
   latebox: null,
   latechoice: null,
   slow: null,
@@ -336,7 +337,8 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
   it("a page that inserts a box in front of the username on focus: the typing still lands in the right boxes", async () => {
     posts.shiftbox = [];
     const lines: string[] = [];
-    expect((await checker((line) => lines.push(line)).login(ask("shiftbox"))).result).toBe("ok");
+    const out = await checker((line) => lines.push(line)).login(ask("shiftbox"));
+    expect(out.result, `the log said: ${lines.join(" | ")}`).toBe("ok");
     expect(posts.shiftbox.length).toBe(1);
     expect(posts.shiftbox[0]!.get("username")).toBe(USER);
     expect(posts.shiftbox[0]!.get("password")).toBe(PASSWORD);
