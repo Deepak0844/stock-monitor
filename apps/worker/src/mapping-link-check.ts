@@ -159,6 +159,7 @@ export function createLinkChecker(deps: LinkCheckDeps) {
           if (login === "ready") observation = await observe(gated.supplier, mapping);
           else if (login !== "skipped") stopped = login;
         }
+        if (observation.result !== "login_required") loggedInAtStart = false;
         seen.push({ mapping, observation });
         if (stopped) break;
       }

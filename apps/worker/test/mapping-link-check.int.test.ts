@@ -288,6 +288,19 @@ describe("automatic login in a link run", () => {
     expect((await createNotificationRepository(t.appDb).listOpen()).map((n) => n.reason)).toEqual(["login_required"]);
   });
 
+  it("still logs in again when the session dies later in a link run that began with a login", async () => {
+    await link("v1");
+    await link("v2");
+    await link("v3");
+    await autoLogin(60);
+    let asked = 0;
+    fake.behaviour.pageFor = (url) => (url.endsWith("/v3") && asked++ === 0 ? { ...normal, result: "login_required" } : undefined);
+    expect(await checkSupplierLinks(deps({ browser: withLogin() }), acme)).toMatchObject({ kind: "done", checked: 3 });
+    expect(logins).toHaveLength(2);
+    expect(checks().map((r) => (r.body as { url: string }).url.split("/").pop())).toEqual(["v1", "v2", "v3", "v3"]);
+    expect(await createNotificationRepository(t.appDb).listOpen()).toEqual([]);
+  });
+
   it("one link does not log in a second time right after logging in first", async () => {
     const id = await link("v1");
     await autoLogin(60);

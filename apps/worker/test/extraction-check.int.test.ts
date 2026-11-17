@@ -561,6 +561,17 @@ describe("automatic login in a run", () => {
     expect((await suppliers().get(acme))?.sessionStatus).toBe("needs_reconnect");
   });
 
+  it("still logs in again when the session dies later in a run that began with a login", async () => {
+    await four();
+    await autoLogin(60);
+    pages({ v3: ["login_required"] });
+    // v1 and v2 worked since the start login, so a login page at v3 is a session that died, not a login the supplier just refused.
+    expect(await runAll({ browser: withLogin() })).toMatchObject({ kind: "done", checked: 4, stopped: null });
+    expect(logins).toHaveLength(2);
+    expect(requests("/capture").map((r) => (r.body as { url: string }).url.split("/").pop())).toEqual(["v1", "v2", "v3", "v3", "v4"]);
+    expect(await lastRun()).toMatchObject({ outcome: "finished", stop_reason: null });
+  });
+
   it("never logs in on a puzzle: the run stops at once", async () => {
     await four();
     await autoLogin(5);

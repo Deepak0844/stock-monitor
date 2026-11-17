@@ -267,6 +267,8 @@ export function createStockChecker(deps: StockCheckDeps) {
         if (login === "ready") v = await visit(gated.supplier, mapping, first.active.recipe);
         else if (login !== "skipped") loginStop = login;
       }
+      // A page that worked means the start login held, so a later login page is a session that died.
+      if (v.checkResult !== "login_required") loggedInAtStart = false;
       visits.push(v);
       counts.linksDone++;
       if (v.decision.answer === "in_stock") counts.inStock++;

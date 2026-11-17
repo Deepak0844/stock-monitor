@@ -151,7 +151,7 @@ export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit
       if ("loggedInMarker" in input) {
         const marker = input.loggedInMarker;
         if (marker !== null && typeof marker !== "string") throw invalid();
-        // A page's text is matched without the spaces around it, so a marker of only spaces would silently never match.
+        // A page's text is matched without the spaces around it, so a marker of only spaces is refused, not saved as a marker that is ignored.
         const trimmed = marker === null ? null : marker.trim();
         if (trimmed !== null && (trimmed.length < 1 || trimmed.length > 200)) throw invalid();
         auto.loggedInMarker = trimmed;

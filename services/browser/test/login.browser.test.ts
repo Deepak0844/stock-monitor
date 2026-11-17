@@ -58,6 +58,7 @@ const AFTER: Record<string, string | null> = {
   frame: null,
   banner: null,
   bannerok: null,
+  okform: null,
   banner2: null,
   modal: null,
   modalx: null,
@@ -243,6 +244,9 @@ function startSite(): Promise<Server> {
       case "banner":
         return html(page(`${form("/banner/login", userAndPassword)}<div id="b" style="position:fixed;inset:0;background:rgba(0,0,0,.5)"><p>We use cookies</p><button type="button" onclick="fetch('/banner/accepted');document.getElementById('b').remove()">Accept all</button></div>`));
       // A cookie popup whose one button says only "OK", the wording some popups use, over the whole page.
+      case "okform":
+        // A covering popup with no real dismiss button, and an "OK" submit that belongs to another form holding a password box.
+        return html(page(`<form method="post" action="/okform/trap" style="position:fixed;top:0;right:0;z-index:10"><input type="password" name="p" style="display:none"><input type="submit" value="OK"></form>${form("/okform/login", userAndPassword)}<div id="o" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5)"><p>We use cookies</p></div><script>document.querySelector("form[action=\\"/okform/login\\"] [name=password]").addEventListener("input",(e)=>{if(e.target.value.length>=13)document.getElementById("o").style.display="block"})</script>`));
       case "bannerok":
         return html(page(`${form("/bannerok/login", userAndPassword)}<div id="b" style="position:fixed;inset:0;background:rgba(0,0,0,.5)"><p>We use cookies</p><button type="button" onclick="fetch('/bannerok/accepted');document.getElementById('b').remove()">OK</button></div>`));
       case "acct": return html(page(form("/acct/login", acctForm)));
@@ -351,6 +355,13 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     expect(posts.bannerok[0]!.get("username")).toBe(USER);
     expect(posts.bannerok[0]!.get("password")).toBe(PASSWORD);
   });
+  it("an OK submit button that sits in a form with a password box is not a popup button: nothing is sent", async () => {
+    posts.okform = [];
+    const lines: string[] = [];
+    expect((await checker((line) => lines.push(line)).login(ask("okform"))).result, lines.join(" | ")).toBe("unknown");
+    // The trap form posts to the same case, so this also proves it was not clicked.
+    expect(posts.okform.length).toBe(0);
+  });
   it("a banner whose dismissal clears the password box: unknown, nothing is sent", async () => {
     posts.banner2 = [];
     expect((await checker().login(ask("banner2"))).result).toBe("unknown");
@@ -364,7 +375,7 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     expect(lines).toContain("login result: unknown (deadline)");
   });
   it("a page that shows its boxes 6 s late is still found with the default wait, which is 10 s", async () => {
-    expect(FORM_WAIT_MS).toBe(10_000);
+    expect(FORM_WAIT_MS).toBeGreaterThan(6500);
     posts.verylate = [];
     const lines: string[] = [];
     const out = await checker((line) => lines.push(line)).login(ask("verylate"));

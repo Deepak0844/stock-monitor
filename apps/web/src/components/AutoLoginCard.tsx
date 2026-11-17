@@ -43,6 +43,7 @@ export function AutoLoginCard({ api, supplier, onChange }: { api: Api; supplier:
   const [password, setPassword] = useState("");
   /** The "Remove the saved login?" question is open. */
   const [removing, setRemoving] = useState(false);
+  const removeButton = useRef<HTMLButtonElement>(null);
   const [selectors, setSelectors] = useState<Record<keyof LoginSelectors, string>>({
     open: supplier.loginSelectors?.open ?? "",
     account: supplier.loginSelectors?.account ?? "",
@@ -194,7 +195,7 @@ export function AutoLoginCard({ api, supplier, onChange }: { api: Api; supplier:
             Save
           </Button>
           {savedAt && (
-            <Button type="button" variant="outline" disabled={busy !== null} onClick={() => setRemoving(true)}>
+            <Button ref={removeButton} type="button" variant="outline" disabled={busy !== null} onClick={() => setRemoving(true)}>
               Remove
             </Button>
           )}
@@ -269,6 +270,7 @@ export function AutoLoginCard({ api, supplier, onChange }: { api: Api; supplier:
           confirmLabel="Remove login"
           onConfirm={remove}
           onClose={() => setRemoving(false)}
+          returnFocusTo={() => removeButton.current}
         />
       )}
     </section>

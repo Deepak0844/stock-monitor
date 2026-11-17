@@ -192,6 +192,26 @@ async function findButton(page: Page, words: RegExp): Promise<Locator | null> {
   return null;
 }
 
+/**
+ * A button that closes a popup. Never a submit control, and never a button inside a form that has a password box: with
+ * words as short as "OK" that would be a form's own send button, and clicking it would send a password a second time.
+ */
+async function findConsentButton(page: Page): Promise<Locator | null> {
+  const words = whole(CONSENT_WORDS);
+  for (const frame of page.frames()) {
+    for (const role of ["button", "link"] as const) {
+      for (const el of await frame.getByRole(role, { name: words }).all().catch(() => [])) {
+        if (!(await el.isVisible().catch(() => false))) continue;
+        const unsafe = await el
+          .evaluate((node) => (node as HTMLInputElement | HTMLButtonElement).type === "submit" || !!node.closest("form")?.querySelector('input[type="password"]'))
+          .catch(() => true);
+        if (!unsafe) return el;
+      }
+    }
+  }
+  return null;
+}
+
 async function firstVisible(page: Page, selector: string): Promise<Locator | null> {
   for (const frame of page.frames()) {
     for (const el of await frame.locator(selector).all().catch(() => [])) if (await el.isVisible().catch(() => false)) return el;
@@ -392,7 +412,7 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
     } catch (error) {
       if (consentUsed || !/intercepts pointer events/i.test(error instanceof Error ? error.message : "")) throw error;
       consentUsed = true;
-      const consent = await findButton(page, whole(CONSENT_WORDS));
+      const consent = await findConsentButton(page);
       if (!consent) throw error;
       await consent.click({ timeout: 3000, noWaitAfter: true });
       // Dismissing a banner can re-render the form: the typed boxes are checked again before the second, unchecked click.
