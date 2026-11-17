@@ -38,6 +38,7 @@ const AFTER: Record<string, string | null> = {
   slow: null,
   slower: null,
   lazy: null,
+  token: null,
   frame: null,
   banner: null,
   modal: null,
@@ -72,6 +73,10 @@ function startSite(): Promise<Server> {
       (posts[kase] ??= []).push(b);
       // A supplier that takes 4.5 s to answer any password, longer than a click waits.
       if (kase === "slower") await new Promise((r) => setTimeout(r, 4500));
+      if (kase === "token") await new Promise((r) => setTimeout(r, 3000));
+      if (kase === "beacon" && step === "collect") return res.writeHead(204).end();
+      // A WebForms-style server: a POST without the button's name and value is not a login.
+      if (kase === "webforms") return good(b) && b.get("btnLogin") === "Log in" ? res.writeHead(302, loginCookie).end() : html(page(webForm));
       if (kase === "two" && step === "user") return html(page(form("/two/pass", `<input type="hidden" name="username" value="${b.get("username")}"><input type="password" name="password">`)));
       // A slow username step: answered after 3.5 s, while its tracking frame loads.
       if (kase === "slowtwo" && step === "user") {
@@ -119,6 +124,13 @@ function startSite(): Promise<Server> {
       // A submit button that ignores its first click, as a window that has just opened can.
       case "lazy":
         return html(page(`<form method="post" action="/lazy/login">${userAndPassword}<button type="submit" onclick="if(!window.armed){window.armed=1;event.preventDefault()}">Sign in</button></form>`));
+      // A script login that fetches a token, works for 3 s, then posts to a server that takes 3 s to answer.
+      case "token":
+        return html(page(form("/token/login", userAndPassword, `onsubmit="event.preventDefault();const body=new URLSearchParams(new FormData(this));fetch('/token/csrf').then(()=>setTimeout(()=>fetch('/token/login',{method:'POST',body}).then(()=>location.href='/account'),3000))"`)));
+      // An analytics beacon on the click, and a submit that never goes.
+      case "beacon":
+        return html(page(`<form method="post" action="/beacon/login">${userAndPassword}<button type="submit" onclick="navigator.sendBeacon('/beacon/collect','x');event.preventDefault()">Sign in</button></form>`));
+      case "webforms": return html(page(webForm));
       // A form that never sends anything.
       case "dead": return html(page(form("/dead/login", userAndPassword, 'onsubmit="event.preventDefault()"')));
       case "slowtwo":
@@ -149,6 +161,7 @@ function startSite(): Promise<Server> {
   });
   return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server)));
 }
+const webForm = `<form method="post" action="/webforms/login">${userAndPassword}<input type="submit" name="btnLogin" value="Log in" onclick="if(!window.armed){window.armed=1;return false}"></form>`;
 const acctForm = '<label>Customer number <input type="text" name="customer"></label>' + userAndPassword;
 
 let site: Server;
@@ -286,6 +299,21 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     posts.lazy = [];
     expect((await checker().login(ask("lazy"))).result).toBe("ok");
     expect(posts.lazy.length).toBe(1);
+  });
+  it("a login doing slow work before its POST is not sent again", async () => {
+    posts.token = [];
+    expect((await checker(undefined, 10_000).login(ask("token"))).result).toBe("ok");
+    expect(posts.token.length).toBe(1);
+  });
+  it("an analytics beacon is not a sent login: a swallowed submit is unknown", async () => {
+    posts.beacon = [];
+    expect((await checker().login(ask("beacon"))).result).toBe("unknown");
+    expect(posts.beacon.filter((b) => b.has("password")).length).toBe(0);
+  });
+  it("sent once more, the form keeps its button's name and value", async () => {
+    posts.webforms = [];
+    expect((await checker().login(ask("webforms"))).result).toBe("ok");
+    expect(posts.webforms.length).toBe(1);
   });
   it("a submit that never sends anything is unknown, never a wrong password", async () => {
     posts.dead = [];

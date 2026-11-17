@@ -187,16 +187,24 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
   /** Every frame navigation, in order: what the step and settle waits look for. */
   const navigated: Frame[] = [];
   page.on("framenavigated", (frame) => void navigated.push(frame));
-  /** The frames that sent a POST or started a navigation, in order: proof that a submit left the page. */
-  const sends: Frame[] = [];
+  /** Every request a frame made, in order: what tells a submit that left the page from one that never fired. */
+  const requests: { frame: Frame; nav: boolean; method: string; type: string; url: string }[] = [];
   page.on("request", (r) => {
     try {
-      if (r.method() === "POST" || r.isNavigationRequest()) sends.push(r.frame());
+      requests.push({ frame: r.frame(), nav: r.isNavigationRequest(), method: r.method(), type: r.resourceType(), url: r.url() });
     } catch {
       // a service worker's request has no frame
     }
   });
-  const sentSince = (from: number, form: Frame) => sends.slice(from).some((fr) => fr === page.mainFrame() || fr === form);
+  const fromForm = (from: number, form: Frame) => requests.slice(from).filter((q) => q.frame === page.mainFrame() || q.frame === form);
+  /**
+   * The login left the page: the main or form frame navigated, or posted or fetched to the login page's own site. A beacon or
+   * an analytics call to another site is not a login.
+   */
+  const sentSince = (from: number, form: Frame, site: string) =>
+    fromForm(from, form).some(
+      (q) => q.nav || ((q.method === "POST" || q.type === "fetch" || q.type === "xhr") && q.type !== "ping" && q.type !== "beacon" && siteOf(q.url) === site),
+    );
   page.on("response", (r) => {
     if (r.request().isNavigationRequest() && r.frame() === page.mainFrame()) status = r.status();
   });
@@ -379,24 +387,32 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
       const target = last;
       const submitWait = f.password ? settleMs : stepWaitMs;
       if (f.password) sent = { at: Date.now(), navs: navigated.length, frame };
-      const sendsBefore = sends.length;
+      const requestsBefore = requests.length;
+      const site = siteOf(frame.url());
       const password = f.password?.field;
+      // Did the submit happen at all? Capture-phase listeners in the form's frame: the form's submit event, else the
+      // button's click (or Enter in the password box) when there is no form.
+      if (password) await watchSubmit(password, next).catch(() => {});
       const changed = await afterAction(async () => {
         await (next ? click(next) : target.press("Enter", { noWaitAfter: true }));
         if (!password) return;
-        // A submit that never left the page (a first click lost on a window that just opened) is sent once more, another
-        // way. Only when nothing at all was sent: this is still the one login attempt.
+        // A submit that never happened (a first click lost on a window that just opened) is sent once more, another way.
+        // Only when no submit event fired and no request at all left the page: a login doing slow work first (a token
+        // fetch, a captcha, hashing) has started, and sending it again would send the password twice.
+        const happened = async () => fromForm(requestsBefore, frame).length > 0 || (await submitFired(frame));
         const end = Date.now() + SEND_WAIT_MS;
-        while (Date.now() < end && !sentSince(sendsBefore, frame)) await page.waitForTimeout(100);
-        if (sentSince(sendsBefore, frame)) return;
-        const hasForm = await password.evaluate((el) => !!(el as HTMLInputElement).form).catch(() => false);
-        if (hasForm) await password.evaluate((el) => (el as HTMLInputElement).form?.requestSubmit()).catch(() => {});
-        else if (next) await password.press("Enter", { noWaitAfter: true }).catch(() => {});
+        while (Date.now() < end && !(await happened())) await page.waitForTimeout(100);
+        if (await happened()) return;
+        await resubmit(password, next);
       }, submitWait, f.password ? undefined : frame);
       // Too many requests: the supplier is busy, not refusing the login.
       if (status === 429) return "unreachable";
-      // Nothing was sent: the page is not the supplier's answer, so it says nothing about the password.
-      if (password && !sentSince(sendsBefore, frame)) return "unknown";
+      // Nothing was sent: the page is not the supplier's answer, so it says nothing about the password. Another frame
+      // changing first (a tracking frame) is no answer either: the login may still be on its way, up to the settle time.
+      if (password) {
+        while (!sentSince(requestsBefore, frame, site) && Date.now() < sent.at + settleMs) await page.waitForTimeout(100);
+        if (!sentSince(requestsBefore, frame, site)) return "unknown";
+      }
       if (f.password) submitted = true; // from here on, nothing is typed: a later text box could be a security question
       else if (!changed) return "form_not_found";
     }
@@ -437,6 +453,59 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
     return "unknown";
   }
   return (await classifyHere(request.checkUrl, true)) === "ok" ? "ok" : "unknown";
+}
+
+/** The site of an address: its host without the subdomains (two labels, three for a country's "co.uk"-style suffix). */
+function siteOf(url: string): string {
+  try {
+    const host = new URL(url).hostname;
+    if (/^[\d.]+$/.test(host) || host.includes(":")) return host;
+    const labels = host.split(".");
+    const keep = labels.length > 2 && labels.at(-1)!.length === 2 && labels.at(-2)!.length <= 3 ? 3 : 2;
+    return labels.slice(-keep).join(".");
+  } catch {
+    return "";
+  }
+}
+
+const SUBMIT_FLAG = "__stockMonitorSubmitFired";
+
+/** Arms the listeners that tell whether the password's submit happened: the form's submit, else the click or Enter. */
+async function watchSubmit(password: Locator, next: Locator | null): Promise<void> {
+  const button = next ? await next.elementHandle({ timeout: 1000 }).catch(() => null) : null;
+  await password.evaluate(
+    (el, { button, flag }) => {
+      const w = window as unknown as Record<string, boolean>;
+      w[flag] = false;
+      const fired = () => void (w[flag] = true);
+      const form = (el as HTMLInputElement).form;
+      if (form) document.addEventListener("submit", fired, { capture: true });
+      else if (button) button.addEventListener("click", fired, { capture: true });
+      else el.addEventListener("keydown", (e) => (e as KeyboardEvent).key === "Enter" && fired(), { capture: true });
+    },
+    { button, flag: SUBMIT_FLAG },
+  );
+}
+
+/** Whether a watched submit fired. A frame that cannot answer (it navigated away) counts as fired. */
+async function submitFired(frame: Frame): Promise<boolean> {
+  return frame.evaluate((flag) => (window as unknown as Record<string, boolean>)[flag] === true, SUBMIT_FLAG).catch(() => true);
+}
+
+/** Sends the password's form once more another way: requestSubmit with the same button, or Enter if a click was used. */
+async function resubmit(password: Locator, next: Locator | null): Promise<void> {
+  const button = next ? await next.elementHandle({ timeout: 1000 }).catch(() => null) : null;
+  const sent = await password
+    .evaluate((el, button) => {
+      const form = (el as HTMLInputElement).form;
+      if (!form) return false;
+      const b = button as HTMLButtonElement | HTMLInputElement | null;
+      const submitter = b && b.form === form && (b.type === "submit" || b.type === "image") ? b : undefined;
+      form.requestSubmit(submitter); // the button's name and value go with it, as some servers need
+      return true;
+    }, button)
+    .catch(() => true);
+  if (!sent && next) await password.press("Enter", { noWaitAfter: true }).catch(() => {});
 }
 
 async function firstEmptyPassword(page: Page): Promise<boolean> {
