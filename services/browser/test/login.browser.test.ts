@@ -61,27 +61,14 @@ async function body(req: IncomingMessage) {
   return new URLSearchParams(raw);
 }
 
-// TEMPORARY: why the first login test fails on CI. Every request the fixture saw, never a password.
-const trace: string[] = [];
-const t0 = Date.now();
 function startSite(): Promise<Server> {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://x");
-    const at = () => `+${Date.now() - t0}ms`;
-    trace.push(`${at()} ${req.method} ${url.pathname} host=${req.headers.host} sid=${loggedIn(req)} cookie-header=${req.headers.cookie ? "yes" : "no"}`);
-    const writeHead = res.writeHead.bind(res) as (code: number, headers?: Record<string, string>) => typeof res;
-    res.writeHead = ((code: number, headers: Record<string, string> = {}) => {
-      trace.push(`${at()}   -> ${code}${headers.location ? ` location=${headers.location}` : ""}${headers["set-cookie"] ? " set-cookie=sid" : ""}`);
-      return writeHead(code, headers);
-    }) as never;
     const html = (s: string, status = 200) => res.writeHead(status, { "content-type": "text/html; charset=utf-8" }).end(s);
     const [, kase = "", step = ""] = url.pathname.split("/");
     if (req.method === "POST") {
       const b = await body(req);
       (posts[kase] ??= []).push(b);
-      const u = b.get("username") ?? "";
-      const pw = b.get("password");
-      trace.push(`${at()}   body: username ${u === USER ? "right" : `WRONG (len ${u.length} vs ${USER.length}, ${JSON.stringify(u)})`}, password ${pw === null ? "absent" : pw === PASSWORD || pw === LONG_PASSWORD ? "right" : `WRONG (len ${pw.length} vs ${PASSWORD.length})`}, fields ${[...b.keys()].join(",")}`);
       // A supplier that takes 4.5 s to answer any password, longer than a click waits.
       if (kase === "slower") await new Promise((r) => setTimeout(r, 4500));
       if (kase === "two" && step === "user") return html(page(form("/two/pass", `<input type="hidden" name="username" value="${b.get("username")}"><input type="password" name="password">`)));
@@ -189,11 +176,7 @@ const cookieNames = (o: { state?: { cookies: { name?: unknown }[] } }) => o.stat
 
 describe.skipIf(!linux)("automatic login in the persistent profile", () => {
   it("logs in on a one-step form", async () => {
-    const lines: string[] = [];
-    const start = trace.length;
-    const out = await checker((line) => lines.push(line)).login(ask("one"));
-    // TEMPORARY: print what the fixture saw when this fails on CI.
-    if (out.result !== "ok") console.log(`DIAG one-step result=${out.result}\n${trace.slice(start).join("\n")}\nservice log:\n${lines.join("\n")}`);
+    const out = await checker().login(ask("one"));
     expect(out.result).toBe("ok");
     expect(cookieNames(out as never)).toContain("sid");
   });
