@@ -2,8 +2,10 @@ import type { FastifyInstance, RawReplyDefaultExpression, RawRequestDefaultExpre
 import type { Logger } from "pino";
 import { z } from "zod";
 import type { createAuditWriter } from "@stock-monitor/audit";
-import type { createSupplierRepository, SupplierInput, SupplierPatch } from "@stock-monitor/db";
-import { validateSupplierUrl, verifyPublicHost, type HostLookup } from "@stock-monitor/supplier-session";
+import type { createSupplierCredentialsRepository, createSupplierRepository, SupplierInput, SupplierPatch } from "@stock-monitor/db";
+import type { Queue } from "@stock-monitor/queue";
+import { isCredentials, isLoginSelectors, sealCredentials, validateSupplierUrl, verifyPublicHost, type HostLookup } from "@stock-monitor/supplier-session";
+import { createLoginLimiter } from "../rate-limit.js";
 import { AppError } from "../errors.js";
 
 type Repository = ReturnType<typeof createSupplierRepository>;
@@ -12,6 +14,11 @@ type App = FastifyInstance<RawServerDefault, RawRequestDefaultExpression, RawRep
 
 export type SupplierRoutesDeps = {
   repo: Repository;
+  /** Saved logins. With `key` and `queue`, turns on the automatic login routes. */
+  credentials?: ReturnType<typeof createSupplierCredentialsRepository>;
+  /** The key and key id that seal sessions, used the same way for logins. */
+  key?: { key: Buffer; keyId: string };
+  queue?: Pick<Queue, "enqueue">;
   /** Test only: replaces the real DNS lookup. */
   lookup?: HostLookup;
   /** Runs before a supplier is deleted, for example to close a login window that is open for it. */
@@ -73,8 +80,17 @@ function readFields(body: unknown, partial: boolean): { values: SupplierPatch; h
   return { values, hosts };
 }
 
+const AUTO_LOGIN_BODY = ["autoLogin", "loginSelectors"];
+const NO_CREDENTIALS = () => new AppError(409, "no_credentials", "Save a username and password first.");
+const NOT_GRANTED = () => new AppError(409, "not_granted", "Mark this supplier as allowing automatic checks first.");
+
 export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit: Audit): void {
-  const { repo } = deps;
+  const { repo, credentials } = deps;
+  // The date only, never the values. Without the credentials store there is nothing saved.
+  const decorate = async <T extends { id: string }>(supplier: T) => ({
+    ...supplier,
+    credentialsSavedAt: (await credentials?.savedAt(supplier.id)) ?? null,
+  });
 
   async function checked(body: unknown, partial: boolean): Promise<SupplierPatch> {
     const { values, hosts } = readFields(body, partial);
@@ -97,11 +113,11 @@ export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit
 
   // With no `page` this lists every supplier, which the dropdowns and the dashboard rely on.
   app.get("/api/suppliers", async (request) => {
-    if ((request.query as { page?: unknown }).page === undefined) return { suppliers: await repo.list() };
+    if ((request.query as { page?: unknown }).page === undefined) return { suppliers: await Promise.all((await repo.list()).map(decorate)) };
     const parsed = pageQuery.safeParse(request.query);
     if (!parsed.success) throw new AppError(400, "invalid_input", "Check the search, status and page values and try again.");
     const { items, total } = await repo.page({ ...parsed.data, search: parsed.data.search || undefined });
-    return { items, total, page: parsed.data.page, pageSize: parsed.data.pageSize };
+    return { items: await Promise.all(items.map(decorate)), total, page: parsed.data.page, pageSize: parsed.data.pageSize };
   });
 
   app.post("/api/suppliers", async (request, reply) => {
@@ -109,21 +125,52 @@ export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit
     const result = await repo.create(values);
     if (!result.ok) throw NAME_TAKEN();
     await record(request, "supplier.created", result.supplier.id, { name: result.supplier.name });
-    return reply.status(201).send({ supplier: result.supplier });
+    return reply.status(201).send({ supplier: await decorate(result.supplier) });
   });
 
   app.get<{ Params: { id: string } }>("/api/suppliers/:id", async (request) => {
     const supplier = await repo.get(request.params.id);
     if (!supplier) throw NOT_FOUND();
-    return { supplier };
+    return { supplier: await decorate(supplier) };
   });
 
   app.patch<{ Params: { id: string } }>("/api/suppliers/:id", async (request) => {
-    const values = await checked(request.body, true);
-    const result = await repo.update(request.params.id, values);
-    if (!result.ok) throw result.reason === "name_taken" ? NAME_TAKEN() : NOT_FOUND();
-    await record(request, "supplier.updated", result.supplier.id, { changed: Object.keys(values) });
-    return { supplier: result.supplier };
+    const input = typeof request.body === "object" && request.body !== null && !Array.isArray(request.body) ? (request.body as Record<string, unknown>) : null;
+    const auto: { autoLogin?: boolean; loginSelectors?: Parameters<Repository["setAutoLogin"]>[1]["loginSelectors"] } = {};
+    let rest: unknown = request.body;
+    if (input && AUTO_LOGIN_BODY.some((k) => k in input)) {
+      const invalid = () => new AppError(400, "invalid_input", "Check the supplier details and try again.");
+      if ("autoLogin" in input) {
+        if (typeof input.autoLogin !== "boolean") throw invalid();
+        auto.autoLogin = input.autoLogin;
+      }
+      if ("loginSelectors" in input) {
+        if (input.loginSelectors !== null && !isLoginSelectors(input.loginSelectors)) throw invalid();
+        auto.loginSelectors = input.loginSelectors as typeof auto.loginSelectors;
+      }
+      rest = Object.fromEntries(Object.entries(input).filter(([k]) => !AUTO_LOGIN_BODY.includes(k)));
+    }
+    const hasRest = !(typeof rest === "object" && rest !== null && Object.keys(rest).length === 0 && Object.keys(auto).length > 0);
+    const values = hasRest ? await checked(rest, true) : {};
+    if (!hasRest || Object.keys(values).length > 0) {
+      const result = await repo.update(request.params.id, values);
+      if (!result.ok) throw result.reason === "name_taken" ? NAME_TAKEN() : NOT_FOUND();
+    }
+    let latest = (await repo.get(request.params.id)) ?? null;
+    if (Object.keys(auto).length > 0) {
+      // Credentials are checked first so the owner is told to save them before anything else.
+      if (auto.autoLogin && credentials && !(await credentials.savedAt(request.params.id))) throw NO_CREDENTIALS();
+      const result = await repo.setAutoLogin(request.params.id, auto);
+      if (!result.ok) {
+        if (result.reason === "not_granted") throw NOT_GRANTED();
+        if (result.reason === "no_credentials") throw NO_CREDENTIALS();
+        throw NOT_FOUND();
+      }
+      latest = result.supplier;
+    }
+    if (!latest) throw NOT_FOUND();
+    await record(request, "supplier.updated", latest.id, { changed: [...Object.keys(values), ...Object.keys(auto)] });
+    return { supplier: await decorate(latest) };
   });
 
   app.delete<{ Params: { id: string } }>("/api/suppliers/:id", async (request) => {
@@ -146,4 +193,47 @@ export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit
       return { supplier };
     });
   }
+
+  const { key, queue } = deps;
+  if (!credentials || !key || !queue) return;
+
+  // One test login a minute per supplier. The limiter counts every call as a failure so the second is blocked.
+  const testLimiter = createLoginLimiter({ maxFailures: 1, windowMs: 60_000 });
+
+  app.put<{ Params: { id: string } }>("/api/suppliers/:id/credentials", async (request) => {
+    const body = request.body;
+    if (!isCredentials(body)) throw new AppError(400, "invalid_input", "Enter a username and a password, up to 200 characters each.");
+    if (!(await repo.get(request.params.id))) throw NOT_FOUND();
+    const { savedAt } = await credentials.save(request.params.id, sealCredentials(body, key.key, key.keyId));
+    await record(request, "supplier.credentials_saved", request.params.id);
+    return { savedAt };
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/suppliers/:id/credentials", async (request, reply) => {
+    if (!(await repo.get(request.params.id))) throw NOT_FOUND();
+    await credentials.remove(request.params.id);
+    await repo.setAutoLogin(request.params.id, { autoLogin: false });
+    await record(request, "supplier.credentials_removed", request.params.id);
+    return reply.status(204).send();
+  });
+
+  app.post<{ Params: { id: string } }>("/api/suppliers/:id/auto-login/test", async (request, reply) => {
+    const id = request.params.id;
+    if (!(await repo.get(id))) throw NOT_FOUND();
+    if (testLimiter.isBlocked(id)) throw new AppError(429, "too_many_requests", "Wait a minute before testing the login again.");
+    testLimiter.recordFailure(id);
+    try {
+      await queue.enqueue("supplier.session.login", { supplierId: id }, { retryLimit: 0 });
+    } catch {
+      testLimiter.reset(id);
+      throw new AppError(503, "queue_unavailable", "Could not start that. Try again in a minute.");
+    }
+    return reply.status(202).send({ queued: true });
+  });
+
+  app.post<{ Params: { id: string } }>("/api/suppliers/:id/auto-login/resume", async (request, reply) => {
+    if (!(await repo.resumeAutoLogin(request.params.id))) throw NOT_FOUND();
+    await record(request, "supplier.auto_login_resumed", request.params.id);
+    return reply.status(204).send();
+  });
 }
