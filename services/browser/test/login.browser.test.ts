@@ -38,6 +38,8 @@ const AFTER: Record<string, string | null> = {
   slow: null,
   slower: null,
   lazy: null,
+  recap: null,
+  hash: null,
   token: null,
   frame: null,
   banner: null,
@@ -74,6 +76,8 @@ function startSite(): Promise<Server> {
       // A supplier that takes 4.5 s to answer any password, longer than a click waits.
       if (kase === "slower") await new Promise((r) => setTimeout(r, 4500));
       if (kase === "token") await new Promise((r) => setTimeout(r, 3000));
+      // The captcha and hashing logins' server takes 2 s, so a second send would land before the first answer.
+      if (kase === "recap" || kase === "hash") await new Promise((r) => setTimeout(r, 2000));
       if (kase === "beacon" && step === "collect") return res.writeHead(204).end();
       // A WebForms-style server: a POST without the button's name and value is not a login.
       if (kase === "webforms") return good(b) && b.get("btnLogin") === "Log in" ? res.writeHead(302, loginCookie).end() : html(page(webForm));
@@ -121,9 +125,19 @@ function startSite(): Promise<Server> {
       case "one": case "slower": case "push": case "locked": case "question": case "puzzle": case "code": case "stay": case "promo": case "busy": case "public":
         return html(page(form(`/${kase}/login`, userAndPassword)));
       case "two": return html(page(form("/two/user", '<input type="email" name="username"><button type="submit">Next</button>').replace('<button type="submit">Sign in</button>', "")));
-      // A submit button that ignores its first click, as a window that has just opened can.
+      // A first click that never reaches the submit button, as on a window that has just opened: a cover appears under
+      // the pointer between press and release, so the click lands on the page, not the button.
       case "lazy":
-        return html(page(`<form method="post" action="/lazy/login">${userAndPassword}<button type="submit" onclick="if(!window.armed){window.armed=1;event.preventDefault()}">Sign in</button></form>`));
+        return html(page(`<form method="post" action="/lazy/login">${userAndPassword}<button type="submit" onmousedown="if(!window.armed){window.armed=1;const c=document.createElement('div');c.style.cssText='position:fixed;inset:0;z-index:9';document.body.append(c);setTimeout(()=>c.remove(),500)}">Sign in</button></form>`));
+      // Invisible-captcha style: the click handler stops the submit, a captcha frame loads, the form is sent 3 s later.
+      case "recap":
+        return html(page(`<form method="post" action="/recap/login">${userAndPassword}<button type="submit" onclick="event.preventDefault();const f=this.form;document.getElementById('c').src='/recap/frame';setTimeout(()=>f.submit(),3000)">Sign in</button></form><iframe id="c" width="1" height="1"></iframe>`));
+      // Slow hashing in the page: no request at all for 3 s, then the form is sent.
+      case "hash":
+        return html(page(`<form method="post" action="/hash/login">${userAndPassword}<button type="submit" onclick="event.preventDefault();const f=this.form;setTimeout(()=>f.submit(),3000)">Sign in</button></form>`));
+      // The login posts to another site only: not the supplier's answer.
+      case "elsewhere":
+        return html(page(form("/elsewhere/login", userAndPassword, `onsubmit="event.preventDefault();fetch(location.href.replace('127.0.0.1','localhost'),{method:'POST',body:new URLSearchParams(new FormData(this))})"`)));
       // A script login that fetches a token, works for 3 s, then posts to a server that takes 3 s to answer.
       case "token":
         return html(page(form("/token/login", userAndPassword, `onsubmit="event.preventDefault();const body=new URLSearchParams(new FormData(this));fetch('/token/csrf').then(()=>setTimeout(()=>fetch('/token/login',{method:'POST',body}).then(()=>location.href='/account'),3000))"`)));
@@ -161,7 +175,7 @@ function startSite(): Promise<Server> {
   });
   return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server)));
 }
-const webForm = `<form method="post" action="/webforms/login">${userAndPassword}<input type="submit" name="btnLogin" value="Log in" onclick="if(!window.armed){window.armed=1;return false}"></form>`;
+const webForm = `<form method="post" action="/webforms/login">${userAndPassword}<input type="submit" name="btnLogin" value="Log in" onmousedown="if(!window.armed){window.armed=1;const c=document.createElement('div');c.style.cssText='position:fixed;inset:0;z-index:9';document.body.append(c);setTimeout(()=>c.remove(),500)}"></form>`;
 const acctForm = '<label>Customer number <input type="text" name="customer"></label>' + userAndPassword;
 
 let site: Server;
@@ -295,10 +309,23 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     expect((await checker().login(ask("wrong", { password: "nope" }))).result).toBe("wrong_password");
     expect(posts.wrong.length).toBe(1);
   });
-  it("a first click that sends nothing: the form is sent once, another way", async () => {
+  it("a first click that never reaches the button: the form is sent once, another way", async () => {
     posts.lazy = [];
     expect((await checker().login(ask("lazy"))).result).toBe("ok");
     expect(posts.lazy.length).toBe(1);
+  });
+  it("an invisible captcha that sends the form itself 3 s later is not sent again", async () => {
+    posts.recap = [];
+    expect((await checker(undefined, 8000).login(ask("recap"))).result).toBe("ok");
+    expect(posts.recap.length).toBe(1);
+  });
+  it("slow hashing in the page with no request is not sent again", async () => {
+    posts.hash = [];
+    expect((await checker(undefined, 8000).login(ask("hash"))).result).toBe("ok");
+    expect(posts.hash.length).toBe(1);
+  });
+  it("a POST to another site only is not a sent login", async () => {
+    expect((await checker().login(ask("elsewhere"))).result).toBe("unknown");
   });
   it("a login doing slow work before its POST is not sent again", async () => {
     posts.token = [];
@@ -310,7 +337,7 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     expect((await checker().login(ask("beacon"))).result).toBe("unknown");
     expect(posts.beacon.filter((b) => b.has("password")).length).toBe(0);
   });
-  it("sent once more, the form keeps its button's name and value", async () => {
+  it("sent once more, a WebForms-style login keeps its button's name and value", async () => {
     posts.webforms = [];
     expect((await checker().login(ask("webforms"))).result).toBe("ok");
     expect(posts.webforms.length).toBe(1);

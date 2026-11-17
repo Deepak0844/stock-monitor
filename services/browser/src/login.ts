@@ -390,16 +390,16 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
       const requestsBefore = requests.length;
       const site = siteOf(frame.url());
       const password = f.password?.field;
-      // Did the submit happen at all? Capture-phase listeners in the form's frame: the form's submit event, else the
-      // button's click (or Enter in the password box) when there is no form.
+      // Did the send start at all? Listeners for the submit event, the click at the button, or Enter in the password box.
       if (password) await watchSubmit(password, next).catch(() => {});
       const changed = await afterAction(async () => {
         await (next ? click(next) : target.press("Enter", { noWaitAfter: true }));
         if (!password) return;
         // A submit that never happened (a first click lost on a window that just opened) is sent once more, another way.
-        // Only when no submit event fired and no request at all left the page: a login doing slow work first (a token
-        // fetch, a captcha, hashing) has started, and sending it again would send the password twice.
-        const happened = async () => fromForm(requestsBefore, frame).length > 0 || (await submitFired(frame));
+        // Only when the input itself never arrived: no submit event, no click or Enter at the target, and no request of any
+        // frame or kind. A login doing slow work first (a token fetch, a captcha frame, hashing) has started, and sending
+        // it again would send the password twice.
+        const happened = async () => requests.length > requestsBefore || (await submitFired(frame));
         const end = Date.now() + SEND_WAIT_MS;
         while (Date.now() < end && !(await happened())) await page.waitForTimeout(100);
         if (await happened()) return;
@@ -470,7 +470,11 @@ function siteOf(url: string): string {
 
 const SUBMIT_FLAG = "__stockMonitorSubmitFired";
 
-/** Arms the listeners that tell whether the password's submit happened: the form's submit, else the click or Enter. */
+/**
+ * Arms capture-phase listeners (on the window, ahead of the page's own) that tell whether the password's send started: the
+ * form's submit event, or the click reaching the button, or Enter reaching the password box. Always all that apply, form or not:
+ * once the page's own handler has started (a captcha, hashing, a token fetch), the password must never be sent again.
+ */
 async function watchSubmit(password: Locator, next: Locator | null): Promise<void> {
   const button = next ? await next.elementHandle({ timeout: 1000 }).catch(() => null) : null;
   await password.evaluate(
@@ -478,16 +482,15 @@ async function watchSubmit(password: Locator, next: Locator | null): Promise<voi
       const w = window as unknown as Record<string, boolean>;
       w[flag] = false;
       const fired = () => void (w[flag] = true);
-      const form = (el as HTMLInputElement).form;
-      if (form) document.addEventListener("submit", fired, { capture: true });
-      else if (button) button.addEventListener("click", fired, { capture: true });
-      else el.addEventListener("keydown", (e) => (e as KeyboardEvent).key === "Enter" && fired(), { capture: true });
+      window.addEventListener("submit", fired, { capture: true });
+      if (button) window.addEventListener("click", (e) => button.contains(e.target as Node) && fired(), { capture: true });
+      else window.addEventListener("keydown", (e) => e.target === el && e.key === "Enter" && fired(), { capture: true });
     },
     { button, flag: SUBMIT_FLAG },
   );
 }
 
-/** Whether a watched submit fired. A frame that cannot answer (it navigated away) counts as fired. */
+/** Whether a watched send started. A frame that cannot answer (it navigated away) counts as started. */
 async function submitFired(frame: Frame): Promise<boolean> {
   return frame.evaluate((flag) => (window as unknown as Record<string, boolean>)[flag] === true, SUBMIT_FLAG).catch(() => true);
 }
