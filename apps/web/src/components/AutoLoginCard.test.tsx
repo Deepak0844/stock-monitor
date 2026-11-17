@@ -96,10 +96,22 @@ describe("Automatic login card", () => {
   });
 
   it("starts a test login", async () => {
-    const { api, user } = setup({ ...granted, credentialsSavedAt: "2026-11-17T06:58:00.000Z" });
+    const { api, user } = setup({ ...granted, autoLogin: true, credentialsSavedAt: "2026-11-17T06:58:00.000Z" });
     await user.click(screen.getByRole("button", { name: "Test login now" }));
     expect(api.suppliers.testAutoLogin).toHaveBeenCalledWith(aSupplier().id);
     expect(await screen.findByText("Test started. The result shows here in a minute.")).toBeInTheDocument();
+  });
+
+  it("keeps Test login now off, and says why, while automatic login is off", () => {
+    setup({ ...granted, autoLogin: false, credentialsSavedAt: "2026-11-17T06:58:00.000Z" });
+    expect(screen.getByRole("button", { name: "Test login now" })).toBeDisabled();
+    expect(screen.getByText("Turn on automatic login first.")).toBeInTheDocument();
+  });
+
+  it("keeps Test login now off, and says why, while automatic login is paused", () => {
+    setup({ ...granted, autoLogin: true, autoLoginPausedReason: "too_many_failures", credentialsSavedAt: "2026-11-17T06:58:00.000Z" });
+    expect(screen.getByRole("button", { name: "Test login now" })).toBeDisabled();
+    expect(screen.getByText("Press Resume first.")).toBeInTheDocument();
   });
 
   it("removes the saved login", async () => {
@@ -111,7 +123,7 @@ describe("Automatic login card", () => {
 });
 
 describe("Automatic login card: waiting for a test result", () => {
-  const saved = { ...granted, credentialsSavedAt: "2026-11-17T06:58:00.000Z", lastAutoLoginAt: "2026-11-17T06:00:00.000Z" as string | null };
+  const saved = { ...granted, autoLogin: true, credentialsSavedAt: "2026-11-17T06:58:00.000Z", lastAutoLoginAt: "2026-11-17T06:00:00.000Z" as string | null };
   const start = async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const api = fakeApi();

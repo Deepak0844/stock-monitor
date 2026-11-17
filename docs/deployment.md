@@ -156,7 +156,7 @@ The app pauses automatic login for that supplier, so it does not keep trying and
 |---|---|---|
 | The supplier refused the saved password | The username or password is wrong. | Save the password again (or press **Resume**). |
 | The supplier says the account is locked | Too many wrong tries, or the supplier locked it. | Sort it out with the supplier, then save the password again or press **Resume**. |
-| Two automatic logins failed in a row | Something keeps going wrong. | Press **Test login now** to see why, fix it, then press **Resume**. |
+| Two automatic logins failed in a row | Something keeps going wrong. | Press **Resume**, then **Test login now** to see why. |
 
 Logging in yourself through the live window, saving the password again, or pressing **Resume** all start automatic login again. They also start a supplier the app had stopped. A supplier you paused yourself stays paused.
 

@@ -71,6 +71,8 @@ export function AutoLoginCard({ api, supplier, onChange }: { api: Api; supplier:
 
   const granted = supplier.automationPermission === "granted";
   const paused = supplier.autoLoginPausedReason;
+  // The test job logs in only when automatic login is on and not paused, so the button says what to do first.
+  const testBlocked = !supplier.autoLogin ? "Turn on automatic login first." : paused ? "Press Resume first." : null;
 
   /** Runs one action: shows one error or note, never both, and tells the page to reload. */
   async function run(name: string, action: () => Promise<string | null | void>) {
@@ -212,9 +214,21 @@ export function AutoLoginCard({ api, supplier, onChange }: { api: Api; supplier:
             Last automatic login: {formatWhen(supplier.lastAutoLoginAt)}, {RESULT_WORDS[supplier.lastAutoLoginResult]}
           </p>
         )}
-        <Button type="button" variant="outline" loading={busy === "test"} disabled={busy !== null || !savedAt} onClick={test}>
+        <Button
+          type="button"
+          variant="outline"
+          loading={busy === "test"}
+          disabled={busy !== null || !savedAt || testBlocked !== null}
+          aria-describedby={testBlocked ? "auto-test-blocked" : undefined}
+          onClick={test}
+        >
           Test login now
         </Button>
+        {testBlocked && (
+          <p id="auto-test-blocked" className="text-sm text-muted-foreground">
+            {testBlocked}
+          </p>
+        )}
       </div>
 
       <details className="rounded-lg border border-border px-4 py-3">
