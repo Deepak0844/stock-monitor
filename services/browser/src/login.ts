@@ -172,6 +172,9 @@ async function challengeVisible(page: Page): Promise<boolean> {
 const typingDelay = () => 40 + Math.floor(Math.random() * 81);
 const type = (field: Locator, value: string) => field.pressSequentially(value, { delay: typingDelay() });
 
+/** How long a submit may take to leave the page before it is sent once more another way. */
+const SEND_WAIT_MS = 2000;
+
 export type StepOptions = { settleMs: number; stepWaitMs?: number; maxSteps?: number };
 
 /**
@@ -184,6 +187,16 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
   /** Every frame navigation, in order: what the step and settle waits look for. */
   const navigated: Frame[] = [];
   page.on("framenavigated", (frame) => void navigated.push(frame));
+  /** The frames that sent a POST or started a navigation, in order: proof that a submit left the page. */
+  const sends: Frame[] = [];
+  page.on("request", (r) => {
+    try {
+      if (r.method() === "POST" || r.isNavigationRequest()) sends.push(r.frame());
+    } catch {
+      // a service worker's request has no frame
+    }
+  });
+  const sentSince = (from: number, form: Frame) => sends.slice(from).some((fr) => fr === page.mainFrame() || fr === form);
   page.on("response", (r) => {
     if (r.request().isNavigationRequest() && r.frame() === page.mainFrame()) status = r.status();
   });
@@ -366,9 +379,24 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
       const target = last;
       const submitWait = f.password ? settleMs : stepWaitMs;
       if (f.password) sent = { at: Date.now(), navs: navigated.length, frame };
-      const changed = await afterAction(() => (next ? click(next) : target.press("Enter", { noWaitAfter: true })), submitWait, f.password ? undefined : frame);
+      const sendsBefore = sends.length;
+      const password = f.password?.field;
+      const changed = await afterAction(async () => {
+        await (next ? click(next) : target.press("Enter", { noWaitAfter: true }));
+        if (!password) return;
+        // A submit that never left the page (a first click lost on a window that just opened) is sent once more, another
+        // way. Only when nothing at all was sent: this is still the one login attempt.
+        const end = Date.now() + SEND_WAIT_MS;
+        while (Date.now() < end && !sentSince(sendsBefore, frame)) await page.waitForTimeout(100);
+        if (sentSince(sendsBefore, frame)) return;
+        const hasForm = await password.evaluate((el) => !!(el as HTMLInputElement).form).catch(() => false);
+        if (hasForm) await password.evaluate((el) => (el as HTMLInputElement).form?.requestSubmit()).catch(() => {});
+        else if (next) await password.press("Enter", { noWaitAfter: true }).catch(() => {});
+      }, submitWait, f.password ? undefined : frame);
       // Too many requests: the supplier is busy, not refusing the login.
       if (status === 429) return "unreachable";
+      // Nothing was sent: the page is not the supplier's answer, so it says nothing about the password.
+      if (password && !sentSince(sendsBefore, frame)) return "unknown";
       if (f.password) submitted = true; // from here on, nothing is typed: a later text box could be a security question
       else if (!changed) return "form_not_found";
     }

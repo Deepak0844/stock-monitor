@@ -37,6 +37,7 @@ const AFTER: Record<string, string | null> = {
   one: null,
   slow: null,
   slower: null,
+  lazy: null,
   frame: null,
   banner: null,
   modal: null,
@@ -115,6 +116,11 @@ function startSite(): Promise<Server> {
       case "one": case "slower": case "push": case "locked": case "question": case "puzzle": case "code": case "stay": case "promo": case "busy": case "public":
         return html(page(form(`/${kase}/login`, userAndPassword)));
       case "two": return html(page(form("/two/user", '<input type="email" name="username"><button type="submit">Next</button>').replace('<button type="submit">Sign in</button>', "")));
+      // A submit button that ignores its first click, as a window that has just opened can.
+      case "lazy":
+        return html(page(`<form method="post" action="/lazy/login">${userAndPassword}<button type="submit" onclick="if(!window.armed){window.armed=1;event.preventDefault()}">Sign in</button></form>`));
+      // A form that never sends anything.
+      case "dead": return html(page(form("/dead/login", userAndPassword, 'onsubmit="event.preventDefault()"')));
       case "slowtwo":
         return html(page(form("/slowtwo/user", '<input type="email" name="username"><button type="submit">Next</button>', `onsubmit="event.preventDefault();document.getElementById('t').src='/slowtwo/track';setTimeout(()=>this.submit(),200)"`).replace('<button type="submit">Sign in</button>', "") + '<iframe id="t" width="1" height="1"></iframe>'));
       case "choice": return html(page(form("/choice/user", '<input type="email" name="username">')));
@@ -272,7 +278,19 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     expect((await checker().login(ask("public", { checkUrl: `${base}/public/product`, loggedInMarker: "log out" }))).result).toBe("ok");
   });
   it("wrong password", async () => {
+    posts.wrong = [];
     expect((await checker().login(ask("wrong", { password: "nope" }))).result).toBe("wrong_password");
+    expect(posts.wrong.length).toBe(1);
+  });
+  it("a first click that sends nothing: the form is sent once, another way", async () => {
+    posts.lazy = [];
+    expect((await checker().login(ask("lazy"))).result).toBe("ok");
+    expect(posts.lazy.length).toBe(1);
+  });
+  it("a submit that never sends anything is unknown, never a wrong password", async () => {
+    posts.dead = [];
+    expect((await checker().login(ask("dead"))).result).toBe("unknown");
+    expect(posts.dead.length).toBe(0);
   });
   it("puzzle", async () => {
     const out = await checker().login(ask("puzzle"));
