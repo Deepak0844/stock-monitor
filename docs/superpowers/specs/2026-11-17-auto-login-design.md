@@ -113,7 +113,7 @@ same way `supplier_sessions` is kept apart.
 | Column | Type | Notes |
 | --- | --- | --- |
 | `supplier_id` | uuid, primary key | references `suppliers.id`, `on delete cascade` |
-| `ciphertext`, `iv`, `tag`, `key_id` | text | the sealed JSON `{ "username": "...", "password": "..." }`, using `encrypt` from `packages/crypto` |
+| `ciphertext`, `iv`, `tag`, `key_id` | text | the sealed JSON `{ "username": "...", "password": "...", "account": "..." }` (`account` optional: an account or customer number some trade suppliers ask for), using `encrypt` from `packages/crypto` |
 | `saved_at` | timestamptz | shown on screen as "Password saved 17 Nov" |
 
 Nothing about the username or password is stored in plain text, not even a hint.
@@ -157,7 +157,8 @@ type LoginRequest = {
   username: string;
   password: string;
   stealth: boolean;
-  selectors?: { open?: string; username?: string; password?: string; submit?: string };
+  account?: string;        // only when the owner saved one
+  selectors?: { open?: string; account?: string; username?: string; password?: string; submit?: string };
 };
 ```
 
@@ -214,7 +215,10 @@ several steps (email, then Next, then a choice screen, then password). One loop 
 1. Nothing to fill (no username or password field visible): this is the "open the login" step. Click the first visible
    link or button whose text is "Sign in", "Log in", "Login" or "My account", then wait up to 15 s for a field. Allowed
    once.
-2. A username field that is empty: type the username. A password field: type the password. Tick a visible "Remember me"
+2. An account field that is empty and an account number is saved: type it. An account field is a visible text input
+   whose label, name, id or placeholder says "account", "customer number", "customer no" or "account no" (case-insensitive),
+   or the `account` override. It is checked before the username rule, so it is never mistaken for the username box.
+   A username field that is empty: type the username. A password field: type the password. Tick a visible "Remember me"
    / "Keep me signed in" checkbox if there is one.
 3. A choice screen with a visible "Use password" / "Sign in with password" button and no field: click it.
 4. Click the next button, wait up to 15 s for the page or the visible fields to change.
@@ -249,7 +253,9 @@ again (a later text box could be a security question).
 | Form inside web components (open shadow DOM) | Playwright locators pierce it | logs in |
 | Password-only or PIN page (no username box) | step loop fills the password only | logs in |
 | Odd page the rules misread | the four overrides | logs in |
-| Extra required field (account or customer number, branch picker) | **not covered** | `form_not_found`, owner |
+| Account or customer number box | saved `account` value, account rule or `account` override | logs in |
+| An account box the page needs, but no account number saved | nothing to type there | `form_not_found`, owner |
+| Branch or region picker (a drop-down) | **not covered** | `form_not_found`, owner |
 | "Sign in with Google / Microsoft" only | **not supported** (would need that account's password) | `form_not_found`, owner |
 | Magic link sent by email, no password | **not supported** | `form_not_found`, owner |
 | On-screen PIN pad, random keys, closed shadow DOM | **not supported** | `form_not_found`, owner |
@@ -376,7 +382,7 @@ and nothing else. It respects quiet hours and refuses while the supplier has a r
 
 All routes need a signed-in owner and the existing CSRF and origin checks.
 
-- `PUT /suppliers/:id/credentials` `{ username, password }`: seals and saves. Both fields required, 1 to 200 characters.
+- `PUT /suppliers/:id/credentials` `{ username, password, account? }`: seals and saves. Username and password required, 1 to 200 characters; account optional, 1 to 200.
   Responds `{ savedAt }`, never the values. Resets the counter and the pause.
 - `DELETE /suppliers/:id/credentials`: deletes the row and switches `auto_login` off.
 - `PATCH /suppliers/:id` accepts `autoLogin`, `stealth` and `loginSelectors`. `autoLogin: true` is refused (409, plain
@@ -397,6 +403,7 @@ Automatic login                                           [ On  ]
   Logs in for you before each check, using a password you save here.
   Needs "Allows automatic checks" to be Yes.
 
+  Account number (optional) [ ••••••  ]
   Username  [ ••••••••••••          ]
   Password  [ ••••••••••••          ]   Password saved 17 Nov
             [ Save ]  [ Remove ]
@@ -409,6 +416,7 @@ Automatic login                                           [ On  ]
 
   > Login page fields (advanced)
       Open login button [ a.sign-in ]
+      Account field   [ #custno     ]
       Username field  [ #email      ]
       Password field  [ #password   ]
       Login button    [ button.go   ]

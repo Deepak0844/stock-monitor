@@ -58,17 +58,17 @@ Playwright Chromium (browser service), Patchright (slice 2), Vitest.
 
 **Interfaces:**
 - Produces:
-  - `type Credentials = { username: string; password: string }`
-  - `isCredentials(v: unknown): v is Credentials` (both strings, 1 to 200 chars, no other keys)
+  - `type Credentials = { username: string; password: string; account?: string }`
+  - `isCredentials(v: unknown): v is Credentials` (username and password strings 1 to 200 chars; `account` absent or a string 1 to 200; no other keys)
   - `sealCredentials(c: Credentials, key: Buffer, keyId: string): Encrypted`
   - `unsealCredentials(sealed: Encrypted, key: Buffer): Credentials` (throws on a bad shape)
-  - `type LoginSelectors = { open?: string; username?: string; password?: string; submit?: string }` and
+  - `type LoginSelectors = { open?: string; account?: string; username?: string; password?: string; submit?: string }` and
     `isLoginSelectors(v: unknown): v is LoginSelectors` (only those keys, each a non-empty string up to 200 chars)
 
 - [ ] **Step 1: Write failing tests** in `credentials.test.ts`:
   - `round-trips exactly`: `unsealCredentials(sealCredentials({ username: "a@b.c", password: "p\"'😀" + "x".repeat(190) }, key, "k1"), key)` equals the input.
   - `ciphertext holds no plain text`: the sealed `ciphertext` does not contain the username or password.
-  - `rejects bad shapes`: `isCredentials({ username: "", password: "x" })`, `{ username: "a", password: "x".repeat(201) }`, `{ username: "a", password: "b", extra: 1 }` are all false.
+  - `rejects bad shapes`: `isCredentials({ username: "", password: "x" })`, `{ username: "a", password: "x".repeat(201) }`, `{ username: "a", password: "b", extra: 1 }`, `{ username: "a", password: "b", account: "" }` are all false; `{ username: "a", password: "b", account: "C-1042" }` is true and round-trips.
 - [ ] **Step 2: Run** `npx vitest run packages/supplier-session/src/credentials.test.ts`. Expected: FAIL (module not found).
 - [ ] **Step 3: Implement** using `encrypt`/`decrypt` from `@stock-monitor/crypto`, the same way `seal.ts` does.
 - [ ] **Step 4: Run** the same command. Expected: PASS.
@@ -128,7 +128,7 @@ Playwright Chromium (browser service), Patchright (slice 2), Vitest.
 - Consumes: `classifyPage`, `PageClass`, `SessionState` from `@stock-monitor/supplier-session`; `CHALLENGE_WIDGET` from `verify.ts`; `profileDirFor`, `holdProfile`, `releaseProfile` from `profile-store.ts`.
 - Produces:
   - `type LoginResult = "ok" | "captcha" | "code_required" | "wrong_password" | "account_locked" | "blocked" | "form_not_found" | "unreachable" | "unknown"`
-  - `type LoginRequest = { loginUrl: string; checkUrl: string; username: string; password: string; stealth: boolean; selectors?: LoginSelectors }`
+  - `type LoginRequest = { loginUrl: string; checkUrl: string; username: string; password: string; account?: string; stealth: boolean; selectors?: LoginSelectors }`
   - `type LoginOutcome = { result: LoginResult; state?: SessionState }` (`state` only when `ok`)
   - `type AfterSubmitFacts = { challengeVisible: boolean; codeFieldVisible: boolean; secondCheckText: boolean; lockedText: boolean; passwordFieldVisible: boolean; onLoginPage: boolean; pageClass: PageClass }`. `secondCheckText`: visible text matches `SECOND_CHECK_WORDS` (approve, check your phone, sent a notification, check your email, verify). `lockedText`: visible text matches `LOCKED_WORDS` (account is locked, account locked, too many attempts, temporarily blocked).
   - `decideAfterSubmit(f: AfterSubmitFacts): LoginResult`. Order: challenge → `captcha`; code field or approve/check-email text → `code_required`; locked text → `account_locked`; password visible and on login page → `wrong_password`; else `pageClass` mapped (`login_required` → `wrong_password`, `ok` → `ok`, others as named, `unknown` → `unknown`). The order is fixed by the spec.
@@ -142,7 +142,8 @@ Playwright Chromium (browser service), Patchright (slice 2), Vitest.
 - Form finding: the spec's **step loop** ("Finding the login form"), exactly. Fields are searched in **every frame**
   (`page.frames()`), visible only. At most 5 steps; the "open the login" click at most once; the cookie-banner click at
   most once per login; each step waits up to 15 s for the page or visible fields to change; a step where nothing changed
-  ends the loop with `form_not_found`. An override selector (`open`, `username`, `password`, `submit`) replaces its
+  ends the loop with `form_not_found`. An account field is filled (spec step-loop rule 2, checked before the username rule) only when `request.account` is set.
+  An override selector (`open`, `account`, `username`, `password`, `submit`) replaces its
   automatic rule; an override not found → `form_not_found`, no guessing. After the password step, click a visible
   "Yes" / "Stay signed in" button if one appears.
 - Keep the button and label word lists as exported constants in `login.ts` (`OPEN_WORDS`, `NEXT_WORDS`,
@@ -175,6 +176,8 @@ Playwright Chromium (browser service), Patchright (slice 2), Vitest.
   - `form in iframe`: the form is in an `<iframe>` on the login page; `ok`.
   - `cookie banner`: a fixed overlay covers the form until "Accept all" is clicked; `ok`, and "Accept all" clicked once.
   - `stay signed in`: after the password, a "Stay signed in?" page with a "Yes" button; `ok`.
+  - `account number`: form with customer number + email + password; all three arrive; `ok`.
+  - `account box, none saved`: same form, no `account` in the request; `form_not_found`.
   - `browser check page`: an interstitial page that redirects to the form after 3 s; `ok`.
   - `push approval`: after the password, "We sent a notification, approve on your phone"; `code_required`.
   - `account locked`: after the password, "Your account is locked"; `account_locked`.
@@ -204,7 +207,7 @@ Playwright Chromium (browser service), Patchright (slice 2), Vitest.
 - Produces:
   - `ControlServerOptions.login?: (r: LoginRequest) => Promise<LoginOutcome>`; route `POST /login`, same token check.
   - `parseLogin(raw: string): LoginRequest | null`: `loginUrl` and `checkUrl` pass `isWebUrl`; `username`/`password` 1–200
-    chars; `stealth` boolean; `selectors` optional, checked with `isLoginSelectors` (Task 1); no other keys.
+    chars; `account` optional, 1–200; `stealth` boolean; `selectors` optional, checked with `isLoginSelectors` (Task 1); no other keys.
   - Log line on success: `login: <result>` only. On error: `login failed: <error.name>`, reply 500 `{ error: "login_failed" }`.
   - `BrowserClient.login(r: LoginRequest): Promise<{ ok: true; outcome: LoginOutcome } | { ok: false; reason: "unavailable" | "failed" }>`, using `pageTimeoutMs`. `failed` when status ≠ 200 or `result` is not one of the 9 codes. `state` is kept only when `result === "ok"` and `isSessionState`.
 
@@ -311,7 +314,7 @@ Rules:
 **Interfaces:**
 - Consumes: Task 1 sealing, Task 2 repositories, job `supplier.session.login` (Task 6).
 - Produces (all owner-only, existing CSRF and origin checks):
-  - `PUT /api/suppliers/:id/credentials` `{ username, password }` (validated with `isCredentials`) → 200 `{ savedAt }`.
+  - `PUT /api/suppliers/:id/credentials` `{ username, password, account? }` (validated with `isCredentials`) → 200 `{ savedAt }`.
   - `DELETE /api/suppliers/:id/credentials` → 204; also `setAutoLogin(id, { autoLogin: false })`.
   - `PATCH /api/suppliers/:id` additionally accepts `autoLogin`, `loginSelectors` (`stealth` comes in Task 11). `not_granted` →
     409 `{ error: "not_granted", message: "Mark this supplier as allowing automatic checks first." }`; `no_credentials` →
@@ -356,7 +359,7 @@ Behavior (spec section 6 sketch, without the stealth row):
 - Last result line: "Last automatic login: <date time>, <plain result>". Plain results: ok "logged in", captcha "puzzle shown",
   code_required "asked for a code", wrong_password "password refused", account_locked "account locked", blocked "blocked", form_not_found "login form not
   found", unreachable "could not reach the site", unknown "not sure it worked".
-- "Login page fields (advanced)" collapsed by default; four text inputs (Open login button, Username field, Password field, Login button) mapped to `loginSelectors` `open`, `username`, `password`, `submit`.
+- "Login page fields (advanced)" collapsed by default; five text inputs (Open login button, Account field, Username field, Password field, Login button) mapped to `loginSelectors` `open`, `account`, `username`, `password`, `submit`. An optional "Account number" input sits above Username and is cleared after save like the others.
 - **Test login now** posts to the test route and shows "Test started. The result shows here in a minute."
 
 - [ ] **Step 1: Write failing tests** (React Testing Library, as the other page tests do): fields empty after save; switch
