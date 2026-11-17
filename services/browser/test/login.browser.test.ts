@@ -41,6 +41,7 @@ const AFTER: Record<string, string | null> = {
   check: null,
   push: page("<p>We sent a notification. Approve the sign-in on your phone.</p>"),
   locked: page("<p>Your account is locked. Call us.</p>"),
+  // Rendered at the login address, as many sites do: still not a wrong password.
   question: page('<label>Your first school <input type="text" name="answer" oninput="fetch(\'/question/typed\')"></label><button>Go</button>'),
   puzzle: page('<div class="g-recaptcha" style="width:300px;height:80px;background:#eee"></div>'),
   code: page('<label>Code <input autocomplete="one-time-code" name="c"></label>'),
@@ -77,7 +78,6 @@ function startSite(): Promise<Server> {
       if (!good(b)) return html(page(form(`/${kase}/login`, userAndPassword) + "<p>Wrong password, try again.</p>"));
       const after = AFTER[kase];
       if (after === null) return res.writeHead(302, loginCookie).end();
-      if (kase === "question") return res.writeHead(302, { location: "/question/ask" }).end(); // its own page, not the login address
       return html(after ?? page("?"));
     }
     if (url.pathname === "/account") return loggedIn(req) ? html(page(`<h1>Your account</h1><p>${FILLER}</p>`, "Account")) : res.writeHead(302, { location: "/one/login" }).end();
@@ -85,7 +85,6 @@ function startSite(): Promise<Server> {
       count(`${kase}/${step}`);
       return res.writeHead(204).end();
     }
-    if (kase === "question" && step === "ask") return html(AFTER.question!);
     if (step !== "login" && step !== "inner" && step !== "form" && step !== "app") return html(page("not here"), 404);
     if (kase === "one" && loggedIn(req)) return res.writeHead(302, { location: "/account" }).end();
     switch (kase) {

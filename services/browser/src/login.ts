@@ -40,13 +40,18 @@ export const CODE_FIELD = [
   ...["name", "id", "placeholder", "aria-label"].flatMap((a) => ["code", "otp", "verification"].map((w) => `input[${a}*="${w}" i]`)),
 ].join(", ");
 
-/** What the page says after the password went in. The order is fixed by the spec. */
+/**
+ * What the page says after the password went in. The order is fixed by the spec. Second-check and locked wording only count on a
+ * page that is not ok: a logged-in page may well say "verify" or "approve". Only a password box still on the login page is a wrong
+ * password; any other login page (security question, expired password, new terms) is unknown.
+ */
 export function decideAfterSubmit(f: AfterSubmitFacts): LoginResult {
+  const notOk = f.pageClass !== "ok";
   if (f.challengeVisible) return "captcha";
-  if (f.codeFieldVisible || f.secondCheckText) return "code_required";
-  if (f.lockedText) return "account_locked";
+  if (f.codeFieldVisible || (notOk && f.secondCheckText)) return "code_required";
+  if (notOk && f.lockedText) return "account_locked";
   if (f.passwordFieldVisible && f.onLoginPage) return "wrong_password";
-  return f.pageClass === "login_required" ? "wrong_password" : f.pageClass;
+  return f.pageClass === "login_required" ? "unknown" : f.pageClass;
 }
 
 const LOGIN_PATH = /\/(?:log-?in|sign-?in|sign_in|log_in)(?:[/?#.]|$)/;
