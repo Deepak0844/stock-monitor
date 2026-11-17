@@ -23,22 +23,34 @@ const domainsOf = (state: State): string[] => {
   return [...new Set(hosts.filter((h): h is string => h !== null))].sort();
 };
 
+const newRow = (sealed: Encrypted, state: State) => ({
+  stateCiphertext: sealed.ciphertext,
+  stateIv: sealed.iv,
+  stateTag: sealed.tag,
+  stateKeyId: sealed.keyId,
+  cookieCount: state.cookies.length,
+  domains: domainsOf(state),
+  sizeBytes: Buffer.byteLength(JSON.stringify(state)),
+  savedAt: sql`now()` as unknown as Date,
+  lastVerifiedAt: null,
+});
+
 export function createSupplierSessionRepository<S extends Record<string, unknown>>(db: NodePgDatabase<S>) {
   return {
     /** Saves the sealed session. A new login replaces the old one. `state` is only read to work out the plain facts, and is not stored. */
     async save(supplierId: string, sealed: Encrypted, state: State): Promise<void> {
-      const values = {
-        stateCiphertext: sealed.ciphertext,
-        stateIv: sealed.iv,
-        stateTag: sealed.tag,
-        stateKeyId: sealed.keyId,
-        cookieCount: state.cookies.length,
-        domains: domainsOf(state),
-        sizeBytes: Buffer.byteLength(JSON.stringify(state)),
-        savedAt: sql`now()` as unknown as Date,
-        lastVerifiedAt: null,
-      };
+      const values = newRow(sealed, state);
       await db.insert(supplierSessions).values({ supplierId, ...values }).onConflictDoUpdate({ target: supplierSessions.supplierId, set: values });
+    },
+
+    /** Saves the session only when none is stored, so a login saved meanwhile (the owner's) wins. True when it saved. */
+    async saveIfAbsent(supplierId: string, sealed: Encrypted, state: State): Promise<boolean> {
+      const rows = await db
+        .insert(supplierSessions)
+        .values({ supplierId, ...newRow(sealed, state) })
+        .onConflictDoNothing({ target: supplierSessions.supplierId })
+        .returning({ id: supplierSessions.supplierId });
+      return rows.length > 0;
     },
 
     /**

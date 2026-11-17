@@ -70,3 +70,19 @@ describe("supplier credentials repository", () => {
     expect(await suppliers().get(s.id)).toMatchObject({ autoLoginFailures: 0, autoLoginPausedReason: null });
   });
 });
+
+describe("saving credentials lifts a pause the app made", () => {
+  it("re-enables a supplier the app paused because the session needed attention", async () => {
+    const s = await made();
+    await suppliers().markNeedsAttention(s.id, "needs_reconnect");
+    await repo().save(s.id, sealed);
+    expect(await suppliers().get(s.id)).toMatchObject({ enabled: true, pausedReason: null, sessionStatus: "needs_reconnect" });
+  });
+
+  it("leaves a pause the owner made", async () => {
+    const s = await made();
+    await suppliers().pause(s.id);
+    await repo().save(s.id, sealed);
+    expect(await suppliers().get(s.id)).toMatchObject({ enabled: false, pausedReason: "owner" });
+  });
+});

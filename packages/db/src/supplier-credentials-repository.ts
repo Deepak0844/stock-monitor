@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type { Encrypted } from "@stock-monitor/crypto";
 import { supplierCredentials, suppliers } from "./schema.js";
+import { liftAutoLoginPause } from "./supplier-repository.js";
 
 export function createSupplierCredentialsRepository<S extends Record<string, unknown>>(db: NodePgDatabase<S>) {
   const read = async (supplierId: string) => {
@@ -10,7 +11,10 @@ export function createSupplierCredentialsRepository<S extends Record<string, unk
   };
 
   return {
-    /** Saves the sealed login. New credentials replace the old and lift any automatic login pause, in one transaction. */
+    /**
+     * Saves the sealed login. New credentials replace the old and, in one transaction, lift the automatic login pause and a
+     * pause the app made because the session needed attention. A pause the owner made stays.
+     */
     async save(supplierId: string, sealed: Encrypted): Promise<{ savedAt: Date }> {
       return db.transaction(async (tx) => {
         const values = { ciphertext: sealed.ciphertext, iv: sealed.iv, tag: sealed.tag, keyId: sealed.keyId, savedAt: new Date() };
@@ -19,7 +23,7 @@ export function createSupplierCredentialsRepository<S extends Record<string, unk
           .values({ supplierId, ...values })
           .onConflictDoUpdate({ target: supplierCredentials.supplierId, set: values })
           .returning({ savedAt: supplierCredentials.savedAt });
-        await tx.update(suppliers).set({ autoLoginFailures: 0, autoLoginPausedReason: null }).where(eq(suppliers.id, supplierId));
+        await tx.update(suppliers).set(liftAutoLoginPause).where(eq(suppliers.id, supplierId));
         return { savedAt: row!.savedAt };
       });
     },

@@ -101,8 +101,8 @@ export async function ensureLoggedIn(deps: AutoLoginDeps, supplier: SupplierReco
 /** A new login replaces the stored session, unless the owner logged in since the attempt started. */
 async function saveLogin(deps: AutoLoginDeps, id: string, expectedIv: string | null, state: SessionState): Promise<void> {
   const sealed = sealSessionState(state, deps.key, KEY_ID);
-  if (expectedIv === null) await deps.supplierSessions.save(id, sealed, state);
-  else if (!(await deps.supplierSessions.refresh(id, expectedIv, sealed, state))) deps.logger.info({ supplierId: id }, "kept the owner's newer login");
+  const saved = expectedIv === null ? await deps.supplierSessions.saveIfAbsent(id, sealed, state) : await deps.supplierSessions.refresh(id, expectedIv, sealed, state);
+  if (!saved) deps.logger.info({ supplierId: id }, "kept the owner's newer login");
   await deps.supplierSessions.markVerified(id);
   await deps.suppliers.markVerified(id);
   await deps.notifications.resolve("supplier_needs_reconnect", id);

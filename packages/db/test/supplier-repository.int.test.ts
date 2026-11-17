@@ -244,6 +244,36 @@ describe("supplier repository: automatic login", () => {
     expect(await repo().get(s.id)).toMatchObject({ autoLoginFailures: 0, autoLoginPausedReason: null });
   });
 
+  it("resume also lifts a pause the app made because the session needed attention", async () => {
+    const s = await made();
+    await repo().recordAutoLogin(s.id, "wrong_password", "pause_wrong_password");
+    await repo().markNeedsAttention(s.id, "needs_reconnect");
+    expect(await repo().resumeAutoLogin(s.id)).toBe(true);
+    expect(await repo().get(s.id)).toMatchObject({ enabled: true, pausedReason: null, sessionStatus: "needs_reconnect" });
+  });
+
+  it("resume leaves a pause the owner made", async () => {
+    const s = await made();
+    await repo().recordAutoLogin(s.id, "wrong_password", "pause_wrong_password");
+    await repo().pause(s.id);
+    expect(await repo().resumeAutoLogin(s.id)).toBe(true);
+    expect(await repo().get(s.id)).toMatchObject({ enabled: false, pausedReason: "owner", autoLoginPausedReason: null });
+  });
+
+  it("a live-window login (markConnected) clears the failures and the pause", async () => {
+    const s = await made();
+    await repo().recordAutoLogin(s.id, "wrong_password", "pause_wrong_password");
+    await repo().markConnected(s.id);
+    expect(await repo().get(s.id)).toMatchObject({ autoLoginFailures: 0, autoLoginPausedReason: null });
+  });
+
+  it("a plain session check (markVerified) keeps a wrong password pause", async () => {
+    const s = await made();
+    await repo().recordAutoLogin(s.id, "wrong_password", "pause_wrong_password");
+    await repo().markVerified(s.id);
+    expect(await repo().get(s.id)).toMatchObject({ autoLoginFailures: 1, autoLoginPausedReason: "wrong_password" });
+  });
+
   it("turns auto login and stealth off when permission is revoked", async () => {
     const s = await made();
     await grant(s.id);

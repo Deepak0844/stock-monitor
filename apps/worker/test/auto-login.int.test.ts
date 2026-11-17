@@ -2,12 +2,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { randomBytes } from "node:crypto";
 import { Writable } from "node:stream";
 import { startTestDb, type TestDb } from "@stock-monitor/db/test-harness";
-import { createNotificationRepository, createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
+import { createNotificationRepository, createRecipeRepository, createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
 import { createAuditWriter } from "@stock-monitor/audit";
 import type { BrowserClient, LoginCallOutcome, LoginRequest } from "@stock-monitor/browser-client";
 import { createLogger } from "@stock-monitor/shared";
 import { sealCredentials, sealSessionState, unsealSessionState, type SessionState } from "@stock-monitor/supplier-session";
 import { AUTO_LOGIN_FRESH_MINUTES, ensureLoggedIn, type AutoLoginDeps } from "../src/auto-login.js";
+import { stockGate } from "../src/extraction-check.js";
 
 let t: TestDb;
 const key = randomBytes(32);
@@ -245,6 +246,36 @@ describe("owner wins", () => {
     ];
     expect(await ensureLoggedIn(deps(), await supplier(), opts)).toBe("ready");
     expect(await stored()).toEqual(OWNER);
+  });
+});
+
+describe("owner wins with no session before", () => {
+  it("keeps the owner's live-window login when there was no session when the automatic one started", async () => {
+    await sessions().remove(id);
+    const OWNER = session("OWNER-COOKIE");
+    replies = [
+      async () => {
+        await sessions().save(id, sealSessionState(OWNER, key, "v1"), OWNER);
+        return reply("ok", NEW);
+      },
+    ];
+    expect(await ensureLoggedIn(deps(), await supplier(), opts)).toBe("ready");
+    expect(await stored()).toEqual(OWNER);
+  });
+});
+
+describe("the owner's fix lifts the pause", () => {
+  it("after a wrong password, saving the password again lets stock checks run", async () => {
+    await suppliers().markConnected(id);
+    const recipes = createRecipeRepository(t.appDb);
+    const rules = { pageChecks: [{ type: "text", text: "Blue Tee" }], inStock: [{ type: "button", label: "Add to cart", enabled: true }], outOfStock: [{ type: "text", text: "Sold out" }] };
+    await recipes.activate((await recipes.create(id, rules)).id);
+    const gate = () => stockGate({ suppliers: suppliers(), supplierSessions: sessions(), recipes }, id);
+    replies = [reply("wrong_password")];
+    await ensureLoggedIn(deps(), await supplier(), opts);
+    expect(await gate()).toEqual({ reason: "needs_attention" });
+    await credentials().save(id, sealCredentials({ username: USERNAME, password: PASSWORD }, key, "v1"));
+    expect(await gate()).toHaveProperty("supplier");
   });
 });
 

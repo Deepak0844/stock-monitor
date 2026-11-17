@@ -60,6 +60,17 @@ const isNameTaken = (error: unknown) => {
   return (e?.code ?? e?.cause?.code) === UNIQUE_VIOLATION;
 };
 
+/**
+ * What the owner's fix for a paused automatic login sets (saving the password again, or Resume): the count and pause reset,
+ * and a pause the app made because the session needed attention lifted. A pause the owner made is not.
+ */
+export const liftAutoLoginPause = {
+  autoLoginFailures: 0,
+  autoLoginPausedReason: null,
+  enabled: sql`case when ${suppliers.pausedReason} = 'session' then true else ${suppliers.enabled} end`,
+  pausedReason: sql`case when ${suppliers.pausedReason} = 'session' then null else ${suppliers.pausedReason} end`,
+};
+
 export function createSupplierRepository<S extends Record<string, unknown>>(db: NodePgDatabase<S>) {
   const one = async (id: string): Promise<SupplierRecord | null> => {
     if (!UUID.test(id)) return null;
@@ -128,11 +139,13 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
 
     /**
      * A login has just been saved. The supplier is connected, and a pause the app made because the
-     * session needed attention is lifted. A pause the owner made is not.
+     * session needed attention is lifted. A pause the owner made is not. The owner's own login also resets automatic login.
      */
     markConnected: (id: string) =>
       set(id, {
         sessionStatus: "connected",
+        autoLoginFailures: 0,
+        autoLoginPausedReason: null,
         enabled: sql`case when ${suppliers.pausedReason} = 'session' then true else ${suppliers.enabled} end`,
         pausedReason: sql`case when ${suppliers.pausedReason} = 'session' then null else ${suppliers.pausedReason} end`,
       }),
@@ -217,9 +230,9 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
       return row;
     },
 
-    /** The owner lifts an automatic login pause. */
+    /** The owner lifts an automatic login pause, and a pause the app made because the session needed attention. */
     async resumeAutoLogin(id: string): Promise<boolean> {
-      return (await set(id, { autoLoginFailures: 0, autoLoginPausedReason: null })) !== null;
+      return (await set(id, liftAutoLoginPause)) !== null;
     },
 
     /** The region label stock checks look for on this supplier's pages. null clears it. */
