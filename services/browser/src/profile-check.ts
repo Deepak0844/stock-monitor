@@ -11,6 +11,7 @@ import { chromium } from "playwright";
 import { classifyPage, mergeSessionState, type PageClass, type SessionState } from "@stock-monitor/supplier-session";
 import { readCookies } from "./chromium-cookies.js";
 import { cookieStore, forgetOpenTabs, plainLaunchArgs, quitCleanly, seedProfile, waitForDebuggingPort } from "./plain-window.js";
+import { runLogin, type LoginOutcome, type LoginRequest, type LoginResult } from "./login.js";
 import { cookieHash, holdProfile, PROFILE_ROOT, profileDirFor, releaseProfile } from "./profile-store.js";
 import type { GuardProxy } from "./proxy.js";
 import { capturePageIn, type CaptureOutcome, type CaptureRequest } from "./capture.js";
@@ -52,9 +53,12 @@ export function lastVisited(profile: string): { url: string; title: string } | n
 
 export type ProfileCheckOptions = { proxy: GuardProxy; sandbox: boolean; headless: boolean; baseDir?: string; settleMs?: number; language?: string;
   /** The screen the browser opens on. Not the one VNC shows, or a check would appear in the owner's login window. */
-  display?: string };
+  display?: string;
+  /** Test only: how long each login step waits for the page to change. */
+  loginStepMs?: number;
+  log?: (line: string) => void };
 
-export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFILE_ROOT, settleMs = 12_000, display, language }: ProfileCheckOptions) {
+export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFILE_ROOT, settleMs = 12_000, display, language, loginStepMs = 15_000, log = () => {} }: ProfileCheckOptions) {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
   /** Starts the browser on `profile`. Returns once it is running; `stop` quits it the way a person would. */
@@ -235,6 +239,54 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
     }
   }
 
+  /**
+   * Logs in to the supplier in its persistent profile. The profile is never wiped or seeded with cookies: a returning browser
+   * is the point. The debugging channel is open for the whole login. The username and password are typed into the page only.
+   */
+  async function login(request: LoginRequest): Promise<LoginOutcome> {
+    const profile = profileDirFor(baseDir, request.loginUrl);
+    if (!holdProfile(profile)) return { result: "unreachable" };
+    try {
+      // A new profile gets the preferences that stop Chromium from saving a typed password. An existing one is left as it is.
+      if (!existsSync(join(profile, "Default", "Preferences"))) await seedProfile(profile, language);
+      let result: LoginResult = "unknown";
+      let storage: SessionState = { cookies: [], origins: [] } as unknown as SessionState;
+      const b = await launch(profile, "about:blank", true);
+      try {
+        const port = await waitForDebuggingPort(profile, b.child, 20_000);
+        const cdp = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+        try {
+          const context = cdp.contexts()[0];
+          const page = context?.pages()[0] ?? (await context?.newPage());
+          if (context && page) {
+            result = await runLogin(page, request, { settleMs, stepWaitMs: loginStepMs });
+            // Page storage (a token in localStorage) can only be read while the channel is open. Cookies come from the file below.
+            if (result === "ok") storage = (await context.storageState().catch(() => storage)) as unknown as SessionState;
+          }
+        } finally {
+          await cdp.close().catch(() => {});
+        }
+      } catch (error) {
+        log(`login failed: ${error instanceof Error ? error.name : "Error"}`);
+        result = "unknown";
+      } finally {
+        await b.stop(); // a clean quit writes the cookie file read below
+      }
+      log(`login result: ${result}`);
+      if (result !== "ok") return { result };
+      const file = { cookies: readCookies(cookieStore(profile)), origins: [] } as unknown as SessionState;
+      const state = mergeSessionState(storage, file, Date.now() / 1000);
+      // The worker stores this session, so the next check of it keeps the profile instead of wiping it.
+      await writeFile(join(profile, "seeded"), cookieHash(state.cookies));
+      return { result: "ok", state };
+    } catch (error) {
+      log(`login failed: ${error instanceof Error ? error.name : "Error"}`);
+      return { result: "unknown" };
+    } finally {
+      releaseProfile(profile);
+    }
+  }
+
   const noPage = { result: "unreachable" as const, status: null, blockedRequests: 0, finalUrl: null, title: null, heading: null, softNotFound: false };
 
   // One at a time: a profile allows one browser, and each browser takes about 900 MB.
@@ -247,6 +299,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
 
   const verify = (request: VerifyRequest): Promise<VerifyOutcome> => inTurn(() => check(request));
   return Object.assign(verify, {
+    login: (request: LoginRequest): Promise<LoginOutcome> => inTurn(() => login(request)),
     checkPage: (request: CheckPageRequest, timeoutMs = 20_000): Promise<CheckPageOutcome> =>
       inTurn(() => inProfile(request, noPage as CheckPageOutcome, (page, tracker) => inspectPage(page, request, tracker, timeoutMs))),
     capture: (request: CaptureRequest, timeoutMs = 20_000): Promise<CaptureOutcome> =>
