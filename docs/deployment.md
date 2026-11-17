@@ -148,6 +148,10 @@ If the saved login has ended, the app logs in with your saved details, then carr
 
 If the supplier shows a puzzle, or asks for a code, a text message or an approval on your phone, the app stops. It leaves a message on the Dashboard. Press **Reconnect supplier**, log in through the live window, and type the code there.
 
+### When a login box changes what the app types
+
+Some login boxes change what is typed into them: they add dashes or spaces, switch capitals and small letters, or cut the text short. The app checks every box after typing and again just before it presses the button. If a box does not hold exactly what the app typed, automatic login stops with "login did not finish", and nothing is sent to the supplier. The way out is to log in by hand in the live window. If the app picked the wrong box, use the advanced field settings on the supplier's page.
+
 ### When automatic login pauses
 
 The app pauses automatic login for that supplier, so it does not keep trying and get the account locked. The card says why, and the Dashboard shows a message.
