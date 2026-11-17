@@ -288,10 +288,10 @@ afterAll(async () => {
 });
 
 /** A new checker with its own, empty profile folder, so cases do not share a login. */
-const checker = (log?: (line: string) => void, settleMs = 3000, loginDeadlineMs?: number, loginFormWaitMs?: number) => {
+const checker = (log?: (line: string) => void, settleMs = 3000, loginDeadlineMs?: number, loginFormWaitMs?: number, owner: { language?: string; timezone?: string } = {}) => {
   const dir = mkdtempSync(join(tmpdir(), "sm-test-login-"));
   dirs.push(dir);
-  return Object.assign(createProfileChecker({ proxy, sandbox: !process.env.CI, headless: !process.env.DISPLAY, baseDir: dir, settleMs, loginStepMs: 5000, loginDeadlineMs, loginFormWaitMs, log }), { dir });
+  return Object.assign(createProfileChecker({ proxy, sandbox: !process.env.CI, headless: !process.env.DISPLAY, baseDir: dir, settleMs, loginStepMs: 5000, loginDeadlineMs, loginFormWaitMs, log, ...owner }), { dir });
 };
 const ask = (kase: string, extra: Partial<LoginRequest> = {}): LoginRequest => ({
   loginUrl: `${base}/${kase}/login`, checkUrl: `${base}/account`, username: USER, password: PASSWORD, stealth: false, ...extra,
@@ -304,6 +304,22 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     const out = await checker((line) => lines.push(line)).login(ask("one"));
     expect(out.result, `the log said: ${lines.join(" | ")}`).toBe("ok");
     expect(cookieNames(out as never)).toContain("sid");
+  });
+  it("logs in through the stealth driver when language and timezone are set", async () => {
+    posts.one = [];
+    const lines: string[] = [];
+    const out = await checker((line) => lines.push(line), 3000, undefined, undefined, { language: "en-IN", timezone: "Asia/Kolkata" }).login(ask("one", { stealth: true }));
+    expect(out.result, `the log said: ${lines.join(" | ")}`).toBe("ok");
+    expect(posts.one.length).toBe(1);
+    expect(cookieNames(out as never)).toContain("sid");
+  });
+  it("refuses a stealth login without a language and timezone: nothing opens, nothing is typed", async () => {
+    posts.one = [];
+    const lines: string[] = [];
+    const out = await checker((line) => lines.push(line)).login(ask("one", { stealth: true }));
+    expect(out).toMatchObject({ result: "unknown", why: "stealth_refused" });
+    expect(lines).toContain("stealth refused: timezone and language must be set");
+    expect(posts.one.length).toBe(0);
   });
   it("waits for a slow supplier's answer before it reads the page: a right password is never called wrong", async () => {
     expect((await checker().login(ask("slow"))).result).toBe("ok");

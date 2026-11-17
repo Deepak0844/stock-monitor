@@ -14,7 +14,7 @@ export type VerifyOutcome = { result: PageClass; status: number | null; blockedR
  * heading are cut short. Never the page text, prices or stock.
  */
 export type CheckPageOutcome = VerifyOutcome & { finalUrl: string | null; title: string | null; heading: string | null; softNotFound: boolean; signal?: string };
-export type CheckPageRequest = { url: string; loginUrl?: string; loggedInMarker?: string; state: SessionState };
+export type CheckPageRequest = { url: string; loginUrl?: string; loggedInMarker?: string; state: SessionState; stealth?: boolean };
 export type VerifyOptions = { navigationTimeoutMs?: number; proxy: GuardProxy };
 
 const DEFAULT_TIMEOUT_MS = 20_000;

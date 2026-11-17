@@ -8,6 +8,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { chromium } from "playwright";
+import { driverFor } from "./driver.js";
 import { classifyPage, mergeSessionState, type PageClass, type SessionState } from "@stock-monitor/supplier-session";
 import { readCookies } from "./chromium-cookies.js";
 import { cookieStore, forgetOpenTabs, plainLaunchArgs, quitCleanly, seedProfile, waitForDebuggingPort } from "./plain-window.js";
@@ -52,6 +53,8 @@ export function lastVisited(profile: string): { url: string; title: string } | n
 }
 
 export type ProfileCheckOptions = { proxy: GuardProxy; sandbox: boolean; headless: boolean; baseDir?: string; settleMs?: number; language?: string;
+  /** The owner's real timezone. A stealth visit is refused without it and the language. */
+  timezone?: string;
   /** The screen the browser opens on. Not the one VNC shows, or a check would appear in the owner's login window. */
   display?: string;
   /** Test only: how long each login step waits for the page to change. */
@@ -62,7 +65,7 @@ export type ProfileCheckOptions = { proxy: GuardProxy; sandbox: boolean; headles
   loginFormWaitMs?: number;
   log?: (line: string) => void };
 
-export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFILE_ROOT, settleMs = 12_000, display, language, loginStepMs = 15_000, loginDeadlineMs, loginFormWaitMs, log = () => {} }: ProfileCheckOptions) {
+export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFILE_ROOT, settleMs = 12_000, display, language, timezone, loginStepMs = 15_000, loginDeadlineMs, loginFormWaitMs, log = () => {} }: ProfileCheckOptions) {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
   /** Starts the browser on `profile`. Returns once it is running; `stop` quits it the way a person would. */
@@ -215,7 +218,15 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
     return state;
   }
 
-  async function inProfile<T extends VerifyOutcome>(request: VerifyRequest, unavailable: T, run: (page: import("playwright").Page, tracker: BlockTracker) => Promise<T>): Promise<T> {
+  /** A browser that hides automation but has no real language or timezone would be an obvious fake, so it does not start. */
+  const stealthRefused = (stealth: boolean | undefined) => {
+    if (!stealth || (language && timezone)) return false;
+    log("stealth refused: timezone and language must be set");
+    return true;
+  };
+
+  async function inProfile<T extends VerifyOutcome>(request: VerifyRequest & { stealth?: boolean }, unavailable: T, run: (page: import("playwright").Page, tracker: BlockTracker) => Promise<T>): Promise<T> {
+    if (stealthRefused(request.stealth)) return { ...unavailable, result: "unknown" };
     const profile = profileDirFor(baseDir, request.url);
     if (!holdProfile(profile)) return unavailable;
     try {
@@ -228,7 +239,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
       let outcome: T;
       try {
         const port = await waitForDebuggingPort(profile, b.child, 20_000);
-        const cdp = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+        const cdp = await (await driverFor(!!request.stealth)).connectOverCDP(`http://127.0.0.1:${port}`);
         try {
           const context = cdp.contexts()[0];
           const page = context?.pages()[0] ?? (await context?.newPage());
@@ -252,6 +263,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
    * is the point. The debugging channel is open for the whole login. The username and password are typed into the page only.
    */
   async function login(request: LoginRequest): Promise<LoginOutcome> {
+    if (stealthRefused(request.stealth)) return { result: "unknown", why: "stealth_refused" };
     // Keyed by the site the checks visit, so a login page on another host still lands in the profile checks open.
     const profile = profileDirFor(baseDir, request.checkUrl);
     if (!holdProfile(profile)) return { result: "unreachable" };
@@ -265,7 +277,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
       const b = await launch(profile, "about:blank", true);
       try {
         const port = await waitForDebuggingPort(profile, b.child, 20_000);
-        const cdp = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+        const cdp = await (await driverFor(request.stealth)).connectOverCDP(`http://127.0.0.1:${port}`);
         try {
           const context = cdp.contexts()[0];
           const page = context?.pages()[0] ?? (await context?.newPage());

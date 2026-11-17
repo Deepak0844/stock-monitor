@@ -36,6 +36,8 @@ export type BrowserServiceOptions = {
   profileDir?: string;
   /** The owner's real browser language, passed to plain windows. */
   language?: string;
+  /** The owner's real timezone (TZ). With the language, it is what a stealth visit needs. */
+  timezone?: string;
   /** The VNC password to give callers who open a window. */
   vncPassword?: string;
   /** false opens login windows with no display, for a machine that has none (tests). The container shows them on its virtual screen. */
@@ -100,7 +102,7 @@ export async function startBrowserService(options: BrowserServiceOptions): Promi
 
   const checkInProfile =
     options.verifyMode === "profile"
-      ? createProfileChecker({ ...plainOptions, baseDir: options.profileDir, settleMs: options.profileSettleMs, display: process.env.CHECK_DISPLAY })
+      ? createProfileChecker({ ...plainOptions, timezone: options.timezone, baseDir: options.profileDir, settleMs: options.profileSettleMs, display: process.env.CHECK_DISPLAY })
       : null;
 
   const server = createControlServer({

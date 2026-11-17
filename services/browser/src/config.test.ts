@@ -19,6 +19,7 @@ describe("loadConfig", () => {
       loginWindowMode: "controlled",
       verifyMode: "headless",
       language: undefined,
+      timezone: undefined,
       loginProfile: "fresh",
     });
   });
@@ -109,6 +110,11 @@ describe("loadConfig", () => {
     });
     it.each([["english"], ["en_IN"], ["en-"], ["--no-sandbox"]])("refuses the language %j", (v) => {
       expect(() => loadConfig({ ...base, BROWSER_LANGUAGE: v })).toThrow(/BROWSER_LANGUAGE/);
+    });
+    it("reads the timezone for the stealth browser, and treats blank as not set", () => {
+      expect(loadConfig({ ...base, TZ: "Asia/Kolkata" }).timezone).toBe("Asia/Kolkata");
+      expect(loadConfig({ ...base, TZ: "" }).timezone).toBeUndefined();
+      expect(loadConfig(base).timezone).toBeUndefined();
     });
     it("accepts a real timezone and refuses an invented one, because Chromium would quietly use UTC", () => {
       expect(() => loadConfig({ ...base, TZ: "Asia/Kolkata" })).not.toThrow();
