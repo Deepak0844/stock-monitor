@@ -25,7 +25,7 @@ Playwright Chromium (browser service), Patchright (slice 2), Vitest.
 - Both `auto_login` and `stealth` require `suppliers.automation_permission = 'granted'` (database check).
 - One login attempt per browser request. The service never retries. The worker never retries `wrong_password`, `captcha`,
   `code_required` or `blocked`.
-- Pause after **2** failed automatic logins in a row (`too_many_failures`); `wrong_password` pauses at once.
+- Pause after **2** failed automatic logins in a row (`too_many_failures`); `wrong_password` and `account_locked` pause at once.
 - `AUTO_LOGIN_FRESH_MINUTES = 10` (constant, `apps/worker/src/auto-login.ts`).
 - Typing delay per key: random 40 to 120 ms. Two-step login: wait up to 15 s for the password field. Settle: 12 s (the
   profile checker's `settleMs`).
@@ -62,6 +62,8 @@ Playwright Chromium (browser service), Patchright (slice 2), Vitest.
   - `isCredentials(v: unknown): v is Credentials` (both strings, 1 to 200 chars, no other keys)
   - `sealCredentials(c: Credentials, key: Buffer, keyId: string): Encrypted`
   - `unsealCredentials(sealed: Encrypted, key: Buffer): Credentials` (throws on a bad shape)
+  - `type LoginSelectors = { open?: string; username?: string; password?: string; submit?: string }` and
+    `isLoginSelectors(v: unknown): v is LoginSelectors` (only those keys, each a non-empty string up to 200 chars)
 
 - [ ] **Step 1: Write failing tests** in `credentials.test.ts`:
   - `round-trips exactly`: `unsealCredentials(sealCredentials({ username: "a@b.c", password: "p\"'😀" + "x".repeat(190) }, key, "k1"), key)` equals the input.
@@ -92,22 +94,22 @@ Playwright Chromium (browser service), Patchright (slice 2), Vitest.
     `last_auto_login_at timestamptz null`, `last_auto_login_result text null`.
   - Checks: `suppliers_auto_login_permission`: `not auto_login or automation_permission = 'granted'`;
     `suppliers_stealth_permission`: `not stealth or automation_permission = 'granted'`;
-    `suppliers_auto_login_paused_reason`: null or in `('wrong_password', 'too_many_failures')`;
-    `suppliers_last_auto_login_result`: null or one of the 8 `LoginResult` codes (Task 3).
-  - `notifications_reason` check and `NotificationReason` gain `'code_required' | 'wrong_password' | 'form_not_found'`.
+    `suppliers_auto_login_paused_reason`: null or in `('wrong_password', 'account_locked', 'too_many_failures')`;
+    `suppliers_last_auto_login_result`: null or one of the 9 `LoginResult` codes (Task 3).
+  - `notifications_reason` check and `NotificationReason` gain `'code_required' | 'wrong_password' | 'account_locked' | 'form_not_found'`.
   - `createSupplierCredentialsRepository(db)` → `{ save(supplierId, sealed: Encrypted): Promise<{ savedAt: Date }>; getSealed(supplierId): Promise<Encrypted | null>; savedAt(supplierId): Promise<Date | null>; remove(supplierId): Promise<boolean> }`. `save` upserts and also resets `auto_login_failures = 0` and `auto_login_paused_reason = null` in one transaction.
-  - `SupplierRecord` gains `autoLogin: boolean; stealth: boolean; loginSelectors: LoginSelectors | null; autoLoginFailures: number; autoLoginPausedReason: "wrong_password" | "too_many_failures" | null; lastAutoLoginAt: Date | null; lastAutoLoginResult: string | null`.
-  - `type LoginSelectors = { username?: string; password?: string; submit?: string }` (exported from `@stock-monitor/db`).
+  - `SupplierRecord` gains `autoLogin: boolean; stealth: boolean; loginSelectors: LoginSelectors | null; autoLoginFailures: number; autoLoginPausedReason: "wrong_password" | "account_locked" | "too_many_failures" | null; lastAutoLoginAt: Date | null; lastAutoLoginResult: string | null`.
+  - `LoginSelectors` is imported from `@stock-monitor/supplier-session` (Task 1), so the browser service never depends on `@stock-monitor/db`.
   - Supplier repository methods:
     - `setAutoLogin(id, patch: { autoLogin?: boolean; stealth?: boolean; loginSelectors?: LoginSelectors | null }): Promise<SupplierWrite | { ok: false; reason: "not_granted" | "no_credentials" }>`. Turning `autoLogin` on needs a credentials row.
-    - `recordAutoLogin(id, result: string, outcome: "reset" | "failed" | "pause_wrong_password" | "unchanged"): Promise<SupplierRecord>`. Sets `last_auto_login_at = now()` and `last_auto_login_result`. `reset` sets failures to 0; `failed` adds 1 and sets `too_many_failures` when it reaches 2; `pause_wrong_password` adds 1 and sets `wrong_password`.
+    - `recordAutoLogin(id, result: string, outcome: "reset" | "failed" | "pause_wrong_password" | "pause_account_locked" | "unchanged"): Promise<SupplierRecord>`. Sets `last_auto_login_at = now()` and `last_auto_login_result`. `reset` sets failures to 0; `failed` adds 1 and sets `too_many_failures` when it reaches 2; `pause_wrong_password` / `pause_account_locked` add 1 and set `wrong_password` / `account_locked`.
     - `resumeAutoLogin(id): Promise<boolean>`. Failures 0, pause null.
   - The existing permission update (where `automation_permission` is written) sets `auto_login = false, stealth = false` in the same statement when the new value is not `granted`.
 
 - [ ] **Step 1: Write failing integration tests**:
   - credentials repo: `save` then `getSealed` returns the same `Encrypted`; `savedAt` set; `remove` deletes; deleting the supplier cascades.
   - schema: inserting a supplier with `auto_login = true` and permission `unknown` fails with the check name `suppliers_auto_login_permission`; same for `stealth`.
-  - supplier repo: `setAutoLogin(id, { autoLogin: true })` returns `no_credentials` without a row and `not_granted` without permission; `recordAutoLogin(id, "captcha", "failed")` twice gives `autoLoginPausedReason: "too_many_failures"`; `"pause_wrong_password"` once gives `"wrong_password"`; `resumeAutoLogin` clears both; credentials `save` clears both.
+  - supplier repo: `setAutoLogin(id, { autoLogin: true })` returns `no_credentials` without a row and `not_granted` without permission; `recordAutoLogin(id, "captcha", "failed")` twice gives `autoLoginPausedReason: "too_many_failures"`; `"pause_wrong_password"` once gives `"wrong_password"`; `"pause_account_locked"` once gives `"account_locked"`; `resumeAutoLogin` clears both; credentials `save` clears both.
   - permission revoke: with `autoLogin` and `stealth` on, setting permission to `not_granted` leaves both false.
 - [ ] **Step 2: Run** `npm run test:integration -- packages/db`. Expected: FAIL.
 - [ ] **Step 3: Implement** schema, generate migration `0016_auto_login`, repositories.
@@ -125,11 +127,11 @@ Playwright Chromium (browser service), Patchright (slice 2), Vitest.
 **Interfaces:**
 - Consumes: `classifyPage`, `PageClass`, `SessionState` from `@stock-monitor/supplier-session`; `CHALLENGE_WIDGET` from `verify.ts`; `profileDirFor`, `holdProfile`, `releaseProfile` from `profile-store.ts`.
 - Produces:
-  - `type LoginResult = "ok" | "captcha" | "code_required" | "wrong_password" | "blocked" | "form_not_found" | "unreachable" | "unknown"`
-  - `type LoginRequest = { loginUrl: string; checkUrl: string; username: string; password: string; stealth: boolean; selectors?: { username?: string; password?: string; submit?: string } }`
+  - `type LoginResult = "ok" | "captcha" | "code_required" | "wrong_password" | "account_locked" | "blocked" | "form_not_found" | "unreachable" | "unknown"`
+  - `type LoginRequest = { loginUrl: string; checkUrl: string; username: string; password: string; stealth: boolean; selectors?: LoginSelectors }`
   - `type LoginOutcome = { result: LoginResult; state?: SessionState }` (`state` only when `ok`)
-  - `type AfterSubmitFacts = { challengeVisible: boolean; codeFieldVisible: boolean; passwordFieldVisible: boolean; onLoginPage: boolean; pageClass: PageClass }`
-  - `decideAfterSubmit(f: AfterSubmitFacts): LoginResult`. Order: challenge → `captcha`; code field → `code_required`; password visible and on login page → `wrong_password`; else `pageClass` mapped (`login_required` → `wrong_password`, `ok` → `ok`, others as named, `unknown` → `unknown`). The order is fixed by the spec.
+  - `type AfterSubmitFacts = { challengeVisible: boolean; codeFieldVisible: boolean; secondCheckText: boolean; lockedText: boolean; passwordFieldVisible: boolean; onLoginPage: boolean; pageClass: PageClass }`. `secondCheckText`: visible text matches `SECOND_CHECK_WORDS` (approve, check your phone, sent a notification, check your email, verify). `lockedText`: visible text matches `LOCKED_WORDS` (account is locked, account locked, too many attempts, temporarily blocked).
+  - `decideAfterSubmit(f: AfterSubmitFacts): LoginResult`. Order: challenge → `captcha`; code field or approve/check-email text → `code_required`; locked text → `account_locked`; password visible and on login page → `wrong_password`; else `pageClass` mapped (`login_required` → `wrong_password`, `ok` → `ok`, others as named, `unknown` → `unknown`). The order is fixed by the spec.
   - `CODE_FIELD`: a selector string for `input[autocomplete="one-time-code"]` plus inputs whose `name`, `id`, `placeholder` or `aria-label` matches `/code|otp|verification/i` (matched in-page, visible only).
   - `profileChecker.login(request: LoginRequest): Promise<LoginOutcome>`.
 
@@ -137,14 +139,25 @@ Playwright Chromium (browser service), Patchright (slice 2), Vitest.
 - Uses `profileDirFor(baseDir, request.loginUrl)`. If `holdProfile` fails, return `unreachable`.
 - **Does not wipe or re-seed the profile.** The point is a returning browser.
 - Opens with the debugging channel, like `inProfile`. Goes to `loginUrl`. If `classifyPage` already says `ok` there, skip the form.
-- Form finding: selectors given → use them, any missing → `form_not_found`. Otherwise the spec's rules: first visible
-  `input[type=password]`; username is the last visible `email`/`text`/`tel` or `autocomplete="username"` input before it in
-  the same form; submit is the visible submit button, else press Enter. No password field but a username field → two-step.
+- Form finding: the spec's **step loop** ("Finding the login form"), exactly. Fields are searched in **every frame**
+  (`page.frames()`), visible only. At most 5 steps; the "open the login" click at most once; the cookie-banner click at
+  most once per login; each step waits up to 15 s for the page or visible fields to change; a step where nothing changed
+  ends the loop with `form_not_found`. An override selector (`open`, `username`, `password`, `submit`) replaces its
+  automatic rule; an override not found → `form_not_found`, no guessing. After the password step, click a visible
+  "Yes" / "Stay signed in" button if one appears.
+- Keep the button and label word lists as exported constants in `login.ts` (`OPEN_WORDS`, `NEXT_WORDS`,
+  `USE_PASSWORD_WORDS`, `CONSENT_WORDS` (Accept, Accept all, Allow all, Agree, No thanks, Close, ×), `STAY_SIGNED_IN_WORDS`, `REMEMBER_ME_WORDS`,
+  `SECOND_CHECK_WORDS`, `LOCKED_WORDS`), copied from the spec's "Every login case" tables.
+- Before the step loop: if the page is a "checking your browser" interstitial (classifier says `blocked` and no form is
+  visible), wait up to 15 s for it to pass by itself, then classify again. Still `blocked` → return `blocked`.
+- Once the password has been submitted, never type the username again.
+- On `ok`, read `context.storageState()` **while the debugging channel is still open** and keep its `origins` (page
+  storage); after the clean quit, merge in the cookie file's cookies as below.
 - Type with `locator.pressSequentially(value, { delay })`, delay random 40–120 ms per call.
 - After submit: wait for navigation or 12 s, gather `AfterSubmitFacts`, `decideAfterSubmit`.
 - If `ok`, load `checkUrl`, classify. Only `ok` stays `ok`. Any other class there becomes `unknown`: the form went through
   but the site still wants a login, which is not proof the password is wrong.
-- On `ok`, quit cleanly, then state = `{ cookies: readCookies(cookieStore(profile)), origins: [] }`; write the profile's
+- On `ok`, quit cleanly, then state = `mergeSessionState(storageState, { cookies: readCookies(cookieStore(profile)), origins: [] }, Date.now() / 1000)` (the merge keeps `storageState.origins` when the cookie file has none); write the profile's
   `seeded` marker as `cookieHash(state.cookies)` so the next check does not re-seed it.
 - Never log `username` or `password`. Errors: return `unknown`, log `error.name` only.
 
@@ -156,6 +169,18 @@ Playwright Chromium (browser service), Patchright (slice 2), Vitest.
 - [ ] **Step 5: Write failing browser tests** (`login.browser.test.ts`), local fixture server, real Chromium:
   - `logs in on a one-step form`: form sets cookie `sid` on correct password; outcome `ok`, `state.cookies` has `sid`.
   - `two-step login`: username page then password page; `ok`.
+  - `choice screen`: email → "Use password" button → password; `ok`.
+  - `modal by auto rule`: password field hidden until a "Sign in" button is clicked; `ok`.
+  - `modal by override`: the opener is an icon with no text, `selectors.open = "#acct"`; `ok`.
+  - `form in iframe`: the form is in an `<iframe>` on the login page; `ok`.
+  - `cookie banner`: a fixed overlay covers the form until "Accept all" is clicked; `ok`, and "Accept all" clicked once.
+  - `stay signed in`: after the password, a "Stay signed in?" page with a "Yes" button; `ok`.
+  - `browser check page`: an interstitial page that redirects to the form after 3 s; `ok`.
+  - `push approval`: after the password, "We sent a notification, approve on your phone"; `code_required`.
+  - `account locked`: after the password, "Your account is locked"; `account_locked`.
+  - `token in page storage`: the fixture's app keeps its token in `localStorage`; `state.origins` holds it.
+  - `no username after password`: a security-question text box after the password is left empty; result `unknown`.
+  - `loop limit`: a page that keeps showing a new empty username step; `form_not_found` after 5 steps (fixture counts ≤ 5 submits).
   - `already logged in`: second call with the same profile types nothing (fixture counts POSTs: still 1); `ok`.
   - `wrong password`: fixture re-renders the form with an error; `wrong_password`.
   - `puzzle`: fixture shows a visible element matching `CHALLENGE_WIDGET`; `captcha`, no `state`.
@@ -179,9 +204,9 @@ Playwright Chromium (browser service), Patchright (slice 2), Vitest.
 - Produces:
   - `ControlServerOptions.login?: (r: LoginRequest) => Promise<LoginOutcome>`; route `POST /login`, same token check.
   - `parseLogin(raw: string): LoginRequest | null`: `loginUrl` and `checkUrl` pass `isWebUrl`; `username`/`password` 1–200
-    chars; `stealth` boolean; `selectors` optional object of up to 3 non-empty strings ≤ 200 chars; no other keys.
+    chars; `stealth` boolean; `selectors` optional, checked with `isLoginSelectors` (Task 1); no other keys.
   - Log line on success: `login: <result>` only. On error: `login failed: <error.name>`, reply 500 `{ error: "login_failed" }`.
-  - `BrowserClient.login(r: LoginRequest): Promise<{ ok: true; outcome: LoginOutcome } | { ok: false; reason: "unavailable" | "failed" }>`, using `pageTimeoutMs`. `failed` when status ≠ 200 or `result` is not one of the 8 codes. `state` is kept only when `result === "ok"` and `isSessionState`.
+  - `BrowserClient.login(r: LoginRequest): Promise<{ ok: true; outcome: LoginOutcome } | { ok: false; reason: "unavailable" | "failed" }>`, using `pageTimeoutMs`. `failed` when status ≠ 200 or `result` is not one of the 9 codes. `state` is kept only when `result === "ok"` and `isSessionState`.
 
 - [ ] **Step 1: Write failing tests**:
   - server: 401 without token; 400 for each bad field (empty password, 201-char username, extra key, `ftp:` URL); 200
@@ -216,13 +241,14 @@ Playwright Chromium (browser service), Patchright (slice 2), Vitest.
   `refresh(id, thatIv, …)` (compare-and-swap; on `false` keep the owner's and still return `ready`); if there was none,
   `save`. Then `markVerified`.
 - Result → `recordAutoLogin` outcome: `ok` → `reset`; `captcha`/`code_required`/`blocked`/`form_not_found`/`unknown` →
-  `failed`; `wrong_password` → `pause_wrong_password`; `unreachable` or client `unavailable` → `unchanged`.
-- Result → return: `ok` → `ready`; `captcha` → `captcha`; `blocked` → `blocked`; `code_required`, `wrong_password`,
+  `failed`; `wrong_password` → `pause_wrong_password`; `account_locked` → `pause_account_locked`; `unreachable` or client `unavailable` → `unchanged`.
+- Result → return: `ok` → `ready`; `captcha` → `captcha`; `blocked` and `account_locked` → `blocked`; `code_required`, `wrong_password`,
   `form_not_found`, `unknown` → `login_required`; `unreachable`/`unavailable` → `unreachable`.
-- Notices via `raiseNeedsAttention` with reason `captcha`, `blocked`, `code_required`, `wrong_password` or `form_not_found`
+- Notices via `raiseNeedsAttention` with reason `captcha`, `blocked`, `code_required`, `wrong_password`, `account_locked` or `form_not_found`
   (`unknown` uses `login_required`). Messages (exact copy):
   - `code_required`: "The supplier asked for a code. Log in in the live window and type it there."
   - `wrong_password`: "The supplier refused the saved password. Automatic login is paused until you save it again."
+  - `account_locked`: "The supplier says the account is locked. Automatic login is paused. Unlock it on the supplier's site, then press Resume."
   - `form_not_found`: "Automatic login could not find the login form. Set the login page fields on the supplier page."
 - Audit `supplier.auto_login` with details `{ result, stealth }` only.
 - A thrown error: log `error.name`, return `unreachable`, record `unchanged`.
@@ -328,9 +354,9 @@ Behavior (spec section 6 sketch, without the stealth row):
 - Switch disabled with "Needs “Allows automatic checks” to be Yes." when permission is not `granted`.
 - Paused: "The supplier refused the saved password" / "Two automatic logins failed in a row" + **Resume**.
 - Last result line: "Last automatic login: <date time>, <plain result>". Plain results: ok "logged in", captcha "puzzle shown",
-  code_required "asked for a code", wrong_password "password refused", blocked "blocked", form_not_found "login form not
+  code_required "asked for a code", wrong_password "password refused", account_locked "account locked", blocked "blocked", form_not_found "login form not
   found", unreachable "could not reach the site", unknown "not sure it worked".
-- "Login page fields (advanced)" collapsed by default; three text inputs mapped to `loginSelectors`.
+- "Login page fields (advanced)" collapsed by default; four text inputs (Open login button, Username field, Password field, Login button) mapped to `loginSelectors` `open`, `username`, `password`, `submit`.
 - **Test login now** posts to the test route and shows "Test started. The result shows here in a minute."
 
 - [ ] **Step 1: Write failing tests** (React Testing Library, as the other page tests do): fields empty after save; switch

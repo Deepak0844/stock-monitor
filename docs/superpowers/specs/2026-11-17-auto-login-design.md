@@ -124,9 +124,9 @@ New columns on `suppliers`:
 | --- | --- | --- | --- |
 | `auto_login` | boolean | false | the owner's switch |
 | `stealth` | boolean | false | the owner's switch |
-| `login_selectors` | jsonb, nullable | null | optional override: `{ "username": "css", "password": "css", "submit": "css" }` |
+| `login_selectors` | jsonb, nullable | null | optional override: `{ "open": "css", "username": "css", "password": "css", "submit": "css" }` |
 | `auto_login_failures` | integer | 0 | failed automatic logins in a row |
-| `auto_login_paused_reason` | text, nullable | null | `wrong_password` or `too_many_failures`; null means not paused |
+| `auto_login_paused_reason` | text, nullable | null | `wrong_password`, `account_locked` or `too_many_failures`; null means not paused |
 | `last_auto_login_at` | timestamptz, nullable | null | |
 | `last_auto_login_result` | text, nullable | null | one of the result codes below |
 
@@ -140,7 +140,7 @@ Database checks:
 If the owner later changes permission away from `granted`, the API switches `auto_login` and `stealth` off in the same
 transaction.
 
-`notifications.reason` gains three codes: `code_required`, `wrong_password` and `form_not_found` (update the
+`notifications.reason` gains four codes: `code_required`, `wrong_password`, `account_locked` and `form_not_found` (update the
 `notifications_reason` check and the `NotificationReason` type). They use the existing `supplier_needs_reconnect` kind, so
 the one-open-notice-per-supplier rule still holds.
 
@@ -157,7 +157,7 @@ type LoginRequest = {
   username: string;
   password: string;
   stealth: boolean;
-  selectors?: { username?: string; password?: string; submit?: string };
+  selectors?: { open?: string; username?: string; password?: string; submit?: string };
 };
 ```
 
@@ -165,7 +165,7 @@ Response:
 
 ```ts
 type LoginOutcome = {
-  result: "ok" | "captcha" | "code_required" | "wrong_password" | "blocked" | "form_not_found" | "unreachable" | "unknown";
+  result: "ok" | "captcha" | "code_required" | "wrong_password" | "account_locked" | "blocked" | "form_not_found" | "unreachable" | "unknown";
   state?: SessionState;    // only when result is "ok"
 };
 ```
@@ -175,15 +175,16 @@ Steps:
 1. Open the supplier's persistent profile for that site (`profile-store.ts`), headed on the private screen, like
    `VERIFY_MODE=profile`. The guard proxy is in front, as for every visit.
 2. Go to `loginUrl`. If the classifier already says `ok` (still logged in), skip to step 6.
-3. Find the form (see below). If none is found, return `form_not_found`.
-4. Type the username and password with `pressSequentially` and a small random delay between keys (40 to 120 ms), then
-   submit. If the page shows only a username field (two-step logins), type the username, submit, wait up to 15 s for a
-   password field, then continue.
+3. Run the **step loop** (see "Finding the login form"): open the login if it is behind a button or modal, fill what each
+   step shows, move to the next step. Type with `pressSequentially` and a small random delay between keys (40 to 120 ms).
+   If the loop finds no form, return `form_not_found`.
+4. After the password is submitted, handle a "Stay signed in?" prompt if one appears (click "Yes" / "Stay signed in").
 5. Wait for the page to settle (navigation, or 12 s, the same settle time profile checks use), then decide the result in
    this order:
    - a visible puzzle widget (the existing `CHALLENGE_WIDGET` list) → `captcha`
    - a visible one-time-code field (`autocomplete="one-time-code"`, or an input whose label or placeholder says code,
-     verification or OTP) → `code_required`
+     verification or OTP), or visible text asking to approve on a phone or check email → `code_required`
+   - visible text saying the account is locked or there were too many attempts → `account_locked`
    - still on the login page with a visible password field → `wrong_password`
    - otherwise use the classifier on the page.
 6. Confirm by loading `checkUrl` and classifying it. Only `ok` there counts as `ok`.
@@ -197,13 +198,104 @@ in anything it logs.
 
 #### Finding the login form
 
-1. If `selectors` are given, use them. If any is not found on the page, return `form_not_found`. Do not guess.
-2. Otherwise:
-   - Password field: the first **visible** `input[type=password]`.
-   - Username field: in the same `<form>` (or the nearest common parent), the last visible `input` before the password
-     field whose type is `email`, `text` or `tel`, or that has `autocomplete="username"`.
-   - Submit: the form's visible `button[type=submit]` or `input[type=submit]`. If none, press Enter in the password field.
-3. Hidden fields are ignored, as in the classifier.
+Login pages come in many shapes: a plain form, a form in a modal behind a "Sign in" button, a form inside an iframe, or
+several steps (email, then Next, then a choice screen, then password). One loop handles all of them.
+
+**Fields, searched in every frame of the page** (main page and iframes), visible elements only:
+
+- Password field: the first visible `input[type=password]`.
+- Username field: the last visible `input` before the password field (or, on a username-only step, the first visible one)
+  whose type is `email`, `text` or `tel`, or that has `autocomplete="username"`.
+- Next button: the form's visible `button[type=submit]` or `input[type=submit]`, else a visible button or link whose text
+  is "Next", "Continue", "Sign in", "Log in" or "Login" (case-insensitive). If none, press Enter in the last filled field.
+
+**The step loop**, at most 5 steps:
+
+1. Nothing to fill (no username or password field visible): this is the "open the login" step. Click the first visible
+   link or button whose text is "Sign in", "Log in", "Login" or "My account", then wait up to 15 s for a field. Allowed
+   once.
+2. A username field that is empty: type the username. A password field: type the password. Tick a visible "Remember me"
+   / "Keep me signed in" checkbox if there is one.
+3. A choice screen with a visible "Use password" / "Sign in with password" button and no field: click it.
+4. Click the next button, wait up to 15 s for the page or the visible fields to change.
+5. After each step, stop the loop at once on a visible puzzle (`captcha`) or code field (`code_required`).
+6. The loop ends when the password has been submitted. Five steps without that, or a step where nothing changed,
+   returns `form_not_found`.
+
+**Cookie banner in the way.** If a click fails because another element covers the target, click a visible "Accept",
+"Accept all", "Allow all" or "Agree" button once, then retry that click. Only once per login.
+
+**Overrides.** If `selectors` are given, they replace the matching automatic rule: `open` (the button that opens the
+login), `username`, `password`, `submit`. An override that is not found on the page returns `form_not_found`. Do not fall
+back to guessing.
+
+Hidden fields are ignored, as in the classifier. Once the password has been submitted, the loop never types the username
+again (a later text box could be a security question).
+
+#### Every login case, and what happens
+
+"Owner" means the app stops, raises the dashboard notice, and the owner finishes in the live window. It never retries.
+
+**Page shapes**
+
+| Case | Handled by | Result |
+| --- | --- | --- |
+| Plain username + password form | step loop | logs in |
+| Form in a modal behind "Sign in" | "open the login" step, or `open` override | logs in |
+| Form inside an iframe (same or other site) | all-frames search | logs in |
+| Several steps: email → Next → password | step loop | logs in |
+| Choice screen: "Use password" / "Send me a code" | clicks "Use password" | logs in |
+| Login on another site (SSO page, e.g. `accounts.…`) | browser follows the redirect | logs in |
+| Form inside web components (open shadow DOM) | Playwright locators pierce it | logs in |
+| Password-only or PIN page (no username box) | step loop fills the password only | logs in |
+| Odd page the rules misread | the four overrides | logs in |
+| Extra required field (account or customer number, branch picker) | **not covered** | `form_not_found`, owner |
+| "Sign in with Google / Microsoft" only | **not supported** (would need that account's password) | `form_not_found`, owner |
+| Magic link sent by email, no password | **not supported** | `form_not_found`, owner |
+| On-screen PIN pad, random keys, closed shadow DOM | **not supported** | `form_not_found`, owner |
+| Terms tick box that must be ticked before the button works | **not covered** | `form_not_found`, owner |
+
+**Things in the way**
+
+| Case | Handled by | Result |
+| --- | --- | --- |
+| Cookie banner over the form | one click on "Accept" / "Accept all" / "Allow all" / "Agree" | carries on |
+| Newsletter or promo popup over the form | one click on "No thanks" / "Close" / "×" (same one-click rule) | carries on |
+| "Checking your browser" page before the login (Cloudflare and similar) | waits up to 15 s for it to pass by itself | carries on, else `blocked`, owner |
+| Visible puzzle | stop | `captcha`, owner |
+| Invisible bot score (reCAPTCHA v3, managed Turnstile) | nothing to click; stealth may help | logs in, or `blocked`, owner |
+
+**Codes and second checks**
+
+| Case | Result |
+| --- | --- |
+| Email or SMS code | `code_required`, owner types it in the live window |
+| Authenticator app code | `code_required`, owner |
+| "Approve on your phone" page (push) | `code_required`, owner (detected by visible text: "approve", "check your phone", "sent a notification") |
+| "New device, check your email" link | `code_required`, owner (same text rule plus "verify") |
+
+**After the password**
+
+| Case | Result |
+| --- | --- |
+| Logged in | `ok` |
+| "Stay signed in?" prompt | clicks "Yes", then `ok` |
+| Wrong password | `wrong_password`, automatic login paused |
+| Account locked, or "too many attempts" | `account_locked`, **automatic login paused at once** (like a wrong password: retrying would make it worse) |
+| Password expired, must set a new one | `unknown`, owner |
+| New terms to accept | `unknown`, owner |
+| Account or branch chooser after login | `unknown`, owner |
+| Site down, maintenance, rate limited (429) | `unreachable`, the run's normal retry delays |
+| Already logged in when the page opens | `ok`, nothing typed |
+
+**Sessions**
+
+| Case | Handled by |
+| --- | --- |
+| Session kept in cookies | read from the profile's cookie file, as checks do today |
+| Session kept in the page's storage (a token in `localStorage`, common on modern sites) | the persistent profile keeps it on disk between visits. The login also reads `context.storageState()` while the debugging channel is open, so the saved state has the page storage in `origins`, not just cookies |
+| Short token that the site's own page refreshes (a "refresh token") | works by itself: the persistent profile keeps the refresh token, and the site's script renews the short one on each visit |
+| Supplier allows only one session per account | **conflict**: the app's login logs the owner out of their own browser, and the other way round. The owner should give the app its own supplier user if the supplier allows it |
 
 #### Stealth
 
@@ -249,6 +341,7 @@ ensureLoggedIn(deps, supplier, { force }): Promise<"ready" | "skipped" | StopRea
 | `ok` | Seal and save the new session (replace it, see below). Set `last_verified_at`. Return `ready`. | reset to 0 |
 | `captcha`, `code_required`, `blocked` | `raiseNeedsAttention` (code → "the supplier asked for a code, log in in the live window"). Return the stop reason. | +1 |
 | `wrong_password` | Set `auto_login_paused_reason = 'wrong_password'` and notify "the saved password was refused". Return `login_required`. **Never retried.** | +1 |
+| `account_locked` | Set `auto_login_paused_reason = 'account_locked'` and notify "the supplier says the account is locked". Return `blocked`. **Never retried.** | +1 |
 | `form_not_found`, `unknown` | Notify "automatic login could not find the login form", with a link to the selector override. Return `login_required`. | +1 |
 | `unreachable` | Return `unreachable`, so the existing retry delays apply (15 min, 1 h, 4 h). | unchanged |
 
@@ -315,6 +408,7 @@ Automatic login                                           [ On  ]
   [ Test login now ]
 
   > Login page fields (advanced)
+      Open login button [ a.sign-in ]
       Username field  [ #email      ]
       Password field  [ #password   ]
       Login button    [ button.go   ]
@@ -345,7 +439,7 @@ Automatic login                                           [ On  ]
 | Password leaks in logs | Redact paths in API and worker logs; `/login` body never logged; tests grep logs for a known test password |
 | Password leaks to the screen | No route returns it |
 | Browser service compromise reads it | It holds the password only during one request, as it already does for session cookies |
-| Account locked by retries | One attempt per run (plus one mid-run re-login); `wrong_password` pauses at once; two failures in a row pause |
+| Account locked by retries | One attempt per run (plus one mid-run re-login); `wrong_password` and `account_locked` pause at once; two failures in a row pause |
 | Runs on a supplier that forbids it | Both switches need `automation_permission = 'granted'`, enforced by the database |
 
 ## Calls left to the builder
