@@ -329,6 +329,8 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
       const target = last;
       const submitWait = f.password ? settleMs : stepWaitMs;
       const changed = await afterAction(() => (next ? click(next) : target.press("Enter")), submitWait);
+      // Too many requests: the supplier is busy, not refusing the login.
+      if (status === 429) return "unreachable";
       if (f.password) submitted = true; // from here on, nothing is typed: a later text box could be a security question
       else if (!changed) return "form_not_found";
     }

@@ -78,6 +78,7 @@ function startSite(): Promise<Server> {
       if (kase === "stay" && step === "yes") return res.writeHead(302, loginCookie).end();
       if (kase === "storage") return res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ token: "tok-123" }));
       if (!good(b)) return html(page(form(`/${kase}/login`, userAndPassword) + "<p>Wrong password, try again.</p>"));
+      if (kase === "busy") return html(page("<p>Too many requests.</p>"), 429);
       if (kase === "promo") return res.writeHead(302, { ...loginCookie, location: "/promo/home" }).end();
       const after = AFTER[kase];
       if (after === null) return res.writeHead(302, loginCookie).end();
@@ -93,7 +94,7 @@ function startSite(): Promise<Server> {
     if (step !== "login" && step !== "inner" && step !== "form" && step !== "app") return html(page("not here"), 404);
     if (kase === "one" && loggedIn(req)) return res.writeHead(302, { location: "/account" }).end();
     switch (kase) {
-      case "one": case "push": case "locked": case "question": case "puzzle": case "code": case "stay": case "promo":
+      case "one": case "push": case "locked": case "question": case "puzzle": case "code": case "stay": case "promo": case "busy":
         return html(page(form(`/${kase}/login`, userAndPassword)));
       case "two": return html(page(form("/two/user", '<input type="email" name="username"><button type="submit">Next</button>').replace('<button type="submit">Sign in</button>', "")));
       case "choice": return html(page(form("/choice/user", '<input type="email" name="username">')));
@@ -239,6 +240,9 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
   });
   it("a promo code box on the page after the login is still ok", async () => {
     expect((await checker().login(ask("promo"))).result).toBe("ok");
+  });
+  it("too many requests after the password is unreachable", async () => {
+    expect((await checker().login(ask("busy"))).result).toBe("unreachable");
   });
   it("selector override not found", async () => {
     expect((await checker().login(ask("one", { selectors: { username: "#nope" } }))).result).toBe("form_not_found");
