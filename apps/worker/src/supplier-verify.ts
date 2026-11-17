@@ -1,13 +1,19 @@
 import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
 import type { BrowserClient } from "@stock-monitor/browser-client";
-import type { createNotificationRepository, createSupplierRepository, createSupplierSessionRepository, NotificationReason } from "@stock-monitor/db";
+import type {
+  createMappingRepository, createNotificationRepository, createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository, NotificationReason,
+} from "@stock-monitor/db";
 import { unsealSessionState, type PageClass, type SessionState } from "@stock-monitor/supplier-session";
+import { ensureLoggedIn, loginCheckUrl } from "./auto-login.js";
 import { saveRefreshedSession } from "./session-refresh.js";
 
 export type SupplierVerifyDeps = {
   suppliers: ReturnType<typeof createSupplierRepository>;
   supplierSessions: ReturnType<typeof createSupplierSessionRepository>;
+  /** The saved login and the links, for a supplier with automatic login: its check is a login. */
+  supplierCredentials: ReturnType<typeof createSupplierCredentialsRepository>;
+  mappings: ReturnType<typeof createMappingRepository>;
   notifications: ReturnType<typeof createNotificationRepository>;
   audit: ReturnType<typeof createAuditWriter>;
   browser: BrowserClient;
@@ -82,12 +88,32 @@ export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId
   const { suppliers, supplierSessions, notifications, audit, browser, logger } = deps;
   const supplier = await suppliers.get(supplierId);
   if (!supplier) return { kind: "skipped", reason: "no_supplier" };
-  const sealed = await supplierSessions.getSealed(supplierId);
-  if (!sealed) return { kind: "skipped", reason: "no_session" };
 
   // The HTTP status tells us why a check was refused (403 vs 429 vs a challenge page). Never page text.
   let httpStatus: number | null = null;
   const record = (result: string) => audit.record({ action: "supplier.session_checked", entityType: "supplier", entityId: supplierId, details: { result, httpStatus } });
+
+  // With automatic login on, the check is a fresh login: an old session that timed out must not pause the supplier.
+  if (supplier.autoLogin && !supplier.autoLoginPausedReason) {
+    const login = await ensureLoggedIn(deps, supplier, { force: true, checkUrl: loginCheckUrl(supplier, await deps.mappings.forSupplier(supplierId)) });
+    if (login === "ready") {
+      await record("ok");
+      return { kind: "ok" };
+    }
+    if (login === "login_required" || login === "captcha" || login === "blocked") {
+      // The login already raised its own notice, which says more than a plain "log in again".
+      await record(login);
+      return { kind: "needs_attention", result: login };
+    }
+    if (login !== "skipped") {
+      await suppliers.touchChecked(supplierId);
+      await record("unreachable");
+      return { kind: "unreachable" };
+    }
+  }
+
+  const sealed = await supplierSessions.getSealed(supplierId);
+  if (!sealed) return { kind: "skipped", reason: "no_session" };
   const needsAttention = async (result: SessionReason): Promise<CheckOutcome> => {
     await raiseNeedsAttention(deps, supplier, result);
     await record(result);

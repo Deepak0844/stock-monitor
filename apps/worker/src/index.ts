@@ -54,6 +54,8 @@ await registerHandlers(queue, logger, {
       ? {
           suppliers: createSupplierRepository(db),
           supplierSessions: createSupplierSessionRepository(db),
+          supplierCredentials: createSupplierCredentialsRepository(db),
+          mappings: createMappingRepository(db),
           notifications: createNotificationRepository(db),
           audit: createAuditWriter(db),
           browser: createBrowserClient({ baseUrl: config.browserServiceUrl, token: config.browserControlToken }),

@@ -125,6 +125,14 @@ export function createStockChecker(deps: StockCheckDeps) {
     return { mapping, obs, page, picture: outcome.picture, checkResult: outcome.result, decision, linkTrial: trial };
   }
 
+  /** A page not opened because the automatic login before it failed: cannot tell, as a failed visit would be. */
+  function notVisited(supplier: SupplierRecord, mapping: MappingRow, stop: StopReason): Visit {
+    const result = stop === "supplier_not_ready" ? "unreachable" : stop;
+    const obs: Observation = { result, status: null, finalUrl: null, title: null, heading: null, softNotFound: false };
+    const trial = decideLinkStatus(toState(mapping), obs, { requestedUrl: mapping.url, homeUrl: supplier.websiteUrl, now: now(), supplierWide: false }).status;
+    return { mapping, obs, page: null, picture: null, checkResult: result, decision: tell("check_failed"), linkTrial: trial };
+  }
+
   /** Saves what a visit found: the link status, the kept capture when the page changed, and the observation. */
   async function finish(supplier: SupplierRecord, v: Visit, version: number, supplierWide: boolean): Promise<void> {
     const link = decideLinkStatus(toState(v.mapping), v.obs, { requestedUrl: v.mapping.url, homeUrl: supplier.websiteUrl, now: now(), supplierWide });
@@ -155,10 +163,24 @@ export function createStockChecker(deps: StockCheckDeps) {
       const gated = await gate(mapping.supplierId);
       if ("reason" in gated) return { kind: "skipped", reason: gated.reason };
       await captures.purge(RETENTION_DAYS);
-      const v = await visit(gated.supplier, mapping, gated.active.recipe);
+      // A failed automatic login already told the owner what went wrong, so the check must not replace that notice.
+      let toldOwner = false;
+      const login = await ensureLoggedIn(deps, gated.supplier, { force: false, checkUrl: mapping.url });
+      let v: Visit;
+      if (login !== "ready" && login !== "skipped") {
+        v = notVisited(gated.supplier, mapping, login);
+        toldOwner = true;
+      } else {
+        v = await visit(gated.supplier, mapping, gated.active.recipe);
+        if (v.checkResult === "login_required") {
+          const again = await ensureLoggedIn(deps, gated.supplier, { force: true, checkUrl: mapping.url });
+          if (again === "ready") v = await visit(gated.supplier, mapping, gated.active.recipe);
+          else if (again !== "skipped") toldOwner = true;
+        }
+      }
       await finish(gated.supplier, v, gated.active.version, false);
       // A page that asked for a login or refused us means the session is no good, as a failed session check would say.
-      if (v.checkResult === "login_required" || v.checkResult === "captcha" || v.checkResult === "blocked") await raiseNeedsAttention(deps, gated.supplier, v.checkResult);
+      if (!toldOwner && (v.checkResult === "login_required" || v.checkResult === "captcha" || v.checkResult === "blocked")) await raiseNeedsAttention(deps, gated.supplier, v.checkResult);
       return { kind: "checked", answer: v.decision.answer, reason: v.decision.reason };
     },
 

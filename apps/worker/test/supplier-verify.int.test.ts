@@ -2,12 +2,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { randomBytes } from "node:crypto";
 import { Writable } from "node:stream";
 import { startTestDb, type TestDb } from "@stock-monitor/db/test-harness";
-import { createNotificationRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
+import { createMappingRepository, createNotificationRepository, createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
 import { createAuditWriter } from "@stock-monitor/audit";
-import { createBrowserClient } from "@stock-monitor/browser-client";
+import { createBrowserClient, type BrowserClient, type LoginCallOutcome, type LoginRequest } from "@stock-monitor/browser-client";
 import { createFakeBrowserService, FAKE_CONTROL_TOKEN, type FakeBrowserService } from "@stock-monitor/browser-client/testing";
 import { createLogger } from "@stock-monitor/shared";
-import { sealSessionState, unsealSessionState } from "@stock-monitor/supplier-session";
+import { sealCredentials, sealSessionState, unsealSessionState } from "@stock-monitor/supplier-session";
 import { createSupplierVerifyHandler, verifySupplierSession, type SupplierVerifyDeps } from "../src/supplier-verify.js";
 
 let t: TestDb;
@@ -27,6 +27,8 @@ const notes = () => createNotificationRepository(t.appDb);
 const deps = (over: Partial<SupplierVerifyDeps> = {}): SupplierVerifyDeps => ({
   suppliers: suppliers(),
   supplierSessions: sessions(),
+  supplierCredentials: createSupplierCredentialsRepository(t.appDb),
+  mappings: createMappingRepository(t.appDb),
   notifications: notes(),
   audit: createAuditWriter(t.appDb),
   browser: createBrowserClient({ baseUrl: fake.url, token: FAKE_CONTROL_TOKEN, timeoutMs: 2000 }),
@@ -268,5 +270,65 @@ describe("the job", () => {
       JSON.stringify(await sessions().facts(acme)),
     ].join("\n");
     for (const secret of [COOKIE, STORAGE]) expect(everything, secret).not.toContain(secret);
+  });
+});
+
+describe("a supplier with automatic login", () => {
+  const NEW = { cookies: [{ name: "session", value: "NEW-LOGIN", domain: "shop.acme.example", path: "/" }], origins: [] };
+  const logins: LoginRequest[] = [];
+  let answer: LoginCallOutcome = { ok: true, outcome: { result: "ok", state: NEW } };
+  const withLogin = (): BrowserClient => ({
+    ...createBrowserClient({ baseUrl: fake.url, token: FAKE_CONTROL_TOKEN, timeoutMs: 2000 }),
+    async login(r: LoginRequest): Promise<LoginCallOutcome> {
+      logins.push(r);
+      return answer;
+    },
+  });
+  beforeEach(async () => {
+    logins.length = 0;
+    answer = { ok: true, outcome: { result: "ok", state: NEW } };
+    await suppliers().setPermission(acme, { status: "granted", note: null });
+    await createSupplierCredentialsRepository(t.appDb).save(acme, sealCredentials({ username: "u", password: "p" }, key, "v1"));
+    const on = await suppliers().setAutoLogin(acme, { autoLogin: true });
+    if (!on.ok) throw new Error("setup");
+    // Checked a moment ago: "Check login" logs in anyway.
+    await sessions().markVerified(acme);
+  });
+
+  it("logs in first, forced, and reports that login instead of a plain session check", async () => {
+    fake.behaviour.verifyResult = "login_required";
+    expect(await verifySupplierSession(deps({ browser: withLogin() }), acme)).toEqual({ kind: "ok" });
+    expect(logins).toHaveLength(1);
+    expect(logins[0]).toMatchObject({ checkUrl: "https://shop.acme.example/account" });
+    expect(verifies()).toHaveLength(0);
+    expect(await supplier(acme)).toMatchObject({ sessionStatus: "connected", lastAutoLoginResult: "ok" });
+    expect(unsealSessionState((await sessions().getSealed(acme))!, key)).toEqual(NEW);
+    expect(await notes().listOpen()).toEqual([]);
+    expect((await audit()).map((a) => a.details.result)).toEqual(["ok"]);
+  });
+
+  it("a failed login keeps the notice the login raised", async () => {
+    answer = { ok: true, outcome: { result: "wrong_password" } as never };
+    expect(await verifySupplierSession(deps({ browser: withLogin() }), acme)).toEqual({ kind: "needs_attention", result: "login_required" });
+    expect(verifies()).toHaveLength(0);
+    expect((await notes().listOpen()).map((n) => n.reason)).toEqual(["wrong_password"]);
+  });
+
+  it("a login that could not reach the supplier says unreachable and marks nothing", async () => {
+    answer = { ok: true, outcome: { result: "unreachable" } };
+    expect(await verifySupplierSession(deps({ browser: withLogin() }), acme)).toEqual({ kind: "unreachable" });
+    expect(verifies()).toHaveLength(0);
+    expect((await supplier(acme)).sessionStatus).toBe("connected");
+    expect(await notes().listOpen()).toEqual([]);
+  });
+
+  it("does a plain session check when automatic login is paused, or skipped", async () => {
+    await t.pool.query("update suppliers set auto_login_paused_reason = 'too_many_failures' where id = $1", [acme]);
+    expect(await verifySupplierSession(deps({ browser: withLogin() }), acme)).toEqual({ kind: "ok" });
+    await t.pool.query("update suppliers set auto_login_paused_reason = null where id = $1", [acme]);
+    await createSupplierCredentialsRepository(t.appDb).remove(acme);
+    expect(await verifySupplierSession(deps({ browser: withLogin() }), acme)).toEqual({ kind: "ok" });
+    expect(logins).toHaveLength(0);
+    expect(verifies()).toHaveLength(2);
   });
 });

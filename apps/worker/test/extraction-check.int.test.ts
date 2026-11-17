@@ -11,7 +11,7 @@ import { createBrowserClient, type BrowserClient, type LoginCallOutcome, type Lo
 import { createFakeBrowserService, FAKE_CONTROL_TOKEN, type FakeBrowserService } from "@stock-monitor/browser-client/testing";
 import { createLogger } from "@stock-monitor/shared";
 import { sealCredentials, sealSessionState, unsealSessionState } from "@stock-monitor/supplier-session";
-import { checkStock, checkSupplierStock, type StockCheckDeps } from "../src/extraction-check.js";
+import { checkStock, checkSupplierStock, stockGate, type StockCheckDeps } from "../src/extraction-check.js";
 
 let t: TestDb;
 let fake: FakeBrowserService;
@@ -567,5 +567,42 @@ describe("automatic login in a run", () => {
     pages({ v2: ["login_required"] });
     expect(await runAll({ browser: withLogin() })).toMatchObject({ kind: "done", stopped: "login_required" });
     expect(logins).toHaveLength(0);
+  });
+  describe("one link checked on its own", () => {
+    const openNotices = async () => (await t.pool.query("select reason from notifications where supplier_id = $1 and resolved_at is null", [acme])).rows;
+
+    it("the 1 h case: a login page logs in, retries the page, and the supplier stays ready for the next daily run", async () => {
+      const id = await link("v1");
+      await turnOn();
+      await autoLogin(5);
+      pages({ v1: ["login_required"] });
+      expect(await checkStock(deps({ browser: withLogin() }), id)).toEqual({ kind: "checked", answer: "in_stock", reason: null });
+      expect(logins).toHaveLength(1);
+      expect(logins[0]).toMatchObject({ checkUrl: "https://shop.acme.example/p/v1", pagesBefore: 1 });
+      expect(requests("/capture")).toHaveLength(2);
+      expect((await suppliers().get(acme))?.sessionStatus).toBe("connected");
+      expect(await openNotices()).toEqual([]);
+      expect(await stockGate(deps(), acme)).toHaveProperty("supplier");
+      expect(await runAll({ browser: withLogin() })).toMatchObject({ kind: "done", checked: 1, stopped: null });
+    });
+
+    it("logs in first when the session is stale", async () => {
+      const id = await link("v1");
+      await turnOn();
+      await autoLogin(60);
+      expect(await checkStock(deps({ browser: withLogin() }), id)).toMatchObject({ answer: "in_stock" });
+      expect(logins).toEqual([expect.objectContaining({ checkUrl: "https://shop.acme.example/p/v1", pagesBefore: 0 })]);
+    });
+
+    it("a failed login stops the check like a failed visit, and keeps the login's own notice", async () => {
+      const id = await link("v1");
+      await turnOn();
+      await autoLogin(60);
+      const refused = { ...withLogin(), login: async (): Promise<LoginCallOutcome> => ({ ok: true, outcome: { result: "wrong_password" } as never }) };
+      expect(await checkStock(deps({ browser: refused }), id)).toEqual({ kind: "checked", answer: "cannot_tell", reason: "check_failed" });
+      expect(requests("/capture")).toHaveLength(0);
+      expect(await latest(id)).toMatchObject({ answer: "cannot_tell", checkResult: "login_required" });
+      expect(await openNotices()).toEqual([{ reason: "wrong_password" }]);
+    });
   });
 });

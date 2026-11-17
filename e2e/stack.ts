@@ -106,7 +106,7 @@ await registerHandlers(queue, logger, {
   mappingLinks: { mappings: createMappingRepository(db.appDb), suppliers, supplierSessions, supplierCredentials: createSupplierCredentialsRepository(db.appDb), notifications, audit: createAuditWriter(db.appDb), browser: browserClient, key: encryption.key, sleep: async () => {} },
   proposals: { mappings: createMappingRepository(db.appDb), observations: createObservationRepository(db.appDb), shopify: repo, proposals: createProposalRepository(db.appDb) },
   proposalsApply: { proposals: createProposalRepository(db.appDb), shopify: repo, audit: createAuditWriter(db.appDb), notifications, queue, baseUrl, clientOptions: { sleep: async () => {} } },
-  supplierVerify: { suppliers, supplierSessions, notifications, audit: createAuditWriter(db.appDb), browser: browserClient, key: encryption.key, retryDelaysMs: [], sleep: async () => {} },
+  supplierVerify: { suppliers, supplierSessions, supplierCredentials: createSupplierCredentialsRepository(db.appDb), mappings: createMappingRepository(db.appDb), notifications, audit: createAuditWriter(db.appDb), browser: browserClient, key: encryption.key, retryDelaysMs: [], sleep: async () => {} },
 });
 
 // No real DNS in browser tests. Every supplier name resolves to a public address, except one that

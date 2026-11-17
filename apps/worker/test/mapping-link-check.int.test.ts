@@ -269,4 +269,32 @@ describe("automatic login in a link run", () => {
     expect(checks().map((r) => (r.body as { url: string }).url.split("/").pop())).toEqual(["v1", "v2", "v2"]);
     expect(await createNotificationRepository(t.appDb).listOpen()).toEqual([]);
   });
+  it("the 1 h case: one link meeting a login page logs in, retries it, and the supplier stays ready", async () => {
+    const id = await link("v1");
+    await autoLogin(5);
+    let asked = 0;
+    fake.behaviour.pageFor = () => (asked++ === 0 ? { ...normal, result: "login_required" } : undefined);
+    expect(await checkLink(deps({ browser: withLogin() }), id)).toEqual({ kind: "checked", status: "works" });
+    expect(logins).toEqual([{ checkUrl: "https://shop.acme.example/p/v1", pagesBefore: 1 }]);
+    expect(checks()).toHaveLength(2);
+    expect((await suppliers().get(acme))?.sessionStatus).toBe("connected");
+    expect(await createNotificationRepository(t.appDb).listOpen()).toEqual([]);
+    expect(await checkSupplierLinks(deps({ browser: withLogin() }), acme)).toMatchObject({ kind: "done", checked: 1 });
+  });
+
+  it("one link logs in first when the session is stale, on that link's address", async () => {
+    const id = await link("v1", "deep/v1");
+    await autoLogin(60);
+    expect(await checkLink(deps({ browser: withLogin() }), id)).toEqual({ kind: "checked", status: "works" });
+    expect(logins).toEqual([{ checkUrl: "https://shop.acme.example/p/deep/v1", pagesBefore: 0 }]);
+  });
+
+  it("one link stops when the login fails, keeping the login's own notice", async () => {
+    const id = await link("v1");
+    await autoLogin(60);
+    const refused = { ...withLogin(), login: async (): Promise<LoginCallOutcome> => ({ ok: true, outcome: { result: "captcha" } as never }) };
+    expect(await checkLink(deps({ browser: refused }), id)).toMatchObject({ kind: "checked" });
+    expect(checks()).toHaveLength(0);
+    expect((await createNotificationRepository(t.appDb).listOpen()).map((n) => n.reason)).toEqual(["captcha"]);
+  });
 });

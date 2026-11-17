@@ -104,9 +104,23 @@ export function createLinkChecker(deps: LinkCheckDeps) {
       if (!mapping.enabled) return { kind: "skipped", reason: "link_off" };
       const gated = await gate(mapping.supplierId);
       if ("reason" in gated) return { kind: "skipped", reason: gated.reason };
-      const observation = await observe(gated.supplier, mapping);
+      // A failed automatic login already told the owner what went wrong, so the check must not replace that notice.
+      let toldOwner = false;
+      const login = await ensureLoggedIn(deps, gated.supplier, { force: false, checkUrl: mapping.url });
+      let observation: Observation;
+      if (login !== "ready" && login !== "skipped") {
+        observation = { result: login === "supplier_not_ready" ? "unreachable" : login, status: null, finalUrl: null, title: null, heading: null, softNotFound: false };
+        toldOwner = true;
+      } else {
+        observation = await observe(gated.supplier, mapping);
+        if (observation.result === "login_required") {
+          const again = await ensureLoggedIn(deps, gated.supplier, { force: true, checkUrl: mapping.url });
+          if (again === "ready") observation = await observe(gated.supplier, mapping);
+          else if (again !== "skipped") toldOwner = true;
+        }
+      }
       const status = await save(gated.supplier, mapping, observation, false);
-      if (needsOwner(observation.result)) await raiseNeedsAttention(deps, gated.supplier, observation.result);
+      if (!toldOwner && needsOwner(observation.result)) await raiseNeedsAttention(deps, gated.supplier, observation.result);
       return { kind: "checked", status };
     },
 
