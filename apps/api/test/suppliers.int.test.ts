@@ -410,9 +410,19 @@ describe("automatic login", () => {
     expect(cleared.body.supplier).toMatchObject({ loggedInMarker: null });
   });
 
+  it("saves the logged-in marker without the spaces around it, since a page's text is matched without them", async () => {
+    const s = await create();
+    const saved = await call("PATCH", `/api/suppliers/${s.id}`, { loggedInMarker: "  Log out \n" });
+    expect(saved.status).toBe(200);
+    expect(saved.body.supplier).toMatchObject({ loggedInMarker: "Log out" });
+    expect((await get(s.id)).loggedInMarker).toBe("Log out");
+  });
+
   it.each([
     ["201 characters", "m".repeat(201)],
     ["an empty marker", ""],
+    ["only spaces", "   "],
+    ["only a tab and a new line", "\t\n"],
     ["a number", 7],
   ])("refuses a logged-in marker of %s and changes nothing", async (_n, loggedInMarker) => {
     const s = await create();

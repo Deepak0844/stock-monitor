@@ -150,8 +150,11 @@ export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit
       }
       if ("loggedInMarker" in input) {
         const marker = input.loggedInMarker;
-        if (marker !== null && (typeof marker !== "string" || marker.length < 1 || marker.length > 200)) throw invalid();
-        auto.loggedInMarker = marker;
+        if (marker !== null && typeof marker !== "string") throw invalid();
+        // A page's text is matched without the spaces around it, so a marker of only spaces would silently never match.
+        const trimmed = marker === null ? null : marker.trim();
+        if (trimmed !== null && (trimmed.length < 1 || trimmed.length > 200)) throw invalid();
+        auto.loggedInMarker = trimmed;
       }
       rest = Object.fromEntries(Object.entries(input).filter(([k]) => !AUTO_LOGIN_BODY.includes(k)));
     }
