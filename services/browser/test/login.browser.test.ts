@@ -35,6 +35,7 @@ const good = (b: URLSearchParams) => b.get("username") === USER && [PASSWORD, LO
 /** What a correct password leads to, per case. `null` = log in and go to the account page. */
 const AFTER: Record<string, string | null> = {
   one: null,
+  slow: null,
   frame: null,
   banner: null,
   modal: null,
@@ -81,6 +82,8 @@ function startSite(): Promise<Server> {
       if (kase === "public") return res.writeHead(302, good(b) ? { ...loginCookie, location: "/public/product" } : { location: "/public/product" }).end();
       if (!good(b)) return html(page(form(`/${kase}/login`, userAndPassword) + "<p>Wrong password, try again.</p>"));
       if (kase === "busy") return html(page("<p>Too many requests.</p>"), 429);
+      // A slow supplier: the right password, answered only after 2.5 s.
+      if (kase === "slow") await new Promise((r) => setTimeout(r, 2500));
       if (kase === "promo") return res.writeHead(302, { ...loginCookie, location: "/promo/home" }).end();
       const after = AFTER[kase];
       if (after === null) return res.writeHead(302, loginCookie).end();
@@ -94,9 +97,12 @@ function startSite(): Promise<Server> {
     // A logged-in page that has a promo code box is still a login.
     if (kase === "promo" && step === "home") return html(page(`<h1>Your account</h1><p>${FILLER}</p><label>Promo code <input type="text" name="promo_code"></label>`, "Account"));
     if (kase === "public" && step === "product") return html(page(`<h1>Blue widget</h1><p>${FILLER}</p>${loggedIn(req) ? '<a href="/logout">Log  out</a>' : ""}`, "Blue widget"));
+    if (kase === "slow" && step === "track") return html(page("tracked"));
     if (step !== "login" && step !== "inner" && step !== "form" && step !== "app") return html(page("not here"), 404);
     if (kase === "one" && loggedIn(req)) return res.writeHead(302, { location: "/account" }).end();
     switch (kase) {
+      case "slow":
+        return html(page(form("/slow/login", userAndPassword, `onsubmit="event.preventDefault();document.getElementById('t').src='/slow/track';setTimeout(()=>this.submit(),200)"`) + '<iframe id="t" width="1" height="1"></iframe>'));
       case "one": case "push": case "locked": case "question": case "puzzle": case "code": case "stay": case "promo": case "busy": case "public":
         return html(page(form(`/${kase}/login`, userAndPassword)));
       case "two": return html(page(form("/two/user", '<input type="email" name="username"><button type="submit">Next</button>').replace('<button type="submit">Sign in</button>', "")));
@@ -162,6 +168,9 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     const out = await checker().login(ask("one"));
     expect(out.result).toBe("ok");
     expect(cookieNames(out as never)).toContain("sid");
+  });
+  it("waits for a slow supplier's answer before it reads the page: a right password is never called wrong", async () => {
+    expect((await checker().login(ask("slow"))).result).toBe("ok");
   });
   it("two-step login", async () => {
     expect((await checker().login(ask("two"))).result).toBe("ok");

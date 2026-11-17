@@ -182,7 +182,12 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
   const selectors = request.selectors ?? {};
   let navigations = 0;
   let status: number | null = null;
-  page.on("framenavigated", () => void navigations++);
+  /** Every frame navigation, in order: what the settle wait after the password looks for. */
+  const navigated: Frame[] = [];
+  page.on("framenavigated", (frame) => {
+    navigations++;
+    navigated.push(frame);
+  });
   page.on("response", (r) => {
     if (r.request().isNavigationRequest() && r.frame() === page.mainFrame()) status = r.status();
   });
@@ -248,6 +253,24 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
       page: { finalUrl: page.url(), status, title: seen.title, text: seen.text.slice(0, MAX_TEXT), hasPasswordField: !!(await firstVisible(page, 'input[type="password"]')), hasChallengeWidget: await challengeVisible(page) },
     });
   };
+  /**
+   * Waits, up to `settleMs` from `since.at`, for the page after the password to settle: the main frame or the form's frame
+   * navigated and loaded, or the password box left the login page. A tracking frame or a field changing is not enough: the
+   * supplier may still be answering, and the old form is no proof of a wrong password.
+   */
+  const settle = async (since: { at: number; navs: number; frame: Frame }) => {
+    const end = since.at + settleMs;
+    while (Date.now() < end) {
+      const moved = navigated.slice(since.navs).find((fr) => fr === page.mainFrame() || fr === since.frame);
+      if (moved) {
+        await moved.waitForLoadState("load", { timeout: Math.max(1, end - Date.now()) }).catch(() => {});
+        await page.waitForLoadState("load", { timeout: Math.max(1, end - Date.now()) }).catch(() => {});
+        return;
+      }
+      if (!(await firstVisible(page, 'input[type="password"]')) || !onLoginPage(page.url(), request.loginUrl)) return;
+      await page.waitForTimeout(250);
+    }
+  };
   const anyFormVisible = async () => {
     const f = await findFields(page, selectors);
     return !!(f.password || f.username || f.account);
@@ -276,6 +299,7 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
     let submitted = false;
     let typedUsername = false;
     let typedAccount = false;
+    let sent = { at: 0, navs: 0, frame: page.mainFrame() };
     for (let step = 0; step < maxSteps && !submitted; step++) {
       if (await challengeVisible(page)) return "captcha";
       const f = await findFields(page, selectors);
@@ -331,6 +355,7 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
       if (next === "missing") return "form_not_found";
       const target = last;
       const submitWait = f.password ? settleMs : stepWaitMs;
+      if (f.password) sent = { at: Date.now(), navs: navigated.length, frame };
       const changed = await afterAction(() => (next ? click(next) : target.press("Enter")), submitWait);
       // Too many requests: the supplier is busy, not refusing the login.
       if (status === 429) return "unreachable";
@@ -341,19 +366,29 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
 
     // 3. "Stay signed in?"
     const stay = await findButton(page, whole(STAY_SIGNED_IN_WORDS));
-    if (stay) await afterAction(() => click(stay), settleMs);
+    if (stay) {
+      sent = { at: Date.now(), navs: navigated.length, frame: page.mainFrame() };
+      await afterAction(() => click(stay), settleMs);
+    }
 
-    // 4. What the page says now.
-    const text = (await Promise.all(page.frames().map((fr) => fr.evaluate(() => document.body?.innerText ?? "").catch(() => "")))).join("\n");
-    const decided = decideAfterSubmit({
-      challengeVisible: await challengeVisible(page),
-      codeFieldVisible: await codeFieldVisible(page, selectors),
-      secondCheckText: SECOND_CHECK.test(text),
-      lockedText: LOCKED.test(text),
-      passwordFieldVisible: !!(await firstVisible(page, 'input[type="password"]')),
-      onLoginPage: onLoginPage(page.url(), request.loginUrl),
-      pageClass: await classifyHere(request.loginUrl),
-    });
+    // 4. What the page says now. A wrong password only once the page has settled, read again: it pauses automatic login.
+    const facts = async (): Promise<AfterSubmitFacts> => {
+      const text = (await Promise.all(page.frames().map((fr) => fr.evaluate(() => document.body?.innerText ?? "").catch(() => "")))).join("\n");
+      return {
+        challengeVisible: await challengeVisible(page),
+        codeFieldVisible: await codeFieldVisible(page, selectors),
+        secondCheckText: SECOND_CHECK.test(text),
+        lockedText: LOCKED.test(text),
+        passwordFieldVisible: !!(await firstVisible(page, 'input[type="password"]')),
+        onLoginPage: onLoginPage(page.url(), request.loginUrl),
+        pageClass: await classifyHere(request.loginUrl),
+      };
+    };
+    let decided = decideAfterSubmit(await facts());
+    if (decided === "wrong_password") {
+      await settle(sent);
+      decided = decideAfterSubmit(await facts());
+    }
     if (decided !== "ok") return decided;
   }
 
