@@ -140,11 +140,42 @@ describe("Automatic login card", () => {
     expect(screen.getByText("Press Resume first.")).toBeInTheDocument();
   });
 
-  it("removes the saved login", async () => {
-    const { api, onChange, user } = setup({ ...granted, credentialsSavedAt: "2026-11-17T06:58:00.000Z" });
-    await user.click(screen.getByRole("button", { name: "Remove" }));
-    expect(api.suppliers.removeCredentials).toHaveBeenCalledWith(aSupplier().id);
-    expect(onChange).toHaveBeenCalled();
+  describe("removing the saved login", () => {
+    const withLogin = () => setup({ ...granted, credentialsSavedAt: "2026-11-17T06:58:00.000Z" });
+
+    it("asks first, and removes nothing until it is confirmed", async () => {
+      const { api, onChange, user } = withLogin();
+      await user.click(screen.getByRole("button", { name: "Remove" }));
+      expect(screen.getByRole("heading", { name: "Remove the saved login?" })).toBeInTheDocument();
+      expect(screen.getByText(/switches automatic login off/i)).toBeInTheDocument();
+      expect(api.suppliers.removeCredentials).not.toHaveBeenCalled();
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it("keeps the saved login when the question is cancelled", async () => {
+      const { api, onChange, user } = withLogin();
+      await user.click(screen.getByRole("button", { name: "Remove" }));
+      await user.click(screen.getByRole("button", { name: "Cancel" }));
+      expect(screen.queryByRole("heading", { name: "Remove the saved login?" })).not.toBeInTheDocument();
+      expect(api.suppliers.removeCredentials).not.toHaveBeenCalled();
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it("removes the saved login once it is confirmed", async () => {
+      const { api, onChange, user } = withLogin();
+      await user.click(screen.getByRole("button", { name: "Remove" }));
+      await user.click(screen.getByRole("button", { name: "Remove login" }));
+      expect(api.suppliers.removeCredentials).toHaveBeenCalledWith(aSupplier().id);
+      expect(onChange).toHaveBeenCalled();
+    });
+
+    it("keeps the question open, with the reason, when the removal fails", async () => {
+      const { user } = setup({ ...granted, credentialsSavedAt: "2026-11-17T06:58:00.000Z" }, { suppliers: { removeCredentials: vi.fn().mockRejectedValue(new Error("The server said no.")) } });
+      await user.click(screen.getByRole("button", { name: "Remove" }));
+      await user.click(screen.getByRole("button", { name: "Remove login" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("The server said no.");
+      expect(screen.getByRole("heading", { name: "Remove the saved login?" })).toBeInTheDocument();
+    });
   });
 });
 

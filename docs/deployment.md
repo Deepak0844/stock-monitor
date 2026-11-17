@@ -193,7 +193,7 @@ Logging in yourself through the live window, saving the password again, or press
 
 Under **Login page fields (advanced)** you can tell the app where things are on the supplier's login page. Leave them empty first. Use them only when **Test login now** says it could not find the login form.
 
-- **Open login button.** For a page that shows a "Sign in" button you must press before the form appears. The app closes cookie banners and waits for a slow page by itself. Fill this in only for a login that stays hidden until you click something (a pop-up), and leave it empty if the login boxes are already on the page.
+- **Open login button.** For a page that shows a "Sign in" button you must press before the form appears. The app closes a cookie popup by itself, when the popup covers a button it needs and its own button says Accept, Accept all, Allow all, Agree, OK, No thanks or Close. It also waits for a slow page by itself. Fill this in only for a login that stays hidden until you click something (a pop-up), and leave it empty if the login boxes are already on the page.
 - **Account.** The box for an account number, if the supplier asks for one.
 - **Username.** The box for the username or email.
 - **Password.** The box for the password.

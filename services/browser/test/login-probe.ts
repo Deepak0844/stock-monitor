@@ -53,7 +53,19 @@ try {
     { loginUrl: `${base}/Account/Login`, checkUrl: `${base}/account`, username: USER, password: PASSWORD, stealth: false, selectors: { username: "#UserName", password: "#Password" } },
     { settleMs: 2000, formWaitMs: 3000, onWhy: (w) => why.push(w) },
   );
-  console.log(JSON.stringify({ result, why, posts }));
+  // A tripwire for the shim: in a bare page, with no shim, a function with a named inner function must still fail under tsx. If it
+  // stops failing, tsx no longer wraps names, and the shim can be removed on purpose instead of lingering by habit.
+  const bare = await browser.newPage();
+  const bareFails = await bare
+    .evaluate(() => {
+      const named = (n: number) => n + 1;
+      return named(1);
+    })
+    .then(
+      () => false,
+      (e: unknown) => /__name is not defined/.test(String(e)),
+    );
+  console.log(JSON.stringify({ result, why, posts, bareFails }));
 } finally {
   await browser.close();
   server.close();

@@ -10,7 +10,7 @@ import { createGuard } from "../src/guard.js";
 import { startGuardProxy, type GuardProxy } from "../src/proxy.js";
 import { createProfileChecker } from "../src/profile-check.js";
 import { profileDirFor } from "../src/profile-store.js";
-import type { LoginRequest } from "../src/login.js";
+import { FORM_WAIT_MS, type LoginRequest } from "../src/login.js";
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 60_000 });
 const linux = process.platform === "linux";
@@ -41,6 +41,7 @@ const AFTER: Record<string, string | null> = {
   dupbox: null,
   swaptype: null,
   latebox: null,
+  verylate: null,
   latechoice: null,
   slow: null,
   slower: null,
@@ -56,6 +57,8 @@ const AFTER: Record<string, string | null> = {
   token: null,
   frame: null,
   banner: null,
+  bannerok: null,
+  okform: null,
   banner2: null,
   modal: null,
   modalx: null,
@@ -187,6 +190,9 @@ function startSite(): Promise<Server> {
       // A page still loading its boxes: the form is put in by a script 2.5 s after the page loaded.
       case "latebox":
         return html(page(`<p>Trade supplies.</p><div id="slot"></div><script>setTimeout(()=>{document.getElementById("slot").innerHTML=${JSON.stringify(userAndPasswordForm("latebox"))}},2500)</script>`));
+      // Boxes that show only after 6 s: found with the default wait (10 s), which no other test uses to the full.
+      case "verylate":
+        return html(page(`<p>Trade supplies.</p><div id="slot"></div><script>setTimeout(()=>{document.getElementById("slot").innerHTML=${JSON.stringify(userAndPasswordForm("verylate"))}},6000)</script>`));
       case "latechoice":
         return html(page(`<div id="slot"></div><script>setTimeout(()=>{document.getElementById("slot").innerHTML=${JSON.stringify('<button type="button" onclick="document.getElementById(\'f\').style.display=\'block\';this.remove()">Use password</button><div id="f" style="display:none">' + userAndPasswordForm("latechoice") + "</div>")}},2500)</script>`));
       case "neverbox": return html(page("<p>Trade supplies. Nothing to see.</p>"));
@@ -237,6 +243,12 @@ function startSite(): Promise<Server> {
         return html(page(`${form("/banner2/login", userAndPassword)}<div id="b" style="position:fixed;inset:0;background:rgba(0,0,0,.5)"><p>We use cookies</p><button type="button" onclick="document.getElementById('b').remove();document.querySelector('[name=password]').value=''">Accept all</button></div>`));
       case "banner":
         return html(page(`${form("/banner/login", userAndPassword)}<div id="b" style="position:fixed;inset:0;background:rgba(0,0,0,.5)"><p>We use cookies</p><button type="button" onclick="fetch('/banner/accepted');document.getElementById('b').remove()">Accept all</button></div>`));
+      // A cookie popup whose one button says only "OK", the wording some popups use, over the whole page.
+      case "okform":
+        // A covering popup with no real dismiss button, and an "OK" submit that belongs to another form holding a password box.
+        return html(page(`<form method="post" action="/okform/trap" style="position:fixed;top:0;right:0;z-index:10"><input type="password" name="p" style="display:none"><input type="submit" value="OK"></form>${form("/okform/login", userAndPassword)}<div id="o" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5)"><p>We use cookies</p></div><script>document.querySelector("form[action=\\"/okform/login\\"] [name=password]").addEventListener("input",(e)=>{if(e.target.value.length>=13)document.getElementById("o").style.display="block"})</script>`));
+      case "bannerok":
+        return html(page(`${form("/bannerok/login", userAndPassword)}<div id="b" style="position:fixed;inset:0;background:rgba(0,0,0,.5)"><p>We use cookies</p><button type="button" onclick="fetch('/bannerok/accepted');document.getElementById('b').remove()">OK</button></div>`));
       case "acct": return html(page(form("/acct/login", acctForm)));
       case "check":
         return step === "form" ? html(page(form("/check/login", userAndPassword))) : html(page("<p>Checking your browser before accessing the site.</p><script>setTimeout(()=>location.href='/check/form',3000)</script>", "Just a moment..."));
@@ -288,8 +300,9 @@ const cookieNames = (o: { state?: { cookies: { name?: unknown }[] } }) => o.stat
 
 describe.skipIf(!linux)("automatic login in the persistent profile", () => {
   it("logs in on a one-step form", async () => {
-    const out = await checker().login(ask("one"));
-    expect(out.result).toBe("ok");
+    const lines: string[] = [];
+    const out = await checker((line) => lines.push(line)).login(ask("one"));
+    expect(out.result, `the log said: ${lines.join(" | ")}`).toBe("ok");
     expect(cookieNames(out as never)).toContain("sid");
   });
   it("waits for a slow supplier's answer before it reads the page: a right password is never called wrong", async () => {
@@ -333,6 +346,23 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     expect(events["banner/accepted"]).toBe(1);
     expect(posts.banner.length).toBe(1);
   });
+  it("a cookie popup whose button only says OK is closed, and the login goes through once", async () => {
+    posts.bannerok = [];
+    const lines: string[] = [];
+    const out = await checker((line) => lines.push(line)).login(ask("bannerok"));
+    expect(out.result, `the log said: ${lines.join(" | ")}`).toBe("ok");
+    expect(events["bannerok/accepted"]).toBe(1);
+    expect(posts.bannerok.length).toBe(1);
+    expect(posts.bannerok[0]!.get("username")).toBe(USER);
+    expect(posts.bannerok[0]!.get("password")).toBe(PASSWORD);
+  });
+  it("an OK submit button that sits in a form with a password box is not a popup button: nothing is sent", async () => {
+    posts.okform = [];
+    const lines: string[] = [];
+    expect((await checker((line) => lines.push(line)).login(ask("okform"))).result, lines.join(" | ")).toBe("unknown");
+    // The trap form posts to the same case, so this also proves it was not clicked.
+    expect(posts.okform.length).toBe(0);
+  });
   it("a banner whose dismissal clears the password box: unknown, nothing is sent", async () => {
     posts.banner2 = [];
     expect((await checker().login(ask("banner2"))).result).toBe("unknown");
@@ -344,6 +374,16 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     expect((await checker((line) => lines.push(line), 3000, 1).login(ask("one"))).result).toBe("unknown");
     expect(posts.one.length).toBe(0);
     expect(lines).toContain("login result: unknown (deadline)");
+  });
+  it("a page that shows its boxes 6 s late is still found with the default wait, which is 10 s", async () => {
+    expect(FORM_WAIT_MS).toBeGreaterThan(6500);
+    posts.verylate = [];
+    const lines: string[] = [];
+    const out = await checker((line) => lines.push(line)).login(ask("verylate"));
+    expect(out.result, `the log said: ${lines.join(" | ")}`).toBe("ok");
+    expect(posts.verylate.length).toBe(1);
+    expect(posts.verylate[0]!.get("username")).toBe(USER);
+    expect(posts.verylate[0]!.get("password")).toBe(PASSWORD);
   });
   it("a page that shows its boxes 2.5 s late: ok, one POST with the exact values", async () => {
     posts.latebox = [];

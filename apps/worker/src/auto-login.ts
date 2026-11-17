@@ -37,7 +37,7 @@ const FAILED: Record<Exclude<LoginResult, "ok" | "unreachable">, { outcome: Outc
  * Logs the supplier in with its saved credentials when automatic login is on and the session is not known to be fresh.
  * One attempt, never retried here. The credentials go to the browser service only; nothing logged or audited holds them.
  */
-export async function ensureLoggedIn(deps: AutoLoginDeps, supplier: SupplierRecord, opts: { force: boolean; checkUrl: string }): Promise<"ready" | "skipped" | StopReason> {
+export async function ensureLoggedIn(deps: AutoLoginDeps, supplier: SupplierRecord, opts: { force: boolean; checkUrl: string; onLoggedIn?: () => void }): Promise<"ready" | "skipped" | StopReason> {
   if (!supplier.autoLogin || supplier.autoLoginPausedReason) return "skipped";
   const { suppliers, supplierSessions, logger } = deps;
   const id = supplier.id;
@@ -88,6 +88,8 @@ export async function ensureLoggedIn(deps: AutoLoginDeps, supplier: SupplierReco
     if (result === "ok" && state) {
       await saveLogin(deps, id, expectedIv, state);
       await finish("ok", "reset");
+      // Told only when a login really happened, not when the saved one was still fresh: the caller must not repeat it seconds later.
+      opts.onLoggedIn?.();
       return "ready";
     }
     if (result === "unreachable") {

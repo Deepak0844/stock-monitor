@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button.js";
 import { Input } from "@/components/ui/input.js";
 import type { Api, AutoLoginResult, LoginSelectors, Supplier } from "../api.js";
 import { formatDay, formatWhen } from "../format.js";
+import { ConfirmDialog } from "./ConfirmDialog.js";
 import { Field } from "./Field.js";
 import { Notice } from "./Notice.js";
 
@@ -40,6 +41,9 @@ export function AutoLoginCard({ api, supplier, onChange }: { api: Api; supplier:
   const [account, setAccount] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  /** The "Remove the saved login?" question is open. */
+  const [removing, setRemoving] = useState(false);
+  const removeButton = useRef<HTMLButtonElement>(null);
   const [selectors, setSelectors] = useState<Record<keyof LoginSelectors, string>>({
     open: supplier.loginSelectors?.open ?? "",
     account: supplier.loginSelectors?.account ?? "",
@@ -104,12 +108,12 @@ export function AutoLoginCard({ api, supplier, onChange }: { api: Api; supplier:
     });
   };
 
-  const remove = () =>
-    void run("remove", async () => {
-      await api.suppliers.removeCredentials(supplier.id);
-      setSavedAt(null);
-      onChange();
-    });
+  /** Runs inside the confirmation, which stays open with the reason if this fails. */
+  const remove = async () => {
+    await api.suppliers.removeCredentials(supplier.id);
+    setSavedAt(null);
+    onChange();
+  };
 
   const toggle = (on: boolean) =>
     void run("switch", async () => {
@@ -191,7 +195,7 @@ export function AutoLoginCard({ api, supplier, onChange }: { api: Api; supplier:
             Save
           </Button>
           {savedAt && (
-            <Button type="button" variant="outline" loading={busy === "remove"} disabled={busy !== null} onClick={remove}>
+            <Button ref={removeButton} type="button" variant="outline" disabled={busy !== null} onClick={() => setRemoving(true)}>
               Remove
             </Button>
           )}
@@ -258,6 +262,17 @@ export function AutoLoginCard({ api, supplier, onChange }: { api: Api; supplier:
           </div>
         </form>
       </details>
+      {removing && (
+        <ConfirmDialog
+          open
+          title="Remove the saved login?"
+          description="This deletes the saved username and password and switches automatic login off. The supplier's current session is kept. You can save a login again later."
+          confirmLabel="Remove login"
+          onConfirm={remove}
+          onClose={() => setRemoving(false)}
+          returnFocusTo={() => removeButton.current}
+        />
+      )}
     </section>
   );
 }
