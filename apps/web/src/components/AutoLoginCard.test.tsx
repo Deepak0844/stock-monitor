@@ -109,3 +109,45 @@ describe("Automatic login card", () => {
     expect(onChange).toHaveBeenCalled();
   });
 });
+
+describe("Automatic login card: waiting for a test result", () => {
+  const saved = { ...granted, credentialsSavedAt: "2026-11-17T06:58:00.000Z", lastAutoLoginAt: "2026-11-17T06:00:00.000Z" as string | null };
+  const start = async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const api = fakeApi();
+    const onChange = vi.fn();
+    const view = render(<AutoLoginCard api={api} supplier={aSupplier(saved)} onChange={onChange} />);
+    await userEvent.setup({ advanceTimers: vi.advanceTimersByTime }).click(screen.getByRole("button", { name: "Test login now" }));
+    await screen.findByText("Test started. The result shows here in a minute.");
+    onChange.mockClear();
+    return { api, onChange, view };
+  };
+  afterEach(() => vi.useRealTimers());
+
+  it("reloads every 15 s and stops at 90 s", async () => {
+    const { onChange } = await start();
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(75_000);
+    expect(onChange.mock.calls.length).toBeGreaterThanOrEqual(5);
+    const total = onChange.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(onChange).toHaveBeenCalledTimes(total);
+  });
+
+  it("stops once the last login time changes", async () => {
+    const { api, onChange, view } = await start();
+    await vi.advanceTimersByTimeAsync(15_000);
+    view.rerender(<AutoLoginCard api={api} supplier={aSupplier({ ...saved, lastAutoLoginAt: "2026-11-17T07:10:00.000Z", lastAutoLoginResult: "ok" })} onChange={onChange} />);
+    onChange.mockClear();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("stops when the card goes away", async () => {
+    const { onChange, view } = await start();
+    view.unmount();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+});

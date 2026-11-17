@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button.js";
 import { Input } from "@/components/ui/input.js";
 import type { Api, AutoLoginResult, LoginSelectors, Supplier } from "../api.js";
@@ -32,6 +32,9 @@ const SELECTOR_FIELDS: { key: keyof LoginSelectors; label: string }[] = [
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong. Please try again.");
 
+const POLL_EVERY_MS = 15_000;
+const POLL_FOR_MS = 90_000;
+
 /** Saves a supplier login and turns on automatic login. A saved username or password is never shown again. */
 export function AutoLoginCard({ api, supplier, onChange }: { api: Api; supplier: Supplier; onChange: () => void }) {
   const [account, setAccount] = useState("");
@@ -48,6 +51,23 @@ export function AutoLoginCard({ api, supplier, onChange }: { api: Api; supplier:
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+
+  // After a test starts, ask the page to reload every 15 s for up to 90 s, until the last login time changes.
+  const [testFrom, setTestFrom] = useState<{ at: string | null } | null>(null);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  useEffect(() => {
+    if (!testFrom) return;
+    const timer = setInterval(() => onChangeRef.current(), POLL_EVERY_MS);
+    const stop = setTimeout(() => setTestFrom(null), POLL_FOR_MS);
+    return () => {
+      clearInterval(timer);
+      clearTimeout(stop);
+    };
+  }, [testFrom]);
+  useEffect(() => {
+    if (testFrom && supplier.lastAutoLoginAt !== testFrom.at) setTestFrom(null);
+  }, [supplier.lastAutoLoginAt, testFrom]);
 
   const granted = supplier.automationPermission === "granted";
   const paused = supplier.autoLoginPausedReason;
@@ -107,6 +127,7 @@ export function AutoLoginCard({ api, supplier, onChange }: { api: Api; supplier:
   const test = () =>
     void run("test", async () => {
       await api.suppliers.testAutoLogin(supplier.id);
+      setTestFrom({ at: supplier.lastAutoLoginAt });
       return "Test started. The result shows here in a minute.";
     });
 

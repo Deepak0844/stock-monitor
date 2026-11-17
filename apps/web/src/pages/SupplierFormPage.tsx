@@ -85,7 +85,7 @@ export function SupplierFormPage({ api, id }: { api: Api; id?: string }) {
           {load.supplier && (
             <>
               <Card className="p-6">
-                <PermissionPanel api={api} supplier={load.supplier} />
+                <PermissionPanel api={api} supplier={load.supplier} onSaved={reload} />
               </Card>
               <Card className="p-6">
                 <RegionPanel api={api} supplier={load.supplier} />
