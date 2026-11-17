@@ -58,9 +58,11 @@ export type ProfileCheckOptions = { proxy: GuardProxy; sandbox: boolean; headles
   loginStepMs?: number;
   /** After this long a login types and presses nothing more (default 150 s, under the client's 240 s). */
   loginDeadlineMs?: number;
+  /** Test only: how long a login waits for a loading page to show its boxes (default 10 s). */
+  loginFormWaitMs?: number;
   log?: (line: string) => void };
 
-export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFILE_ROOT, settleMs = 12_000, display, language, loginStepMs = 15_000, loginDeadlineMs, log = () => {} }: ProfileCheckOptions) {
+export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFILE_ROOT, settleMs = 12_000, display, language, loginStepMs = 15_000, loginDeadlineMs, loginFormWaitMs, log = () => {} }: ProfileCheckOptions) {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
   /** Starts the browser on `profile`. Returns once it is running; `stop` quits it the way a person would. */
@@ -97,7 +99,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
     try {
       const port = await waitForDebuggingPort(profile, b.child, 20_000);
       const cdp = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
-      await cdp.contexts()[0]?.addCookies(state.cookies as Parameters<NonNullable<ReturnType<typeof cdp.contexts>[0]>["addCookies"]>[0]);
+      await cdp.contexts()[0]?.addCookies(state.cookies as unknown as Parameters<NonNullable<ReturnType<typeof cdp.contexts>[0]>["addCookies"]>[0]);
       await cdp.close();
     } finally {
       await b.stop();
@@ -258,6 +260,8 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
       if (!existsSync(join(profile, "Default", "Preferences"))) await seedProfile(profile, language);
       let result: LoginResult = "unknown";
       let storage: SessionState = { cookies: [], origins: [] } as unknown as SessionState;
+      /** A fixed reason code from the login when it found no form; never page content or anything typed. */
+      let why = "";
       const b = await launch(profile, "about:blank", true);
       try {
         const port = await waitForDebuggingPort(profile, b.child, 20_000);
@@ -266,7 +270,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
           const context = cdp.contexts()[0];
           const page = context?.pages()[0] ?? (await context?.newPage());
           if (context && page) {
-            result = await runLogin(page, request, { settleMs, stepWaitMs: loginStepMs, ...(loginDeadlineMs ? { deadlineMs: loginDeadlineMs } : {}) });
+            result = await runLogin(page, request, { settleMs, stepWaitMs: loginStepMs, ...(loginDeadlineMs ? { deadlineMs: loginDeadlineMs } : {}), ...(loginFormWaitMs ? { formWaitMs: loginFormWaitMs } : {}), onWhy: (w) => void (why = w) });
             // Page storage (a token in localStorage) can only be read while the channel is open. Cookies come from the file below.
             if (result === "ok") storage = (await context.storageState().catch(() => storage)) as unknown as SessionState;
           }
@@ -279,8 +283,8 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
       } finally {
         await b.stop(); // a clean quit writes the cookie file read below
       }
-      log(`login result: ${result}`);
-      if (result !== "ok") return { result };
+      log(`login result: ${result}${why ? ` (${why})` : ""}`);
+      if (result !== "ok") return { result, ...(why ? { why } : {}) };
       const file = { cookies: readCookies(cookieStore(profile)), origins: [] } as unknown as SessionState;
       const state = mergeSessionState(storage, file, Date.now() / 1000);
       // The worker stores this session, so the next check of it keeps the profile instead of wiping it.

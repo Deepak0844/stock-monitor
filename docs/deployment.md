@@ -152,6 +152,31 @@ If the supplier shows a puzzle, or asks for a code, a text message or an approva
 
 Some login boxes change what is typed into them: they add dashes or spaces, switch capitals and small letters, or cut the text short. The app checks every box after typing and again just before it presses the button. If a box does not hold exactly what the app typed, automatic login stops with "login did not finish", and no password is sent (a first step that asks only for the username may already have gone out). The way out is to log in by hand in the live window. If the app picked the wrong box, use the advanced field settings on the supplier's page.
 
+### If automatic login does not work: read the log
+
+The card shows a short result such as "login form not found" or "login did not finish". The browser's log says **why**, in a short code. It never contains your password, your username, the supplier's address, or any text from the supplier's page. Press **Test login now**, wait a minute, then run:
+
+```bash
+docker compose logs --since 10m browser | grep "login:"
+```
+
+A line looks like `login: unknown (nothing_sent)`. The words in brackets mean:
+
+| In the log | It means | What to do |
+|---|---|---|
+| `no_opener` | The page shows no login boxes, and no "Sign in" button that opens them. The line also counts what the app saw (how many boxes, and whether it is still on the login address). | Check the login address on the supplier's page. If the login is hidden behind a button, fill in **Open login button**. |
+| `username_override_missing`, `password_override_missing`, `account_override_missing` | A box you named under the advanced fields is not on the page. | Correct that field, or clear it. |
+| `account_needed` | The page asks for an account number and none is saved. | Save one on the card. |
+| `no_submit_button` | The app filled the boxes but could not find the button that sends the form. | Fill in **Login button**. |
+| `username_not_typed`, `password_not_typed`, `account_not_typed` | A box would not hold exactly what the app typed, or the password box stopped being a password box. The numbers show how it differs. For the username and account, `typed` is the length typed and `box` the length in the box. For the password the log only says `shorter`, `longer` or `same-length`. Nothing was sent. | See "When a login box changes what the app types". |
+| `box_changed_before_press`, `box_changed_after_banner` | A box changed between typing and pressing the button. Nothing was sent. | Try again. If it keeps happening, log in by hand. |
+| `nothing_sent` | The app pressed the button and the page sent nothing. | Try again. If it keeps happening, log in by hand. |
+| `deadline` | The login took too long, so the app stopped before pressing anything. | Try again. A very slow supplier may need a hand login. |
+| `unclear_after_submit`, `confirm_not_ok` | The page after the password was not recognised as logged in. It may be a question, an expired password, new terms, or a page that looks the same logged in or out. The word after `page=` is what the app made of it. | If the supplier shows its pages to everyone, fill in **Only shows when logged in**. Otherwise log in by hand and see what the supplier asks for. |
+| `empty_password_box` | A password box is on the page but not the one the app filled, and it is empty. The app will not press the button with an empty password box on screen. Nothing was sent. | Fill in the **Password** field under the advanced settings. |
+| `confirm_page_unreachable` | The login went through, but the page the app uses to confirm it could not be reached. | Try again. Check that the supplier's site is up. |
+| `steps_used_up`, `no_change_after_next`, `username_step_stuck`, `opener_clicked_no_boxes`, `opener_no_change`, `choice_no_change` | The login has more steps than the app could follow. | Log in by hand in the live window. |
+
 ### When automatic login pauses
 
 The app pauses automatic login for that supplier, so it does not keep trying and get the account locked. The card says why, and the Dashboard shows a message.
@@ -168,7 +193,7 @@ Logging in yourself through the live window, saving the password again, or press
 
 Under **Login page fields (advanced)** you can tell the app where things are on the supplier's login page. Leave them empty first. Use them only when **Test login now** says it could not find the login form.
 
-- **Open login button.** For a page that shows a "Sign in" button you must press before the form appears.
+- **Open login button.** For a page that shows a "Sign in" button you must press before the form appears. The app closes cookie banners and waits for a slow page by itself. Fill this in only for a login that stays hidden until you click something (a pop-up), and leave it empty if the login boxes are already on the page.
 - **Account.** The box for an account number, if the supplier asks for one.
 - **Username.** The box for the username or email.
 - **Password.** The box for the password.

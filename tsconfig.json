@@ -28,6 +28,7 @@
     "apps/**/*.ts",
     "apps/**/*.tsx",
     "packages/**/*.ts",
+    "services/**/*.ts",
     "e2e/**/*.ts",
     "*.ts"
   ],

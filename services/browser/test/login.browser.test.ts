@@ -36,6 +36,12 @@ const good = (b: URLSearchParams) => b.get("username") === USER && [PASSWORD, LO
 /** What a correct password leads to, per case. `null` = log in and go to the account page. */
 const AFTER: Record<string, string | null> = {
   one: null,
+  shiftbox: null,
+  removebox: null,
+  dupbox: null,
+  swaptype: null,
+  latebox: null,
+  latechoice: null,
   slow: null,
   slower: null,
   lazy: null,
@@ -178,6 +184,47 @@ function startSite(): Promise<Server> {
       case "dead": return html(page(form("/dead/login", userAndPassword, 'onsubmit="event.preventDefault()"')));
       case "slowtwo":
         return html(page(form("/slowtwo/user", '<input type="email" name="username"><button type="submit">Next</button>', `onsubmit="event.preventDefault();document.getElementById('t').src='/slowtwo/track';setTimeout(()=>this.submit(),200)"`).replace('<button type="submit">Sign in</button>', "") + '<iframe id="t" width="1" height="1"></iframe>'));
+      // A page still loading its boxes: the form is put in by a script 2.5 s after the page loaded.
+      case "latebox":
+        return html(page(`<p>Trade supplies.</p><div id="slot"></div><script>setTimeout(()=>{document.getElementById("slot").innerHTML=${JSON.stringify(userAndPasswordForm("latebox"))}},2500)</script>`));
+      case "latechoice":
+        return html(page(`<div id="slot"></div><script>setTimeout(()=>{document.getElementById("slot").innerHTML=${JSON.stringify('<button type="button" onclick="document.getElementById(\'f\').style.display=\'block\';this.remove()">Use password</button><div id="f" style="display:none">' + userAndPasswordForm("latechoice") + "</div>")}},2500)</script>`));
+      case "neverbox": return html(page("<p>Trade supplies. Nothing to see.</p>"));
+      // A page that inserts a box in front of the username the moment the username gets focus (a search or suggestion widget), which
+      // moves every later box one place along. A box found by its position would now be the wrong one.
+      case "shiftbox":
+        return html(
+          page(
+            form("/shiftbox/login", '<label>Email <input id="u" type="email" name="username"></label><label>Password <input type="password" name="password"></label>') +
+              `<script>document.getElementById("u").addEventListener("focus",function(){if(window.__x)return;window.__x=1;var x=document.createElement("input");x.type="text";x.name="suggest";x.value="${"x".repeat(50)}";var l=document.getElementById("u").parentNode;l.parentNode.insertBefore(x,l)})</script>`,
+          ),
+        );
+      // A box in front of the username that disappears when the username gets focus: every box after it moves one place back.
+      case "removebox":
+        return html(
+          page(
+            '<input id="q" type="search" name="q" placeholder="Search">' +
+              form("/removebox/login", '<label>Email <input id="u" type="email" name="username"></label><label>Password <input type="password" name="password"></label>') +
+              '<script>document.getElementById("u").addEventListener("focus",function(){var q=document.getElementById("q");if(q)q.remove()})</script>',
+          ),
+        );
+      // A page that copies every input with all its attributes when the username gets focus: two boxes now carry each mark.
+      case "dupbox":
+        return html(
+          page(
+            form("/dupbox/login", '<label>Email <input id="u" type="email" name="username"></label><label>Password <input type="password" name="password"></label>') +
+              '<script>document.getElementById("u").addEventListener("focus",function(){if(window.__d)return;window.__d=1;var f=document.querySelector("form");[].slice.call(f.querySelectorAll("input")).forEach(function(i){f.appendChild(i.cloneNode(true))})})</script>',
+          ),
+        );
+      // A page that turns the password box into a plain text box when it gets focus: not a password box any more.
+      case "swaptype":
+        return html(
+          page(
+            form("/swaptype/login", '<label>Email <input type="email" name="username"></label><label>Password <input id="p" type="password" name="password"></label>') +
+              '<script>document.getElementById("p").addEventListener("focus",function(){this.type="text"})</script>',
+          ),
+        );
+      case "maxbox": return html(page(form("/maxbox/login", '<label>Email <input type="email" name="username" maxlength="5"></label><label>Password <input type="password" name="password"></label>')));
       case "choice": return html(page(form("/choice/user", '<input type="email" name="username">')));
       case "modal":
         return html(page(`<p>Trade supplies.</p><button type="button" onclick="document.getElementById('m').style.display='block'">Sign in</button><div id="m" style="display:none">${form("/modal/login", userAndPassword)}</div>`));
@@ -229,10 +276,10 @@ afterAll(async () => {
 });
 
 /** A new checker with its own, empty profile folder, so cases do not share a login. */
-const checker = (log?: (line: string) => void, settleMs = 3000, loginDeadlineMs?: number) => {
+const checker = (log?: (line: string) => void, settleMs = 3000, loginDeadlineMs?: number, loginFormWaitMs?: number) => {
   const dir = mkdtempSync(join(tmpdir(), "sm-test-login-"));
   dirs.push(dir);
-  return Object.assign(createProfileChecker({ proxy, sandbox: !process.env.CI, headless: !process.env.DISPLAY, baseDir: dir, settleMs, loginStepMs: 5000, loginDeadlineMs, log }), { dir });
+  return Object.assign(createProfileChecker({ proxy, sandbox: !process.env.CI, headless: !process.env.DISPLAY, baseDir: dir, settleMs, loginStepMs: 5000, loginDeadlineMs, loginFormWaitMs, log }), { dir });
 };
 const ask = (kase: string, extra: Partial<LoginRequest> = {}): LoginRequest => ({
   loginUrl: `${base}/${kase}/login`, checkUrl: `${base}/account`, username: USER, password: PASSWORD, stealth: false, ...extra,
@@ -291,10 +338,81 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     expect((await checker().login(ask("banner2"))).result).toBe("unknown");
     expect(posts.banner2.length).toBe(0);
   });
-  it("past the login deadline nothing is typed or pressed", async () => {
+  it("past the login deadline nothing is typed or pressed, and the log says so", async () => {
     posts.one = [];
-    expect((await checker(undefined, 3000, 1).login(ask("one"))).result).toBe("unknown");
+    const lines: string[] = [];
+    expect((await checker((line) => lines.push(line), 3000, 1).login(ask("one"))).result).toBe("unknown");
     expect(posts.one.length).toBe(0);
+    expect(lines).toContain("login result: unknown (deadline)");
+  });
+  it("a page that shows its boxes 2.5 s late: ok, one POST with the exact values", async () => {
+    posts.latebox = [];
+    expect((await checker().login(ask("latebox"))).result).toBe("ok");
+    expect(posts.latebox.length).toBe(1);
+    expect(posts.latebox[0]!.get("username")).toBe(USER);
+    expect(posts.latebox[0]!.get("password")).toBe(PASSWORD);
+  });
+  it("a late page and an Open login override that is not on it: the boxes appear, the override is never needed", async () => {
+    posts.latebox = [];
+    expect((await checker().login(ask("latebox", { selectors: { open: "#not-here" } }))).result).toBe("ok");
+    expect(posts.latebox.length).toBe(1);
+  });
+  it("a late choice screen (Use password) works too", async () => {
+    posts.latechoice = [];
+    expect((await checker().login(ask("latechoice"))).result).toBe("ok");
+    expect(posts.latechoice.length).toBe(1);
+  });
+  it("a page that inserts a box in front of the username on focus: the typing still lands in the right boxes", async () => {
+    posts.shiftbox = [];
+    const lines: string[] = [];
+    const out = await checker((line) => lines.push(line)).login(ask("shiftbox"));
+    expect(out.result, `the log said: ${lines.join(" | ")}`).toBe("ok");
+    expect(posts.shiftbox.length).toBe(1);
+    expect(posts.shiftbox[0]!.get("username")).toBe(USER);
+    expect(posts.shiftbox[0]!.get("password")).toBe(PASSWORD);
+    // The inserted box was never typed into: not the username, and above all not the password.
+    expect(posts.shiftbox[0]!.get("suggest")).toBe("x".repeat(50));
+  });
+  it("a box in front of the username that disappears on focus: the typing still lands in the right boxes", async () => {
+    posts.removebox = [];
+    const lines: string[] = [];
+    const out = await checker((line) => lines.push(line)).login(ask("removebox"));
+    expect(out.result, `the log said: ${lines.join(" | ")}`).toBe("ok");
+    expect(posts.removebox.length).toBe(1);
+    expect(posts.removebox[0]!.get("username")).toBe(USER);
+    expect(posts.removebox[0]!.get("password")).toBe(PASSWORD);
+  });
+  it("a page that copies every box with its mark: two boxes match, so nothing is typed or sent", async () => {
+    posts.dupbox = [];
+    const out = await checker().login(ask("dupbox"));
+    expect(out.result).toBe("unknown");
+    expect(posts.dupbox.length).toBe(0);
+  });
+  it("a password box that stops being a password box: nothing is sent", async () => {
+    posts.swaptype = [];
+    const lines: string[] = [];
+    expect((await checker((line) => lines.push(line)).login(ask("swaptype"))).result).toBe("unknown");
+    expect(posts.swaptype.length).toBe(0);
+    expect(lines.join("\n")).not.toContain(PASSWORD);
+  });
+  it("a box that cuts the typing short: unknown, nothing sent, and the log says how it differs (lengths and flags only)", async () => {
+    posts.maxbox = [];
+    const lines: string[] = [];
+    expect((await checker((line) => lines.push(line)).login(ask("maxbox"))).result).toBe("unknown");
+    expect(posts.maxbox.length).toBe(0);
+    // Lengths and yes/no flags only: never the typed text nor the box's content.
+    expect(lines.some((l) => l.startsWith("login result: unknown (username_not_typed typed=18 box=5 samecase=false maxlength=5 "))).toBe(true);
+    expect(lines.join("\n")).not.toContain(USER);
+  });
+  it("a page that never shows a box: form_not_found after the wait, nothing sent, and the log says why", async () => {
+    const t0 = Date.now();
+    const lines: string[] = [];
+    expect((await checker((line) => lines.push(line), 3000, undefined, 1500).login(ask("neverbox"))).result).toBe("form_not_found");
+    expect(Date.now() - t0).toBeLessThan(20_000);
+    // A fixed reason code, never page content or anything typed: it tells the owner which rule stopped the login.
+    // Plus counts and whether it is still the login page's address (never the path itself, the host, the query, page text or anything typed).
+    // `locator` is a plain count of input elements; `evalfailed` counts frames where reading them failed.
+    expect(lines.some((l) => /^login result: form_not_found \(no_opener frames=1 inputs=0 locator=0 evalfailed=0 visible=0 password=0 username=0 samepath=yes\)$/.test(l))).toBe(true);
   });
   it("stay signed in", async () => {
     expect((await checker().login(ask("stay"))).result).toBe("ok");
@@ -416,10 +534,12 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     expect((await checker().login(ask("webforms"))).result).toBe("ok");
     expect(posts.webforms.length).toBe(1);
   });
-  it("a submit that never sends anything is unknown, never a wrong password", async () => {
+  it("a submit that never sends anything is unknown, never a wrong password, and the log says why", async () => {
     posts.dead = [];
-    expect((await checker().login(ask("dead"))).result).toBe("unknown");
+    const lines: string[] = [];
+    expect((await checker((line) => lines.push(line)).login(ask("dead"))).result).toBe("unknown");
     expect(posts.dead.length).toBe(0);
+    expect(lines).toContain("login result: unknown (nothing_sent)");
   });
   it("puzzle", async () => {
     const out = await checker().login(ask("puzzle"));
