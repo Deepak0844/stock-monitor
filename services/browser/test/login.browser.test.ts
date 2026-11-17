@@ -40,6 +40,8 @@ const AFTER: Record<string, string | null> = {
   lazy: null,
   recap: null,
   hash: null,
+  jsbtn: null,
+  invalid: null,
   token: null,
   frame: null,
   banner: null,
@@ -153,6 +155,12 @@ function startSite(): Promise<Server> {
       // Slow hashing in the page: no request at all for 3 s, then the form is sent.
       case "hash":
         return html(page(`<form method="post" action="/hash/login">${userAndPassword}<button type="submit" onclick="event.preventDefault();const f=this.form;setTimeout(()=>f.submit(),3000)">Sign in</button></form>`));
+      // A script login on a plain button: it works for 3 s, then posts. No form submit at all.
+      case "jsbtn":
+        return html(page(`<div>${userAndPassword}<button type="button" onclick="const b=new URLSearchParams({username:document.querySelector('[name=username]').value,password:document.querySelector('[name=password]').value});setTimeout(()=>fetch('/jsbtn/login',{method:'POST',body:b}).then(()=>location.href='/account'),3000)">Sign in</button></div>`));
+      // A form the browser will not send: a hidden required field is empty.
+      case "invalid":
+        return html(page(form("/invalid/login", userAndPassword + '<input type="text" name="hid" required style="display:none">')));
       // The login posts to another site only: not the supplier's answer.
       case "elsewhere":
         return html(page(form("/elsewhere/login", userAndPassword, `onsubmit="event.preventDefault();fetch(location.href.replace('127.0.0.1','localhost'),{method:'POST',body:new URLSearchParams(new FormData(this))})"`)));
@@ -346,6 +354,16 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     posts.hash = [];
     expect((await checker(undefined, 8000).login(ask("hash"))).result).toBe("ok");
     expect(posts.hash.length).toBe(1);
+  });
+  it("a script login on a plain button that works slowly is sent once, no fallback", async () => {
+    posts.jsbtn = [];
+    expect((await checker(undefined, 8000).login(ask("jsbtn"))).result).toBe("ok");
+    expect(posts.jsbtn.length).toBe(1);
+  });
+  it("a form the browser will not send (invalid hidden field) is unknown, nothing sent", async () => {
+    posts.invalid = [];
+    expect((await checker().login(ask("invalid"))).result).toBe("unknown");
+    expect(posts.invalid.length).toBe(0);
   });
   it("a POST to another site only is not a sent login", async () => {
     expect((await checker().login(ask("elsewhere"))).result).toBe("unknown");
