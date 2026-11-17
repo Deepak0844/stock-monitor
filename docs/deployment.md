@@ -55,7 +55,7 @@ Server-level steps that are not in Compose:
 
 ## Connecting a supplier
 
-This is how you give the app access to a supplier's website, so it can check stock without you. **You log in yourself, by hand.** The app never asks for your supplier password, never stores it, and never logs in for you.
+This is how you give the app access to a supplier's website, so it can check stock without you. **You log in yourself, by hand.** The app never asks for your supplier password, never stores it, and never logs in for you, unless you switch on "Automatic login" for that supplier (see "Automatic login" below).
 
 ### Before you start
 
@@ -334,7 +334,7 @@ This check was run and passed on a Shopify development store on 2026-11-12. Repe
 
 ## Server hardening (the checklist from the design discussion)
 
-Saved supplier sessions are decrypted in memory while a check runs, so anyone who controls the server could use them. Encryption protects the database and backups, not a compromised server.
+Saved supplier sessions, and the username and password of any supplier with Automatic login on, are decrypted in memory while a check runs, so anyone who controls the server could use them. Encryption protects the database and backups, not a compromised server.
 
 - SSH with keys only. Password login off, root login off.
 - Firewall: allow only 22, 80 and 443. Nothing else is published.
@@ -342,7 +342,7 @@ Saved supplier sessions are decrypted in memory while a check runs, so anyone wh
 - HTTPS through a reverse proxy (Caddy or nginx) in front of `127.0.0.1:3000`. Set `COOKIE_SECURE=true`.
 - Set `TRUST_PROXY=true` **only** if the proxy overwrites `X-Forwarded-For` with the real client address. Otherwise anyone can fake their address and dodge the sign-in rate limit. Leave it `false` with no proxy.
 - `.env` readable only by the deploy user (`chmod 600 .env`). Never commit it.
-- Back up `APP_ENCRYPTION_KEY` separately, for example in a password manager. If it is lost, saved sessions and the Shopify token cannot be read. They can be recreated by reconnecting.
+- Back up `APP_ENCRYPTION_KEY` separately, for example in a password manager. If it is lost, saved sessions, saved supplier passwords and the Shopify token cannot be read. They can be recreated by reconnecting and saving the passwords again.
 - Database backups are manual by choice: see the README for `pg_dump` and `pg_restore`. Keep copies off the server and try a restore now and then.
 - Check the pilot supplier's terms of service on automated access before the first real check.
 
