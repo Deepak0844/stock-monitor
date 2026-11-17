@@ -72,6 +72,12 @@ function startSite(): Promise<Server> {
       // A supplier that takes 4.5 s to answer any password, longer than a click waits.
       if (kase === "slower") await new Promise((r) => setTimeout(r, 4500));
       if (kase === "two" && step === "user") return html(page(form("/two/pass", `<input type="hidden" name="username" value="${b.get("username")}"><input type="password" name="password">`)));
+      // A slow username step: answered after 3.5 s, while its tracking frame loads.
+      if (kase === "slowtwo" && step === "user") {
+        await new Promise((r) => setTimeout(r, 3500));
+        return html(page(form("/slowtwo/pass", `<input type="hidden" name="username" value="${b.get("username")}"><input type="password" name="password">`)));
+      }
+      if (kase === "slowtwo" && step === "pass") return good(b) ? res.writeHead(302, loginCookie).end() : html(page("no"));
       if (kase === "two" && step === "pass") return good(b) ? res.writeHead(302, loginCookie).end() : html(page("no"));
       if (kase === "choice" && step === "user")
         return html(page(`<button type="button" onclick="document.getElementById('f').style.display='block';this.remove()">Use password</button><button type="button">Send me a code</button>
@@ -100,7 +106,7 @@ function startSite(): Promise<Server> {
     // A logged-in page that has a promo code box is still a login.
     if (kase === "promo" && step === "home") return html(page(`<h1>Your account</h1><p>${FILLER}</p><label>Promo code <input type="text" name="promo_code"></label>`, "Account"));
     if (kase === "public" && step === "product") return html(page(`<h1>Blue widget</h1><p>${FILLER}</p>${loggedIn(req) ? '<a href="/logout">Log  out</a>' : ""}`, "Blue widget"));
-    if (kase === "slow" && step === "track") return html(page("tracked"));
+    if (step === "track") return html(page("tracked"));
     if (step !== "login" && step !== "inner" && step !== "form" && step !== "app") return html(page("not here"), 404);
     if (kase === "one" && loggedIn(req)) return res.writeHead(302, { location: "/account" }).end();
     switch (kase) {
@@ -109,6 +115,8 @@ function startSite(): Promise<Server> {
       case "one": case "slower": case "push": case "locked": case "question": case "puzzle": case "code": case "stay": case "promo": case "busy": case "public":
         return html(page(form(`/${kase}/login`, userAndPassword)));
       case "two": return html(page(form("/two/user", '<input type="email" name="username"><button type="submit">Next</button>').replace('<button type="submit">Sign in</button>', "")));
+      case "slowtwo":
+        return html(page(form("/slowtwo/user", '<input type="email" name="username"><button type="submit">Next</button>', `onsubmit="event.preventDefault();document.getElementById('t').src='/slowtwo/track';setTimeout(()=>this.submit(),200)"`).replace('<button type="submit">Sign in</button>', "") + '<iframe id="t" width="1" height="1"></iframe>'));
       case "choice": return html(page(form("/choice/user", '<input type="email" name="username">')));
       case "modal":
         return html(page(`<p>Trade supplies.</p><button type="button" onclick="document.getElementById('m').style.display='block'">Sign in</button><div id="m" style="display:none">${form("/modal/login", userAndPassword)}</div>`));
@@ -187,6 +195,13 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
   });
   it("two-step login", async () => {
     expect((await checker().login(ask("two"))).result).toBe("ok");
+  });
+  it("a slow username step: Next is clicked once, and no empty password is ever sent", async () => {
+    posts.slowtwo = [];
+    expect((await checker().login(ask("slowtwo"))).result).toBe("ok");
+    expect(posts.slowtwo.filter((b) => !b.has("password")).length).toBe(1);
+    expect(posts.slowtwo.filter((b) => b.get("password") === "").length).toBe(0);
+    expect(posts.slowtwo.filter((b) => b.get("password") === PASSWORD).length).toBe(1);
   });
   it("choice screen", async () => {
     expect((await checker().login(ask("choice"))).result).toBe("ok");

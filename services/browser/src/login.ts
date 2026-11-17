@@ -180,21 +180,17 @@ export type StepOptions = { settleMs: number; stepWaitMs?: number; maxSteps?: nu
  */
 export async function runLogin(page: Page, request: LoginRequest, { settleMs, stepWaitMs = 15_000, maxSteps = 5 }: StepOptions): Promise<LoginResult> {
   const selectors = request.selectors ?? {};
-  let navigations = 0;
   let status: number | null = null;
-  /** Every frame navigation, in order: what the settle wait after the password looks for. */
+  /** Every frame navigation, in order: what the step and settle waits look for. */
   const navigated: Frame[] = [];
-  page.on("framenavigated", (frame) => {
-    navigations++;
-    navigated.push(frame);
-  });
+  page.on("framenavigated", (frame) => void navigated.push(frame));
   page.on("response", (r) => {
     if (r.request().isNavigationRequest() && r.frame() === page.mainFrame()) status = r.status();
   });
 
-  const signature = async () => {
+  const signature = async (frames = page.frames()) => {
     const parts: string[] = [];
-    for (const frame of page.frames()) {
+    for (const frame of frames) {
       const inputs = await frame.locator("input").evaluateAll((els) =>
         els
           .filter((el) => {
@@ -208,11 +204,16 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
     }
     return parts.join(" ");
   };
-  /** Waits until a frame navigates or the visible fields change. false when nothing changed in time. */
-  const waitForChange = async (before: string, navsBefore: number, ms: number) => {
+  /**
+   * Waits until a frame navigates or the visible fields change. false when nothing changed in time. With `form`, only the
+   * main frame or the form's frame navigating, or the fields of the form's frame changing, count: a tracking frame loading
+   * while the supplier still answers is not the next step.
+   */
+  const waitForChange = async (before: string, navsBefore: number, ms: number, form?: Frame) => {
     const end = Date.now() + ms;
     while (Date.now() < end) {
-      if (navigations > navsBefore || (await signature()) !== before) {
+      const moved = form ? navigated.slice(navsBefore).some((fr) => fr === page.mainFrame() || fr === form) : navigated.length > navsBefore;
+      if (moved || (await signature(form ? [form] : undefined)) !== before) {
         await page.waitForLoadState("load", { timeout: Math.max(1, end - Date.now()) }).catch(() => {});
         return true;
       }
@@ -220,11 +221,11 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
     }
     return false;
   };
-  const afterAction = async (action: () => Promise<void>, ms: number) => {
-    const before = await signature();
-    const navsBefore = navigations;
+  const afterAction = async (action: () => Promise<void>, ms: number, form?: Frame) => {
+    const before = await signature(form ? [form] : undefined);
+    const navsBefore = navigated.length;
     await action();
-    return waitForChange(before, navsBefore, ms);
+    return waitForChange(before, navsBefore, ms, form);
   };
 
   let consentUsed = false;
@@ -291,7 +292,7 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
   if (await challengeVisible(page)) return "captcha";
   // A "checking your browser" page that passes by itself. The classifier calls it captcha (its words) or blocked.
   if ((first === "captcha" || first === "blocked") && !(await anyFormVisible())) {
-    await waitForChange(await signature(), navigations, stepWaitMs);
+    await waitForChange(await signature(), navigated.length, stepWaitMs);
     first = await classifyHere(request.loginUrl, true);
     if ((first === "captcha" || first === "blocked") && !(await anyFormVisible())) return (await challengeVisible(page)) ? "captcha" : "blocked";
   }
@@ -308,6 +309,12 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
       const f = await findFields(page, selectors);
       // A code box counts only on a step with no username or password box: a login form can sit next to a shop's other boxes.
       if (f.code && !f.username && !f.password) return "code_required";
+      // The username step, still on screen after its Next: the supplier is still answering. Never click Next again.
+      if (typedUsername && f.username && !f.username.empty && !f.password) {
+        const form = f.username.frame;
+        if (!(await waitForChange(await signature([form]), navigated.length, stepWaitMs, form))) return "form_not_found";
+        continue;
+      }
 
       if (!f.username && !f.password && !f.account) {
         // A choice screen ("Use password" / "Send me a code"), else the button that opens the login.
@@ -359,7 +366,7 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
       const target = last;
       const submitWait = f.password ? settleMs : stepWaitMs;
       if (f.password) sent = { at: Date.now(), navs: navigated.length, frame };
-      const changed = await afterAction(() => (next ? click(next) : target.press("Enter", { noWaitAfter: true })), submitWait);
+      const changed = await afterAction(() => (next ? click(next) : target.press("Enter", { noWaitAfter: true })), submitWait, f.password ? undefined : frame);
       // Too many requests: the supplier is busy, not refusing the login.
       if (status === 429) return "unreachable";
       if (f.password) submitted = true; // from here on, nothing is typed: a later text box could be a security question
