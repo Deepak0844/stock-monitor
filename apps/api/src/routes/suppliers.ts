@@ -152,6 +152,13 @@ export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit
     }
     const hasRest = !(typeof rest === "object" && rest !== null && Object.keys(rest).length === 0 && Object.keys(auto).length > 0);
     const values = hasRest ? await checked(rest, true) : {};
+    // Refuse before anything is written, so a refused request changes nothing.
+    if (auto.autoLogin) {
+      const current = await repo.get(request.params.id);
+      if (!current) throw NOT_FOUND();
+      if (credentials && !(await credentials.savedAt(current.id))) throw NO_CREDENTIALS();
+      if (current.automationPermission !== "granted") throw NOT_GRANTED();
+    }
     if (!hasRest || Object.keys(values).length > 0) {
       const result = await repo.update(request.params.id, values);
       if (!result.ok) throw result.reason === "name_taken" ? NAME_TAKEN() : NOT_FOUND();

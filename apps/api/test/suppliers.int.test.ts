@@ -382,6 +382,14 @@ describe("automatic login", () => {
     expect(third.body.supplier).toMatchObject({ autoLogin: true, credentialsSavedAt: expect.any(String) });
   });
 
+  it("changes nothing when a refused automatic login comes with other fields", async () => {
+    const s = await create();
+    const res = await call("PATCH", `/api/suppliers/${s.id}`, { name: "Renamed", autoLogin: true });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe("no_credentials");
+    expect((await get(s.id)).name).toBe("Acme Supply");
+  });
+
   it("saves login selectors and rejects bad ones", async () => {
     const s = await create();
     const bad = await call("PATCH", `/api/suppliers/${s.id}`, { loginSelectors: { nope: 1 } });
