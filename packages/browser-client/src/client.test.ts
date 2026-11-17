@@ -221,3 +221,34 @@ describe("capture", () => {
     expect(JSON.stringify(await client().capture({ url: "https://a.example/", state }))).not.toContain(COOKIE);
   });
 });
+
+describe("login", () => {
+  const request = { loginUrl: "https://shop.acme.example/login", checkUrl: "https://shop.acme.example/a", username: "u", password: "p", stealth: false };
+  const session = { cookies: [], origins: [] };
+  const withReply = (status: number, json: unknown) =>
+    createBrowserClient({ baseUrl: "http://x.test", token: "t", fetchImpl: (async () => new Response(JSON.stringify(json), { status })) as typeof fetch });
+
+  it("maps a 200 to the outcome, keeping the session on ok", async () => {
+    expect(await withReply(200, { result: "ok", state: session }).login(request)).toEqual({ ok: true, outcome: { result: "ok", state: session } });
+  });
+  it("drops the session unless the result is ok", async () => {
+    expect(await withReply(200, { result: "captcha", state: session }).login(request)).toEqual({ ok: true, outcome: { result: "captcha" } });
+  });
+  it("drops a state that is not a session", async () => {
+    expect(await withReply(200, { result: "ok", state: { cookies: "x" } }).login(request)).toEqual({ ok: true, outcome: { result: "ok" } });
+  });
+  it("says unavailable on a network error", async () => {
+    const c = createBrowserClient({
+      baseUrl: "http://x.test",
+      token: "t",
+      fetchImpl: (async () => {
+        throw new Error("down");
+      }) as typeof fetch,
+    });
+    expect(await c.login(request)).toEqual({ ok: false, reason: "unavailable" });
+  });
+  it("says failed on a result it does not know, or a non-200", async () => {
+    expect(await withReply(200, { result: "weird" }).login(request)).toEqual({ ok: false, reason: "failed" });
+    expect(await withReply(500, { error: "login_failed" }).login(request)).toEqual({ ok: false, reason: "failed" });
+  });
+});

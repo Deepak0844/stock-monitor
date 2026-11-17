@@ -1,4 +1,11 @@
-import { isSessionState, type PageClass, type SessionState } from "@stock-monitor/supplier-session";
+import { isSessionState, type LoginSelectors, type PageClass, type SessionState } from "@stock-monitor/supplier-session";
+
+/** Mirrors the browser service's login types: this package does not depend on the service. */
+export type LoginResult = "ok" | "captcha" | "code_required" | "wrong_password" | "account_locked" | "blocked" | "form_not_found" | "unreachable" | "unknown";
+export type LoginRequest = { loginUrl: string; checkUrl: string; username: string; password: string; account?: string; stealth: boolean; selectors?: LoginSelectors };
+/** `state` is the signed-in session, present only when the result is ok. */
+export type LoginOutcome = { result: LoginResult; state?: SessionState };
+export type LoginCallOutcome = { ok: true; outcome: LoginOutcome } | { ok: false; reason: "unavailable" | "failed" };
 
 export type OpenOutcome =
   | { ok: true; id: string; expiresAt: string; vncPassword?: string }
@@ -32,6 +39,8 @@ export type BrowserClient = {
   checkPage(request: { url: string; loginUrl?: string; state: SessionState }): Promise<CheckPageOutcome>;
   /** Loads one page with a saved session and describes it, for stock rules. A picture is taken only when asked for. */
   capture(request: { url: string; loginUrl?: string; state: SessionState; picture?: boolean }): Promise<CaptureOutcome>;
+  /** Signs in with a username and password, once, in the supplier's profile. The password goes in the request only, never in an answer or an error. */
+  login(request: LoginRequest): Promise<LoginCallOutcome>;
   /** Loads a page with a saved session in a throw-away browser and says what it was. */
   verify(request: { url: string; loginUrl?: string; state: SessionState }): Promise<VerifyOutcome>;
 };
@@ -46,6 +55,7 @@ export type BrowserClientOptions = {
 };
 
 const PAGE_CLASSES: readonly string[] = ["ok", "login_required", "captcha", "blocked", "unreachable", "unknown"];
+const LOGIN_RESULTS: readonly string[] = ["ok", "captcha", "code_required", "wrong_password", "account_locked", "blocked", "form_not_found", "unreachable", "unknown"];
 const WINDOW_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
@@ -111,6 +121,15 @@ export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, pageTi
         blockedRequests: typeof j.blockedRequests === "number" ? j.blockedRequests : 0,
         ...(isSessionState(j.state) ? { state: j.state } : {}),
       };
+    },
+
+    async login(request) {
+      const r = await call("POST", "/login", request, pageTimeoutMs);
+      if (!r) return { ok: false, reason: "unavailable" };
+      const j = r.json;
+      if (r.status !== 200 || !isObject(j) || typeof j.result !== "string" || !LOGIN_RESULTS.includes(j.result)) return { ok: false, reason: "failed" };
+      const result = j.result as LoginResult;
+      return { ok: true, outcome: { result, ...(result === "ok" && isSessionState(j.state) ? { state: j.state } : {}) } };
     },
 
     async checkPage({ url, loginUrl, state }) {
