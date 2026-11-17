@@ -2,12 +2,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { randomBytes } from "node:crypto";
 import { Writable } from "node:stream";
 import { startTestDb, type TestDb } from "@stock-monitor/db/test-harness";
-import { createNotificationRepository, createRecipeRepository, createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
+import { createCheckRunRepository, createMappingRepository, createNotificationRepository, createRecipeRepository, createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
 import { createAuditWriter } from "@stock-monitor/audit";
 import type { BrowserClient, LoginCallOutcome, LoginRequest } from "@stock-monitor/browser-client";
 import { createLogger } from "@stock-monitor/shared";
 import { sealCredentials, sealSessionState, unsealSessionState, type SessionState } from "@stock-monitor/supplier-session";
-import { AUTO_LOGIN_FRESH_MINUTES, ensureLoggedIn, type AutoLoginDeps } from "../src/auto-login.js";
+import { AUTO_LOGIN_FRESH_MINUTES, createAutoLoginTestHandler, ensureLoggedIn, type AutoLoginDeps, type AutoLoginTestDeps } from "../src/auto-login.js";
 import { stockGate } from "../src/extraction-check.js";
 
 let t: TestDb;
@@ -57,7 +57,7 @@ afterAll(async () => {
   await t?.stop();
 });
 beforeEach(async () => {
-  await t.pool.query("truncate suppliers, audit_events cascade");
+  await t.pool.query("truncate suppliers, shopify_variants, audit_events cascade");
   logLines.length = 0;
   calls.length = 0;
   replies = [];
@@ -292,5 +292,80 @@ describe("no secrets", () => {
     const all = JSON.stringify(rows) + logLines.join("") + JSON.stringify((await t.pool.query("select * from notifications")).rows);
     expect(all).not.toContain(USERNAME);
     expect(all).not.toContain(PASSWORD);
+  });
+});
+
+describe("the test login job", () => {
+  // 2026-06-10 10:00 UTC.
+  const NOON = new Date(Date.UTC(2026, 5, 10, 10, 0));
+  const testDeps = (over: Partial<AutoLoginTestDeps> = {}): AutoLoginTestDeps => ({
+    ...deps(),
+    checkRuns: createCheckRunRepository(t.appDb),
+    mappings: createMappingRepository(t.appDb),
+    timezone: "UTC",
+    now: () => NOON,
+    ...over,
+  });
+  const test = (over: Partial<AutoLoginTestDeps> = {}) => createAutoLoginTestHandler(testDeps(over))({ supplierId: id });
+  const addLink = async (v: string, enabled = true) => {
+    await t.pool.query(
+      `insert into shopify_variants (variant_id, product_id, product_title, variant_title, options, sku, inventory_item_id, tracked, inventory_policy)
+       values ($1, 'p1', 'Tee', $1, '[]', $1, $1, true, 'DENY')`,
+      [v],
+    );
+    const r = await createMappingRepository(t.appDb).create({ variantId: v, supplierId: id, url: `https://shop.acme.example/p/${v}`, note: null });
+    if (!r.ok) throw new Error("setup");
+    if (!enabled) await createMappingRepository(t.appDb).update(r.mapping.id, { enabled: false });
+  };
+
+  it("logs in, forced, checking the first enabled link", async () => {
+    await sessions().markVerified(id);
+    await addLink("off", false);
+    await addLink("on");
+    expect(await test()).toEqual({ kind: "done", result: "ready" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ checkUrl: "https://shop.acme.example/p/on" });
+  });
+
+  it("checks the website when the supplier has no enabled link", async () => {
+    expect(await test()).toEqual({ kind: "done", result: "ready" });
+    expect(calls[0]).toMatchObject({ checkUrl: "https://shop.acme.example/" });
+  });
+
+  it("is refused in quiet hours", async () => {
+    await suppliers().setSchedule(id, { intervalMinutes: 1440, window: { start: "11:00", end: "22:00" }, nextCheckAt: null });
+    expect(await test()).toEqual({ kind: "skipped", reason: "quiet_hours" });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("runs inside the supplier's hours", async () => {
+    await suppliers().setSchedule(id, { intervalMinutes: 1440, window: { start: "07:00", end: "22:00" }, nextCheckAt: null });
+    expect(await test()).toEqual({ kind: "done", result: "ready" });
+  });
+
+  it("is refused while the supplier has a run going", async () => {
+    await createCheckRunRepository(t.appDb).start(id, "manual", 0);
+    expect(await test()).toEqual({ kind: "skipped", reason: "run_going" });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("is refused, with a warning and no notice, when the supplier is not allowed", async () => {
+    await suppliers().setPermission(id, { status: "unknown", note: null });
+    expect(await test()).toEqual({ kind: "skipped", reason: "no_permission" });
+    expect(calls).toHaveLength(0);
+    expect(await notice()).toBeUndefined();
+    expect(logLines.join("")).toContain("no_permission");
+  });
+
+  it("is refused when no credentials are saved", async () => {
+    await credentials().remove(id);
+    expect(await test()).toEqual({ kind: "skipped", reason: "no_credentials" });
+    expect(calls).toHaveLength(0);
+    expect(await notice()).toBeUndefined();
+  });
+
+  it("is refused for a supplier that is gone", async () => {
+    expect(await createAutoLoginTestHandler(testDeps())({ supplierId: "00000000-0000-4000-8000-000000000000" })).toEqual({ kind: "skipped", reason: "no_supplier" });
+    expect(calls).toHaveLength(0);
   });
 });

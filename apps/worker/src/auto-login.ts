@@ -1,6 +1,9 @@
 import { KEY_ID } from "@stock-monitor/crypto";
 import type { BrowserClient, LoginResult } from "@stock-monitor/browser-client";
-import type { createNotificationRepository, createSupplierCredentialsRepository, createSupplierRepository, SupplierRecord } from "@stock-monitor/db";
+import type {
+  createCheckRunRepository, createMappingRepository, createNotificationRepository, createSupplierCredentialsRepository, createSupplierRepository, SupplierRecord,
+} from "@stock-monitor/db";
+import { insideWindow } from "@stock-monitor/scheduling";
 import { sealSessionState, unsealCredentials, type SessionState } from "@stock-monitor/supplier-session";
 import type { StopReason } from "./extraction-check.js";
 import type { SessionRefreshDeps } from "./session-refresh.js";
@@ -106,4 +109,41 @@ async function saveLogin(deps: AutoLoginDeps, id: string, expectedIv: string | n
   await deps.supplierSessions.markVerified(id);
   await deps.suppliers.markVerified(id);
   await deps.notifications.resolve("supplier_needs_reconnect", id);
+}
+
+/** The address a login is checked on: the first enabled link (the home page may not need a login), else the website. */
+export function loginCheckUrl(supplier: SupplierRecord, links: { url: string; enabled: boolean }[]): string {
+  return links.find((l) => l.enabled)?.url ?? supplier.websiteUrl;
+}
+
+export type AutoLoginTestDeps = AutoLoginDeps & {
+  checkRuns: ReturnType<typeof createCheckRunRepository>;
+  mappings: ReturnType<typeof createMappingRepository>;
+  /** The owner's timezone, for the supplier's quiet hours. */
+  timezone: string;
+};
+export type AutoLoginTestOutcome =
+  | { kind: "skipped"; reason: "no_supplier" | "no_permission" | "no_credentials" | "quiet_hours" | "run_going" }
+  | { kind: "done"; result: Awaited<ReturnType<typeof ensureLoggedIn>> };
+
+/** The `supplier.session.login` job ("Test login now"): one forced login and nothing else. A refusal is logged by its reason only. */
+export function createAutoLoginTestHandler(deps: AutoLoginTestDeps) {
+  const now = deps.now ?? (() => new Date());
+  return async (payload: { supplierId: string }): Promise<AutoLoginTestOutcome> => {
+    const { supplierId } = payload;
+    const refuse = (reason: Extract<AutoLoginTestOutcome, { kind: "skipped" }>["reason"]): AutoLoginTestOutcome => {
+      deps.logger.warn({ supplierId, reason }, "test login refused");
+      return { kind: "skipped", reason };
+    };
+    const supplier = await deps.suppliers.get(supplierId);
+    if (!supplier) return refuse("no_supplier");
+    if (supplier.automationPermission !== "granted") return refuse("no_permission");
+    if (!(await deps.supplierCredentials.getSealed(supplierId))) return refuse("no_credentials");
+    const window = supplier.scheduleWindowStart && supplier.scheduleWindowEnd ? { start: supplier.scheduleWindowStart, end: supplier.scheduleWindowEnd } : null;
+    if (!insideWindow(now(), window, deps.timezone)) return refuse("quiet_hours");
+    if (await deps.checkRuns.current(supplierId)) return refuse("run_going");
+    const result = await ensureLoggedIn(deps, supplier, { force: true, checkUrl: loginCheckUrl(supplier, await deps.mappings.forSupplier(supplierId)) });
+    deps.logger.info({ supplierId, result }, "test login finished");
+    return { kind: "done", result };
+  };
 }

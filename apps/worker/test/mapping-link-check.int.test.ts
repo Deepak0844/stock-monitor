@@ -2,12 +2,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { randomBytes } from "node:crypto";
 import { Writable } from "node:stream";
 import { startTestDb, type TestDb } from "@stock-monitor/db/test-harness";
-import { createMappingRepository, createNotificationRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
+import { createMappingRepository, createNotificationRepository, createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
 import { createAuditWriter } from "@stock-monitor/audit";
-import { createBrowserClient } from "@stock-monitor/browser-client";
+import { createBrowserClient, type BrowserClient, type LoginCallOutcome, type LoginRequest } from "@stock-monitor/browser-client";
 import { createFakeBrowserService, FAKE_CONTROL_TOKEN, type FakeBrowserService } from "@stock-monitor/browser-client/testing";
 import { createLogger } from "@stock-monitor/shared";
-import { sealSessionState, unsealSessionState } from "@stock-monitor/supplier-session";
+import { sealCredentials, sealSessionState, unsealSessionState } from "@stock-monitor/supplier-session";
 import { checkLink, checkSupplierLinks, type LinkCheckDeps } from "../src/mapping-link-check.js";
 
 let t: TestDb;
@@ -29,6 +29,7 @@ const deps = (over: Partial<LinkCheckDeps> = {}): LinkCheckDeps => ({
   mappings: maps(),
   suppliers: suppliers(),
   supplierSessions: createSupplierSessionRepository(t.appDb),
+  supplierCredentials: createSupplierCredentialsRepository(t.appDb),
   notifications: createNotificationRepository(t.appDb),
   audit: createAuditWriter(t.appDb),
   browser: createBrowserClient({ baseUrl: fake.url, token: FAKE_CONTROL_TOKEN, timeoutMs: 2000 }),
@@ -225,5 +226,47 @@ describe("all of a supplier's links", () => {
 
   it("does nothing for a supplier that was deleted while the job waited", async () => {
     expect(await checkSupplierLinks(deps(), "00000000-0000-4000-8000-000000000000")).toEqual({ kind: "skipped", reason: "no_supplier" });
+  });
+});
+
+describe("automatic login in a link run", () => {
+  const NEW = { cookies: [{ name: "session", value: "NEW-LOGIN", domain: "shop.acme.example", path: "/" }], origins: [] };
+  const logins: { checkUrl: string; pagesBefore: number }[] = [];
+  const withLogin = (): BrowserClient => ({
+    ...createBrowserClient({ baseUrl: fake.url, token: FAKE_CONTROL_TOKEN, timeoutMs: 2000 }),
+    async login(r: LoginRequest): Promise<LoginCallOutcome> {
+      logins.push({ checkUrl: r.checkUrl, pagesBefore: checks().length });
+      return { ok: true, outcome: { result: "ok", state: NEW } };
+    },
+  });
+  const autoLogin = async (lastVerifiedMinutesAgo: number) => {
+    await createSupplierCredentialsRepository(t.appDb).save(acme, sealCredentials({ username: "u", password: "p" }, key, "v1"));
+    const on = await suppliers().setAutoLogin(acme, { autoLogin: true });
+    if (!on.ok) throw new Error("setup");
+    await t.pool.query("update supplier_sessions set last_verified_at = $2 where supplier_id = $1", [acme, new Date(T0.getTime() - lastVerifiedMinutesAgo * 60_000)]);
+  };
+  beforeEach(() => {
+    logins.length = 0;
+  });
+
+  it("logs in once before the first page when the session is stale", async () => {
+    await link("v1");
+    await link("v2");
+    await autoLogin(60);
+    expect(await checkSupplierLinks(deps({ browser: withLogin() }), acme)).toMatchObject({ kind: "done", checked: 2 });
+    expect(logins).toEqual([{ checkUrl: "https://shop.acme.example/p/v1", pagesBefore: 0 }]);
+    expect((checks()[0]?.body as { state: { cookies: { value: string }[] } }).state.cookies.map((c) => c.value)).toContain("NEW-LOGIN");
+  });
+
+  it("logs in again when a page asks for a login, and retries that page once", async () => {
+    await link("v1");
+    await link("v2");
+    await autoLogin(5);
+    let asked = 0;
+    fake.behaviour.pageFor = (url) => (url.endsWith("/v2") && asked++ === 0 ? { ...normal, result: "login_required" } : undefined);
+    expect(await checkSupplierLinks(deps({ browser: withLogin() }), acme)).toMatchObject({ kind: "done", checked: 2 });
+    expect(logins).toHaveLength(1);
+    expect(checks().map((r) => (r.body as { url: string }).url.split("/").pop())).toEqual(["v1", "v2", "v2"]);
+    expect(await createNotificationRepository(t.appDb).listOpen()).toEqual([]);
   });
 });

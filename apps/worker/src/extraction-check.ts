@@ -3,13 +3,14 @@ import type { createAuditWriter } from "@stock-monitor/audit";
 import type { BrowserClient } from "@stock-monitor/browser-client";
 import type {
   createCaptureRepository, createCheckRunRepository, createMappingRepository, createNotificationRepository, createObservationRepository, createRecipeRepository,
-  createSupplierRepository, createSupplierSessionRepository, MappingRow, SupplierRecord,
+  createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository, MappingRow, SupplierRecord,
 } from "@stock-monitor/db";
 import { decide, isSupplierWideChange, validateRecipe, type Answer, type Decision, type PageDescription, type Reason, type Recipe } from "@stock-monitor/extraction";
 import { decideLinkStatus, isSupplierWide, whyNotChecked, type CheckGateReason, type LinkStatus, type Observation } from "@stock-monitor/mapping";
 import { unsealSessionState } from "@stock-monitor/supplier-session";
 import { saveRefreshedSession } from "./session-refresh.js";
 import { backoffMs, nextCheckAt } from "@stock-monitor/scheduling";
+import { ensureLoggedIn, loginCheckUrl } from "./auto-login.js";
 import { toState } from "./mapping-link-check.js";
 import { raiseNeedsAttention } from "./supplier-verify.js";
 
@@ -17,6 +18,8 @@ export type StockCheckDeps = {
   mappings: ReturnType<typeof createMappingRepository>;
   suppliers: ReturnType<typeof createSupplierRepository>;
   supplierSessions: ReturnType<typeof createSupplierSessionRepository>;
+  /** The saved login, for automatic login. */
+  supplierCredentials: ReturnType<typeof createSupplierCredentialsRepository>;
   recipes: ReturnType<typeof createRecipeRepository>;
   observations: ReturnType<typeof createObservationRepository>;
   captures: ReturnType<typeof createCaptureRepository>;
@@ -213,21 +216,41 @@ export function createStockChecker(deps: StockCheckDeps) {
     const visits: Visit[] = [];
     const counts = { linksDone: 0, inStock: 0, outOfStock: 0, cannotTell: 0 };
     let stopped: StopReason | null = null;
+    // A failed automatic login already told the owner what went wrong, so the run must not replace that notice.
+    let toldOwner = false;
+    // One automatic login when a page asks for one, at most, per run.
+    let loggedInAgain = false;
+    const checkUrl = loginCheckUrl(first.supplier, links);
+    if (links.length > 0) {
+      const login = await ensureLoggedIn(deps, first.supplier, { force: false, checkUrl });
+      if (login !== "ready" && login !== "skipped") [stopped, toldOwner] = [login, true];
+    }
     let unreachableInARow = 0;
-    for (const [index, mapping] of links.entries()) {
+    for (const [index, mapping] of stopped ? [] : links.entries()) {
       if (index > 0) await sleep(first.supplier.checkPauseSeconds * 1000);
       const gated = await gate(supplierId);
       if ("reason" in gated) {
         stopped = "supplier_not_ready";
         break;
       }
-      const v = await visit(gated.supplier, mapping, first.active.recipe);
+      let v = await visit(gated.supplier, mapping, first.active.recipe);
+      let loginStop: StopReason | null = null;
+      if (v.checkResult === "login_required" && !loggedInAgain) {
+        loggedInAgain = true;
+        const login = await ensureLoggedIn(deps, gated.supplier, { force: true, checkUrl });
+        if (login === "ready") v = await visit(gated.supplier, mapping, first.active.recipe);
+        else if (login !== "skipped") loginStop = login;
+      }
       visits.push(v);
       counts.linksDone++;
       if (v.decision.answer === "in_stock") counts.inStock++;
       else if (v.decision.answer === "out_of_stock") counts.outOfStock++;
       else counts.cannotTell++;
       await checkRuns.progress(runId, counts);
+      if (loginStop) {
+        [stopped, toldOwner] = [loginStop, true];
+        break;
+      }
       if (STOP_AT_ONCE.has(v.checkResult)) {
         stopped = v.checkResult as StopReason;
         break;
@@ -251,7 +274,7 @@ export function createStockChecker(deps: StockCheckDeps) {
     await checkRuns.end(runId, stopped ? "stopped" : "finished", stopped);
     if (stopped === "login_required" || stopped === "captcha" || stopped === "blocked") {
       // The supplier now needs the owner, so it is not checked again until it is reconnected: its next check is left as it was.
-      await raiseNeedsAttention(deps, first.supplier, stopped);
+      if (!toldOwner) await raiseNeedsAttention(deps, first.supplier, stopped);
     } else if (stopped === "unreachable") {
       await backOff(supplierId);
     } else if (stopped === "supplier_not_ready") {

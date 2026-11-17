@@ -2,10 +2,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { randomBytes } from "node:crypto";
 import { Writable } from "node:stream";
 import { startTestDb, type TestDb } from "@stock-monitor/db/test-harness";
-import { createProposalRepository, createCheckRunRepository, createMappingRepository, createRecipeRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
+import { createProposalRepository, createCheckRunRepository, createMappingRepository, createRecipeRepository, createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
 import { createAuditWriter } from "@stock-monitor/audit";
 import { createLogger } from "@stock-monitor/shared";
-import { sealSessionState } from "@stock-monitor/supplier-session";
+import { sealCredentials, sealSessionState } from "@stock-monitor/supplier-session";
 import { reapStaleRuns, runTick, type TickDeps } from "../src/scheduling-tick.js";
 
 let t: TestDb;
@@ -232,6 +232,18 @@ describe("the early login check before a run", () => {
     await createSupplierSessionRepository(t.appDb).markVerified(id);
     await runTick(deps());
     expect(early()).toEqual([]);
+  });
+
+  it("skips a supplier with automatic login on, since its run logs in by itself, and checks it again once that login is paused", async () => {
+    const id = await ready("Acme", -90);
+    await createSupplierCredentialsRepository(t.appDb).save(id, sealCredentials({ username: "u", password: "p" }, key, "v1"));
+    const on = await suppliers().setAutoLogin(id, { autoLogin: true });
+    if (!on.ok) throw new Error("setup");
+    await runTick(deps());
+    expect(early()).toEqual([]);
+    await t.pool.query("update suppliers set auto_login_paused_reason = 'too_many_failures' where id = $1", [id]);
+    await runTick(deps());
+    expect(early()).toEqual([{ name: "supplier.session.verify", payload: { supplierId: id, early: true }, options: { retryLimit: 0 } }]);
   });
 
   it("does not check a supplier the stock gate refuses", async () => {

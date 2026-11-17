@@ -4,13 +4,13 @@ import { Writable } from "node:stream";
 import { startTestDb, type TestDb } from "@stock-monitor/db/test-harness";
 import {
   createCaptureRepository, createCheckRunRepository, createMappingRepository, createNotificationRepository, createObservationRepository, createRecipeRepository,
-  createSupplierRepository, createSupplierSessionRepository,
+  createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository,
 } from "@stock-monitor/db";
 import { createAuditWriter } from "@stock-monitor/audit";
-import { createBrowserClient } from "@stock-monitor/browser-client";
+import { createBrowserClient, type BrowserClient, type LoginCallOutcome, type LoginRequest } from "@stock-monitor/browser-client";
 import { createFakeBrowserService, FAKE_CONTROL_TOKEN, type FakeBrowserService } from "@stock-monitor/browser-client/testing";
 import { createLogger } from "@stock-monitor/shared";
-import { sealSessionState, unsealSessionState } from "@stock-monitor/supplier-session";
+import { sealCredentials, sealSessionState, unsealSessionState } from "@stock-monitor/supplier-session";
 import { checkStock, checkSupplierStock, type StockCheckDeps } from "../src/extraction-check.js";
 
 let t: TestDb;
@@ -32,7 +32,7 @@ const notes = () => createNotificationRepository(t.appDb);
 const deps = (over: Partial<StockCheckDeps> = {}): StockCheckDeps => ({
   mappings: maps(), suppliers: suppliers(), supplierSessions: createSupplierSessionRepository(t.appDb), recipes: createRecipeRepository(t.appDb),
   observations: observations(), captures: createCaptureRepository(t.appDb), notifications: notes(), audit: createAuditWriter(t.appDb),
-  checkRuns: createCheckRunRepository(t.appDb), timezone: "UTC", random: () => 0,
+  checkRuns: createCheckRunRepository(t.appDb), supplierCredentials: createSupplierCredentialsRepository(t.appDb), timezone: "UTC", random: () => 0,
   browser: createBrowserClient({ baseUrl: fake.url, token: FAKE_CONTROL_TOKEN, timeoutMs: 2000 }), key, logger,
   sleep: async (ms) => { sleeps.push(ms); await onSleep(); }, now: () => now, ...over,
 });
@@ -467,5 +467,105 @@ describe("run records and stop rules", () => {
     const rows = JSON.stringify((await t.pool.query("select * from check_runs")).rows);
     expect(rows).not.toContain("acme.example");
     expect(rows).not.toContain(COOKIE);
+  });
+});
+
+describe("automatic login in a run", () => {
+  const NEW = { cookies: [{ name: "session", value: "NEW-LOGIN", domain: "shop.acme.example", path: "/" }], origins: [] };
+  const logins: LoginRequest[] = [];
+  /** The real client against the fake service, with `login` answered here. Each login notes how many pages were read before it. */
+  const withLogin = (): BrowserClient => ({
+    ...createBrowserClient({ baseUrl: fake.url, token: FAKE_CONTROL_TOKEN, timeoutMs: 2000 }),
+    async login(r: LoginRequest): Promise<LoginCallOutcome> {
+      logins.push({ ...r, pagesBefore: requests("/capture").length } as never);
+      return { ok: true, outcome: { result: "ok", state: NEW } };
+    },
+  });
+  /** Each address answers from its own list in turn, then a normal page. */
+  const pages = (byPath: Record<string, string[]>) => {
+    fake.behaviour.pageFor = (url) => {
+      const next = byPath[url.split("/").pop() ?? ""]?.shift();
+      return next ? { ...normal, result: next } : undefined;
+    };
+  };
+  const autoLogin = async (lastVerifiedMinutesAgo: number) => {
+    await createSupplierCredentialsRepository(t.appDb).save(acme, sealCredentials({ username: "u", password: "p" }, key, "v1"));
+    const on = await suppliers().setAutoLogin(acme, { autoLogin: true });
+    if (!on.ok) throw new Error("setup");
+    await t.pool.query("update supplier_sessions set last_verified_at = $2 where supplier_id = $1", [acme, new Date(T0.getTime() - lastVerifiedMinutesAgo * 60_000)]);
+  };
+  const lastRun = async () => (await t.pool.query("select outcome, stop_reason from check_runs order by started_at desc limit 1")).rows[0];
+  const four = async () => {
+    for (const v of ["v1", "v2", "v3", "v4"]) await link(v);
+    await turnOn();
+  };
+
+  beforeEach(() => {
+    logins.length = 0;
+  });
+
+  it("logs in once before the first page when the session is stale", async () => {
+    await four();
+    await autoLogin(60);
+    expect(await runAll({ browser: withLogin() })).toMatchObject({ kind: "done", checked: 4, stopped: null });
+    expect(logins).toHaveLength(1);
+    expect(logins[0]).toMatchObject({ checkUrl: "https://shop.acme.example/p/v1", pagesBefore: 0 });
+    const first = requests("/capture")[0]?.body as { state: { cookies: { value: string }[] } };
+    expect(first.state.cookies.map((c) => c.value)).toContain("NEW-LOGIN");
+  });
+
+  it("does not log in when the session was checked a few minutes ago", async () => {
+    await four();
+    await autoLogin(5);
+    await runAll({ browser: withLogin() });
+    expect(logins).toHaveLength(0);
+  });
+
+  it("logs in again when a page asks for a login, retries that page, and finishes the run", async () => {
+    await four();
+    await autoLogin(5);
+    pages({ v2: ["login_required"] });
+    expect(await runAll({ browser: withLogin() })).toMatchObject({ kind: "done", checked: 4, stopped: null });
+    expect(logins).toHaveLength(1);
+    expect(logins[0]).toMatchObject({ checkUrl: "https://shop.acme.example/p/v1", pagesBefore: 2 });
+    expect(requests("/capture").map((r) => (r.body as { url: string }).url.split("/").pop())).toEqual(["v1", "v2", "v2", "v3", "v4"]);
+    expect(await lastRun()).toMatchObject({ outcome: "finished", stop_reason: null });
+  });
+
+  it("logs in at most once a run: a second page asking for a login stops it", async () => {
+    await four();
+    await autoLogin(5);
+    pages({ v2: ["login_required"], v4: ["login_required"] });
+    expect(await runAll({ browser: withLogin() })).toMatchObject({ kind: "done", stopped: "login_required" });
+    expect(logins).toHaveLength(1);
+    expect(await lastRun()).toMatchObject({ outcome: "stopped", stop_reason: "login_required" });
+  });
+
+  it("never logs in on a puzzle: the run stops at once", async () => {
+    await four();
+    await autoLogin(5);
+    pages({ v2: ["captcha"] });
+    expect(await runAll({ browser: withLogin() })).toMatchObject({ kind: "done", stopped: "captcha" });
+    expect(logins).toHaveLength(0);
+    expect(requests("/capture")).toHaveLength(2);
+  });
+
+  it("stops the run with the login's reason when the login at the start fails", async () => {
+    await four();
+    await autoLogin(60);
+    const refused = { ...withLogin(), login: async (): Promise<LoginCallOutcome> => ({ ok: true, outcome: { result: "wrong_password" } as never }) };
+    expect(await runAll({ browser: refused })).toMatchObject({ kind: "done", checked: 0, stopped: "login_required" });
+    expect(requests("/capture")).toHaveLength(0);
+    expect(await lastRun()).toMatchObject({ outcome: "stopped", stop_reason: "login_required" });
+    // The login's own notice stands: the run does not replace it with a plain "log in again".
+    const notice = (await t.pool.query("select reason from notifications where supplier_id = $1 and resolved_at is null", [acme])).rows[0];
+    expect(notice).toMatchObject({ reason: "wrong_password" });
+  });
+
+  it("runs as today when automatic login is off", async () => {
+    await four();
+    pages({ v2: ["login_required"] });
+    expect(await runAll({ browser: withLogin() })).toMatchObject({ kind: "done", stopped: "login_required" });
+    expect(logins).toHaveLength(0);
   });
 });
