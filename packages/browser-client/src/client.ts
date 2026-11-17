@@ -2,7 +2,17 @@ import { isSessionState, type LoginSelectors, type PageClass, type SessionState 
 
 /** Mirrors the browser service's login types: this package does not depend on the service. */
 export type LoginResult = "ok" | "captcha" | "code_required" | "wrong_password" | "account_locked" | "blocked" | "form_not_found" | "unreachable" | "unknown";
-export type LoginRequest = { loginUrl: string; checkUrl: string; username: string; password: string; account?: string; stealth: boolean; selectors?: LoginSelectors };
+export type LoginRequest = {
+  loginUrl: string;
+  checkUrl: string;
+  username: string;
+  password: string;
+  account?: string;
+  stealth: boolean;
+  selectors?: LoginSelectors;
+  /** Text that only shows when logged in. Set, a page without it is not logged in. */
+  loggedInMarker?: string;
+};
 /** `state` is the signed-in session, present only when the result is ok. */
 export type LoginOutcome = { result: LoginResult; state?: SessionState };
 /** `not_supported`: the service has no login (it is not in profile mode). */
@@ -37,13 +47,13 @@ export type BrowserClient = {
   finishSession(id: string): Promise<FinishOutcome>;
   cancelSession(id: string): Promise<CancelOutcome>;
   /** Loads one page with a saved session and says what happened to it: the status, where it ended, its title and heading. */
-  checkPage(request: { url: string; loginUrl?: string; state: SessionState }): Promise<CheckPageOutcome>;
+  checkPage(request: { url: string; loginUrl?: string; loggedInMarker?: string; state: SessionState }): Promise<CheckPageOutcome>;
   /** Loads one page with a saved session and describes it, for stock rules. A picture is taken only when asked for. */
-  capture(request: { url: string; loginUrl?: string; state: SessionState; picture?: boolean }): Promise<CaptureOutcome>;
+  capture(request: { url: string; loginUrl?: string; loggedInMarker?: string; state: SessionState; picture?: boolean }): Promise<CaptureOutcome>;
   /** Signs in with a username and password, once, in the supplier's profile. The password goes in the request only, never in an answer or an error. */
   login(request: LoginRequest): Promise<LoginCallOutcome>;
   /** Loads a page with a saved session in a throw-away browser and says what it was. */
-  verify(request: { url: string; loginUrl?: string; state: SessionState }): Promise<VerifyOutcome>;
+  verify(request: { url: string; loginUrl?: string; loggedInMarker?: string; state: SessionState }): Promise<VerifyOutcome>;
 };
 
 export type BrowserClientOptions = {
@@ -112,8 +122,8 @@ export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, pageTi
       return { ok: true, state: r.json.state };
     },
 
-    async verify({ url, loginUrl, state }) {
-      const r = await call("POST", "/verify", { url, ...(loginUrl ? { loginUrl } : {}), state });
+    async verify({ url, loginUrl, loggedInMarker, state }) {
+      const r = await call("POST", "/verify", { url, ...(loginUrl ? { loginUrl } : {}), ...(loggedInMarker ? { loggedInMarker } : {}), state });
       if (!r) return { ok: false, reason: "unavailable" };
       const j = r.json;
       if (r.status !== 200 || !isObject(j) || typeof j.result !== "string" || !PAGE_CLASSES.includes(j.result)) return { ok: false, reason: "failed" };
@@ -136,8 +146,8 @@ export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, pageTi
       return { ok: true, outcome: { result, ...(result === "ok" && isSessionState(j.state) ? { state: j.state } : {}) } };
     },
 
-    async checkPage({ url, loginUrl, state }) {
-      const r = await call("POST", "/check-page", { url, ...(loginUrl ? { loginUrl } : {}), state }, pageTimeoutMs);
+    async checkPage({ url, loginUrl, loggedInMarker, state }) {
+      const r = await call("POST", "/check-page", { url, ...(loginUrl ? { loginUrl } : {}), ...(loggedInMarker ? { loggedInMarker } : {}), state }, pageTimeoutMs);
       if (!r) return { ok: false, reason: "unavailable" };
       const j = r.json;
       if (r.status !== 200 || !isObject(j) || typeof j.result !== "string" || !PAGE_CLASSES.includes(j.result)) return { ok: false, reason: "failed" };
@@ -155,8 +165,8 @@ export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, pageTi
       };
     },
 
-    async capture({ url, loginUrl, state, picture }) {
-      const r = await call("POST", "/capture", { url, ...(loginUrl ? { loginUrl } : {}), state, ...(picture ? { picture: true } : {}) }, pageTimeoutMs);
+    async capture({ url, loginUrl, loggedInMarker, state, picture }) {
+      const r = await call("POST", "/capture", { url, ...(loginUrl ? { loginUrl } : {}), ...(loggedInMarker ? { loggedInMarker } : {}), state, ...(picture ? { picture: true } : {}) }, pageTimeoutMs);
       if (!r) return { ok: false, reason: "unavailable" };
       const j = r.json;
       if (r.status !== 200 || !isObject(j) || typeof j.result !== "string" || !PAGE_CLASSES.includes(j.result) || !isObject(j.description)) return { ok: false, reason: "failed" };

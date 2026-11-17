@@ -45,6 +45,9 @@ const isWebUrl = (value: unknown): value is string => {
   }
 };
 
+const MAX_TEXT = 200;
+const isText = (v: unknown): v is string => typeof v === "string" && v.length >= 1 && v.length <= MAX_TEXT;
+
 /** Reads the request body, or returns null once it is larger than the limit (the rest is thrown away). */
 async function readBody(req: IncomingMessage, limit: number): Promise<string | null> {
   const chunks: Buffer[] = [];
@@ -68,15 +71,19 @@ function parse(raw: string): (VerifyRequest & { picture?: boolean }) | null {
     return null;
   }
   if (typeof body !== "object" || body === null || Array.isArray(body)) return null;
-  const { url, loginUrl, state, picture } = body as Record<string, unknown>;
+  const { url, loginUrl, state, picture, loggedInMarker } = body as Record<string, unknown>;
   if (!isWebUrl(url) || !isSessionState(state)) return null;
   if (loginUrl !== undefined && (typeof loginUrl !== "string" || loginUrl.length > MAX_URL)) return null;
   if (picture !== undefined && typeof picture !== "boolean") return null;
-  return { url, state, ...(loginUrl === undefined ? {} : { loginUrl }), ...(picture === undefined ? {} : { picture }) };
+  if (loggedInMarker !== undefined && !isText(loggedInMarker)) return null;
+  return {
+    url,
+    state,
+    ...(loginUrl === undefined ? {} : { loginUrl }),
+    ...(picture === undefined ? {} : { picture }),
+    ...(loggedInMarker === undefined ? {} : { loggedInMarker }),
+  };
 }
-
-const MAX_TEXT = 200;
-const isText = (v: unknown): v is string => typeof v === "string" && v.length >= 1 && v.length <= MAX_TEXT;
 
 /** Exactly the login fields and nothing else. The password is only ever read here and handed on. */
 export function parseLogin(raw: string): LoginRequest | null {
@@ -88,12 +95,13 @@ export function parseLogin(raw: string): LoginRequest | null {
   }
   if (typeof body !== "object" || body === null || Array.isArray(body)) return null;
   const b = body as Record<string, unknown>;
-  const allowed = ["loginUrl", "checkUrl", "username", "password", "account", "stealth", "selectors"];
+  const allowed = ["loginUrl", "checkUrl", "username", "password", "account", "stealth", "selectors", "loggedInMarker"];
   if (!Object.keys(b).every((k) => allowed.includes(k))) return null;
   if (!isWebUrl(b.loginUrl) || !isWebUrl(b.checkUrl) || !isText(b.username) || !isText(b.password)) return null;
   if (b.account !== undefined && !isText(b.account)) return null;
   if (typeof b.stealth !== "boolean") return null;
   if (b.selectors !== undefined && !isLoginSelectors(b.selectors)) return null;
+  if (b.loggedInMarker !== undefined && !isText(b.loggedInMarker)) return null;
   return {
     loginUrl: b.loginUrl,
     checkUrl: b.checkUrl,
@@ -102,6 +110,7 @@ export function parseLogin(raw: string): LoginRequest | null {
     ...(b.account === undefined ? {} : { account: b.account }),
     stealth: b.stealth,
     ...(b.selectors === undefined ? {} : { selectors: b.selectors }),
+    ...(b.loggedInMarker === undefined ? {} : { loggedInMarker: b.loggedInMarker }),
   };
 }
 

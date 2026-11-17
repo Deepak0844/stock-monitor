@@ -63,6 +63,12 @@ beforeEach(async () => {
 });
 
 describe("a capture job", () => {
+  it("sends the supplier's logged-in marker with the capture", async () => {
+    await suppliers().setAutoLogin(acme, { loggedInMarker: "Log out" });
+    await handleCapture(deps(), await pending());
+    expect(captureRequests()[0]?.body).toMatchObject({ loggedInMarker: "Log out" });
+  });
+
   it("opens the link's page with the saved session, asks for a picture, and stores what it saw", async () => {
     const id = await pending();
     expect(await handleCapture(deps(), id)).toEqual({ kind: "ready" });

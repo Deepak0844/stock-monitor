@@ -137,7 +137,7 @@ export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId
   let fresh: SessionState | undefined;
   for (let attempt = 0; attempt <= delays.length; attempt++) {
     if (attempt > 0) await sleep(delays[attempt - 1] as number);
-    const outcome = await browser.verify({ url: supplier.websiteUrl, loginUrl: supplier.loginUrl ?? undefined, state });
+    const outcome = await browser.verify({ url: supplier.websiteUrl, loginUrl: supplier.loginUrl ?? undefined, ...(supplier.loggedInMarker ? { loggedInMarker: supplier.loggedInMarker } : {}), state });
     result = outcome.ok ? outcome.result : "service_unavailable";
     fresh = outcome.ok ? outcome.state : undefined;
     httpStatus = outcome.ok ? outcome.status : null;

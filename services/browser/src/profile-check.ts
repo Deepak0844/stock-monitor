@@ -140,6 +140,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
         const result = classifyPage({
           requestedUrl: request.url,
           loginUrl: request.loginUrl,
+          loggedInMarker: request.loggedInMarker,
           page: { finalUrl: page.url(), status, ...seen, text: seen.text.slice(0, MAX_TEXT) },
         });
         return { result, status };
@@ -183,9 +184,12 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
     const result = seen
       ? classifyByTitle({ url: request.url, loginUrl: request.loginUrl, finalUrl: seen.url, title: seen.title })
       : "unreachable";
-    if (result === "unknown") {
+    // A title cannot show the logged-in marker, so with one set an "ok" title is read too, and unread it is not ok.
+    const needsMarker = result === "ok" && !!request.loggedInMarker;
+    if (result === "unknown" || needsMarker) {
       const read = await readPage(profile, request);
       if (read) return { result: read.result, status: read.status, blockedRequests: b.blocked() };
+      if (needsMarker) return { result: "unknown", status: null, blockedRequests: b.blocked() };
     }
     return { result, status: null, blockedRequests: b.blocked() };
   }

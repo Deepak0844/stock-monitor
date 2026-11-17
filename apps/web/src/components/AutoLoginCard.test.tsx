@@ -84,7 +84,7 @@ describe("Automatic login card", () => {
     await user.type(screen.getByLabelText("Username field"), "#email");
     await user.type(screen.getByLabelText("Login button"), "button.go");
     await user.click(screen.getByRole("button", { name: "Save page fields" }));
-    expect(api.suppliers.setAutoLogin).toHaveBeenCalledWith(aSupplier().id, { loginSelectors: { username: "#email", submit: "button.go" } });
+    expect(api.suppliers.setAutoLogin).toHaveBeenCalledWith(aSupplier().id, { loginSelectors: { username: "#email", submit: "button.go" }, loggedInMarker: null });
   });
 
   it("clears the login page fields with null when all are empty", async () => {
@@ -92,7 +92,27 @@ describe("Automatic login card", () => {
     await user.click(screen.getByText("Login page fields (advanced)"));
     await user.clear(screen.getByLabelText("Username field"));
     await user.click(screen.getByRole("button", { name: "Save page fields" }));
-    expect(api.suppliers.setAutoLogin).toHaveBeenCalledWith(aSupplier().id, { loginSelectors: null });
+    expect(api.suppliers.setAutoLogin).toHaveBeenCalledWith(aSupplier().id, { loginSelectors: null, loggedInMarker: null });
+  });
+
+  it("saves the logged-in marker with the page fields, trimmed, and shows its hint", async () => {
+    const { api, user } = setup();
+    await user.click(screen.getByText("Login page fields (advanced)"));
+    expect(screen.getByText("Text you see only when logged in, like 'Log out' or your account name")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Only shows when logged in"), "  Log out ");
+    await user.click(screen.getByRole("button", { name: "Save page fields" }));
+    expect(api.suppliers.setAutoLogin).toHaveBeenCalledWith(aSupplier().id, { loginSelectors: null, loggedInMarker: "Log out" });
+  });
+
+  it("shows a saved logged-in marker, and clears it with null when emptied", async () => {
+    const { api, user } = setup({ ...granted, loggedInMarker: "Log out" });
+    await user.click(screen.getByText("Login page fields (advanced)"));
+    const field = screen.getByLabelText("Only shows when logged in");
+    expect(field).toHaveValue("Log out");
+    expect(field).toHaveAttribute("maxLength", "200");
+    await user.clear(field);
+    await user.click(screen.getByRole("button", { name: "Save page fields" }));
+    expect(api.suppliers.setAutoLogin).toHaveBeenCalledWith(aSupplier().id, { loginSelectors: null, loggedInMarker: null });
   });
 
   it("starts a test login", async () => {

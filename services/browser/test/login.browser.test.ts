@@ -77,6 +77,8 @@ function startSite(): Promise<Server> {
       if (kase === "loop") return html(page(form("/loop/login", '<input type="text" name="username">')));
       if (kase === "stay" && step === "yes") return res.writeHead(302, loginCookie).end();
       if (kase === "storage") return res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ token: "tok-123" }));
+      // A shop whose product page is public: any password lands on it, and only a real login shows "Log out".
+      if (kase === "public") return res.writeHead(302, good(b) ? { ...loginCookie, location: "/public/product" } : { location: "/public/product" }).end();
       if (!good(b)) return html(page(form(`/${kase}/login`, userAndPassword) + "<p>Wrong password, try again.</p>"));
       if (kase === "busy") return html(page("<p>Too many requests.</p>"), 429);
       if (kase === "promo") return res.writeHead(302, { ...loginCookie, location: "/promo/home" }).end();
@@ -91,10 +93,11 @@ function startSite(): Promise<Server> {
     }
     // A logged-in page that has a promo code box is still a login.
     if (kase === "promo" && step === "home") return html(page(`<h1>Your account</h1><p>${FILLER}</p><label>Promo code <input type="text" name="promo_code"></label>`, "Account"));
+    if (kase === "public" && step === "product") return html(page(`<h1>Blue widget</h1><p>${FILLER}</p>${loggedIn(req) ? '<a href="/logout">Log  out</a>' : ""}`, "Blue widget"));
     if (step !== "login" && step !== "inner" && step !== "form" && step !== "app") return html(page("not here"), 404);
     if (kase === "one" && loggedIn(req)) return res.writeHead(302, { location: "/account" }).end();
     switch (kase) {
-      case "one": case "push": case "locked": case "question": case "puzzle": case "code": case "stay": case "promo": case "busy":
+      case "one": case "push": case "locked": case "question": case "puzzle": case "code": case "stay": case "promo": case "busy": case "public":
         return html(page(form(`/${kase}/login`, userAndPassword)));
       case "two": return html(page(form("/two/user", '<input type="email" name="username"><button type="submit">Next</button>').replace('<button type="submit">Sign in</button>', "")));
       case "choice": return html(page(form("/choice/user", '<input type="email" name="username">')));
@@ -221,6 +224,15 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     const second = await c.login(ask("one"));
     expect(second.result).toBe("ok");
     expect(posts.one.length).toBe(1);
+  });
+  it("a public product page: without a logged-in marker a wrong password looks like a login", async () => {
+    expect((await checker().login(ask("public", { password: "nope", checkUrl: `${base}/public/product` }))).result).toBe("ok");
+  });
+  it("a public product page: the logged-in marker catches a wrong password", async () => {
+    expect((await checker().login(ask("public", { password: "nope", checkUrl: `${base}/public/product`, loggedInMarker: "Log out" }))).result).not.toBe("ok");
+  });
+  it("a public product page: the logged-in marker confirms a real login", async () => {
+    expect((await checker().login(ask("public", { checkUrl: `${base}/public/product`, loggedInMarker: "log out" }))).result).toBe("ok");
   });
   it("wrong password", async () => {
     expect((await checker().login(ask("wrong", { password: "nope" }))).result).toBe("wrong_password");

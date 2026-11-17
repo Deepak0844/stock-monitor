@@ -1,0 +1,2 @@
+ALTER TABLE "suppliers" ADD COLUMN "logged_in_marker" text;--> statement-breakpoint
+ALTER TABLE "suppliers" ADD CONSTRAINT "suppliers_logged_in_marker" CHECK ("suppliers"."logged_in_marker" is null or char_length("suppliers"."logged_in_marker") between 1 and 200);

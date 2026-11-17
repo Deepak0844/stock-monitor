@@ -166,6 +166,8 @@ export const suppliers = pgTable(
     /** Use the stealth browser for automatic logins. Needs `granted` permission. */
     stealth: boolean("stealth").notNull().default(false),
     loginSelectors: jsonb("login_selectors").$type<LoginSelectors>(),
+    /** Text that only shows when logged in, like "Log out". Set, a page without it counts as logged out. */
+    loggedInMarker: text("logged_in_marker"),
     /** Failed automatic logins in a row. */
     autoLoginFailures: integer("auto_login_failures").notNull().default(0),
     autoLoginPausedReason: text("auto_login_paused_reason"),
@@ -177,6 +179,7 @@ export const suppliers = pgTable(
   (t) => [
     check("suppliers_auto_login_permission", sql`not ${t.autoLogin} or ${t.automationPermission} = 'granted'`),
     check("suppliers_stealth_permission", sql`not ${t.stealth} or ${t.automationPermission} = 'granted'`),
+    check("suppliers_logged_in_marker", sql`${t.loggedInMarker} is null or char_length(${t.loggedInMarker}) between 1 and 200`),
     check(
       "suppliers_auto_login_paused_reason",
       sql`${t.autoLoginPausedReason} is null or ${t.autoLoginPausedReason} in ('wrong_password', 'account_locked', 'too_many_failures')`,

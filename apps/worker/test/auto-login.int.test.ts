@@ -132,6 +132,14 @@ describe("the login request", () => {
     await ensureLoggedIn(deps(), await supplier(), opts);
     expect(calls[0]).toMatchObject({ loginUrl: "https://shop.acme.example/", account: "ACC-1", selectors: { submit: "#go" } });
   });
+
+  it("passes the logged-in marker when there is one, and leaves it out when there is not", async () => {
+    await ensureLoggedIn(deps(), await supplier(), opts);
+    expect("loggedInMarker" in calls[0]!).toBe(false);
+    await suppliers().setAutoLogin(id, { loggedInMarker: "Log out" });
+    await ensureLoggedIn(deps(), await supplier(), opts);
+    expect(calls.at(-1)).toMatchObject({ loggedInMarker: "Log out" });
+  });
 });
 
 describe("results", () => {

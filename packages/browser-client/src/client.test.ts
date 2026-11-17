@@ -131,6 +131,17 @@ describe("verify", () => {
     expect("loginUrl" in (fake.requests[1]?.body as Record<string, unknown>)).toBe(false);
   });
 
+  it("sends the logged-in marker on verify, check-page and capture when there is one, and leaves it out when there is not", async () => {
+    const url = "https://a.example/";
+    await client().verify({ url, state, loggedInMarker: "Log out" });
+    await client().checkPage({ url, state, loggedInMarker: "Log out" });
+    await client().capture({ url, state, loggedInMarker: "Log out" });
+    await client().verify({ url, state });
+    const bodies = fake.requests.map((r) => r.body as Record<string, unknown>);
+    expect(bodies.slice(0, 3).map((b) => b.loggedInMarker)).toEqual(["Log out", "Log out", "Log out"]);
+    expect("loggedInMarker" in bodies[3]!).toBe(false);
+  });
+
   it.each(["ok", "login_required", "captcha", "blocked", "unreachable", "unknown"])("passes the answer %s through", async (result) => {
     fake.behaviour.verifyResult = result;
     expect(await client().verify({ url: "https://a.example/", state })).toMatchObject({ ok: true, result });

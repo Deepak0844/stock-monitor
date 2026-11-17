@@ -215,6 +215,16 @@ describe("supplier repository: automatic login", () => {
     expect(r).toMatchObject({ ok: true, supplier: { autoLogin: true, stealth: true, loginSelectors: { username: "#u" } } });
   });
 
+  it("saves and clears the logged-in marker, which needs no permission, and keeps it to 1 to 200 characters", async () => {
+    const s = await made();
+    expect(s.loggedInMarker).toBeNull();
+    expect(await repo().setAutoLogin(s.id, { loggedInMarker: "Log out" })).toMatchObject({ ok: true, supplier: { loggedInMarker: "Log out" } });
+    expect((await repo().get(s.id))?.loggedInMarker).toBe("Log out");
+    expect(await repo().setAutoLogin(s.id, { loggedInMarker: null })).toMatchObject({ ok: true, supplier: { loggedInMarker: null } });
+    await expect(t.pool.query("update suppliers set logged_in_marker = '' where id = $1", [s.id])).rejects.toThrow(/suppliers_logged_in_marker/);
+    await expect(t.pool.query("update suppliers set logged_in_marker = repeat('m', 201) where id = $1", [s.id])).rejects.toThrow(/suppliers_logged_in_marker/);
+  });
+
   it("pauses after two failed logins in a row", async () => {
     const s = await made();
     expect((await repo().recordAutoLogin(s.id, "captcha", "failed")).autoLoginPausedReason).toBeNull();

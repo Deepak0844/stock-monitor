@@ -91,6 +91,9 @@ describe("POST /verify", () => {
     ["no state", { url: body.url }, undefined],
     ["a state of the wrong shape", { url: body.url, state: { cookies: "x", origins: [] } }, undefined],
     ["a login address that is not text", { ...body, loginUrl: 7 }, undefined],
+    ["an empty logged-in marker", { ...body, loggedInMarker: "" }, undefined],
+    ["a 201-character logged-in marker", { ...body, loggedInMarker: "m".repeat(201) }, undefined],
+    ["a logged-in marker that is not text", { ...body, loggedInMarker: 7 }, undefined],
     ["an address over 2048 characters", { url: `https://shop.acme.example/${"a".repeat(2100)}`, state }, undefined],
   ])("refuses %s with a plain 400 and does nothing", async (_n, payload, raw) => {
     const res = await post(payload, TOKEN, raw);
@@ -240,6 +243,11 @@ describe("POST /check-page", () => {
     expect(checkPage).toHaveBeenCalledWith(expect.objectContaining({ url: body.url }));
   });
 
+  it("passes on the logged-in marker", async () => {
+    expect((await call(TOKEN, { ...body, loggedInMarker: "Log out" })).status).toBe(200);
+    expect(checkPage).toHaveBeenCalledWith(expect.objectContaining({ url: body.url, loggedInMarker: "Log out" }));
+  });
+
   it("refuses a request that is not an address and a session", async () => {
     expect((await call(TOKEN, { url: "ftp://x.test", state })).status).toBe(400);
     expect(checkPage).not.toHaveBeenCalled();
@@ -266,6 +274,11 @@ describe("POST /capture", () => {
   it("passes on whether a picture was asked for", async () => {
     expect((await call(TOKEN, { ...body, picture: true })).status).toBe(200);
     expect(capture).toHaveBeenCalledWith(expect.objectContaining({ url: body.url, picture: true }));
+  });
+
+  it("passes on the logged-in marker", async () => {
+    expect((await call(TOKEN, { ...body, loggedInMarker: "Log out" })).status).toBe(200);
+    expect(capture).toHaveBeenCalledWith(expect.objectContaining({ url: body.url, loggedInMarker: "Log out" }));
   });
 
   it("refuses a picture setting that is not yes or no, and an address that is not a web address", async () => {
@@ -314,13 +327,15 @@ describe("POST /login", () => {
     ["an ftp address", { ...good, loginUrl: "ftp://shop.acme.example/login" }],
     ["a non-boolean stealth", { ...good, stealth: "yes" }],
     ["bad selectors", { ...good, selectors: { nope: "a" } }],
+    ["an empty logged-in marker", { ...good, loggedInMarker: "" }],
+    ["a 201-character logged-in marker", { ...good, loggedInMarker: "m".repeat(201) }],
   ])("answers 400 for %s", async (_n, payload) => {
     expect((await send(payload)).status).toBe(400);
     expect(login).not.toHaveBeenCalled();
   });
 
   it("passes the parsed request to login and returns the outcome", async () => {
-    const full = { ...good, account: "A1", selectors: { submit: "#go" }, stealth: true };
+    const full = { ...good, account: "A1", selectors: { submit: "#go" }, stealth: true, loggedInMarker: "Log out" };
     const res = await send(full);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ result: "ok", state });

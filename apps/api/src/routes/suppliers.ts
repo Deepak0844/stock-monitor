@@ -80,7 +80,7 @@ function readFields(body: unknown, partial: boolean): { values: SupplierPatch; h
   return { values, hosts };
 }
 
-const AUTO_LOGIN_BODY = ["autoLogin", "loginSelectors"];
+const AUTO_LOGIN_BODY = ["autoLogin", "loginSelectors", "loggedInMarker"];
 const NO_CREDENTIALS = () => new AppError(409, "no_credentials", "Save a username and password first.");
 const NOT_GRANTED = () => new AppError(409, "not_granted", "Mark this supplier as allowing automatic checks first.");
 
@@ -136,7 +136,7 @@ export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit
 
   app.patch<{ Params: { id: string } }>("/api/suppliers/:id", async (request) => {
     const input = typeof request.body === "object" && request.body !== null && !Array.isArray(request.body) ? (request.body as Record<string, unknown>) : null;
-    const auto: { autoLogin?: boolean; loginSelectors?: Parameters<Repository["setAutoLogin"]>[1]["loginSelectors"] } = {};
+    const auto: Parameters<Repository["setAutoLogin"]>[1] = {};
     let rest: unknown = request.body;
     if (input && AUTO_LOGIN_BODY.some((k) => k in input)) {
       const invalid = () => new AppError(400, "invalid_input", "Check the supplier details and try again.");
@@ -147,6 +147,11 @@ export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit
       if ("loginSelectors" in input) {
         if (input.loginSelectors !== null && !isLoginSelectors(input.loginSelectors)) throw invalid();
         auto.loginSelectors = input.loginSelectors as typeof auto.loginSelectors;
+      }
+      if ("loggedInMarker" in input) {
+        const marker = input.loggedInMarker;
+        if (marker !== null && (typeof marker !== "string" || marker.length < 1 || marker.length > 200)) throw invalid();
+        auto.loggedInMarker = marker;
       }
       rest = Object.fromEntries(Object.entries(input).filter(([k]) => !AUTO_LOGIN_BODY.includes(k)));
     }

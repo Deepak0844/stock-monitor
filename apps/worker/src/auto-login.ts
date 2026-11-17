@@ -70,6 +70,7 @@ export async function ensureLoggedIn(deps: AutoLoginDeps, supplier: SupplierReco
       ...(credentials.account ? { account: credentials.account } : {}),
       stealth: supplier.stealth,
       selectors: supplier.loginSelectors ?? undefined,
+      ...(supplier.loggedInMarker ? { loggedInMarker: supplier.loggedInMarker } : {}),
     });
     if (!call.ok && call.reason === "not_supported") {
       // The browser service is not in profile mode: the run carries on as it would without automatic login.

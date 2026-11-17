@@ -120,6 +120,13 @@
       "when": 1794904133789,
       "tag": "0016_auto_login",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1794911584282,
+      "tag": "0017_logged_in_marker",
+      "breakpoints": true
     }
   ]
 }

@@ -139,6 +139,12 @@ describe("a session that works", () => {
     expect(verifies()[0]?.body).toEqual({ url: "https://shop.acme.example/account", loginUrl: "https://shop.acme.example/login", state });
   });
 
+  it("sends the supplier's logged-in marker with the check", async () => {
+    await suppliers().setAutoLogin(acme, { loggedInMarker: "Log out" });
+    await verifySupplierSession(deps(), acme);
+    expect(verifies()[0]?.body).toMatchObject({ loggedInMarker: "Log out" });
+  });
+
   it("leaves an owner's pause in place", async () => {
     await suppliers().pause(acme);
     await verifySupplierSession(deps(), acme);

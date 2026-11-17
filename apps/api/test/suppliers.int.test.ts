@@ -333,7 +333,7 @@ describe("automatic login", () => {
   const SECRET = "hunter2-very-secret";
   const creds = { username: "buyer@acme.example", password: SECRET };
   const grant = (id: string) => createSupplierRepository(t.appDb).setPermission(id, { status: "granted", note: null });
-  type Full = Supplier & { autoLogin: boolean; stealth: boolean; credentialsSavedAt: string | null; autoLoginPausedReason: string | null; lastAutoLoginAt: string | null; lastAutoLoginResult: string | null };
+  type Full = Supplier & { autoLogin: boolean; stealth: boolean; credentialsSavedAt: string | null; autoLoginPausedReason: string | null; lastAutoLoginAt: string | null; lastAutoLoginResult: string | null; loggedInMarker: string | null };
   const get = async (id: string) => (await call("GET", `/api/suppliers/${id}`)).body.supplier as Full;
 
   it("saves credentials and never returns, stores in clear or audits the password", async () => {
@@ -396,6 +396,29 @@ describe("automatic login", () => {
     expect(bad.status).toBe(400);
     const none = await call("PATCH", `/api/suppliers/${s.id}`, { loginSelectors: null });
     expect(none.status).toBe(200);
+  });
+
+  it("saves the logged-in marker, returns it, and clears it with null", async () => {
+    const s = await create();
+    expect((await get(s.id)).loggedInMarker).toBeNull();
+    const saved = await call("PATCH", `/api/suppliers/${s.id}`, { loggedInMarker: "Log out" });
+    expect(saved.status).toBe(200);
+    expect(saved.body.supplier).toMatchObject({ loggedInMarker: "Log out" });
+    expect((await get(s.id)).loggedInMarker).toBe("Log out");
+    const cleared = await call("PATCH", `/api/suppliers/${s.id}`, { loggedInMarker: null });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.supplier).toMatchObject({ loggedInMarker: null });
+  });
+
+  it.each([
+    ["201 characters", "m".repeat(201)],
+    ["an empty marker", ""],
+    ["a number", 7],
+  ])("refuses a logged-in marker of %s and changes nothing", async (_n, loggedInMarker) => {
+    const s = await create();
+    const res = await call("PATCH", `/api/suppliers/${s.id}`, { name: "Renamed", loggedInMarker });
+    expect(res.status).toBe(400);
+    expect(await get(s.id)).toMatchObject({ name: "Acme Supply", loggedInMarker: null });
   });
 
   it("turns automatic login off when permission is revoked", async () => {

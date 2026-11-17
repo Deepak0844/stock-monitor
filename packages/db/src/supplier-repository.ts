@@ -30,6 +30,8 @@ export type SupplierRecord = {
   autoLogin: boolean;
   stealth: boolean;
   loginSelectors: LoginSelectors | null;
+  /** Text that only shows when logged in. Set, a page without it counts as logged out. */
+  loggedInMarker: string | null;
   autoLoginFailures: number;
   autoLoginPausedReason: "wrong_password" | "account_locked" | "too_many_failures" | null;
   lastAutoLoginAt: Date | null;
@@ -186,7 +188,7 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
     /** Changes the automatic login settings. Turning it on needs `granted` permission and saved credentials. */
     async setAutoLogin(
       id: string,
-      patch: { autoLogin?: boolean; stealth?: boolean; loginSelectors?: LoginSelectors | null },
+      patch: { autoLogin?: boolean; stealth?: boolean; loginSelectors?: LoginSelectors | null; loggedInMarker?: string | null },
     ): Promise<SupplierWrite | { ok: false; reason: "not_granted" | "no_credentials" }> {
       const current = await one(id);
       if (!current) return { ok: false, reason: "not_found" };
@@ -201,6 +203,7 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
         ...(patch.autoLogin !== undefined ? { autoLogin: patch.autoLogin } : {}),
         ...(patch.stealth !== undefined ? { stealth: patch.stealth } : {}),
         ...(patch.loginSelectors !== undefined ? { loginSelectors: patch.loginSelectors } : {}),
+        ...(patch.loggedInMarker !== undefined ? { loggedInMarker: patch.loggedInMarker } : {}),
       });
       return row ? { ok: true, supplier: row } : { ok: false, reason: "not_found" };
     },

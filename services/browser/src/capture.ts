@@ -4,7 +4,7 @@ import { explainPage, looksLikeNotFound, type SessionState } from "@stock-monito
 import type { GuardProxy } from "./proxy.js";
 import { CHALLENGE_WIDGET, MAX_TEXT, withFreshState, type BlockTracker, type CheckPageOutcome, type VerifyOptions } from "./verify.js";
 
-export type CaptureRequest = { url: string; loginUrl?: string; state: SessionState; picture?: boolean };
+export type CaptureRequest = { url: string; loginUrl?: string; loggedInMarker?: string; state: SessionState; picture?: boolean };
 /** What the browser was showing, as words: headings with the lines under them, and the buttons. Never raw HTML. */
 export type PageSections = { heading: string | null; level: number; lines: string[] }[];
 export type PageButtons = { label: string; enabled: boolean; section: string | null }[];
@@ -175,6 +175,7 @@ export async function capturePageIn(page: import("playwright").Page, request: Ca
   const { result, signal } = explainPage({
     requestedUrl: request.url,
     loginUrl: request.loginUrl,
+    loggedInMarker: request.loggedInMarker,
     page: { finalUrl: page.url(), status, title: seen.title, text: seen.text.slice(0, MAX_TEXT), hasPasswordField: seen.hasPasswordField, hasChallengeWidget: seen.hasChallengeWidget },
   });
   const title = short(seen.title);

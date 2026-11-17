@@ -47,6 +47,7 @@ export function AutoLoginCard({ api, supplier, onChange }: { api: Api; supplier:
     password: supplier.loginSelectors?.password ?? "",
     submit: supplier.loginSelectors?.submit ?? "",
   });
+  const [marker, setMarker] = useState(supplier.loggedInMarker ?? "");
   const [savedAt, setSavedAt] = useState(supplier.credentialsSavedAt);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -120,7 +121,7 @@ export function AutoLoginCard({ api, supplier, onChange }: { api: Api; supplier:
     event.preventDefault();
     const filled = Object.fromEntries(SELECTOR_FIELDS.map(({ key }) => [key, selectors[key].trim()]).filter(([, v]) => v)) as LoginSelectors;
     void run("selectors", async () => {
-      await api.suppliers.setAutoLogin(supplier.id, { loginSelectors: Object.keys(filled).length > 0 ? filled : null });
+      await api.suppliers.setAutoLogin(supplier.id, { loginSelectors: Object.keys(filled).length > 0 ? filled : null, loggedInMarker: marker.trim() || null });
       onChange();
       return "Page fields saved.";
     });
@@ -247,6 +248,9 @@ export function AutoLoginCard({ api, supplier, onChange }: { api: Api; supplier:
               />
             </Field>
           ))}
+          <Field id="auto-marker" label="Only shows when logged in" hint="Text you see only when logged in, like 'Log out' or your account name">
+            <Input id="auto-marker" autoComplete="off" maxLength={200} value={marker} onChange={(e) => setMarker(e.target.value)} />
+          </Field>
           <div>
             <Button type="submit" variant="outline" loading={busy === "selectors"} disabled={busy !== null}>
               Save page fields

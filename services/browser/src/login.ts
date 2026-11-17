@@ -5,7 +5,7 @@ import { classifyPage, type LoginSelectors, type PageClass, type SessionState } 
 import { CHALLENGE_WIDGET, MAX_TEXT } from "./verify.js";
 
 export type LoginResult = "ok" | "captcha" | "code_required" | "wrong_password" | "account_locked" | "blocked" | "form_not_found" | "unreachable" | "unknown";
-export type LoginRequest = { loginUrl: string; checkUrl: string; username: string; password: string; account?: string; stealth: boolean; selectors?: LoginSelectors };
+export type LoginRequest = { loginUrl: string; checkUrl: string; username: string; password: string; account?: string; stealth: boolean; selectors?: LoginSelectors; loggedInMarker?: string };
 /** `state` only when `result` is `ok`. */
 export type LoginOutcome = { result: LoginResult; state?: SessionState };
 export type AfterSubmitFacts = {
@@ -237,11 +237,14 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
     }
   };
 
-  const classifyHere = async (requestedUrl: string) => {
+  // The logged-in marker counts for "already logged in?" and the final confirmation, not for the page right after the
+  // submit: a landing page without it must not stop a login that worked.
+  const classifyHere = async (requestedUrl: string, useMarker = false) => {
     const seen = await page.evaluate(() => ({ title: document.title, text: (document.body?.innerText ?? "").slice(0, 20_000) })).catch(() => ({ title: "", text: "" }));
     return classifyPage({
       requestedUrl,
       loginUrl: request.loginUrl,
+      ...(useMarker && request.loggedInMarker ? { loggedInMarker: request.loggedInMarker } : {}),
       page: { finalUrl: page.url(), status, title: seen.title, text: seen.text.slice(0, MAX_TEXT), hasPasswordField: !!(await firstVisible(page, 'input[type="password"]')), hasChallengeWidget: await challengeVisible(page) },
     });
   };
@@ -257,13 +260,13 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
     return "unreachable";
   }
   if (status === 429) return "unreachable";
-  let first = await classifyHere(request.loginUrl);
+  let first = await classifyHere(request.loginUrl, true);
   if (first === "unreachable") return "unreachable";
   if (await challengeVisible(page)) return "captcha";
   // A "checking your browser" page that passes by itself. The classifier calls it captcha (its words) or blocked.
   if ((first === "captcha" || first === "blocked") && !(await anyFormVisible())) {
     await waitForChange(await signature(), navigations, stepWaitMs);
-    first = await classifyHere(request.loginUrl);
+    first = await classifyHere(request.loginUrl, true);
     if ((first === "captcha" || first === "blocked") && !(await anyFormVisible())) return (await challengeVisible(page)) ? "captcha" : "blocked";
   }
 
@@ -360,7 +363,7 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
   } catch {
     return "unknown";
   }
-  return (await classifyHere(request.checkUrl)) === "ok" ? "ok" : "unknown";
+  return (await classifyHere(request.checkUrl, true)) === "ok" ? "ok" : "unknown";
 }
 
 async function firstEmptyPassword(page: Page): Promise<boolean> {

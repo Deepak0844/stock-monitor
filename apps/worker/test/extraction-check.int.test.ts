@@ -132,6 +132,14 @@ describe("one link", () => {
     expect(requests("/capture")[0]?.body).toMatchObject({ url: "https://shop.acme.example/p/v1", loginUrl: "https://shop.acme.example/login", state });
   });
 
+  it("sends the supplier's logged-in marker with the capture", async () => {
+    const id = await link("v1");
+    await turnOn();
+    await suppliers().setAutoLogin(acme, { loggedInMarker: "Log out" });
+    await checkStock(deps(), id);
+    expect(requests("/capture")[0]?.body).toMatchObject({ url: "https://shop.acme.example/p/v1", loggedInMarker: "Log out" });
+  });
+
   it("out of stock", async () => {
     const id = await link("v1");
     await turnOn();

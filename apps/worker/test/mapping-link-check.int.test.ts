@@ -103,6 +103,12 @@ describe("one link", () => {
     expect(await mapping(id)).toMatchObject({ linkStatus: "works", workedTitle: "Blue Widget", lastLinkCheckAt: T0 });
   });
 
+  it("sends the supplier's logged-in marker with the check", async () => {
+    await suppliers().setAutoLogin(acme, { loggedInMarker: "Log out" });
+    await checkLink(deps(), await link("v1"));
+    expect(checks()[0]?.body).toMatchObject({ loggedInMarker: "Log out" });
+  });
+
   it("a page that is gone, on a link that worked, counts as missing once", async () => {
     const id = await link("v1");
     await checkLink(deps(), id);
