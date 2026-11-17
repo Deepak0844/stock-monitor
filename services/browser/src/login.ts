@@ -228,17 +228,20 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
   };
 
   let consentUsed = false;
-  /** A click that, once per login, clears a cookie banner or popup that covers its target. */
+  /**
+   * A click that, once per login, clears a cookie banner or popup that covers its target. It never waits for the page it
+   * opens: a slow supplier would outlast the click's timeout. The step and settle waits after it do that waiting.
+   */
   const click = async (target: Locator) => {
     try {
-      await target.click({ timeout: 3000 });
+      await target.click({ timeout: 3000, noWaitAfter: true });
     } catch (error) {
       if (consentUsed || !/intercepts pointer events/i.test(error instanceof Error ? error.message : "")) throw error;
       consentUsed = true;
       const consent = await findButton(page, whole(CONSENT_WORDS));
       if (!consent) throw error;
-      await consent.click({ timeout: 3000 });
-      await target.click({ timeout: 3000 });
+      await consent.click({ timeout: 3000, noWaitAfter: true });
+      await target.click({ timeout: 3000, noWaitAfter: true });
     }
   };
 
@@ -356,7 +359,7 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
       const target = last;
       const submitWait = f.password ? settleMs : stepWaitMs;
       if (f.password) sent = { at: Date.now(), navs: navigated.length, frame };
-      const changed = await afterAction(() => (next ? click(next) : target.press("Enter")), submitWait);
+      const changed = await afterAction(() => (next ? click(next) : target.press("Enter", { noWaitAfter: true })), submitWait);
       // Too many requests: the supplier is busy, not refusing the login.
       if (status === 429) return "unreachable";
       if (f.password) submitted = true; // from here on, nothing is typed: a later text box could be a security question

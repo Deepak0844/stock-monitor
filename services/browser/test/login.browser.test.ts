@@ -36,6 +36,7 @@ const good = (b: URLSearchParams) => b.get("username") === USER && [PASSWORD, LO
 const AFTER: Record<string, string | null> = {
   one: null,
   slow: null,
+  slower: null,
   frame: null,
   banner: null,
   modal: null,
@@ -68,6 +69,8 @@ function startSite(): Promise<Server> {
     if (req.method === "POST") {
       const b = await body(req);
       (posts[kase] ??= []).push(b);
+      // A supplier that takes 4.5 s to answer any password, longer than a click waits.
+      if (kase === "slower") await new Promise((r) => setTimeout(r, 4500));
       if (kase === "two" && step === "user") return html(page(form("/two/pass", `<input type="hidden" name="username" value="${b.get("username")}"><input type="password" name="password">`)));
       if (kase === "two" && step === "pass") return good(b) ? res.writeHead(302, loginCookie).end() : html(page("no"));
       if (kase === "choice" && step === "user")
@@ -103,7 +106,7 @@ function startSite(): Promise<Server> {
     switch (kase) {
       case "slow":
         return html(page(form("/slow/login", userAndPassword, `onsubmit="event.preventDefault();document.getElementById('t').src='/slow/track';setTimeout(()=>this.submit(),200)"`) + '<iframe id="t" width="1" height="1"></iframe>'));
-      case "one": case "push": case "locked": case "question": case "puzzle": case "code": case "stay": case "promo": case "busy": case "public":
+      case "one": case "slower": case "push": case "locked": case "question": case "puzzle": case "code": case "stay": case "promo": case "busy": case "public":
         return html(page(form(`/${kase}/login`, userAndPassword)));
       case "two": return html(page(form("/two/user", '<input type="email" name="username"><button type="submit">Next</button>').replace('<button type="submit">Sign in</button>', "")));
       case "choice": return html(page(form("/choice/user", '<input type="email" name="username">')));
@@ -153,10 +156,10 @@ afterAll(async () => {
 });
 
 /** A new checker with its own, empty profile folder, so cases do not share a login. */
-const checker = (log?: (line: string) => void) => {
+const checker = (log?: (line: string) => void, settleMs = 3000) => {
   const dir = mkdtempSync(join(tmpdir(), "sm-test-login-"));
   dirs.push(dir);
-  return Object.assign(createProfileChecker({ proxy, sandbox: !process.env.CI, headless: !process.env.DISPLAY, baseDir: dir, settleMs: 3000, loginStepMs: 5000, log }), { dir });
+  return Object.assign(createProfileChecker({ proxy, sandbox: !process.env.CI, headless: !process.env.DISPLAY, baseDir: dir, settleMs, loginStepMs: 5000, log }), { dir });
 };
 const ask = (kase: string, extra: Partial<LoginRequest> = {}): LoginRequest => ({
   loginUrl: `${base}/${kase}/login`, checkUrl: `${base}/account`, username: USER, password: PASSWORD, stealth: false, ...extra,
@@ -171,6 +174,16 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
   });
   it("waits for a slow supplier's answer before it reads the page: a right password is never called wrong", async () => {
     expect((await checker().login(ask("slow"))).result).toBe("ok");
+  });
+  it("a supplier slower than a click: the right password is ok", async () => {
+    posts.slower = [];
+    expect((await checker(undefined, 8000).login(ask("slower"))).result).toBe("ok");
+    expect(posts.slower.length).toBe(1);
+  });
+  it("a supplier slower than a click: a wrong password is wrong, sent once", async () => {
+    posts.slower = [];
+    expect((await checker(undefined, 8000).login(ask("slower", { password: "nope" }))).result).toBe("wrong_password");
+    expect(posts.slower.length).toBe(1);
   });
   it("two-step login", async () => {
     expect((await checker().login(ask("two"))).result).toBe("ok");
