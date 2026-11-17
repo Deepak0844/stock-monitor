@@ -29,7 +29,7 @@ async function openSuppliers(page: Page) {
 }
 
 async function addSupplier(page: Page, name: string, website = "https://shop.acme.example/") {
-  await page.getByLabel("Name").fill(name);
+  await page.getByLabel("Name", { exact: true }).fill(name);
   await page.getByLabel("Website address").fill(website);
   await page.getByRole("button", { name: "Add supplier" }).click();
 }
@@ -73,8 +73,8 @@ test("the Suppliers page starts empty, then an owner can add, edit, pause, resum
   await expect(page.getByRole("row", { name: /Acme Supply/ })).toContainText("Not connected");
 
   await rowMenu(page, "Acme Supply", "Edit");
-  await expect(page.getByLabel("Name")).toHaveValue("Acme Supply");
-  await page.getByLabel("Name").fill("Acme Ltd");
+  await expect(page.getByLabel("Name", { exact: true })).toHaveValue("Acme Supply");
+  await page.getByLabel("Name", { exact: true }).fill("Acme Ltd");
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect(page.getByRole("row", { name: /Acme Ltd/ })).toBeVisible();
 
@@ -112,14 +112,14 @@ test("each problem with a supplier is explained in plain words beside its own fi
   await expect(page).toHaveURL(/\/suppliers\/new$/);
 
   await page.getByLabel("Website address").fill("https://ok.example/");
-  await page.getByLabel("Name").fill("First");
+  await page.getByLabel("Name", { exact: true }).fill("First");
   await page.getByRole("button", { name: "Add supplier" }).click();
   await expect(page.getByRole("row", { name: /First/ })).toBeVisible();
 
   await page.goto("/suppliers/new");
   await addSupplier(page, "first", "https://other.example/");
   await expect(page.getByText("You already have a supplier with that name.")).toBeVisible();
-  await expect(page.getByLabel("Name")).toBeFocused();
+  await expect(page.getByLabel("Name", { exact: true })).toBeFocused();
 });
 
 test("an address for a supplier that does not exist says so, with a way back", async ({ page }) => {
@@ -145,7 +145,7 @@ test("the supplier screens pass the accessibility scan in light and dark, and ne
     await expect(page.getByText("Enter a name for the supplier.")).toBeVisible();
     await scan(page, `${scheme} form, with messages`);
 
-    await page.getByLabel("Name").fill("Acme Supply");
+    await page.getByLabel("Name", { exact: true }).fill("Acme Supply");
     await page.getByLabel("Website address").fill("https://shop.acme.example/");
     await page.getByRole("button", { name: "Add supplier" }).click();
     await expect(page.getByRole("row", { name: /Acme Supply/ })).toBeVisible(); // saved, so going on cannot cancel it
@@ -163,7 +163,7 @@ test("the supplier screens pass the accessibility scan in light and dark, and ne
     await page.getByRole("button", { name: "Cancel" }).click();
 
     await rowMenu(page, "Acme Supply", "Edit");
-    await expect(page.getByLabel("Name")).toHaveValue("Acme Supply");
+    await expect(page.getByLabel("Name", { exact: true })).toHaveValue("Acme Supply");
     await scan(page, `${scheme} form, editing`);
 
     for (const path of ["/suppliers", "/suppliers/new"]) {
