@@ -1,0 +1,265 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { randomBytes } from "node:crypto";
+import { Writable } from "node:stream";
+import { startTestDb, type TestDb } from "@stock-monitor/db/test-harness";
+import { createNotificationRepository, createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
+import { createAuditWriter } from "@stock-monitor/audit";
+import type { BrowserClient, LoginCallOutcome, LoginRequest } from "@stock-monitor/browser-client";
+import { createLogger } from "@stock-monitor/shared";
+import { sealCredentials, sealSessionState, unsealSessionState, type SessionState } from "@stock-monitor/supplier-session";
+import { AUTO_LOGIN_FRESH_MINUTES, ensureLoggedIn, type AutoLoginDeps } from "../src/auto-login.js";
+
+let t: TestDb;
+const key = randomBytes(32);
+const logLines: string[] = [];
+const logger = createLogger({ level: "debug", stream: new Writable({ write: (c, _e, cb) => (logLines.push(c.toString()), cb()) }) });
+
+const USERNAME = "USERNAME-SECRET-MARKER-41f0";
+const PASSWORD = "PASSWORD-SECRET-MARKER-7d2b";
+const session = (value: string): SessionState => ({ cookies: [{ name: "sid", value, domain: "shop.acme.example", path: "/", expires: -1 }], origins: [] });
+const OLD = session("OLD-COOKIE");
+const NEW = session("NEW-COOKIE");
+
+const suppliers = () => createSupplierRepository(t.appDb);
+const sessions = () => createSupplierSessionRepository(t.appDb);
+const credentials = () => createSupplierCredentialsRepository(t.appDb);
+
+/** A fake browser: only `login` is used. Each call returns the next queued reply. */
+let replies: (LoginCallOutcome | (() => Promise<LoginCallOutcome>))[] = [];
+const calls: LoginRequest[] = [];
+const browser = {
+  async login(r: LoginRequest): Promise<LoginCallOutcome> {
+    calls.push(r);
+    const next = replies.shift() ?? { ok: true, outcome: { result: "ok", state: NEW } };
+    return typeof next === "function" ? next() : next;
+  },
+} as unknown as BrowserClient;
+
+const deps = (over: Partial<AutoLoginDeps> = {}): AutoLoginDeps => ({
+  suppliers: suppliers(),
+  supplierSessions: sessions(),
+  supplierCredentials: credentials(),
+  notifications: createNotificationRepository(t.appDb),
+  audit: createAuditWriter(t.appDb),
+  browser,
+  key,
+  logger,
+  ...over,
+});
+const opts = { force: true, checkUrl: "https://shop.acme.example/account" };
+
+let id = "";
+beforeAll(async () => {
+  t = await startTestDb();
+}, 180_000);
+afterAll(async () => {
+  await t?.stop();
+});
+beforeEach(async () => {
+  await t.pool.query("truncate suppliers, audit_events cascade");
+  logLines.length = 0;
+  calls.length = 0;
+  replies = [];
+  const s = await suppliers().create({ name: "Acme", websiteUrl: "https://shop.acme.example/", loginUrl: "https://shop.acme.example/login", checkIntervalMinutes: 60 });
+  if (!s.ok) throw new Error("setup");
+  id = s.supplier.id;
+  await suppliers().setPermission(id, { status: "granted", note: null });
+  await credentials().save(id, sealCredentials({ username: USERNAME, password: PASSWORD }, key, "v1"));
+  const on = await suppliers().setAutoLogin(id, { autoLogin: true });
+  if (!on.ok) throw new Error("setup");
+  await sessions().save(id, sealSessionState(OLD, key, "v1"), OLD);
+});
+
+const supplier = async () => (await suppliers().get(id))!;
+const stored = async () => unsealSessionState((await sessions().getSealed(id))!, key);
+const notice = async () => (await t.pool.query("select reason, message from notifications where supplier_id = $1 and resolved_at is null", [id])).rows[0] as { reason: string; message: string } | undefined;
+const audits = async () => (await t.pool.query("select details from audit_events where action = 'supplier.auto_login' order by id")).rows as { details: unknown }[];
+const reply = (result: string, state?: SessionState): LoginCallOutcome => ({ ok: true, outcome: { result, ...(state ? { state } : {}) } as never });
+
+describe("when automatic login does not run", () => {
+  it("skips when off", async () => {
+    await suppliers().setAutoLogin(id, { autoLogin: false });
+    expect(await ensureLoggedIn(deps(), await supplier(), opts)).toBe("skipped");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("skips when paused", async () => {
+    await t.pool.query("update suppliers set auto_login_paused_reason = 'too_many_failures' where id = $1", [id]);
+    expect(await ensureLoggedIn(deps(), await supplier(), opts)).toBe("skipped");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("skips, with a warning, when no credentials are saved", async () => {
+    await credentials().remove(id);
+    expect(await ensureLoggedIn(deps(), await supplier(), opts)).toBe("skipped");
+    expect(calls).toHaveLength(0);
+    expect(await notice()).toBeUndefined();
+    expect(logLines.join("")).toContain("no saved credentials");
+  });
+});
+
+describe("fresh session", () => {
+  it(`is ready without a login when checked less than ${AUTO_LOGIN_FRESH_MINUTES} minutes ago`, async () => {
+    await t.pool.query("update supplier_sessions set last_verified_at = now() - interval '5 minutes' where supplier_id = $1", [id]);
+    expect(await ensureLoggedIn(deps(), await supplier(), { ...opts, force: false })).toBe("ready");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("logs in when the last check is older", async () => {
+    await t.pool.query("update supplier_sessions set last_verified_at = now() - interval '11 minutes' where supplier_id = $1", [id]);
+    expect(await ensureLoggedIn(deps(), await supplier(), { ...opts, force: false })).toBe("ready");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("logs in when forced, however fresh", async () => {
+    await sessions().markVerified(id);
+    expect(await ensureLoggedIn(deps(), await supplier(), opts)).toBe("ready");
+    expect(calls).toHaveLength(1);
+  });
+});
+
+describe("the login request", () => {
+  it("sends the login page, the check page, the saved login and the stealth setting", async () => {
+    await ensureLoggedIn(deps(), await supplier(), opts);
+    expect(calls[0]).toEqual({ loginUrl: "https://shop.acme.example/login", checkUrl: opts.checkUrl, username: USERNAME, password: PASSWORD, stealth: false });
+  });
+
+  it("falls back to the website, and passes the account and selectors when there are some", async () => {
+    await t.pool.query("update suppliers set login_url = null where id = $1", [id]);
+    await credentials().save(id, sealCredentials({ username: USERNAME, password: PASSWORD, account: "ACC-1" }, key, "v1"));
+    await suppliers().setAutoLogin(id, { loginSelectors: { submit: "#go" } });
+    await ensureLoggedIn(deps(), await supplier(), opts);
+    expect(calls[0]).toMatchObject({ loginUrl: "https://shop.acme.example/", account: "ACC-1", selectors: { submit: "#go" } });
+  });
+});
+
+describe("results", () => {
+  it("ok: replaces the session, marks it checked, resets the count, clears the notice", async () => {
+    await t.pool.query("update suppliers set auto_login_failures = 1 where id = $1", [id]);
+    await createNotificationRepository(t.appDb).raise({ kind: "supplier_needs_reconnect", supplierId: id, message: "x", reason: "login_required" });
+    replies = [reply("ok", NEW)];
+    expect(await ensureLoggedIn(deps(), await supplier(), opts)).toBe("ready");
+    expect(await stored()).toEqual(NEW);
+    expect((await sessions().facts(id))?.lastVerifiedAt).toBeInstanceOf(Date);
+    const s = await supplier();
+    expect(s.autoLoginFailures).toBe(0);
+    expect(s.lastAutoLoginResult).toBe("ok");
+    expect(s.lastAutoLoginAt).toBeInstanceOf(Date);
+    expect(s.sessionStatus).toBe("connected");
+    expect(await notice()).toBeUndefined();
+  });
+
+  it("ok with no session saved before: saves a new one", async () => {
+    await sessions().remove(id);
+    replies = [reply("ok", NEW)];
+    expect(await ensureLoggedIn(deps(), await supplier(), opts)).toBe("ready");
+    expect(await stored()).toEqual(NEW);
+    expect((await sessions().facts(id))?.lastVerifiedAt).toBeInstanceOf(Date);
+  });
+
+  it("ok with no session sent back: treated as unknown", async () => {
+    replies = [reply("ok")];
+    expect(await ensureLoggedIn(deps(), await supplier(), opts)).toBe("login_required");
+    expect((await supplier()).lastAutoLoginResult).toBe("unknown");
+    expect(await stored()).toEqual(OLD);
+  });
+
+  const rows: [string, string, number, string | null, string][] = [
+    ["captcha", "captcha", 1, null, "captcha"],
+    ["code_required", "login_required", 1, null, "code_required"],
+    ["blocked", "blocked", 1, null, "blocked"],
+    ["form_not_found", "login_required", 1, null, "form_not_found"],
+    ["unknown", "login_required", 1, null, "login_required"],
+    ["wrong_password", "login_required", 1, "wrong_password", "wrong_password"],
+    ["account_locked", "blocked", 1, "account_locked", "account_locked"],
+  ];
+  it.each(rows)("%s: returns %s, count %i, pause %s, notice %s", async (result, returns, failures, paused, reason) => {
+    replies = [reply(result)];
+    expect(await ensureLoggedIn(deps(), await supplier(), opts)).toBe(returns);
+    const s = await supplier();
+    expect(s.autoLoginFailures).toBe(failures);
+    expect(s.autoLoginPausedReason).toBe(paused);
+    expect(s.lastAutoLoginResult).toBe(result);
+    expect((await notice())?.reason).toBe(reason);
+    expect(await stored()).toEqual(OLD);
+  });
+
+  it.each([
+    ["code_required", "The supplier asked for a code. Log in in the live window and type it there."],
+    ["wrong_password", "The supplier refused the saved password. Automatic login is paused until you save it again."],
+    ["account_locked", "The supplier says the account is locked. Automatic login is paused. Unlock it on the supplier's site, then press Resume."],
+    ["form_not_found", "Automatic login could not find the login form. Set the login page fields on the supplier page."],
+  ])("%s: uses the exact words", async (result, message) => {
+    replies = [reply(result)];
+    await ensureLoggedIn(deps(), await supplier(), opts);
+    expect((await notice())?.message).toBe(message);
+  });
+
+  it("unreachable: returns unreachable, count unchanged, no notice", async () => {
+    replies = [reply("unreachable")];
+    expect(await ensureLoggedIn(deps(), await supplier(), opts)).toBe("unreachable");
+    const s = await supplier();
+    expect(s.autoLoginFailures).toBe(0);
+    expect(s.autoLoginPausedReason).toBeNull();
+    expect(s.lastAutoLoginResult).toBe("unreachable");
+    expect(await notice()).toBeUndefined();
+  });
+
+  it.each(["unavailable", "failed"] as const)("the browser service %s: treated as unreachable", async (reason) => {
+    replies = [{ ok: false, reason }];
+    expect(await ensureLoggedIn(deps(), await supplier(), opts)).toBe("unreachable");
+    expect((await supplier()).autoLoginFailures).toBe(0);
+    expect(await notice()).toBeUndefined();
+    expect(logLines.join("")).toContain(reason);
+  });
+
+  it("a thrown error: logs its name only, returns unreachable, count unchanged", async () => {
+    replies = [async () => Promise.reject(new TypeError(`boom ${PASSWORD}`))];
+    expect(await ensureLoggedIn(deps(), await supplier(), opts)).toBe("unreachable");
+    expect((await supplier()).autoLoginFailures).toBe(0);
+    expect(logLines.join("")).toContain("TypeError");
+    expect(logLines.join("")).not.toContain(PASSWORD);
+  });
+});
+
+describe("two failures pause", () => {
+  it("pauses after two captchas in a row, and a third call is skipped", async () => {
+    replies = [reply("captcha"), reply("captcha")];
+    expect(await ensureLoggedIn(deps(), await supplier(), opts)).toBe("captcha");
+    expect((await supplier()).autoLoginPausedReason).toBeNull();
+    expect(await ensureLoggedIn(deps(), await supplier(), opts)).toBe("captcha");
+    expect((await supplier()).autoLoginPausedReason).toBe("too_many_failures");
+    expect(await ensureLoggedIn(deps(), await supplier(), opts)).toBe("skipped");
+    expect(calls).toHaveLength(2);
+  });
+});
+
+describe("owner wins", () => {
+  it("keeps the owner's live-window login made while the automatic one ran", async () => {
+    const OWNER = session("OWNER-COOKIE");
+    replies = [
+      async () => {
+        await sessions().save(id, sealSessionState(OWNER, key, "v1"), OWNER);
+        return reply("ok", NEW);
+      },
+    ];
+    expect(await ensureLoggedIn(deps(), await supplier(), opts)).toBe("ready");
+    expect(await stored()).toEqual(OWNER);
+  });
+});
+
+describe("no secrets", () => {
+  it("keeps the username and password out of audit rows, logs and notices", async () => {
+    replies = [reply("ok", NEW), reply("captcha"), reply("wrong_password"), { ok: false, reason: "failed" }];
+    for (let i = 0; i < 4; i++) {
+      await t.pool.query("update suppliers set auto_login_paused_reason = null, auto_login_failures = 0 where id = $1", [id]);
+      await ensureLoggedIn(deps(), await supplier(), opts);
+    }
+    const rows = await audits();
+    expect(rows).toHaveLength(4);
+    expect(rows[0]?.details).toEqual({ result: "ok", stealth: false });
+    const all = JSON.stringify(rows) + logLines.join("") + JSON.stringify((await t.pool.query("select * from notifications")).rows);
+    expect(all).not.toContain(USERNAME);
+    expect(all).not.toContain(PASSWORD);
+  });
+});
