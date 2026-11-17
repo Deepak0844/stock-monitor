@@ -251,6 +251,9 @@ describe("login", () => {
     expect(await withReply(200, { result: "weird" }).login(request)).toEqual({ ok: false, reason: "failed" });
     expect(await withReply(500, { error: "login_failed" }).login(request)).toEqual({ ok: false, reason: "failed" });
   });
+  it("says not_supported when the service has no login (it is not in profile mode)", async () => {
+    expect(await withReply(404, { error: "not_found" }).login(request)).toEqual({ ok: false, reason: "not_supported" });
+  });
   it("waits for a login by its own limit, not the page limit", async () => {
     // Answers after 200 ms, unless the call gave up first.
     const slow = (async (_url: string, init: RequestInit) => {

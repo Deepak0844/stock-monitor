@@ -214,6 +214,20 @@ describe("results", () => {
     expect(logLines.join("")).toContain(reason);
   });
 
+  it("the browser service has no login (not in profile mode): skipped, nothing recorded, one warning", async () => {
+    replies = [{ ok: false, reason: "not_supported" }];
+    expect(await ensureLoggedIn(deps(), await supplier(), opts)).toBe("skipped");
+    const s = await supplier();
+    expect(s.autoLoginFailures).toBe(0);
+    expect(s.lastAutoLoginResult).toBeNull();
+    expect(s.lastAutoLoginAt).toBeNull();
+    expect(await audits()).toHaveLength(0);
+    expect(await notice()).toBeUndefined();
+    const warnings = logLines.filter((l) => l.includes('"not_supported"'));
+    expect(warnings).toHaveLength(1);
+    expect(JSON.parse(warnings[0]!)).toMatchObject({ supplierId: id, reason: "not_supported" });
+  });
+
   it("a thrown error: logs its name only, returns unreachable, count unchanged", async () => {
     replies = [async () => Promise.reject(new TypeError(`boom ${PASSWORD}`))];
     expect(await ensureLoggedIn(deps(), await supplier(), opts)).toBe("unreachable");

@@ -5,7 +5,8 @@ export type LoginResult = "ok" | "captcha" | "code_required" | "wrong_password" 
 export type LoginRequest = { loginUrl: string; checkUrl: string; username: string; password: string; account?: string; stealth: boolean; selectors?: LoginSelectors };
 /** `state` is the signed-in session, present only when the result is ok. */
 export type LoginOutcome = { result: LoginResult; state?: SessionState };
-export type LoginCallOutcome = { ok: true; outcome: LoginOutcome } | { ok: false; reason: "unavailable" | "failed" };
+/** `not_supported`: the service has no login (it is not in profile mode). */
+export type LoginCallOutcome = { ok: true; outcome: LoginOutcome } | { ok: false; reason: "unavailable" | "failed" | "not_supported" };
 
 export type OpenOutcome =
   | { ok: true; id: string; expiresAt: string; vncPassword?: string }
@@ -128,6 +129,7 @@ export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, pageTi
     async login(request) {
       const r = await call("POST", "/login", request, loginTimeoutMs);
       if (!r) return { ok: false, reason: "unavailable" };
+      if (r.status === 404) return { ok: false, reason: "not_supported" };
       const j = r.json;
       if (r.status !== 200 || !isObject(j) || typeof j.result !== "string" || !LOGIN_RESULTS.includes(j.result)) return { ok: false, reason: "failed" };
       const result = j.result as LoginResult;

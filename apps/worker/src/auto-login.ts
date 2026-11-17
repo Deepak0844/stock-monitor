@@ -71,6 +71,11 @@ export async function ensureLoggedIn(deps: AutoLoginDeps, supplier: SupplierReco
       stealth: supplier.stealth,
       selectors: supplier.loginSelectors ?? undefined,
     });
+    if (!call.ok && call.reason === "not_supported") {
+      // The browser service is not in profile mode: the run carries on as it would without automatic login.
+      logger.warn({ supplierId: id, reason: call.reason }, "automatic login skipped: the browser service does not log in (VERIFY_MODE is not profile)");
+      return "skipped";
+    }
     if (!call.ok) {
       // Our own browser service, not the supplier: nothing counts against the login.
       logger.warn({ supplierId: id, reason: call.reason }, "automatic login could not run: the browser service did not answer");
