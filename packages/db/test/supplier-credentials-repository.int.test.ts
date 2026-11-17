@@ -72,15 +72,29 @@ describe("supplier credentials repository", () => {
 });
 
 describe("saving credentials lifts a pause the app made", () => {
-  it("re-enables a supplier the app paused because the session needed attention", async () => {
+  const withAutoLogin = async (id: string) => {
+    await suppliers().setPermission(id, { status: "granted", note: null });
+    await t.pool.query("update suppliers set auto_login = true where id = $1", [id]);
+  };
+
+  it("re-enables a supplier with automatic login that the app paused because the session needed attention", async () => {
     const s = await made();
+    await withAutoLogin(s.id);
     await suppliers().markNeedsAttention(s.id, "needs_reconnect");
     await repo().save(s.id, sealed);
     expect(await suppliers().get(s.id)).toMatchObject({ enabled: true, pausedReason: null, sessionStatus: "needs_reconnect" });
   });
 
+  it("leaves the session pause when automatic login is off: the saved password will not be used", async () => {
+    const s = await made();
+    await suppliers().markNeedsAttention(s.id, "needs_reconnect");
+    await repo().save(s.id, sealed);
+    expect(await suppliers().get(s.id)).toMatchObject({ enabled: false, pausedReason: "session" });
+  });
+
   it("leaves a pause the owner made", async () => {
     const s = await made();
+    await withAutoLogin(s.id);
     await suppliers().pause(s.id);
     await repo().save(s.id, sealed);
     expect(await suppliers().get(s.id)).toMatchObject({ enabled: false, pausedReason: "owner" });

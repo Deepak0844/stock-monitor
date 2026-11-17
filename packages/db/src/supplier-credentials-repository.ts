@@ -1,8 +1,16 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type { Encrypted } from "@stock-monitor/crypto";
 import { supplierCredentials, suppliers } from "./schema.js";
 import { liftAutoLoginPause } from "./supplier-repository.js";
+
+// The session pause is lifted only when automatic login is on: otherwise the saved password is never used to log in again.
+const sessionPaused = sql`${suppliers.pausedReason} = 'session' and ${suppliers.autoLogin}`;
+const liftOnSave = {
+  ...liftAutoLoginPause,
+  enabled: sql`case when ${sessionPaused} then true else ${suppliers.enabled} end`,
+  pausedReason: sql`case when ${sessionPaused} then null else ${suppliers.pausedReason} end`,
+};
 
 export function createSupplierCredentialsRepository<S extends Record<string, unknown>>(db: NodePgDatabase<S>) {
   const read = async (supplierId: string) => {
@@ -12,8 +20,8 @@ export function createSupplierCredentialsRepository<S extends Record<string, unk
 
   return {
     /**
-     * Saves the sealed login. New credentials replace the old and, in one transaction, lift the automatic login pause and a
-     * pause the app made because the session needed attention. A pause the owner made stays.
+     * Saves the sealed login. New credentials replace the old and, in one transaction, lift the automatic login pause and,
+     * when automatic login is on, a pause the app made because the session needed attention. A pause the owner made stays.
      */
     async save(supplierId: string, sealed: Encrypted): Promise<{ savedAt: Date }> {
       return db.transaction(async (tx) => {
@@ -23,7 +31,7 @@ export function createSupplierCredentialsRepository<S extends Record<string, unk
           .values({ supplierId, ...values })
           .onConflictDoUpdate({ target: supplierCredentials.supplierId, set: values })
           .returning({ savedAt: supplierCredentials.savedAt });
-        await tx.update(suppliers).set(liftAutoLoginPause).where(eq(suppliers.id, supplierId));
+        await tx.update(suppliers).set(liftOnSave).where(eq(suppliers.id, supplierId));
         return { savedAt: row!.savedAt };
       });
     },
