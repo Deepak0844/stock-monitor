@@ -165,14 +165,16 @@ export function createStockChecker(deps: StockCheckDeps) {
       await captures.purge(RETENTION_DAYS);
       // A failed automatic login already told the owner what went wrong, so the check must not replace that notice.
       let toldOwner = false;
-      const login = await ensureLoggedIn(deps, gated.supplier, { force: false, checkUrl: mapping.url });
+      // A login that has just happened is not repeated if the very next page still asks for one: the supplier just accepted it.
+      let loggedInNow = false;
+      const login = await ensureLoggedIn(deps, gated.supplier, { force: false, checkUrl: mapping.url, onLoggedIn: () => void (loggedInNow = true) });
       let v: Visit;
       if (login !== "ready" && login !== "skipped") {
         v = notVisited(gated.supplier, mapping, login);
         toldOwner = true;
       } else {
         v = await visit(gated.supplier, mapping, gated.active.recipe);
-        if (v.checkResult === "login_required") {
+        if (v.checkResult === "login_required" && !loggedInNow) {
           const again = await ensureLoggedIn(deps, gated.supplier, { force: true, checkUrl: mapping.url });
           if (again === "ready") v = await visit(gated.supplier, mapping, gated.active.recipe);
           else if (again !== "skipped") toldOwner = true;
@@ -242,9 +244,11 @@ export function createStockChecker(deps: StockCheckDeps) {
     let toldOwner = false;
     // One automatic login when a page asks for one, at most, per run.
     let loggedInAgain = false;
+    // A login at the start of the run is not repeated if the first page still asks for one: the supplier just accepted it.
+    let loggedInAtStart = false;
     const checkUrl = loginCheckUrl(first.supplier, links);
     if (links.length > 0) {
-      const login = await ensureLoggedIn(deps, first.supplier, { force: false, checkUrl });
+      const login = await ensureLoggedIn(deps, first.supplier, { force: false, checkUrl, onLoggedIn: () => void (loggedInAtStart = true) });
       if (login !== "ready" && login !== "skipped") [stopped, toldOwner] = [login, true];
     }
     let unreachableInARow = 0;
@@ -257,7 +261,7 @@ export function createStockChecker(deps: StockCheckDeps) {
       }
       let v = await visit(gated.supplier, mapping, first.active.recipe);
       let loginStop: StopReason | null = null;
-      if (v.checkResult === "login_required" && !loggedInAgain) {
+      if (v.checkResult === "login_required" && !loggedInAgain && !loggedInAtStart) {
         loggedInAgain = true;
         const login = await ensureLoggedIn(deps, gated.supplier, { force: true, checkUrl });
         if (login === "ready") v = await visit(gated.supplier, mapping, first.active.recipe);

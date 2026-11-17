@@ -549,6 +549,18 @@ describe("automatic login in a run", () => {
     expect(await lastRun()).toMatchObject({ outcome: "stopped", stop_reason: "login_required" });
   });
 
+  it("does not log in a second time right after logging in at the start: the first page still asking for a login stops the run", async () => {
+    await four();
+    await autoLogin(60);
+    pages({ v1: ["login_required"] });
+    expect(await runAll({ browser: withLogin() })).toMatchObject({ kind: "done", stopped: "login_required" });
+    // The supplier just accepted a login, so a second one seconds later would only repeat it.
+    expect(logins).toHaveLength(1);
+    expect(requests("/capture")).toHaveLength(1);
+    expect(await lastRun()).toMatchObject({ outcome: "stopped", stop_reason: "login_required" });
+    expect((await suppliers().get(acme))?.sessionStatus).toBe("needs_reconnect");
+  });
+
   it("never logs in on a puzzle: the run stops at once", async () => {
     await four();
     await autoLogin(5);
@@ -592,6 +604,17 @@ describe("automatic login in a run", () => {
       expect(await openNotices()).toEqual([]);
       expect(await stockGate(deps(), acme)).toHaveProperty("supplier");
       expect(await runAll({ browser: withLogin() })).toMatchObject({ kind: "done", checked: 1, stopped: null });
+    });
+
+    it("does not log in a second time right after logging in first: the page still asking for a login is a failed check", async () => {
+      const id = await link("v1");
+      await turnOn();
+      await autoLogin(60);
+      pages({ v1: ["login_required"] });
+      expect(await checkStock(deps({ browser: withLogin() }), id)).toMatchObject({ kind: "checked", answer: "cannot_tell" });
+      expect(logins).toHaveLength(1);
+      expect(requests("/capture")).toHaveLength(1);
+      expect(await openNotices()).toEqual([{ reason: "login_required" }]);
     });
 
     it("logs in first when the session is stale", async () => {

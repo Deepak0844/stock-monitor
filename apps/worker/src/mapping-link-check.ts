@@ -106,14 +106,16 @@ export function createLinkChecker(deps: LinkCheckDeps) {
       if ("reason" in gated) return { kind: "skipped", reason: gated.reason };
       // A failed automatic login already told the owner what went wrong, so the check must not replace that notice.
       let toldOwner = false;
-      const login = await ensureLoggedIn(deps, gated.supplier, { force: false, checkUrl: mapping.url });
+      // A login that has just happened is not repeated if the very next page still asks for one: the supplier just accepted it.
+      let loggedInNow = false;
+      const login = await ensureLoggedIn(deps, gated.supplier, { force: false, checkUrl: mapping.url, onLoggedIn: () => void (loggedInNow = true) });
       let observation: Observation;
       if (login !== "ready" && login !== "skipped") {
         observation = { result: login === "supplier_not_ready" ? "unreachable" : login, status: null, finalUrl: null, title: null, heading: null, softNotFound: false };
         toldOwner = true;
       } else {
         observation = await observe(gated.supplier, mapping);
-        if (observation.result === "login_required") {
+        if (observation.result === "login_required" && !loggedInNow) {
           const again = await ensureLoggedIn(deps, gated.supplier, { force: true, checkUrl: mapping.url });
           if (again === "ready") observation = await observe(gated.supplier, mapping);
           else if (again !== "skipped") toldOwner = true;
@@ -138,8 +140,10 @@ export function createLinkChecker(deps: LinkCheckDeps) {
       const checkUrl = loginCheckUrl(first.supplier, links);
       // A failed automatic login already told the owner, and ends the run.
       let stopped: StopReason | undefined;
+      // A login at the start of the run is not repeated if the first page still asks for one: the supplier just accepted it.
+      let loggedInAtStart = false;
       if (links.length > 0) {
-        const login = await ensureLoggedIn(deps, first.supplier, { force: false, checkUrl });
+        const login = await ensureLoggedIn(deps, first.supplier, { force: false, checkUrl, onLoggedIn: () => void (loggedInAtStart = true) });
         if (login !== "ready" && login !== "skipped") stopped = login;
       }
       // One automatic login when a page asks for one, at most, per run.
@@ -149,7 +153,7 @@ export function createLinkChecker(deps: LinkCheckDeps) {
         const gated = await gate(supplierId);
         if ("reason" in gated) break;
         let observation = await observe(gated.supplier, mapping);
-        if (observation.result === "login_required" && !loggedInAgain) {
+        if (observation.result === "login_required" && !loggedInAgain && !loggedInAtStart) {
           loggedInAgain = true;
           const login = await ensureLoggedIn(deps, gated.supplier, { force: true, checkUrl });
           if (login === "ready") observation = await observe(gated.supplier, mapping);

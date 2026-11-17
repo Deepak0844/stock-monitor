@@ -275,6 +275,29 @@ describe("automatic login in a link run", () => {
     expect(checks().map((r) => (r.body as { url: string }).url.split("/").pop())).toEqual(["v1", "v2", "v2"]);
     expect(await createNotificationRepository(t.appDb).listOpen()).toEqual([]);
   });
+  it("does not log in a second time right after logging in at the start: the first page still asking for a login is reported", async () => {
+    await link("v1");
+    await link("v2");
+    await autoLogin(60);
+    fake.behaviour.pageFor = (url) => (url.endsWith("/v1") ? { ...normal, result: "login_required" } : undefined);
+    // A link run goes on to the other links and then tells the owner, as it does for any login page.
+    expect(await checkSupplierLinks(deps({ browser: withLogin() }), acme)).toMatchObject({ kind: "done", checked: 2 });
+    // The supplier just accepted a login, so a second one seconds later would only repeat it.
+    expect(logins).toHaveLength(1);
+    expect(checks().map((r) => (r.body as { url: string }).url.split("/").pop())).toEqual(["v1", "v2"]);
+    expect((await createNotificationRepository(t.appDb).listOpen()).map((n) => n.reason)).toEqual(["login_required"]);
+  });
+
+  it("one link does not log in a second time right after logging in first", async () => {
+    const id = await link("v1");
+    await autoLogin(60);
+    fake.behaviour.pageFor = () => ({ ...normal, result: "login_required" });
+    expect(await checkLink(deps({ browser: withLogin() }), id)).toMatchObject({ kind: "checked" });
+    expect(logins).toHaveLength(1);
+    expect(checks()).toHaveLength(1);
+    expect((await createNotificationRepository(t.appDb).listOpen()).map((n) => n.reason)).toEqual(["login_required"]);
+  });
+
   it("the 1 h case: one link meeting a login page logs in, retries it, and the supplier stays ready", async () => {
     const id = await link("v1");
     await autoLogin(5);
