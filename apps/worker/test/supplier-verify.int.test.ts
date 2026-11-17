@@ -297,7 +297,7 @@ describe("a supplier with automatic login", () => {
 
   it("logs in first, forced, and reports that login instead of a plain session check", async () => {
     fake.behaviour.verifyResult = "login_required";
-    expect(await verifySupplierSession(deps({ browser: withLogin() }), acme)).toEqual({ kind: "ok" });
+    expect(await verifySupplierSession(deps({ browser: withLogin() }), acme, { login: true })).toEqual({ kind: "ok" });
     expect(logins).toHaveLength(1);
     expect(logins[0]).toMatchObject({ checkUrl: "https://shop.acme.example/account" });
     expect(verifies()).toHaveLength(0);
@@ -309,25 +309,41 @@ describe("a supplier with automatic login", () => {
 
   it("a failed login keeps the notice the login raised", async () => {
     answer = { ok: true, outcome: { result: "wrong_password" } as never };
-    expect(await verifySupplierSession(deps({ browser: withLogin() }), acme)).toEqual({ kind: "needs_attention", result: "login_required" });
+    expect(await verifySupplierSession(deps({ browser: withLogin() }), acme, { login: true })).toEqual({ kind: "needs_attention", result: "login_required" });
     expect(verifies()).toHaveLength(0);
     expect((await notes().listOpen()).map((n) => n.reason)).toEqual(["wrong_password"]);
   });
 
   it("a login that could not reach the supplier says unreachable and marks nothing", async () => {
     answer = { ok: true, outcome: { result: "unreachable" } };
-    expect(await verifySupplierSession(deps({ browser: withLogin() }), acme)).toEqual({ kind: "unreachable" });
+    expect(await verifySupplierSession(deps({ browser: withLogin() }), acme, { login: true })).toEqual({ kind: "unreachable" });
     expect(verifies()).toHaveLength(0);
     expect((await supplier(acme)).sessionStatus).toBe("connected");
     expect(await notes().listOpen()).toEqual([]);
   });
 
+  it("does a plain session check after a live-window login: only the Check login button logs in", async () => {
+    // A code or puzzle supplier would fail a forced login seconds after the owner fixed it by hand.
+    expect(await verifySupplierSession(deps({ browser: withLogin() }), acme)).toEqual({ kind: "ok" });
+    expect(logins).toHaveLength(0);
+    expect(verifies()).toHaveLength(1);
+    expect(await notes().listOpen()).toEqual([]);
+  });
+
+  it("the job logs in only when it carries login: true", async () => {
+    const handle = createSupplierVerifyHandler(deps({ browser: withLogin() }));
+    await handle({ supplierId: acme });
+    expect(logins).toHaveLength(0);
+    await handle({ supplierId: acme, login: true });
+    expect(logins).toHaveLength(1);
+  });
+
   it("does a plain session check when automatic login is paused, or skipped", async () => {
     await t.pool.query("update suppliers set auto_login_paused_reason = 'too_many_failures' where id = $1", [acme]);
-    expect(await verifySupplierSession(deps({ browser: withLogin() }), acme)).toEqual({ kind: "ok" });
+    expect(await verifySupplierSession(deps({ browser: withLogin() }), acme, { login: true })).toEqual({ kind: "ok" });
     await t.pool.query("update suppliers set auto_login_paused_reason = null where id = $1", [acme]);
     await createSupplierCredentialsRepository(t.appDb).remove(acme);
-    expect(await verifySupplierSession(deps({ browser: withLogin() }), acme)).toEqual({ kind: "ok" });
+    expect(await verifySupplierSession(deps({ browser: withLogin() }), acme, { login: true })).toEqual({ kind: "ok" });
     expect(logins).toHaveLength(0);
     expect(verifies()).toHaveLength(2);
   });

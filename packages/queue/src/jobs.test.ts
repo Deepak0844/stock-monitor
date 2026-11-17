@@ -40,6 +40,8 @@ describe("parseJob", () => {
       expect(parseJob("supplier.session.verify", { supplierId: id, early: true })).toEqual({ supplierId: id, early: true });
       expect(() => parseJob("supplier.session.verify", { supplierId: id, early: false })).toThrow();
       expect(() => parseJob("supplier.session.verify", { supplierId: id, early: "yes" })).toThrow();
+      expect(parseJob("supplier.session.verify", { supplierId: id, login: true })).toEqual({ supplierId: id, login: true });
+      expect(() => parseJob("supplier.session.verify", { supplierId: id, login: false })).toThrow();
     });
     it("refuses anything else, so a session, cookie or token can never ride along in a job", () => {
       expect(() => parseJob("supplier.session.verify", { supplierId: id, state: { cookies: [] } })).toThrow();

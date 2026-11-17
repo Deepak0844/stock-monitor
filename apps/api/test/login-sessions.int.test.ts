@@ -443,7 +443,8 @@ describe("the first check after a login, and checking by hand", () => {
     const r = await call("POST", `/api/suppliers/${acme}/check-session`);
     expect(r.status).toBe(202);
     expect(r.body).toEqual({ queued: true });
-    expect(queued).toEqual([{ name: "supplier.session.verify", payload: { supplierId: acme } }]);
+    // Only the owner's Check login button asks the worker to log in automatically.
+    expect(queued).toEqual([{ name: "supplier.session.verify", payload: { supplierId: acme, login: true } }]);
     expect(await audit("supplier.session_check_requested")).toEqual([expect.objectContaining({ actor_user_id: userId, entity_id: acme })]);
   });
 

@@ -187,7 +187,8 @@ export function registerLoginSessionRoutes(app: App, deps: LoginSessionRoutesDep
     if (!(await suppliers.get(request.params.id))) throw SUPPLIER_NOT_FOUND();
     if (!(await supplierSessions.facts(request.params.id))) throw new AppError(409, "not_connected", "Connect this supplier first.");
     try {
-      await queue.enqueue("supplier.session.verify", { supplierId: request.params.id });
+      // Only this button asks the worker to log in automatically; the check after a live-window login stays plain.
+      await queue.enqueue("supplier.session.verify", { supplierId: request.params.id, login: true });
     } catch {
       throw new AppError(503, "check_not_started", "The check could not be started. Please try again in a minute.");
     }

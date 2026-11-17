@@ -84,7 +84,7 @@ export async function raiseNeedsAttention(
  * what the page was. A supplier that cannot be reached is tried again before anything is decided, and an
  * unreachable supplier alone never marks a session broken.
  */
-export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId: string, options: { early?: boolean } = {}): Promise<CheckOutcome> {
+export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId: string, options: { early?: boolean; login?: boolean } = {}): Promise<CheckOutcome> {
   const { suppliers, supplierSessions, notifications, audit, browser, logger } = deps;
   const supplier = await suppliers.get(supplierId);
   if (!supplier) return { kind: "skipped", reason: "no_supplier" };
@@ -93,8 +93,10 @@ export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId
   let httpStatus: number | null = null;
   const record = (result: string) => audit.record({ action: "supplier.session_checked", entityType: "supplier", entityId: supplierId, details: { result, httpStatus } });
 
-  // With automatic login on, the check is a fresh login: an old session that timed out must not pause the supplier.
-  if (supplier.autoLogin && !supplier.autoLoginPausedReason) {
+  // The owner's "Check login" button, with automatic login on, is a fresh login: an old session that timed out must not
+  // pause the supplier. The check after a live-window login stays plain, or a code or puzzle supplier would fail a forced
+  // login seconds after the owner fixed it by hand.
+  if (options.login && supplier.autoLogin && !supplier.autoLoginPausedReason) {
     const login = await ensureLoggedIn(deps, supplier, { force: true, checkUrl: loginCheckUrl(supplier, await deps.mappings.forSupplier(supplierId)) });
     if (login === "ready") {
       await record("ok");
@@ -168,10 +170,13 @@ export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId
   }
 }
 
-/** The `supplier.session.verify` job. The payload is the supplier's id, and `early` for the check the scheduler queues before a run. */
+/**
+ * The `supplier.session.verify` job. The payload is the supplier's id, `early` for the check the scheduler queues before
+ * a run, and `login` for the owner's "Check login" button.
+ */
 export function createSupplierVerifyHandler(deps: SupplierVerifyDeps) {
-  return async function handleSupplierVerify(payload: { supplierId: string; early?: true }): Promise<void> {
-    const outcome = await verifySupplierSession(deps, payload.supplierId, { early: payload.early === true });
+  return async function handleSupplierVerify(payload: { supplierId: string; early?: true; login?: true }): Promise<void> {
+    const outcome = await verifySupplierSession(deps, payload.supplierId, { early: payload.early === true, login: payload.login === true });
     deps.logger.info({ supplierId: payload.supplierId, outcome: outcome.kind, ...(outcome.kind === "needs_attention" && { result: outcome.result }) }, "session check finished");
   };
 }
