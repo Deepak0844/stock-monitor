@@ -120,6 +120,64 @@ What the pilot supplier showed when it was connected by hand (2026-11), with its
 
 Earlier trials with other suppliers showed that a supplier's bot protection can accept a login by hand and still refuse the app's automated check (the check then shows **Blocked**, never a broken link or "out of stock"). If that happens, the options are to ask the supplier for a price list or feed, or to leave that supplier paused.
 
+## Automatic login
+
+This lets the app log in to a supplier for you when the saved login has ended, so you do not have to reconnect by hand. It is off until you turn it on, one supplier at a time. The app never solves a puzzle (CAPTCHA) or types a code for you.
+
+### Before you start
+
+1. **Check the supplier's terms.** Some suppliers forbid automated access. If you use automatic login, the supplier may notice and ban the account. This is your decision, not the app's.
+2. **Set `VERIFY_MODE=profile` in `.env`**, then run `docker compose up -d`. The app logs in inside the supplier's saved browser, so it needs this mode.
+3. **On the supplier's Edit page, set "Allows automatic checks" to Yes.** Automatic login stays switched off until you do.
+4. **Connect the supplier by hand once** (see "Connecting a supplier").
+
+### Turning it on
+
+1. Open the supplier's page and find the **Automatic login** card.
+2. Type the **Username** and **Password**. If the supplier also asks for an account number, type it in **Account number**.
+3. Press **Save**. The boxes go empty and the card says "Password saved" with the date. The app never shows a saved username or password again.
+4. Switch **Automatic login** on, then press **Test login now**. The result is shown on the card.
+
+**Remove** deletes the saved details.
+
+### What happens when a check needs a login
+
+If the saved login has ended, the app logs in with your saved details, then carries on with the check. If the login is still good, it does nothing.
+
+### When the app cannot log in
+
+If the supplier shows a puzzle, or asks for a code, a text message or an approval on your phone, the app stops. It leaves a message on the Dashboard. Press **Reconnect supplier**, log in through the live window, and type the code there.
+
+### When automatic login pauses
+
+The app pauses automatic login for that supplier, so it does not keep trying and get the account locked. The card says why, and the Dashboard shows a message.
+
+| You see | It means | What to do |
+|---|---|---|
+| The supplier refused the saved password | The username or password is wrong. | Save the password again. |
+| The supplier says the account is locked | Too many wrong tries, or the supplier locked it. | Sort it out with the supplier, then save the password again or press **Resume**. |
+| Two automatic logins failed in a row | Something keeps going wrong. | Press **Test login now** to see why, fix it, then press **Resume**. |
+
+Logging in yourself through the live window, or saving the password again, also resumes it.
+
+### The login page fields (advanced)
+
+Under **Login page fields (advanced)** you can tell the app where things are on the supplier's login page. Leave them empty first. Use them only when **Test login now** says it could not find the login form.
+
+- **Open login button.** For a page that shows a "Sign in" button you must press before the form appears.
+- **Account.** The box for an account number, if the supplier asks for one.
+- **Username.** The box for the username or email.
+- **Password.** The box for the password.
+- **Login button.** The button that sends the form.
+
+Ask the developer for the right values for a supplier.
+
+### Things to know
+
+- **Some suppliers allow only one login at a time per account.** Then the app's login logs you out of your own browser, and your login logs the app out. If the supplier allows it, give the app its own supplier user.
+- **Your details are stored by the app.** Keep the server safe (see "Server hardening").
+- **A failed login never counts as "out of stock".**
+
 ## Links from Shopify
 
 A Shopify sync can also set each variant's link, from two **product metafields**: the supplier's name and the supplier's page address (the SPU). **Shopify is the one source** for every variant whose product has both.
