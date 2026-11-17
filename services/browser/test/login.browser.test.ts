@@ -70,18 +70,6 @@ async function body(req: IncomingMessage) {
   return new URLSearchParams(raw);
 }
 
-// TEMPORARY (remove once the CI cause is known): what the first test's page and fixture saw. Lengths only, never values.
-const diag = { on: false, seen: [] as string[], report: "" };
-const DIAG_SCRIPT = `<script>
-const t0=performance.now(),first={},count={},at=(n)=>n+"@"+Math.round(performance.now()-t0)+"ms focus="+document.hasFocus()+" vis="+document.visibilityState;
-const bub={},cleared={};
-addEventListener("click",(e)=>{bub.click={defaultPrevented:e.defaultPrevented,readyState:document.readyState}});
-addEventListener("input",(e)=>{if(e.target.value==="")cleared[e.target.name]=(cleared[e.target.name]||0)+1},true);
-for(const n of["focusin","keydown","input","pointerdown","mousedown","click","submit"])addEventListener(n,(e)=>{count[n]=(count[n]||0)+1;first[n]??=at(n)+" on "+(e.target.name||e.target.tagName)},true);
-const send=()=>{const f=document.querySelector("form"),b=f.querySelector("button");navigator.sendBeacon("/diag/report",JSON.stringify({clickBubble:bub.click,submitFired:!!count.submit,formValid:f.checkValidity(),invalidFieldNames:[...f.elements].filter(x=>!x.validity.valid).map(x=>x.name),button:{type:b.type,disabled:b.disabled,formIsForm:b.form===f},usernameLength:document.querySelector("[name=username]").value.length,usernameExpected:${USER.length},passwordLength:document.querySelector("[name=password]").value.length,passwordExpected:${PASSWORD.length},retypes:cleared,count,first,now:at("report")}))};
-setTimeout(send,8000);addEventListener("pagehide",send);
-</script>`;
-
 const userAndPasswordForm = (kase: string) => form(`/${kase}/login`, userAndPassword);
 /** A script that cancels the keystrokes of one box while `when` is true. */
 const drop = (name: string, when: string) =>
@@ -90,13 +78,6 @@ const drop = (name: string, when: string) =>
 function startSite(): Promise<Server> {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://x");
-    if (diag.on) diag.seen.push(`${req.method} ${url.pathname}`);
-    if (url.pathname === "/diag/report") {
-      let raw = "";
-      for await (const chunk of req) raw += chunk;
-      diag.report = raw;
-      return res.writeHead(204).end();
-    }
     const html = (s: string, status = 200) => res.writeHead(status, { "content-type": "text/html; charset=utf-8" }).end(s);
     const [, kase = "", step = ""] = url.pathname.split("/");
     if (req.method === "POST") {
@@ -151,9 +132,7 @@ function startSite(): Promise<Server> {
     switch (kase) {
       case "slow":
         return html(page(form("/slow/login", userAndPassword, `onsubmit="event.preventDefault();document.getElementById('t').src='/slow/track';setTimeout(()=>this.submit(),200)"`) + '<iframe id="t" width="1" height="1"></iframe>'));
-      case "one": if (diag.on) return html(page(form("/one/login", userAndPassword) + DIAG_SCRIPT));
-      // falls through
-      case "slower": case "push": case "locked": case "question": case "puzzle": case "code": case "stay": case "promo": case "busy": case "public":
+      case "one": case "slower": case "push": case "locked": case "question": case "puzzle": case "code": case "stay": case "promo": case "busy": case "public":
         return html(page(form(`/${kase}/login`, userAndPassword)));
       case "two": return html(page(form("/two/user", '<input type="email" name="username"><button type="submit">Next</button>').replace('<button type="submit">Sign in</button>', "")));
       // A first click that never reaches the submit button, as on a window that has just opened: a cover appears under
@@ -254,12 +233,7 @@ const cookieNames = (o: { state?: { cookies: { name?: unknown }[] } }) => o.stat
 
 describe.skipIf(!linux)("automatic login in the persistent profile", () => {
   it("logs in on a one-step form", async () => {
-    diag.on = true;
-    diag.seen = [];
-    diag.report = "";
     const out = await checker().login(ask("one"));
-    diag.on = false;
-    if (out.result !== "ok") console.log("DIAG one-step", JSON.stringify({ result: out.result, requests: diag.seen, page: diag.report ? JSON.parse(diag.report) : "no report reached the fixture" }, null, 1));
     expect(out.result).toBe("ok");
     expect(cookieNames(out as never)).toContain("sid");
   });
