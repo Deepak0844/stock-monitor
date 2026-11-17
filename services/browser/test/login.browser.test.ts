@@ -40,6 +40,7 @@ const AFTER: Record<string, string | null> = {
   modal: null,
   modalx: null,
   check: null,
+  postcode: null,
   push: page("<p>We sent a notification. Approve the sign-in on your phone.</p>"),
   locked: page("<p>Your account is locked. Call us.</p>"),
   // Rendered at the login address, as many sites do: still not a wrong password.
@@ -77,6 +78,7 @@ function startSite(): Promise<Server> {
       if (kase === "stay" && step === "yes") return res.writeHead(302, loginCookie).end();
       if (kase === "storage") return res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ token: "tok-123" }));
       if (!good(b)) return html(page(form(`/${kase}/login`, userAndPassword) + "<p>Wrong password, try again.</p>"));
+      if (kase === "promo") return res.writeHead(302, { ...loginCookie, location: "/promo/home" }).end();
       const after = AFTER[kase];
       if (after === null) return res.writeHead(302, loginCookie).end();
       return html(after ?? page("?"));
@@ -86,10 +88,12 @@ function startSite(): Promise<Server> {
       count(`${kase}/${step}`);
       return res.writeHead(204).end();
     }
+    // A logged-in page that has a promo code box is still a login.
+    if (kase === "promo" && step === "home") return html(page(`<h1>Your account</h1><p>${FILLER}</p><label>Promo code <input type="text" name="promo_code"></label>`, "Account"));
     if (step !== "login" && step !== "inner" && step !== "form" && step !== "app") return html(page("not here"), 404);
     if (kase === "one" && loggedIn(req)) return res.writeHead(302, { location: "/account" }).end();
     switch (kase) {
-      case "one": case "push": case "locked": case "question": case "puzzle": case "code": case "stay":
+      case "one": case "push": case "locked": case "question": case "puzzle": case "code": case "stay": case "promo":
         return html(page(form(`/${kase}/login`, userAndPassword)));
       case "two": return html(page(form("/two/user", '<input type="email" name="username"><button type="submit">Next</button>').replace('<button type="submit">Sign in</button>', "")));
       case "choice": return html(page(form("/choice/user", '<input type="email" name="username">')));
@@ -110,6 +114,9 @@ function startSite(): Promise<Server> {
           ? html(page(`<script>if(!localStorage.getItem('token'))location.replace('/storage/login')</script><h1>Orders</h1><p>${FILLER}</p>`, "Orders"))
           : html(page(`<form id="f">${userAndPassword}<button type="submit">Sign in</button></form><script>document.getElementById('f').onsubmit=async(e)=>{e.preventDefault();const r=await fetch('/storage/api',{method:'POST',body:new URLSearchParams(new FormData(e.target))});localStorage.setItem('token',(await r.json()).token);location.href='/storage/app'}</script>`));
       case "wrong": return html(page(form("/wrong/login", userAndPassword)));
+      // A store finder's postcode box and a voucher box next to the login form.
+      case "postcode":
+        return html(page(`<label>Postcode <input type="text" name="postcode" id="postcode-search" placeholder="Enter postcode"></label>${form("/postcode/login", userAndPassword)}<label>Voucher code <input type="text" name="voucher"></label>`));
     }
     return html(page("not here"), 404);
   });
@@ -224,6 +231,14 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
   });
   it("code", async () => {
     expect((await checker().login(ask("code"))).result).toBe("code_required");
+  });
+  it("a postcode box next to the login form is not a code box", async () => {
+    posts.postcode = [];
+    expect((await checker().login(ask("postcode"))).result).toBe("ok");
+    expect(posts.postcode.at(-1)?.get("username")).toBe(USER);
+  });
+  it("a promo code box on the page after the login is still ok", async () => {
+    expect((await checker().login(ask("promo"))).result).toBe("ok");
   });
   it("selector override not found", async () => {
     expect((await checker().login(ask("one", { selectors: { username: "#nope" } }))).result).toBe("form_not_found");

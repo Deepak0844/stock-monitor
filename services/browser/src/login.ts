@@ -34,11 +34,12 @@ const within = (words: string[]) => new RegExp(words.map(escape).join("|"), "i")
 const SECOND_CHECK = within(SECOND_CHECK_WORDS);
 const LOCKED = within(LOCKED_WORDS);
 
-/** A one-time-code box: the standard autocomplete, or a name, id, placeholder or label that says code, OTP or verification. */
-export const CODE_FIELD = [
-  'input[autocomplete="one-time-code"]',
-  ...["name", "id", "placeholder", "aria-label"].flatMap((a) => ["code", "otp", "verification"].map((w) => `input[${a}*="${w}" i]`)),
-].join(", ");
+/**
+ * A one-time-code box: the standard autocomplete always counts, else a name, id, placeholder or label that says code, OTP or
+ * verification, unless it also says postcode, zip, promo, voucher, discount, coupon or gift (a shop's other code boxes).
+ */
+export const CODE_WORDS = /code|otp|verification/i;
+export const NOT_CODE_WORDS = /post|zip|promo|voucher|discount|coupon|gift/i;
 
 /**
  * What the page says after the password went in. The order is fixed by the spec. Second-check and locked wording only count on a
@@ -48,7 +49,7 @@ export const CODE_FIELD = [
 export function decideAfterSubmit(f: AfterSubmitFacts): LoginResult {
   const notOk = f.pageClass !== "ok";
   if (f.challengeVisible) return "captcha";
-  if (f.codeFieldVisible || (notOk && f.secondCheckText)) return "code_required";
+  if (notOk && (f.codeFieldVisible || f.secondCheckText)) return "code_required";
   if (notOk && f.lockedText) return "account_locked";
   if (f.passwordFieldVisible && f.onLoginPage) return "wrong_password";
   return f.pageClass === "login_required" ? "unknown" : f.pageClass;
@@ -65,16 +66,17 @@ const onLoginPage = (url: string, loginUrl: string) => {
   }
 };
 
-type Input = { index: number; visible: boolean; empty: boolean; password: boolean; usernameLike: boolean; account: boolean; checkbox: boolean };
+type Input = { index: number; visible: boolean; empty: boolean; password: boolean; usernameLike: boolean; account: boolean; checkbox: boolean; code: boolean };
 type Found = { frame: Frame; field: Locator; empty: boolean } | null;
-type Fields = { account: Found; username: Found; password: Found };
+/** `code`: a visible one-time-code box in the same frame. It is never taken for the username. */
+type Fields = { account: Found; username: Found; password: Found; code: boolean };
 
 /** Every input in a frame, in document order (open shadow roots included), with what the rules need to know. In-page. */
 async function inputsOf(frame: Frame, overrides: LoginSelectors): Promise<Input[]> {
   return frame
     .locator("input")
     .evaluateAll(
-      (els, o) =>
+      (els, { o, codeWords, notCodeWords }) =>
         els.map((node, index) => {
           const el = node as HTMLInputElement;
           const box = el.getBoundingClientRect();
@@ -92,24 +94,27 @@ async function inputsOf(frame: Frame, overrides: LoginSelectors): Promise<Input[
           const says = [...(el.labels ?? [])].map((l) => l.textContent ?? "").concat([el.name, el.id, el.placeholder, el.getAttribute("aria-label") ?? ""]).join(" ");
           const accountWords = /account|customer\s*(?:number|no\b)/i.test(says) && type !== "email" && type !== "password" && !/username|email/.test(autocomplete);
           const account = o.account ? is(o.account) : accountWords && (type === "text" || type === "tel" || type === "number");
+          const password = o.password ? is(o.password) : type === "password";
+          const code = !password && (autocomplete === "one-time-code" || (new RegExp(codeWords, "i").test(says) && !new RegExp(notCodeWords, "i").test(says)));
           return {
             index,
             visible,
             empty: el.value === "",
-            password: o.password ? is(o.password) : type === "password",
-            usernameLike: o.username ? is(o.username) : ["email", "text", "tel"].includes(type) || autocomplete === "username",
+            password,
+            usernameLike: o.username ? is(o.username) : !code && (["email", "text", "tel"].includes(type) || autocomplete === "username"),
             account,
             checkbox: type === "checkbox",
+            code,
           };
         }),
-      overrides,
+      { o: overrides, codeWords: CODE_WORDS.source, notCodeWords: NOT_CODE_WORDS.source },
     )
     .catch(() => []);
 }
 
 /** The fields of this step, searched in every frame, visible ones only. The account field is never taken for the username. */
 async function findFields(page: Page, overrides: LoginSelectors): Promise<Fields> {
-  const none: Fields = { account: null, username: null, password: null };
+  const none: Fields = { account: null, username: null, password: null, code: false };
   for (const frame of page.frames()) {
     const inputs = (await inputsOf(frame, overrides)).filter((i) => i.visible && !i.checkbox);
     const at = (i: Input | undefined): Found => (i ? { frame, field: frame.locator("input").nth(i.index), empty: i.empty } : null);
@@ -117,7 +122,8 @@ async function findFields(page: Page, overrides: LoginSelectors): Promise<Fields
     const account = inputs.find((i) => i.account && !i.password);
     const candidates = inputs.filter((i) => i.usernameLike && !i.password && !i.account);
     const username = password ? candidates.filter((i) => i.index < password.index).at(-1) : candidates[0];
-    if (password || username || account) return { account: at(account), username: at(username), password: at(password) };
+    const code = inputs.some((i) => i.code);
+    if (password || username || account || code) return { account: at(account), username: at(username), password: at(password), code };
   }
   return none;
 }
@@ -137,6 +143,12 @@ async function firstVisible(page: Page, selector: string): Promise<Locator | nul
     for (const el of await frame.locator(selector).all().catch(() => [])) if (await el.isVisible().catch(() => false)) return el;
   }
   return null;
+}
+
+/** A visible one-time-code box in any frame. */
+async function codeFieldVisible(page: Page, overrides: LoginSelectors): Promise<boolean> {
+  for (const frame of page.frames()) if ((await inputsOf(frame, overrides)).some((i) => i.visible && i.code)) return true;
+  return false;
 }
 
 async function challengeVisible(page: Page): Promise<boolean> {
@@ -263,8 +275,9 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
     let typedAccount = false;
     for (let step = 0; step < maxSteps && !submitted; step++) {
       if (await challengeVisible(page)) return "captcha";
-      if (await firstVisible(page, CODE_FIELD)) return "code_required";
       const f = await findFields(page, selectors);
+      // A code box counts only on a step with no username or password box: a login form can sit next to a shop's other boxes.
+      if (f.code && !f.username && !f.password) return "code_required";
 
       if (!f.username && !f.password && !f.account) {
         // A choice screen ("Use password" / "Send me a code"), else the button that opens the login.
@@ -329,7 +342,7 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
     const text = (await Promise.all(page.frames().map((fr) => fr.evaluate(() => document.body?.innerText ?? "").catch(() => "")))).join("\n");
     const decided = decideAfterSubmit({
       challengeVisible: await challengeVisible(page),
-      codeFieldVisible: !!(await firstVisible(page, CODE_FIELD)),
+      codeFieldVisible: await codeFieldVisible(page, selectors),
       secondCheckText: SECOND_CHECK.test(text),
       lockedText: LOCKED.test(text),
       passwordFieldVisible: !!(await firstVisible(page, 'input[type="password"]')),

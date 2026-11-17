@@ -19,7 +19,7 @@ describe("decideAfterSubmit", () => {
     expect(decideAfterSubmit({ ...none, challengeVisible: true, codeFieldVisible: true })).toBe("captcha");
   });
   it("a code field asks for a code", () => {
-    expect(decideAfterSubmit({ ...none, codeFieldVisible: true, lockedText: true })).toBe("code_required");
+    expect(decideAfterSubmit({ ...none, codeFieldVisible: true, lockedText: true, pageClass: "unknown" })).toBe("code_required");
   });
   it("approve or check-your-email text asks for a code", () => {
     expect(decideAfterSubmit({ ...none, secondCheckText: true, lockedText: true, pageClass: "unknown" })).toBe("code_required");
@@ -44,6 +44,12 @@ describe("decideAfterSubmit", () => {
   });
   it("an ok page that says account locked is ok", () => {
     expect(decideAfterSubmit({ ...none, lockedText: true, pageClass: "ok" })).toBe("ok");
+  });
+  it("an ok page with a code box (a postcode, a promo code) is ok", () => {
+    expect(decideAfterSubmit({ ...none, codeFieldVisible: true, pageClass: "ok" })).toBe("ok");
+  });
+  it("a code box on a page that is not ok asks for a code", () => {
+    expect(decideAfterSubmit({ ...none, codeFieldVisible: true, pageClass: "unknown" })).toBe("code_required");
   });
   it("the classifier's other answers pass through", () => {
     for (const c of ["ok", "captcha", "blocked", "unreachable", "unknown"] as const) expect(decideAfterSubmit({ ...none, pageClass: c })).toBe(c);
