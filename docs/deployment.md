@@ -129,7 +129,7 @@ This lets the app log in to a supplier for you when the saved login has ended, s
 1. **Check the supplier's terms.** Some suppliers forbid automated access. If you use automatic login, the supplier may notice and ban the account. This is your decision, not the app's.
 2. **Set `VERIFY_MODE=profile` in `.env`**, then run `docker compose up -d`. The app logs in inside the supplier's saved browser, so it needs this mode.
 3. **On the supplier's Edit page, set "Allows automatic checks" to Yes.** Automatic login stays switched off until you do.
-4. **Connect the supplier by hand once** (see "Connecting a supplier").
+4. **We suggest connecting by hand once first** (see "Connecting a supplier"), so the supplier gets to know the app's browser. It is not required.
 
 ### Turning it on
 
@@ -154,11 +154,11 @@ The app pauses automatic login for that supplier, so it does not keep trying and
 
 | You see | It means | What to do |
 |---|---|---|
-| The supplier refused the saved password | The username or password is wrong. | Save the password again. |
+| The supplier refused the saved password | The username or password is wrong. | Save the password again (or press **Resume**). |
 | The supplier says the account is locked | Too many wrong tries, or the supplier locked it. | Sort it out with the supplier, then save the password again or press **Resume**. |
 | Two automatic logins failed in a row | Something keeps going wrong. | Press **Test login now** to see why, fix it, then press **Resume**. |
 
-Logging in yourself through the live window, or saving the password again, also resumes it.
+Logging in yourself through the live window, saving the password again, or pressing **Resume** all start automatic login again. They also start a supplier the app had stopped. A supplier you paused yourself stays paused.
 
 ### The login page fields (advanced)
 
