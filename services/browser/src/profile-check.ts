@@ -118,7 +118,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
     const b = await launch(profile, "about:blank", true);
     try {
       const port = await waitForDebuggingPort(profile, b.child, 20_000);
-      const cdp = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+      const cdp = await (await driverFor(!!request.stealth)).connectOverCDP(`http://127.0.0.1:${port}`);
       try {
         const context = cdp.contexts()[0];
         const page = context?.pages()[0] ?? (await context?.newPage());
@@ -162,6 +162,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
   }
 
   async function check(request: VerifyRequest): Promise<VerifyOutcome> {
+    if (stealthRefused(request.stealth)) return { result: "unknown", status: null, blockedRequests: 0 };
     const profile = profileDirFor(baseDir, request.url);
     const hash = cookieHash(request.state.cookies);
     // The owner is logging in to this site in this profile. A check says nothing and is tried again.

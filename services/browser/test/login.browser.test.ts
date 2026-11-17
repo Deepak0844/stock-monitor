@@ -3,7 +3,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createGuard } from "../src/guard.js";
@@ -320,6 +320,21 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     expect(out).toMatchObject({ result: "unknown", why: "stealth_refused" });
     expect(lines).toContain("stealth refused: timezone and language must be set");
     expect(posts.one.length).toBe(0);
+  });
+  it.each([
+    ["neither", {}],
+    ["only the language", { language: "en-IN" }],
+    ["only the timezone", { timezone: "Asia/Kolkata" }],
+  ])("refuses a stealth page check, capture and session check with %s set: no browser opens", async (_n, owner) => {
+    const lines: string[] = [];
+    const c = checker((line) => lines.push(line), 3000, undefined, undefined, owner);
+    const state = { cookies: [], origins: [] } as never;
+    const url = `${base}/account`;
+    expect(await c.checkPage({ url, state, stealth: true })).toMatchObject({ result: "unknown" });
+    expect(await c.capture({ url, state, stealth: true })).toMatchObject({ result: "unknown" });
+    expect(await c({ url, state, stealth: true })).toMatchObject({ result: "unknown" });
+    expect(lines.filter((l) => l === "stealth refused: timezone and language must be set")).toHaveLength(3);
+    expect(readdirSync(c.dir)).toEqual([]);
   });
   it("waits for a slow supplier's answer before it reads the page: a right password is never called wrong", async () => {
     expect((await checker().login(ask("slow"))).result).toBe("ok");

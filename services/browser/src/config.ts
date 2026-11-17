@@ -1,3 +1,5 @@
+import { isUtcName } from "./driver.js";
+
 export type Config = {
   token: string;
   port: number;
@@ -99,7 +101,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     loginWindowMode: mode,
     verifyMode,
     language,
-    timezone: env.TZ === undefined || env.TZ === "" || env.TZ === "UTC" ? undefined : env.TZ,
+    timezone: env.TZ === undefined || env.TZ === "" || isUtcName(env.TZ) ? undefined : env.TZ,
     loginProfile,
   };
 }

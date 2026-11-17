@@ -53,7 +53,7 @@ export type BrowserClient = {
   /** Signs in with a username and password, once, in the supplier's profile. The password goes in the request only, never in an answer or an error. */
   login(request: LoginRequest): Promise<LoginCallOutcome>;
   /** Loads a page with a saved session in a throw-away browser and says what it was. */
-  verify(request: { url: string; loginUrl?: string; loggedInMarker?: string; state: SessionState }): Promise<VerifyOutcome>;
+  verify(request: { url: string; loginUrl?: string; loggedInMarker?: string; state: SessionState; stealth?: boolean }): Promise<VerifyOutcome>;
 };
 
 export type BrowserClientOptions = {
@@ -122,8 +122,8 @@ export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, pageTi
       return { ok: true, state: r.json.state };
     },
 
-    async verify({ url, loginUrl, loggedInMarker, state }) {
-      const r = await call("POST", "/verify", { url, ...(loginUrl ? { loginUrl } : {}), ...(loggedInMarker ? { loggedInMarker } : {}), state });
+    async verify({ url, loginUrl, loggedInMarker, state, stealth }) {
+      const r = await call("POST", "/verify", { url, ...(loginUrl ? { loginUrl } : {}), ...(loggedInMarker ? { loggedInMarker } : {}), state, ...(stealth ? { stealth: true } : {}) });
       if (!r) return { ok: false, reason: "unavailable" };
       const j = r.json;
       if (r.status !== 200 || !isObject(j) || typeof j.result !== "string" || !PAGE_CLASSES.includes(j.result)) return { ok: false, reason: "failed" };

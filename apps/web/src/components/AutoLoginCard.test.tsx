@@ -39,7 +39,7 @@ describe("Automatic login card", () => {
   it("disables the switch and says why when permission is not granted", () => {
     setup({ automationPermission: "unknown" });
     expect(screen.getByRole("switch", { name: "Automatic login" })).toBeDisabled();
-    expect(screen.getByText("Needs “Allows automatic checks” to be Yes.")).toBeInTheDocument();
+    expect(screen.getAllByText("Needs “Allows automatic checks” to be Yes.").length).toBeGreaterThan(0);
   });
 
   it("says a login that did not finish without claiming one was tried", () => {
@@ -73,6 +73,7 @@ describe("Automatic login card", () => {
   it("disables stealth without permission, and it needs no saved login", () => {
     setup({ automationPermission: "unknown" });
     expect(screen.getByRole("switch", { name: "Hide automation (stealth)" })).toBeDisabled();
+    expect(screen.getAllByText("Needs “Allows automatic checks” to be Yes.")).toHaveLength(2); // one under each switch
     cleanup();
     setup(granted);
     expect(screen.getByRole("switch", { name: "Hide automation (stealth)" })).toBeEnabled();
@@ -81,7 +82,7 @@ describe("Automatic login card", () => {
   it("says plainly what stealth does and that the supplier's terms are the owner's call", () => {
     setup(granted);
     expect(screen.getByText(/only for suppliers that refuse the normal login/i)).toBeInTheDocument();
-    expect(screen.getByText(/terms/i)).toBeInTheDocument();
+    expect(screen.getByText(/terms forbid automated access/i)).toBeInTheDocument();
   });
 
   it("shows the refusal when the switch cannot be turned on", async () => {

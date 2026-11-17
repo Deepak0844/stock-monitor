@@ -105,6 +105,10 @@ export async function startBrowserService(options: BrowserServiceOptions): Promi
       ? createProfileChecker({ ...plainOptions, timezone: options.timezone, baseDir: options.profileDir, settleMs: options.profileSettleMs, display: process.env.CHECK_DISPLAY })
       : null;
 
+  /** Stealth only exists in profile mode. Said in the log, so a switch that does nothing is not a mystery. */
+  const headlessNote = (stealth: boolean | undefined) => {
+    if (stealth && !checkInProfile) options.log?.("stealth ignored: it needs VERIFY_MODE=profile");
+  };
   const server = createControlServer({
     token: options.token,
     log: options.log,
@@ -113,16 +117,21 @@ export async function startBrowserService(options: BrowserServiceOptions): Promi
     // Only in profile mode: the login happens inside the supplier's persistent profile.
     ...(checkInProfile ? { login: (request) => checkInProfile.login(request) } : {}),
     // In profile mode link and stock checks run in the same logged-in browser as the session check, not in a cookie-replaying headless one.
-    checkPage: async (request) =>
-      checkInProfile?.checkPage(request, options.navigationTimeoutMs) ?? checkPage(await getBrowser(), request, { navigationTimeoutMs: options.navigationTimeoutMs, proxy }),
-    capture: async (request) =>
-      checkInProfile?.capture(request, options.navigationTimeoutMs) ?? capturePage(await getBrowser(), request, { navigationTimeoutMs: options.navigationTimeoutMs, proxy }),
-    verify: async (request) =>
-      checkInProfile?.(request) ??
-      verifyPage(await getBrowser(), request, {
-        navigationTimeoutMs: options.navigationTimeoutMs,
-        proxy,
-      }),
+    checkPage: async (request) => {
+      if (checkInProfile) return checkInProfile.checkPage(request, options.navigationTimeoutMs);
+      headlessNote(request.stealth);
+      return checkPage(await getBrowser(), request, { navigationTimeoutMs: options.navigationTimeoutMs, proxy });
+    },
+    capture: async (request) => {
+      if (checkInProfile) return checkInProfile.capture(request, options.navigationTimeoutMs);
+      headlessNote(request.stealth);
+      return capturePage(await getBrowser(), request, { navigationTimeoutMs: options.navigationTimeoutMs, proxy });
+    },
+    verify: async (request) => {
+      if (checkInProfile) return checkInProfile(request);
+      headlessNote(request.stealth);
+      return verifyPage(await getBrowser(), request, { navigationTimeoutMs: options.navigationTimeoutMs, proxy });
+    },
   });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);

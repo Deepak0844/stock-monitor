@@ -410,6 +410,14 @@ describe("automatic login", () => {
     expect((await get(s.id)).name).toBe("Acme Supply");
   });
 
+  it("changes nothing when a refused stealth switch comes with other fields", async () => {
+    const s = await create();
+    const res = await call("PATCH", `/api/suppliers/${s.id}`, { name: "Renamed", stealth: true });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe("not_granted");
+    expect(await get(s.id)).toMatchObject({ name: "Acme Supply", stealth: false });
+  });
+
   it("saves login selectors and rejects bad ones", async () => {
     const s = await create();
     const bad = await call("PATCH", `/api/suppliers/${s.id}`, { loginSelectors: { nope: 1 } });

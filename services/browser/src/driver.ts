@@ -14,3 +14,7 @@ export function driverFor(stealth: boolean): Promise<Driver> {
   stealthDriver ??= import("patchright").then((m) => m.chromium as unknown as Driver);
   return stealthDriver;
 }
+
+const UTC_NAMES = new Set(["UTC", "Etc/UTC", "Etc/UCT", "UCT", "Zulu", "Etc/Zulu", "GMT", "Etc/GMT", "Etc/GMT0", "Etc/GMT+0", "Etc/GMT-0", "GMT0", "Etc/Universal", "Universal", "Etc/Greenwich", "Greenwich"]);
+/** Every name for UTC. A browser set to one of them is not at the owner's real place. */
+export const isUtcName = (zone: string) => UTC_NAMES.has(zone);
