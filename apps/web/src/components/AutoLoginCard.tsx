@@ -121,6 +121,12 @@ export function AutoLoginCard({ api, supplier, onChange }: { api: Api; supplier:
       onChange();
     });
 
+  const hideAutomation = (on: boolean) =>
+    void run("stealth", async () => {
+      await api.suppliers.setAutoLogin(supplier.id, { stealth: on });
+      onChange();
+    });
+
   const saveSelectors = (event: FormEvent) => {
     event.preventDefault();
     const filled = Object.fromEntries(SELECTOR_FIELDS.map(({ key }) => [key, selectors[key].trim()]).filter(([, v]) => v)) as LoginSelectors;
@@ -212,6 +218,29 @@ export function AutoLoginCard({ api, supplier, onChange }: { api: Api; supplier:
           {info}
         </p>
       )}
+
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <h3 className="text-sm font-semibold">Hide automation (stealth)</h3>
+          <p id="stealth-hint" className="text-sm text-muted-foreground">
+            Only for suppliers that refuse the normal login. The browser hides the signs that a program is driving it, for the login and for every visit to this supplier. Some suppliers’ terms forbid automated access, so using this is your call.
+          </p>
+          {!granted && <p className="text-sm font-medium">Needs “Allows automatic checks” to be Yes.</p>}
+        </div>
+        <label className="flex shrink-0 items-center gap-2 text-sm font-semibold">
+          <input
+            type="checkbox"
+            role="switch"
+            aria-label="Hide automation (stealth)"
+            aria-describedby="stealth-hint"
+            className="size-5 accent-primary disabled:opacity-60"
+            checked={supplier.stealth}
+            disabled={!granted || busy !== null}
+            onChange={(e) => hideAutomation(e.target.checked)}
+          />
+          {supplier.stealth ? "On" : "Off"}
+        </label>
+      </div>
 
       <div className="flex flex-col items-start gap-2">
         {supplier.lastAutoLoginAt && supplier.lastAutoLoginResult && (

@@ -80,7 +80,7 @@ function readFields(body: unknown, partial: boolean): { values: SupplierPatch; h
   return { values, hosts };
 }
 
-const AUTO_LOGIN_BODY = ["autoLogin", "loginSelectors", "loggedInMarker"];
+const AUTO_LOGIN_BODY = ["autoLogin", "stealth", "loginSelectors", "loggedInMarker"];
 const NO_CREDENTIALS = () => new AppError(409, "no_credentials", "Save a username and password first.");
 const NOT_GRANTED = () => new AppError(409, "not_granted", "Mark this supplier as allowing automatic checks first.");
 
@@ -144,6 +144,10 @@ export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit
         if (typeof input.autoLogin !== "boolean") throw invalid();
         auto.autoLogin = input.autoLogin;
       }
+      if ("stealth" in input) {
+        if (typeof input.stealth !== "boolean") throw invalid();
+        auto.stealth = input.stealth;
+      }
       if ("loginSelectors" in input) {
         if (input.loginSelectors !== null && !isLoginSelectors(input.loginSelectors)) throw invalid();
         auto.loginSelectors = input.loginSelectors as typeof auto.loginSelectors;
@@ -161,10 +165,10 @@ export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit
     const hasRest = !(typeof rest === "object" && rest !== null && Object.keys(rest).length === 0 && Object.keys(auto).length > 0);
     const values = hasRest ? await checked(rest, true) : {};
     // Refuse before anything is written, so a refused request changes nothing.
-    if (auto.autoLogin) {
+    if (auto.autoLogin || auto.stealth) {
       const current = await repo.get(request.params.id);
       if (!current) throw NOT_FOUND();
-      if (credentials && !(await credentials.savedAt(current.id))) throw NO_CREDENTIALS();
+      if (auto.autoLogin && credentials && !(await credentials.savedAt(current.id))) throw NO_CREDENTIALS();
       if (current.automationPermission !== "granted") throw NOT_GRANTED();
     }
     if (!hasRest || Object.keys(values).length > 0) {

@@ -49,7 +49,7 @@ export async function handleCapture(deps: CaptureDeps, captureId: string): Promi
   } catch {
     return fail("session_unreadable");
   }
-  const outcome = await browser.capture({ url: mapping.url, loginUrl: supplier.loginUrl ?? undefined, ...(supplier.loggedInMarker ? { loggedInMarker: supplier.loggedInMarker } : {}), state, picture: true });
+  const outcome = await browser.capture({ url: mapping.url, loginUrl: supplier.loginUrl ?? undefined, ...(supplier.loggedInMarker ? { loggedInMarker: supplier.loggedInMarker } : {}), state, picture: true, ...(supplier.stealth ? { stealth: true } : {}) });
   if (!outcome.ok) return fail("browser_unavailable");
   if (NOT_A_PAGE.has(outcome.result)) return fail(outcome.result);
 

@@ -140,6 +140,16 @@ This lets the app log in to a supplier for you when the saved login has ended, s
 
 **Remove** deletes the saved details.
 
+### Hide automation (stealth), for a supplier that refuses the normal login
+
+Some suppliers turn the login away, or show a puzzle that fails even when you solve it, because the browser shows signs that a program is driving it. The **Hide automation (stealth)** switch on the Automatic login card hides those signs for that one supplier, for the login and for every visit to it. Nothing else is faked: the browser stays an ordinary window on the private screen, with the same saved profile, and the app still never solves a puzzle.
+
+- It needs **Allows automatic checks** to be Yes. It does not need a saved login, so you can use it with a hand login too.
+- It works only in profile mode (`VERIFY_MODE=profile`). Otherwise the browser log says `stealth ignored: it needs VERIFY_MODE=profile` and visits run as before.
+- It needs your real language and timezone, or the app refuses to start the browser for that visit and logs `stealth refused: timezone and language must be set`. Set `BROWSER_TIMEZONE` (it becomes the browser's `TZ`; for example `Asia/Kolkata`) and `BROWSER_LANGUAGE` (for example `en-IN`) in `.env`, then run `docker compose up -d browser`. The default, UTC (or any other name for it, such as `Etc/UTC` or `GMT`), counts as not set.
+- It uses the same sandbox as every other visit. If it ever fails to start, the browser log shows `login failed` or the check shows Cannot tell; switch it off and the supplier is checked as before.
+- The supplier's terms may forbid automated access whatever you switch on. Use it only where you accept that risk.
+
 ### What happens when a check needs a login
 
 If the saved login has ended, the app logs in with your saved details, then carries on with the check. If the login is still good, it does nothing.

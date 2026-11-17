@@ -332,6 +332,6 @@ What happens:
 ## Rules to keep during the pilot
 
 - Check the terms and record **Allowed** before anything is visited.
-- Never ask the app to solve a puzzle or hide that it is a program. It does neither.
+- Never ask the app to solve a puzzle. It never does. It does not hide that it is a program unless you switch on **Hide automation (stealth)** for a supplier that refuses the normal login. Use that switch only where the terms allow it: a supplier whose terms forbid automated access can ban the account whether or not it is hidden.
 - Start with one supplier and one link, then a few, then all.
 - Never put supplier names or addresses in files that go into the repository.

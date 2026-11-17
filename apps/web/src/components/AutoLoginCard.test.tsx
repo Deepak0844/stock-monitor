@@ -39,7 +39,7 @@ describe("Automatic login card", () => {
   it("disables the switch and says why when permission is not granted", () => {
     setup({ automationPermission: "unknown" });
     expect(screen.getByRole("switch", { name: "Automatic login" })).toBeDisabled();
-    expect(screen.getByText("Needs “Allows automatic checks” to be Yes.")).toBeInTheDocument();
+    expect(screen.getAllByText("Needs “Allows automatic checks” to be Yes.").length).toBeGreaterThan(0);
   });
 
   it("says a login that did not finish without claiming one was tried", () => {
@@ -52,6 +52,37 @@ describe("Automatic login card", () => {
     const { api, user } = setup({ ...granted, credentialsSavedAt: "2026-11-17T06:58:00.000Z" });
     await user.click(screen.getByRole("switch", { name: "Automatic login" }));
     expect(api.suppliers.setAutoLogin).toHaveBeenCalledWith(aSupplier().id, { autoLogin: true });
+  });
+
+  it("turns stealth on and off with its own switch, apart from automatic login", async () => {
+    const { api, user } = setup(granted);
+    const hide = screen.getByRole("switch", { name: "Hide automation (stealth)" });
+    expect(hide).not.toBeChecked();
+    await user.click(hide);
+    expect(api.suppliers.setAutoLogin).toHaveBeenCalledWith(aSupplier().id, { stealth: true });
+  });
+
+  it("shows stealth as on, and turns it off", async () => {
+    const { api, user } = setup({ ...granted, stealth: true });
+    const hide = screen.getByRole("switch", { name: "Hide automation (stealth)" });
+    expect(hide).toBeChecked();
+    await user.click(hide);
+    expect(api.suppliers.setAutoLogin).toHaveBeenCalledWith(aSupplier().id, { stealth: false });
+  });
+
+  it("disables stealth without permission, and it needs no saved login", () => {
+    setup({ automationPermission: "unknown" });
+    expect(screen.getByRole("switch", { name: "Hide automation (stealth)" })).toBeDisabled();
+    expect(screen.getAllByText("Needs “Allows automatic checks” to be Yes.")).toHaveLength(2); // one under each switch
+    cleanup();
+    setup(granted);
+    expect(screen.getByRole("switch", { name: "Hide automation (stealth)" })).toBeEnabled();
+  });
+
+  it("says plainly what stealth does and that the supplier's terms are the owner's call", () => {
+    setup(granted);
+    expect(screen.getByText(/only for suppliers that refuse the normal login/i)).toBeInTheDocument();
+    expect(screen.getByText(/terms forbid automated access/i)).toBeInTheDocument();
   });
 
   it("shows the refusal when the switch cannot be turned on", async () => {

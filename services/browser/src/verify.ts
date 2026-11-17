@@ -3,7 +3,7 @@ import type { Browser, BrowserContextOptions, Page } from "playwright";
 import { explainPage, looksLikeNotFound, type PageClass, type SessionState } from "@stock-monitor/supplier-session";
 import type { GuardProxy } from "./proxy.js";
 
-export type VerifyRequest = { url: string; loginUrl?: string; loggedInMarker?: string; state: SessionState };
+export type VerifyRequest = { url: string; loginUrl?: string; loggedInMarker?: string; state: SessionState; stealth?: boolean };
 /**
  * The answer. It says what the page was: never the address it ended on or its text. After an ok page only, `state` is the
  * session the browser ended with, so the worker can keep a session the supplier extended. It goes only to the worker.
@@ -14,7 +14,7 @@ export type VerifyOutcome = { result: PageClass; status: number | null; blockedR
  * heading are cut short. Never the page text, prices or stock.
  */
 export type CheckPageOutcome = VerifyOutcome & { finalUrl: string | null; title: string | null; heading: string | null; softNotFound: boolean; signal?: string };
-export type CheckPageRequest = { url: string; loginUrl?: string; loggedInMarker?: string; state: SessionState };
+export type CheckPageRequest = { url: string; loginUrl?: string; loggedInMarker?: string; state: SessionState; stealth?: boolean };
 export type VerifyOptions = { navigationTimeoutMs?: number; proxy: GuardProxy };
 
 const DEFAULT_TIMEOUT_MS = 20_000;

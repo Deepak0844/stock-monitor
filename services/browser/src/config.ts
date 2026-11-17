@@ -1,3 +1,5 @@
+import { isUtcName } from "./driver.js";
+
 export type Config = {
   token: string;
   port: number;
@@ -22,6 +24,8 @@ export type Config = {
   loginProfile: "fresh" | "persistent";
   /** The owner's real browser language, for example en-IN. Not set means Chromium's own default. */
   language: string | undefined;
+  /** The owner's real timezone, from TZ. The container's default, UTC, counts as not set. A stealth visit needs it and the language, or it is refused. */
+  timezone: string | undefined;
 };
 
 const MIN_TOKEN = 32;
@@ -97,6 +101,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     loginWindowMode: mode,
     verifyMode,
     language,
+    timezone: env.TZ === undefined || env.TZ === "" || isUtcName(env.TZ) ? undefined : env.TZ,
     loginProfile,
   };
 }

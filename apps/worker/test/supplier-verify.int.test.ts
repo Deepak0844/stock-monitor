@@ -139,6 +139,16 @@ describe("a session that works", () => {
     expect(verifies()[0]?.body).toEqual({ url: "https://shop.acme.example/account", loginUrl: "https://shop.acme.example/login", state });
   });
 
+  it("asks for the stealth browser in the session check of a stealth supplier, and only then", async () => {
+    await verifySupplierSession(deps(), acme);
+    expect(verifies()[0]?.body).not.toHaveProperty("stealth");
+    await suppliers().setPermission(acme, { status: "granted", note: null });
+    const on = await suppliers().setAutoLogin(acme, { stealth: true });
+    if (!on.ok) throw new Error("setup");
+    await verifySupplierSession(deps(), acme);
+    expect(verifies().at(-1)?.body).toMatchObject({ stealth: true });
+  });
+
   it("sends the supplier's logged-in marker with the check", async () => {
     await suppliers().setAutoLogin(acme, { loggedInMarker: "Log out" });
     await verifySupplierSession(deps(), acme);
