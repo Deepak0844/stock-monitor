@@ -50,6 +50,7 @@ const AFTER: Record<string, string | null> = {
   token: null,
   frame: null,
   banner: null,
+  banner2: null,
   modal: null,
   modalx: null,
   check: null,
@@ -75,7 +76,7 @@ async function body(req: IncomingMessage) {
 const userAndPasswordForm = (kase: string) => form(`/${kase}/login`, userAndPassword);
 /** A script that cancels the keystrokes of one box while `when` is true. */
 const drop = (name: string, when: string) =>
-  `<script>const t0=Date.now();document.querySelector("[name=${name}]").addEventListener("keydown",(e)=>{if(${when})e.preventDefault()},true)</script>`;
+  `<script>document.querySelector("[name=${name}]").addEventListener("keydown",(e)=>{if(${when})e.preventDefault()},true)</script>`;
 
 function startSite(): Promise<Server> {
   const server = createServer(async (req, res) => {
@@ -184,6 +185,9 @@ function startSite(): Promise<Server> {
         return html(page(`<p>Trade supplies.</p><button id="acct" type="button" style="width:30px;height:30px" onclick="document.getElementById('m').style.display='block'"><svg width="20" height="20"></svg></button><div id="m" style="display:none"><form method="post" action="/modalx/login">${userAndPassword}<input type="submit" value="Go"></form></div>`));
       case "frame":
         return step === "inner" ? html(page(form("/frame/login", userAndPassword, 'target="_top"'))) : html(page('<p>Log in below</p><iframe src="/frame/inner" width="600" height="400"></iframe>'));
+      // A banner over the button whose dismissal re-renders the form: the password box comes back empty.
+      case "banner2":
+        return html(page(`${form("/banner2/login", userAndPassword)}<div id="b" style="position:fixed;inset:0;background:rgba(0,0,0,.5)"><p>We use cookies</p><button type="button" onclick="document.getElementById('b').remove();document.querySelector('[name=password]').value=''">Accept all</button></div>`));
       case "banner":
         return html(page(`${form("/banner/login", userAndPassword)}<div id="b" style="position:fixed;inset:0;background:rgba(0,0,0,.5)"><p>We use cookies</p><button type="button" onclick="fetch('/banner/accepted');document.getElementById('b').remove()">Accept all</button></div>`));
       case "acct": return html(page(form("/acct/login", acctForm)));
@@ -225,10 +229,10 @@ afterAll(async () => {
 });
 
 /** A new checker with its own, empty profile folder, so cases do not share a login. */
-const checker = (log?: (line: string) => void, settleMs = 3000) => {
+const checker = (log?: (line: string) => void, settleMs = 3000, loginDeadlineMs?: number) => {
   const dir = mkdtempSync(join(tmpdir(), "sm-test-login-"));
   dirs.push(dir);
-  return Object.assign(createProfileChecker({ proxy, sandbox: !process.env.CI, headless: !process.env.DISPLAY, baseDir: dir, settleMs, loginStepMs: 5000, log }), { dir });
+  return Object.assign(createProfileChecker({ proxy, sandbox: !process.env.CI, headless: !process.env.DISPLAY, baseDir: dir, settleMs, loginStepMs: 5000, loginDeadlineMs, log }), { dir });
 };
 const ask = (kase: string, extra: Partial<LoginRequest> = {}): LoginRequest => ({
   loginUrl: `${base}/${kase}/login`, checkUrl: `${base}/account`, username: USER, password: PASSWORD, stealth: false, ...extra,
@@ -277,8 +281,20 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     expect((await checker().login(ask("frame"))).result).toBe("ok");
   });
   it("cookie banner", async () => {
+    posts.banner = [];
     expect((await checker().login(ask("banner"))).result).toBe("ok");
     expect(events["banner/accepted"]).toBe(1);
+    expect(posts.banner.length).toBe(1);
+  });
+  it("a banner whose dismissal clears the password box: unknown, nothing is sent", async () => {
+    posts.banner2 = [];
+    expect((await checker().login(ask("banner2"))).result).toBe("unknown");
+    expect(posts.banner2.length).toBe(0);
+  });
+  it("past the login deadline nothing is typed or pressed", async () => {
+    posts.one = [];
+    expect((await checker(undefined, 3000, 1).login(ask("one"))).result).toBe("unknown");
+    expect(posts.one.length).toBe(0);
   });
   it("stay signed in", async () => {
     expect((await checker().login(ask("stay"))).result).toBe("ok");

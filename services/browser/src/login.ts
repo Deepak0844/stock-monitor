@@ -173,13 +173,13 @@ const typingDelay = () => 40 + Math.floor(Math.random() * 81);
 /** Typing takes as long as the text is long: the timeout grows with it, but a stuck box still fails. */
 const type = (field: Locator, value: string) => field.pressSequentially(value, { delay: typingDelay(), timeout: 5000 + value.length * 200 });
 
-/** Whether the box holds exactly `want` (an email box may trim). A yes or no only: the value never leaves the page. */
-const holds = (field: Locator, want: string) =>
+/** Whether the box holds exactly `want`; only the username box may be trimmed (an email box does). A yes or no: the value never leaves the page. */
+const holds = (field: Locator, want: string, trimOk = false) =>
   field
-    .evaluate((el, w) => {
+    .evaluate((el, { w, trimOk }) => {
       const box = el as HTMLInputElement;
-      return box.value === w || (box.type === "email" && box.value === w.trim());
-    }, want, { timeout: 5000 })
+      return box.value === w || (trimOk && box.type === "email" && box.value === w.trim());
+    }, { w: want, trimOk }, { timeout: 5000 })
     .catch(() => false);
 
 /**
@@ -187,7 +187,7 @@ const holds = (field: Locator, want: string) =>
  * opened can swallow the first keystrokes. Nothing is submitted yet, so a short box is cleared and typed again, twice at most.
  * Only a yes or no leaves the page, never the value. false: the box still differs, so nothing may be submitted.
  */
-async function typeVerified(page: Page, field: Locator, value: string): Promise<boolean> {
+async function typeVerified(page: Page, field: Locator, value: string, trimOk = false): Promise<boolean> {
   await page.bringToFront().catch(() => {});
   // Wait (3 s at most) for the page to be loaded and the box to hold the focus before the first keystroke.
   const ready = Date.now() + 3000;
@@ -206,19 +206,22 @@ async function typeVerified(page: Page, field: Locator, value: string): Promise<
     } catch {
       // checked below
     }
-    if (await holds(field, value)) return true;
+    if (await holds(field, value, trimOk)) return true;
   }
   return false;
 }
 
-export type StepOptions = { settleMs: number; stepWaitMs?: number; maxSteps?: number };
+export type StepOptions = { settleMs: number; stepWaitMs?: number; maxSteps?: number; deadlineMs?: number };
 
 /**
  * Logs in on `page`, which is already in the supplier's profile: open the login page, run the step loop, read the page after
  * the password, confirm on `checkUrl`. Returns only the result; the caller reads the session when it is `ok`.
  */
-export async function runLogin(page: Page, request: LoginRequest, { settleMs, stepWaitMs = 15_000, maxSteps = 5 }: StepOptions): Promise<LoginResult> {
+export async function runLogin(page: Page, request: LoginRequest, { settleMs, stepWaitMs = 15_000, maxSteps = 5, deadlineMs = 150_000 }: StepOptions): Promise<LoginResult> {
   const selectors = request.selectors ?? {};
+  /** Past this, nothing more is typed or pressed. Never checked after the submit press: from there the login only waits and decides. */
+  const deadline = Date.now() + deadlineMs;
+  const expired = () => Date.now() > deadline;
   let status: number | null = null;
   /** Every frame navigation, in order: what the step and settle waits look for. */
   const navigated: Frame[] = [];
@@ -290,7 +293,8 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
    * A click that, once per login, clears a cookie banner or popup that covers its target. It never waits for the page it
    * opens: a slow supplier would outlast the click's timeout. The step and settle waits after it do that waiting.
    */
-  const click = async (target: Locator) => {
+  const stale = Symbol("a typed box changed");
+  const click = async (target: Locator, verify?: () => Promise<boolean>) => {
     try {
       await target.click({ timeout: 3000, noWaitAfter: true });
     } catch (error) {
@@ -299,6 +303,8 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
       const consent = await findButton(page, whole(CONSENT_WORDS));
       if (!consent) throw error;
       await consent.click({ timeout: 3000, noWaitAfter: true });
+      // Dismissing a banner can re-render the form: the typed boxes are checked again before the second, unchecked click.
+      if (verify && !(await verify())) throw stale;
       await target.click({ timeout: 3000, noWaitAfter: true });
     }
   };
@@ -362,6 +368,7 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
     let typedAccount = false;
     let sent = { at: 0, navs: 0, frame: page.mainFrame() };
     for (let step = 0; step < maxSteps && !submitted; step++) {
+      if (expired()) return "unknown";
       if (await challengeVisible(page)) return "captcha";
       const f = await findFields(page, selectors);
       // A code box counts only on a step with no username or password box: a login form can sit next to a shop's other boxes.
@@ -400,19 +407,19 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
       const frame = (f.password ?? f.username ?? f.account)!.frame;
       if (f.account?.empty) {
         if (!request.account) return "form_not_found"; // the page needs an account number and none is saved
-        if (!(await typeVerified(page, f.account.field, request.account))) return "unknown";
+        if (expired() || !(await typeVerified(page, f.account.field, request.account))) return "unknown";
         typed.push({ field: f.account.field, value: request.account });
         typedAccount = true;
         last = f.account.field;
       }
       if (f.username?.empty) {
-        if (!(await typeVerified(page, f.username.field, request.username))) return "unknown";
+        if (expired() || !(await typeVerified(page, f.username.field, request.username, true))) return "unknown";
         typed.push({ field: f.username.field, value: request.username });
         typedUsername = true;
         last = f.username.field;
       }
       if (f.password) {
-        if (!(await typeVerified(page, f.password.field, request.password))) return "unknown";
+        if (expired() || !(await typeVerified(page, f.password.field, request.password))) return "unknown";
         typed.push({ field: f.password.field, value: request.password });
         last = f.password.field;
         const remember = await findCheckbox(frame, within(REMEMBER_ME_WORDS));
@@ -430,10 +437,21 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
       const requestsBefore = requests.length;
       const site = siteOf(frame.url());
       const password = f.password?.field;
+      if (expired()) return "unknown";
+      const verify = async () => {
+        for (const t of typed) if (!(await holds(t.field, t.value, t.field === f.username?.field))) return false;
+        return true;
+      };
       // A remember-me click, a re-render or a lost focus can change a box: every typed box is checked again right before the press.
-      for (const t of typed) if (!(await holds(t.field, t.value))) return "unknown";
+      if (!(await verify())) return "unknown";
       // A press the page never received sends nothing: the result is unknown, never a second press.
-      const changed = await afterAction(() => (next ? click(next) : target.press("Enter", { noWaitAfter: true })), submitWait, f.password ? undefined : frame);
+      let changed: boolean;
+      try {
+        changed = await afterAction(() => (next ? click(next, verify) : target.press("Enter", { noWaitAfter: true })), submitWait, f.password ? undefined : frame);
+      } catch (error) {
+        if (error === stale) return "unknown";
+        throw error;
+      }
       // Too many requests: the supplier is busy, not refusing the login.
       if (status === 429) return "unreachable";
       // Nothing was sent: the page is not the supplier's answer, so it says nothing about the password. Another frame
