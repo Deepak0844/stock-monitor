@@ -129,7 +129,7 @@ This lets the app log in to a supplier for you when the saved login has ended, s
 1. **Check the supplier's terms.** Some suppliers forbid automated access. If you use automatic login, the supplier may notice and ban the account. This is your decision, not the app's.
 2. **Set `VERIFY_MODE=profile` in `.env`**, then run `docker compose up -d`. The app logs in inside the supplier's saved browser, so it needs this mode.
 3. **On the supplier's Edit page, set "Allows automatic checks" to Yes.** Automatic login stays switched off until you do.
-4. **We suggest connecting by hand once first** (see "Connecting a supplier"), so the supplier gets to know the app's browser. It is not required.
+4. **We suggest connecting by hand once first** (see "Connecting a supplier"), so the supplier gets to know the app's browser. It is not required. If you have never connected the supplier, press **Test login now** once after turning automatic login on. Scheduled checks only start once the supplier has a saved login, and a successful test login gives it one.
 
 ### Turning it on
 
