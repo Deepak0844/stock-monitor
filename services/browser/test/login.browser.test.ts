@@ -10,7 +10,7 @@ import { createGuard } from "../src/guard.js";
 import { startGuardProxy, type GuardProxy } from "../src/proxy.js";
 import { createProfileChecker } from "../src/profile-check.js";
 import { profileDirFor } from "../src/profile-store.js";
-import type { LoginRequest } from "../src/login.js";
+import { FORM_WAIT_MS, type LoginRequest } from "../src/login.js";
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 60_000 });
 const linux = process.platform === "linux";
@@ -41,6 +41,7 @@ const AFTER: Record<string, string | null> = {
   dupbox: null,
   swaptype: null,
   latebox: null,
+  verylate: null,
   latechoice: null,
   slow: null,
   slower: null,
@@ -56,6 +57,7 @@ const AFTER: Record<string, string | null> = {
   token: null,
   frame: null,
   banner: null,
+  bannerok: null,
   banner2: null,
   modal: null,
   modalx: null,
@@ -187,6 +189,9 @@ function startSite(): Promise<Server> {
       // A page still loading its boxes: the form is put in by a script 2.5 s after the page loaded.
       case "latebox":
         return html(page(`<p>Trade supplies.</p><div id="slot"></div><script>setTimeout(()=>{document.getElementById("slot").innerHTML=${JSON.stringify(userAndPasswordForm("latebox"))}},2500)</script>`));
+      // Boxes that show only after 6 s: found with the default wait (10 s), which no other test uses to the full.
+      case "verylate":
+        return html(page(`<p>Trade supplies.</p><div id="slot"></div><script>setTimeout(()=>{document.getElementById("slot").innerHTML=${JSON.stringify(userAndPasswordForm("verylate"))}},6000)</script>`));
       case "latechoice":
         return html(page(`<div id="slot"></div><script>setTimeout(()=>{document.getElementById("slot").innerHTML=${JSON.stringify('<button type="button" onclick="document.getElementById(\'f\').style.display=\'block\';this.remove()">Use password</button><div id="f" style="display:none">' + userAndPasswordForm("latechoice") + "</div>")}},2500)</script>`));
       case "neverbox": return html(page("<p>Trade supplies. Nothing to see.</p>"));
@@ -237,6 +242,9 @@ function startSite(): Promise<Server> {
         return html(page(`${form("/banner2/login", userAndPassword)}<div id="b" style="position:fixed;inset:0;background:rgba(0,0,0,.5)"><p>We use cookies</p><button type="button" onclick="document.getElementById('b').remove();document.querySelector('[name=password]').value=''">Accept all</button></div>`));
       case "banner":
         return html(page(`${form("/banner/login", userAndPassword)}<div id="b" style="position:fixed;inset:0;background:rgba(0,0,0,.5)"><p>We use cookies</p><button type="button" onclick="fetch('/banner/accepted');document.getElementById('b').remove()">Accept all</button></div>`));
+      // A cookie popup whose one button says only "OK", the wording some popups use, over the whole page.
+      case "bannerok":
+        return html(page(`${form("/bannerok/login", userAndPassword)}<div id="b" style="position:fixed;inset:0;background:rgba(0,0,0,.5)"><p>We use cookies</p><button type="button" onclick="fetch('/bannerok/accepted');document.getElementById('b').remove()">OK</button></div>`));
       case "acct": return html(page(form("/acct/login", acctForm)));
       case "check":
         return step === "form" ? html(page(form("/check/login", userAndPassword))) : html(page("<p>Checking your browser before accessing the site.</p><script>setTimeout(()=>location.href='/check/form',3000)</script>", "Just a moment..."));
@@ -333,6 +341,16 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     expect(events["banner/accepted"]).toBe(1);
     expect(posts.banner.length).toBe(1);
   });
+  it("a cookie popup whose button only says OK is closed, and the login goes through once", async () => {
+    posts.bannerok = [];
+    const lines: string[] = [];
+    const out = await checker((line) => lines.push(line)).login(ask("bannerok"));
+    expect(out.result, `the log said: ${lines.join(" | ")}`).toBe("ok");
+    expect(events["bannerok/accepted"]).toBe(1);
+    expect(posts.bannerok.length).toBe(1);
+    expect(posts.bannerok[0]!.get("username")).toBe(USER);
+    expect(posts.bannerok[0]!.get("password")).toBe(PASSWORD);
+  });
   it("a banner whose dismissal clears the password box: unknown, nothing is sent", async () => {
     posts.banner2 = [];
     expect((await checker().login(ask("banner2"))).result).toBe("unknown");
@@ -344,6 +362,16 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     expect((await checker((line) => lines.push(line), 3000, 1).login(ask("one"))).result).toBe("unknown");
     expect(posts.one.length).toBe(0);
     expect(lines).toContain("login result: unknown (deadline)");
+  });
+  it("a page that shows its boxes 6 s late is still found with the default wait, which is 10 s", async () => {
+    expect(FORM_WAIT_MS).toBe(10_000);
+    posts.verylate = [];
+    const lines: string[] = [];
+    const out = await checker((line) => lines.push(line)).login(ask("verylate"));
+    expect(out.result, `the log said: ${lines.join(" | ")}`).toBe("ok");
+    expect(posts.verylate.length).toBe(1);
+    expect(posts.verylate[0]!.get("username")).toBe(USER);
+    expect(posts.verylate[0]!.get("password")).toBe(PASSWORD);
   });
   it("a page that shows its boxes 2.5 s late: ok, one POST with the exact values", async () => {
     posts.latebox = [];

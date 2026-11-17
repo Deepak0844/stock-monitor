@@ -10,6 +10,9 @@ describe("runLogin under tsx", () => {
     const probe = fileURLToPath(new URL("./login-probe.ts", import.meta.url));
     const out = execFileSync("node", ["--import", "tsx", probe], { encoding: "utf8", timeout: 90_000 });
     const seen = JSON.parse(out.trim().split("\n").pop() as string);
-    expect(seen).toEqual({ result: "ok", why: [], posts: ["true/true"] });
+    expect(seen).toMatchObject({ result: "ok", why: [], posts: ["true/true"] });
+    // Without the shim, a page script with a named inner function fails under tsx: that is why the login installs the shim. If this
+    // is false, tsx has stopped wrapping names; check, then remove the shim (page-shim.ts) deliberately.
+    expect(seen.bareFails, "tsx no longer wraps named functions in __name: the page shim may no longer be needed").toBe(true);
   }, 120_000);
 });
