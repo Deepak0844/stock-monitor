@@ -170,7 +170,17 @@ async function challengeVisible(page: Page): Promise<boolean> {
 }
 
 const typingDelay = () => 40 + Math.floor(Math.random() * 81);
-const type = (field: Locator, value: string) => field.pressSequentially(value, { delay: typingDelay() });
+/** Typing takes as long as the text is long: the timeout grows with it, but a stuck box still fails. */
+const type = (field: Locator, value: string) => field.pressSequentially(value, { delay: typingDelay(), timeout: 5000 + value.length * 200 });
+
+/** Whether the box holds exactly `want` (an email box may trim). A yes or no only: the value never leaves the page. */
+const holds = (field: Locator, want: string) =>
+  field
+    .evaluate((el, w) => {
+      const box = el as HTMLInputElement;
+      return box.value === w || (box.type === "email" && box.value === w.trim());
+    }, want, { timeout: 5000 })
+    .catch(() => false);
 
 /**
  * Types `value` and checks, inside the page, that the box holds exactly it (an email box may trim): a browser that has just
@@ -189,15 +199,14 @@ async function typeVerified(page: Page, field: Locator, value: string): Promise<
     await page.waitForTimeout(100);
   }
   for (let attempt = 0; attempt < 3; attempt++) {
-    await field.fill("");
-    await type(field, value);
-    const same = await field
-      .evaluate((el, want) => {
-        const box = el as HTMLInputElement;
-        return box.value === want || (box.type === "email" && box.value === want.trim());
-      }, value)
-      .catch(() => false);
-    if (same) return true;
+    // An error here could carry the typed text: it is dropped, and the box is simply checked.
+    try {
+      await field.fill("", { timeout: 5000 });
+      await type(field, value);
+    } catch {
+      // checked below
+    }
+    if (await holds(field, value)) return true;
   }
   return false;
 }
@@ -386,20 +395,25 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
       if (selectors.password && !f.password && (!f.username?.empty || typedUsername)) return "form_not_found";
 
       let last: Locator | null = null;
+      /** The boxes typed in this step and what they must still hold when the button is pressed. */
+      const typed: { field: Locator; value: string }[] = [];
       const frame = (f.password ?? f.username ?? f.account)!.frame;
       if (f.account?.empty) {
         if (!request.account) return "form_not_found"; // the page needs an account number and none is saved
         if (!(await typeVerified(page, f.account.field, request.account))) return "unknown";
+        typed.push({ field: f.account.field, value: request.account });
         typedAccount = true;
         last = f.account.field;
       }
       if (f.username?.empty) {
         if (!(await typeVerified(page, f.username.field, request.username))) return "unknown";
+        typed.push({ field: f.username.field, value: request.username });
         typedUsername = true;
         last = f.username.field;
       }
       if (f.password) {
         if (!(await typeVerified(page, f.password.field, request.password))) return "unknown";
+        typed.push({ field: f.password.field, value: request.password });
         last = f.password.field;
         const remember = await findCheckbox(frame, within(REMEMBER_ME_WORDS));
         if (remember) await click(remember);
@@ -416,28 +430,10 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
       const requestsBefore = requests.length;
       const site = siteOf(frame.url());
       const password = f.password?.field;
-      // A click the page never received (a window that has just opened) cannot double-send: it is made once more.
-      const button = next ? await next.elementHandle({ timeout: 1000 }).catch(() => null) : null;
-      if (button) {
-        await frame
-          .evaluate(
-            ({ b, key }) => {
-              const w = window as unknown as Record<string, boolean>;
-              w[key] = false;
-              window.addEventListener("click", (e) => b.contains(e.target as Node) && void (w[key] = true), { capture: true });
-            },
-            { b: button, key: REACHED },
-          )
-          .catch(() => {});
-      }
-      const reached = () => frame.evaluate((k) => (window as unknown as Record<string, boolean>)[k] === true, REACHED).catch(() => true);
-      const changed = await afterAction(async () => {
-        await (next ? click(next) : target.press("Enter", { noWaitAfter: true }));
-        if (!password || !button) return;
-        const end = Date.now() + 1500;
-        while (Date.now() < end && !(await reached()) && requests.length === requestsBefore) await page.waitForTimeout(100);
-        if (!(await reached()) && requests.length === requestsBefore) await click(next!);
-      }, submitWait, f.password ? undefined : frame);
+      // A remember-me click, a re-render or a lost focus can change a box: every typed box is checked again right before the press.
+      for (const t of typed) if (!(await holds(t.field, t.value))) return "unknown";
+      // A press the page never received sends nothing: the result is unknown, never a second press.
+      const changed = await afterAction(() => (next ? click(next) : target.press("Enter", { noWaitAfter: true })), submitWait, f.password ? undefined : frame);
       // Too many requests: the supplier is busy, not refusing the login.
       if (status === 429) return "unreachable";
       // Nothing was sent: the page is not the supplier's answer, so it says nothing about the password. Another frame
@@ -500,8 +496,6 @@ function siteOf(url: string): string {
     return "";
   }
 }
-
-const REACHED = "__stockMonitorClickReached";
 
 async function firstEmptyPassword(page: Page): Promise<boolean> {
   for (const frame of page.frames()) {

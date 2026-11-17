@@ -18,6 +18,7 @@ const linux = process.platform === "linux";
 const USER = "buyer@example.test";
 const PASSWORD = "correct horse";
 const LONG_PASSWORD = `p"'😀${"x".repeat(190)}`;
+const WEIRD_PASSWORD = `p "'😀 ${"x".repeat(120)}`; // a space, both quotes, an emoji, 100+ characters
 const ACCOUNT = "C-10442";
 const FILLER = "Welcome back. ".repeat(30); // enough text for the classifier to call a page real
 
@@ -30,7 +31,7 @@ const page = (body: string, title = "Supplier") =>
 const form = (action: string, inner: string, extra = "") =>
   `<form method="post" action="${action}" ${extra}>${inner}<button type="submit">Sign in</button></form>`;
 const userAndPassword = '<label>Email <input type="email" name="username"></label><label>Password <input type="password" name="password"></label>';
-const good = (b: URLSearchParams) => b.get("username") === USER && [PASSWORD, LONG_PASSWORD].includes(b.get("password") ?? "");
+const good = (b: URLSearchParams) => b.get("username") === USER && [PASSWORD, LONG_PASSWORD, WEIRD_PASSWORD].includes(b.get("password") ?? "");
 
 /** What a correct password leads to, per case. `null` = log in and go to the account page. */
 const AFTER: Record<string, string | null> = {
@@ -43,6 +44,7 @@ const AFTER: Record<string, string | null> = {
   jsbtn: null,
   dropuser: null,
   droppass: null,
+  dropweird: null,
   dropalways: null,
   droppassalways: null,
   token: null,
@@ -150,10 +152,12 @@ function startSite(): Promise<Server> {
         return html(page(`<div>${userAndPassword}<button type="button" onclick="const b=new URLSearchParams({username:document.querySelector('[name=username]').value,password:document.querySelector('[name=password]').value});setTimeout(()=>fetch('/jsbtn/login',{method:'POST',body:b}).then(()=>location.href='/account'),3000)">Sign in</button></div>`));
       // Keystrokes swallowed on a window that has just opened: the username box drops every key in the first second after load.
       case "dropuser":
-        return html(page(userAndPasswordForm("dropuser") + drop("username", "Date.now()-t0<1000")));
+        return html(page(userAndPasswordForm("dropuser") + drop("username", "(window.n=(window.n||0)+1)<=6")));
       // The password box drops its first six keystrokes, then works.
       case "droppass":
         return html(page(userAndPasswordForm("droppass") + drop("password", "(window.n=(window.n||0)+1)<=6")));
+      case "dropweird":
+        return html(page(userAndPasswordForm("dropweird") + drop("password", "(window.n=(window.n||0)+1)<=6")));
       // A box that always loses characters: nothing may be sent.
       case "dropalways":
         return html(page(userAndPasswordForm("dropalways") + drop("username", "(window.n=(window.n||0)+1)%3==0")));
@@ -333,10 +337,10 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     expect((await checker().login(ask("wrong", { password: "nope" }))).result).toBe("wrong_password");
     expect(posts.wrong.length).toBe(1);
   });
-  it("a first click that never reaches the button: the click is made once more, one POST", async () => {
+  it("a click lost to a cover is unknown: nothing is sent and the click is not repeated", async () => {
     posts.lazy = [];
-    expect((await checker().login(ask("lazy"))).result).toBe("ok");
-    expect(posts.lazy.length).toBe(1);
+    expect((await checker().login(ask("lazy"))).result).toBe("unknown");
+    expect(posts.lazy.length).toBe(0);
   });
   it("an invisible captcha that sends the form itself 3 s later is not sent again", async () => {
     posts.recap = [];
@@ -353,7 +357,7 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     expect((await checker(undefined, 8000).login(ask("jsbtn"))).result).toBe("ok");
     expect(posts.jsbtn.length).toBe(1);
   });
-  it("keystrokes lost in the first second: the box is typed again, one POST with the full username and password", async () => {
+  it("the first six keystrokes of the username box are lost: the box is typed again, one POST with the full username and password", async () => {
     posts.dropuser = [];
     expect((await checker().login(ask("dropuser"))).result).toBe("ok");
     expect(posts.dropuser.map((b) => [b.get("username"), b.get("password")])).toEqual([[USER, PASSWORD]]);
@@ -362,6 +366,11 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     posts.droppass = [];
     expect((await checker().login(ask("droppass"))).result).toBe("ok");
     expect(posts.droppass.map((b) => [b.get("username"), b.get("password")])).toEqual([[USER, PASSWORD]]);
+  });
+  it("a password with a space, quotes, an emoji and 100+ characters, its first keystrokes lost: sent once, exactly", async () => {
+    posts.dropweird = [];
+    expect((await checker().login(ask("dropweird", { password: WEIRD_PASSWORD }))).result).toBe("ok");
+    expect(posts.dropweird.map((b) => b.get("password"))).toEqual([WEIRD_PASSWORD]);
   });
   it("a username box that always loses characters: nothing is sent", async () => {
     posts.dropalways = [];
