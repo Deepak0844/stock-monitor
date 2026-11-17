@@ -3,7 +3,7 @@ import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { notifications, suppliers } from "./schema.js";
 
 export type NotificationKind = "supplier_needs_reconnect" | "recipe_needs_review" | "proposal_needs_attention";
-export type NotificationReason = "login_required" | "captcha" | "blocked" | "unknown" | "page_changed";
+export type NotificationReason = "login_required" | "captcha" | "blocked" | "unknown" | "page_changed" | "code_required" | "wrong_password" | "account_locked" | "form_not_found";
 
 export type NotificationRecord = {
   id: string;

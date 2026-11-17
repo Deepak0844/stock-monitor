@@ -24,7 +24,8 @@ export type SupplierVerifyDeps = {
  * about stock, and nothing here could be mistaken for a stock figure.
  */
 /** The reasons a session check can raise. (The other reason, page_changed, belongs to stock rules.) */
-export type SessionReason = Exclude<NotificationReason, "page_changed">;
+// The auto-login reasons are raised by the auto-login flow, not by a session check.
+export type SessionReason = Exclude<NotificationReason, "page_changed" | "code_required" | "wrong_password" | "account_locked" | "form_not_found">;
 
 export type CheckOutcome =
   | { kind: "skipped"; reason: "no_supplier" | "no_session" }

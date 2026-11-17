@@ -1,6 +1,7 @@
 import { and, asc, count, eq, ilike, or, sql, type SQL } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
-import { suppliers } from "./schema.js";
+import type { LoginSelectors } from "@stock-monitor/supplier-session";
+import { supplierCredentials, suppliers } from "./schema.js";
 
 export type SupplierRecord = {
   id: string;
@@ -26,6 +27,13 @@ export type SupplierRecord = {
   /** The run an early session check was queued for, so each run gets at most one. */
   sessionPrecheckFor: Date | null;
   failureCount: number;
+  autoLogin: boolean;
+  stealth: boolean;
+  loginSelectors: LoginSelectors | null;
+  autoLoginFailures: number;
+  autoLoginPausedReason: "wrong_password" | "account_locked" | "too_many_failures" | null;
+  lastAutoLoginAt: Date | null;
+  lastAutoLoginResult: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -157,8 +165,62 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
         automationPermission: input.status,
         permissionNote: input.note,
         permissionSetAt: sql`now()`,
+        // Both need permission, so losing it turns them off in the same statement.
+        ...(input.status !== "granted" ? { autoLogin: false, stealth: false } : {}),
         ...(input.pauseSeconds !== undefined ? { checkPauseSeconds: input.pauseSeconds } : {}),
       }),
+
+    /** Changes the automatic login settings. Turning it on needs `granted` permission and saved credentials. */
+    async setAutoLogin(
+      id: string,
+      patch: { autoLogin?: boolean; stealth?: boolean; loginSelectors?: LoginSelectors | null },
+    ): Promise<SupplierWrite | { ok: false; reason: "not_granted" | "no_credentials" }> {
+      const current = await one(id);
+      if (!current) return { ok: false, reason: "not_found" };
+      if (patch.autoLogin || patch.stealth) {
+        if (current.automationPermission !== "granted") return { ok: false, reason: "not_granted" };
+      }
+      if (patch.autoLogin) {
+        const [row] = await db.select({ id: supplierCredentials.supplierId }).from(supplierCredentials).where(eq(supplierCredentials.supplierId, id)).limit(1);
+        if (!row) return { ok: false, reason: "no_credentials" };
+      }
+      const row = await set(id, {
+        ...(patch.autoLogin !== undefined ? { autoLogin: patch.autoLogin } : {}),
+        ...(patch.stealth !== undefined ? { stealth: patch.stealth } : {}),
+        ...(patch.loginSelectors !== undefined ? { loginSelectors: patch.loginSelectors } : {}),
+      });
+      return row ? { ok: true, supplier: row } : { ok: false, reason: "not_found" };
+    },
+
+    /** Records one automatic login attempt and what it means for the failure count and the pause. */
+    async recordAutoLogin(
+      id: string,
+      result: string,
+      outcome: "reset" | "failed" | "pause_wrong_password" | "pause_account_locked" | "unchanged",
+    ): Promise<SupplierRecord> {
+      const failures = suppliers.autoLoginFailures;
+      const values = {
+        lastAutoLoginAt: sql`now()`,
+        lastAutoLoginResult: result,
+        ...(outcome === "reset" ? { autoLoginFailures: 0 } : {}),
+        ...(outcome === "failed"
+          ? {
+              autoLoginFailures: sql`${failures} + 1`,
+              autoLoginPausedReason: sql`case when ${failures} + 1 >= 2 then 'too_many_failures' else ${suppliers.autoLoginPausedReason} end`,
+            }
+          : {}),
+        ...(outcome === "pause_wrong_password" ? { autoLoginFailures: sql`${failures} + 1`, autoLoginPausedReason: "wrong_password" } : {}),
+        ...(outcome === "pause_account_locked" ? { autoLoginFailures: sql`${failures} + 1`, autoLoginPausedReason: "account_locked" } : {}),
+      };
+      const row = await set(id, values);
+      if (!row) throw new Error("supplier not found");
+      return row;
+    },
+
+    /** The owner lifts an automatic login pause. */
+    async resumeAutoLogin(id: string): Promise<boolean> {
+      return (await set(id, { autoLoginFailures: 0, autoLoginPausedReason: null })) !== null;
+    },
 
     /** The region label stock checks look for on this supplier's pages. null clears it. */
     setRegion: (id: string, region: string | null) => set(id, { defaultRegion: region }),

@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import type { LoginSelectors } from "@stock-monitor/supplier-session";
 import {
   bigint,
   bigserial,
@@ -160,10 +161,30 @@ export const suppliers = pgTable(
     sessionPrecheckFor: timestamp("session_precheck_for", { withTimezone: true }),
     /** Failed runs in a row, for the retry delay. */
     failureCount: integer("failure_count").notNull().default(0),
+    /** Log in again by itself when the session ends. Needs saved credentials and `granted` permission. */
+    autoLogin: boolean("auto_login").notNull().default(false),
+    /** Use the stealth browser for automatic logins. Needs `granted` permission. */
+    stealth: boolean("stealth").notNull().default(false),
+    loginSelectors: jsonb("login_selectors").$type<LoginSelectors>(),
+    /** Failed automatic logins in a row. */
+    autoLoginFailures: integer("auto_login_failures").notNull().default(0),
+    autoLoginPausedReason: text("auto_login_paused_reason"),
+    lastAutoLoginAt: timestamp("last_auto_login_at", { withTimezone: true }),
+    lastAutoLoginResult: text("last_auto_login_result"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
+    check("suppliers_auto_login_permission", sql`not ${t.autoLogin} or ${t.automationPermission} = 'granted'`),
+    check("suppliers_stealth_permission", sql`not ${t.stealth} or ${t.automationPermission} = 'granted'`),
+    check(
+      "suppliers_auto_login_paused_reason",
+      sql`${t.autoLoginPausedReason} is null or ${t.autoLoginPausedReason} in ('wrong_password', 'account_locked', 'too_many_failures')`,
+    ),
+    check(
+      "suppliers_last_auto_login_result",
+      sql`${t.lastAutoLoginResult} is null or ${t.lastAutoLoginResult} in ('ok', 'captcha', 'code_required', 'wrong_password', 'account_locked', 'blocked', 'form_not_found', 'unreachable', 'unknown')`,
+    ),
     check("suppliers_session_status", sql`${t.sessionStatus} in ('not_connected', 'connected', 'needs_reconnect', 'blocked')`),
     check("suppliers_automation_permission", sql`${t.automationPermission} in ('unknown', 'granted', 'not_granted')`),
     check("suppliers_check_pause", sql`${t.checkPauseSeconds} >= 1`),
@@ -229,6 +250,18 @@ export const supplierSessions = pgTable("supplier_sessions", {
   lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }),
 });
 
+// The supplier's login, sealed (AES-GCM) the same way a saved session is. Never read back except to log in.
+export const supplierCredentials = pgTable("supplier_credentials", {
+  supplierId: uuid("supplier_id")
+    .primaryKey()
+    .references(() => suppliers.id, { onDelete: "cascade" }),
+  ciphertext: text("ciphertext").notNull(),
+  iv: text("iv").notNull(),
+  tag: text("tag").notNull(),
+  keyId: text("key_id").notNull(),
+  savedAt: timestamp("saved_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 // A message for the dashboard. At most one is open for each kind and supplier, however many times the same
 // problem is found: the database enforces it. A resolved one is kept as history.
 export const notifications = pgTable(
@@ -249,7 +282,7 @@ export const notifications = pgTable(
   },
   (t) => [
     check("notifications_kind", sql`${t.kind} in ('supplier_needs_reconnect', 'recipe_needs_review', 'proposal_needs_attention')`),
-    check("notifications_reason", sql`${t.reason} in ('login_required', 'captcha', 'blocked', 'unknown', 'page_changed')`),
+    check("notifications_reason", sql`${t.reason} in ('login_required', 'captcha', 'blocked', 'unknown', 'page_changed', 'code_required', 'wrong_password', 'account_locked', 'form_not_found')`),
     uniqueIndex("notifications_one_open").on(t.kind, t.supplierId).where(sql`${t.resolvedAt} is null`),
   ],
 );
