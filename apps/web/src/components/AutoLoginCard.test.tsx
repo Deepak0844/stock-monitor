@@ -42,6 +42,12 @@ describe("Automatic login card", () => {
     expect(screen.getByText("Needs “Allows automatic checks” to be Yes.")).toBeInTheDocument();
   });
 
+  it("says a login that did not finish without claiming one was tried", () => {
+    setup({ ...granted, lastAutoLoginAt: "2026-11-17T06:58:00.000Z", lastAutoLoginResult: "unknown" });
+    expect(screen.getByText(/login did not finish \(nothing was sent if a box would not take the text\)/)).toBeInTheDocument();
+    expect(screen.queryByText(/not sure it worked/)).not.toBeInTheDocument();
+  });
+
   it("turns the switch on", async () => {
     const { api, user } = setup({ ...granted, credentialsSavedAt: "2026-11-17T06:58:00.000Z" });
     await user.click(screen.getByRole("switch", { name: "Automatic login" }));

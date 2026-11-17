@@ -15,7 +15,7 @@ const RESULT_WORDS: Record<AutoLoginResult, string> = {
   blocked: "blocked",
   form_not_found: "login form not found",
   unreachable: "could not reach the site",
-  unknown: "not sure it worked",
+  unknown: "login did not finish (nothing was sent if a box would not take the text)",
 };
 const PAUSE_WORDS: Record<NonNullable<Supplier["autoLoginPausedReason"]>, string> = {
   wrong_password: "The supplier refused the saved password",
