@@ -244,7 +244,8 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
    * is the point. The debugging channel is open for the whole login. The username and password are typed into the page only.
    */
   async function login(request: LoginRequest): Promise<LoginOutcome> {
-    const profile = profileDirFor(baseDir, request.loginUrl);
+    // Keyed by the site the checks visit, so a login page on another host still lands in the profile checks open.
+    const profile = profileDirFor(baseDir, request.checkUrl);
     if (!holdProfile(profile)) return { result: "unreachable" };
     try {
       // A new profile gets the preferences that stop Chromium from saving a typed password. An existing one is left as it is.

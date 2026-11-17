@@ -284,6 +284,8 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
       // An override that is not on the page is never guessed around.
       if (selectors.username && !f.username && !typedUsername) return "form_not_found";
       if (selectors.account && !f.account && request.account && !typedAccount) return "form_not_found";
+      // A password override that is missing is only fine on a username step of a two-step login, never after it.
+      if (selectors.password && !f.password && (!f.username?.empty || typedUsername)) return "form_not_found";
 
       let last: Locator | null = null;
       const frame = (f.password ?? f.username ?? f.account)!.frame;
@@ -307,6 +309,8 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
       }
       last ??= (f.password ?? f.username ?? f.account)!.field;
 
+      // Never submit with a visible password box left empty: a blank password can count as a failed sign-in.
+      if (!f.password && (await firstEmptyPassword(page))) return "form_not_found";
       const next = await nextButton(page, frame, last, selectors.submit);
       if (next === "missing") return "form_not_found";
       const target = last;
@@ -342,6 +346,15 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
     return "unknown";
   }
   return (await classifyHere(request.checkUrl)) === "ok" ? "ok" : "unknown";
+}
+
+async function firstEmptyPassword(page: Page): Promise<boolean> {
+  for (const frame of page.frames()) {
+    for (const el of await frame.locator('input[type="password"]').all().catch(() => [])) {
+      if ((await el.isVisible().catch(() => false)) && (await el.inputValue().catch(() => "")) === "") return true;
+    }
+  }
+  return false;
 }
 
 async function findCheckbox(frame: Frame, words: RegExp): Promise<Locator | null> {

@@ -3,12 +3,13 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createGuard } from "../src/guard.js";
 import { startGuardProxy, type GuardProxy } from "../src/proxy.js";
 import { createProfileChecker } from "../src/profile-check.js";
+import { profileDirFor } from "../src/profile-store.js";
 import type { LoginRequest } from "../src/login.js";
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 60_000 });
@@ -126,7 +127,7 @@ beforeAll(async () => {
   site = await startSite();
   const { port } = site.address() as AddressInfo;
   base = `http://127.0.0.1:${port}`;
-  proxy = await startGuardProxy(createGuard({ allowHosts: [`127.0.0.1:${port}`] }));
+  proxy = await startGuardProxy(createGuard({ allowHosts: [`127.0.0.1:${port}`, `localhost:${port}`] }));
 });
 afterAll(async () => {
   await proxy?.close();
@@ -138,7 +139,7 @@ afterAll(async () => {
 const checker = (log?: (line: string) => void) => {
   const dir = mkdtempSync(join(tmpdir(), "sm-test-login-"));
   dirs.push(dir);
-  return createProfileChecker({ proxy, sandbox: !process.env.CI, headless: !process.env.DISPLAY, baseDir: dir, settleMs: 3000, loginStepMs: 5000, log });
+  return Object.assign(createProfileChecker({ proxy, sandbox: !process.env.CI, headless: !process.env.DISPLAY, baseDir: dir, settleMs: 3000, loginStepMs: 5000, log }), { dir });
 };
 const ask = (kase: string, extra: Partial<LoginRequest> = {}): LoginRequest => ({
   loginUrl: `${base}/${kase}/login`, checkUrl: `${base}/account`, username: USER, password: PASSWORD, stealth: false, ...extra,
@@ -226,6 +227,18 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
   });
   it("selector override not found", async () => {
     expect((await checker().login(ask("one", { selectors: { username: "#nope" } }))).result).toBe("form_not_found");
+  });
+  it("password override not found: nothing is submitted", async () => {
+    posts.one = [];
+    expect((await checker().login(ask("one", { selectors: { password: "#nope" } }))).result).toBe("form_not_found");
+    expect(posts.one.length).toBe(0);
+  });
+  it("login on another host uses the profile of the site the checks visit", async () => {
+    const c = checker();
+    const request = ask("one", { loginUrl: base.replace("127.0.0.1", "localhost") + "/one/login" });
+    await c.login(request);
+    expect(existsSync(join(profileDirFor(c.dir, request.checkUrl), "Default", "Preferences"))).toBe(true);
+    expect(existsSync(profileDirFor(c.dir, request.loginUrl))).toBe(false);
   });
   it("exact typing", async () => {
     posts.one = [];
