@@ -380,6 +380,29 @@ Behavior (spec section 6 sketch, without the stealth row):
 - [ ] **Step 4: Commit** `docs: explain automatic login`.
 - [ ] **Step 5:** Push and open a PR into `develop` with a detailed description: summary, what changed, verification, risks, out of scope (stealth). Merge once CI is green.
 
+### Task 12: Logged-in marker
+
+Spec section 6b. Runs after the slice 1 final-review fix wave, before the slice 1 PR.
+
+**Files:**
+- Modify: `packages/db/src/schema.ts`, new migration `packages/db/drizzle/0017_logged_in_marker.sql`, `packages/db/src/supplier-repository.ts` (`SupplierRecord.loggedInMarker: string | null`, `setAutoLogin` patch accepts `loggedInMarker`)
+- Modify: `packages/supplier-session/src/classify.ts` (`PageFacts.loggedInMarker?: string`)
+- Modify: `services/browser/src/server.ts` (`loggedInMarker?` on `/check-page`, `/capture`, `/login`, 1–200 chars), `verify.ts`, `capture.ts`, `profile-check.ts`, `login.ts` (pass it to every `classifyPage` call)
+- Modify: `packages/browser-client/src/client.ts` (pass-through)
+- Modify: `apps/worker/src/auto-login.ts`, `extraction-check.ts`, `mapping-link-check.ts`, `supplier-verify.ts` (send `supplier.loggedInMarker ?? undefined`)
+- Modify: `apps/api/src/routes/suppliers.ts` (PATCH `loggedInMarker`: string 1–200 or null; returned in supplier JSON)
+- Modify: `apps/web/src/components/AutoLoginCard.tsx` (field in the advanced section, exact label "Only shows when logged in", hint "Text you see only when logged in, like 'Log out' or your account name")
+- Modify: `docs/deployment.md` (one paragraph in "Automatic login")
+
+**Interfaces:**
+- `classifyPage({ ..., loggedInMarker?: string })`: if set and the result would be `ok`, return `login_required` with signal `marker_missing` unless `normalise(page.text)` contains `normalise(loggedInMarker)`.
+
+- [ ] **Step 1: Write failing tests**: classifier — ok page without marker → `login_required`/`marker_missing`; with marker (different case, extra spaces) → `ok`; captcha page with marker set → still `captcha`; marker unset → unchanged. Browser test — a fixture whose product page is public and shows "Log out" only with the session cookie: `/login` with `loggedInMarker: "Log out"` and a wrong password → not `ok`. API — PATCH saves/clears it; 201 chars → 400. Worker — the marker is sent on capture and login. Card — the field saves through PATCH.
+- [ ] **Step 2: Run** the affected suites. Expected: FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run** `npm run check` and the touched browser test. Expected: PASS.
+- [ ] **Step 5: Commit** `feat: per-supplier logged-in marker`.
+
 ## Slice 2: Stealth
 
 ### Task 10: Patchright in the browser service

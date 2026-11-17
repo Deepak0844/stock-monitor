@@ -427,6 +427,29 @@ Automatic login                                           [ On  ]
   a **Resume** button.
 - When permission is not `granted`, the switches are disabled with one line saying why.
 
+### 6b. Logged-in marker (added 2026-11-17, owner's choice)
+
+Some suppliers show the product page to everyone, logged in or not. Logged out, the stock number, prices and "Add to
+basket" are hidden; the page has no password box, no login redirect and no "please log in" wording, so the classifier
+calls it `ok`. The app would then never notice it was logged out, and the confirm step after a login would pass even if
+the login failed.
+
+- New nullable column `suppliers.logged_in_marker` (text, 1 to 200 characters): text that only appears when the owner is
+  logged in, such as "Log out" or the account name.
+- `classifyPage` gets an optional `loggedInMarker`. When it is set, a page that would otherwise be `ok` becomes
+  `login_required` (signal `marker_missing`) unless the marker appears in the page's visible text (case-insensitive,
+  whitespace collapsed). Captcha, block, unreachable and the other rules come first, unchanged.
+- The worker sends the marker on every `check-page`, `capture` and `/login` request for that supplier. `/login` uses it
+  for its "already logged in" check and its `checkUrl` confirmation.
+- Empty marker: behaviour is exactly as before.
+- Screen: one field "Only shows when logged in" in the card's advanced section, hint "Text you see only when logged in,
+  like 'Log out' or your account name". Saved through `PATCH /api/suppliers/:id` (`loggedInMarker`, string 1–200 or
+  null).
+- Docs: one paragraph in "Automatic login".
+
+Approaches: marker text per supplier (picked); a global "Log out link means logged in" rule (dropped: misreads some
+sites); leave as is (dropped: stock stays "Cannot tell" for these suppliers).
+
 ### 7. Docs to update
 
 - `README.md`: "The app never solves puzzles, never hides that it is a program and never fakes being a person." becomes:
