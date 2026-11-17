@@ -382,6 +382,26 @@ describe("automatic login", () => {
     expect(third.body.supplier).toMatchObject({ autoLogin: true, credentialsSavedAt: expect.any(String) });
   });
 
+  it("refuses the stealth switch without permission, and allows it with permission and no saved login", async () => {
+    const s = await create();
+    const refused = await call("PATCH", `/api/suppliers/${s.id}`, { stealth: true });
+    expect(refused.status).toBe(409);
+    expect(refused.body.error).toMatchObject({ code: "not_granted" });
+    expect((await get(s.id)).stealth).toBe(false);
+    await grant(s.id);
+    const allowed = await call("PATCH", `/api/suppliers/${s.id}`, { stealth: true });
+    expect(allowed.status).toBe(200);
+    expect(allowed.body.supplier).toMatchObject({ stealth: true, autoLogin: false });
+    expect((await call("PATCH", `/api/suppliers/${s.id}`, { stealth: false })).body.supplier).toMatchObject({ stealth: false });
+  });
+
+  it("refuses a stealth value that is not a yes or no", async () => {
+    const s = await create();
+    await grant(s.id);
+    expect((await call("PATCH", `/api/suppliers/${s.id}`, { stealth: "yes" })).status).toBe(400);
+    expect((await get(s.id)).stealth).toBe(false);
+  });
+
   it("changes nothing when a refused automatic login comes with other fields", async () => {
     const s = await create();
     const res = await call("PATCH", `/api/suppliers/${s.id}`, { name: "Renamed", autoLogin: true });

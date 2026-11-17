@@ -561,6 +561,17 @@ describe("automatic login in a run", () => {
     expect((await suppliers().get(acme))?.sessionStatus).toBe("needs_reconnect");
   });
 
+  it("asks for the stealth browser on every page of a stealth supplier, and only then", async () => {
+    await four();
+    expect(await runAll()).toMatchObject({ kind: "done", checked: 4 });
+    expect(requests("/capture").map((r) => (r.body as { stealth?: boolean }).stealth)).toEqual([undefined, undefined, undefined, undefined]);
+    fake.requests.length = 0;
+    const on = await suppliers().setAutoLogin(acme, { stealth: true });
+    if (!on.ok) throw new Error("setup");
+    expect(await runAll()).toMatchObject({ kind: "done", checked: 4 });
+    expect(requests("/capture").map((r) => (r.body as { stealth?: boolean }).stealth)).toEqual([true, true, true, true]);
+  });
+
   it("still logs in again when the session dies later in a run that began with a login", async () => {
     await four();
     await autoLogin(60);

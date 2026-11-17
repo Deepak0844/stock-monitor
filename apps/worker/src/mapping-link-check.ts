@@ -76,7 +76,7 @@ export function createLinkChecker(deps: LinkCheckDeps) {
     }
     // A session that cannot be opened cannot be used. That is the session check's business, so nothing is concluded here.
     if (!state) return { result: "service_unavailable", status: null, finalUrl: null, title: null, heading: null, softNotFound: false };
-    const outcome = await browser.checkPage({ url: mapping.url, loginUrl: supplier.loginUrl ?? undefined, ...(supplier.loggedInMarker ? { loggedInMarker: supplier.loggedInMarker } : {}), state });
+    const outcome = await browser.checkPage({ url: mapping.url, loginUrl: supplier.loginUrl ?? undefined, ...(supplier.loggedInMarker ? { loggedInMarker: supplier.loggedInMarker } : {}), state, ...(supplier.stealth ? { stealth: true } : {}) });
     if (!outcome.ok) {
       logger.warn({ mappingId: mapping.id }, "link check could not run: the browser service did not answer");
       return { result: "service_unavailable", status: null, finalUrl: null, title: null, heading: null, softNotFound: false };

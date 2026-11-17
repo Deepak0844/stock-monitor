@@ -288,6 +288,18 @@ describe("automatic login in a link run", () => {
     expect((await createNotificationRepository(t.appDb).listOpen()).map((n) => n.reason)).toEqual(["login_required"]);
   });
 
+  it("asks for the stealth browser on every link of a stealth supplier, and only then", async () => {
+    await link("v1");
+    await link("v2");
+    expect(await checkSupplierLinks(deps(), acme)).toMatchObject({ kind: "done", checked: 2 });
+    expect(checks().map((r) => (r.body as { stealth?: boolean }).stealth)).toEqual([undefined, undefined]);
+    fake.requests.length = 0;
+    const on = await suppliers().setAutoLogin(acme, { stealth: true });
+    if (!on.ok) throw new Error("setup");
+    expect(await checkSupplierLinks(deps(), acme)).toMatchObject({ kind: "done", checked: 2 });
+    expect(checks().map((r) => (r.body as { stealth?: boolean }).stealth)).toEqual([true, true]);
+  });
+
   it("still logs in again when the session dies later in a link run that began with a login", async () => {
     await link("v1");
     await link("v2");

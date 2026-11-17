@@ -32,7 +32,7 @@ Rules the app always keeps:
 - A missing page counts only after two checks at least 6 hours apart, on a link that worked before.
 - If Shopify's number changed after a suggestion was made, nothing is written.
 - No checks run until you record that you have the supplier's **permission** for automated checks.
-- The app never solves puzzles, never hides that it is a program and never fakes being a person.
+- The app never solves puzzles and never fakes being a person. It does not hide that it is a program, except for a supplier where you switch on **Hide automation (stealth)**, which only works for suppliers you recorded as allowing automated checks. Some suppliers' terms forbid automated access whatever you switch on, so that choice is yours.
 
 ## How it works
 

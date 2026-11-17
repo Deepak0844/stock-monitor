@@ -61,7 +61,7 @@ Known open points:
 
 ### Checks against suppliers
 
-- **Headless checks got a 403 and a captcha** from some suppliers even with a valid session. Fix: `VERIFY_MODE=profile` checks from an ordinary headed Chromium on a private screen, reading the title from its history. When the title is blank or unclear, a second step reads the page text. No spoofing, stealth or captcha solving, ever.
+- **Headless checks got a 403 and a captcha** from some suppliers even with a valid session. Fix: `VERIFY_MODE=profile` checks from an ordinary headed Chromium on a private screen, reading the title from its history. When the title is blank or unclear, a second step reads the page text. No captcha solving, ever. Stealth (hiding that a program drives the browser) is allowed per supplier, only with the owner's switch and recorded permission (see the automatic login design).
 - **Hidden captcha widgets and password fields read as a wall.** Fix: the page classifier ignores hidden elements.
 - **A login, captcha or block in the middle of a check went unnoticed.** Fix: link and stock checks now mark the supplier as needing the owner.
 - **One site stalled every later check.** In profile mode, each check's proxy listener waited on tunnels that the site (behind Cloudflare) never closed, and checks run one at a time. Fix: the listener destroys its own sockets on close. A browser killed by a signal is now detected by `signalCode` too.
