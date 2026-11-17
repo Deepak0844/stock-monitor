@@ -36,6 +36,8 @@ const good = (b: URLSearchParams) => b.get("username") === USER && [PASSWORD, LO
 /** What a correct password leads to, per case. `null` = log in and go to the account page. */
 const AFTER: Record<string, string | null> = {
   one: null,
+  latebox: null,
+  latechoice: null,
   slow: null,
   slower: null,
   lazy: null,
@@ -178,6 +180,12 @@ function startSite(): Promise<Server> {
       case "dead": return html(page(form("/dead/login", userAndPassword, 'onsubmit="event.preventDefault()"')));
       case "slowtwo":
         return html(page(form("/slowtwo/user", '<input type="email" name="username"><button type="submit">Next</button>', `onsubmit="event.preventDefault();document.getElementById('t').src='/slowtwo/track';setTimeout(()=>this.submit(),200)"`).replace('<button type="submit">Sign in</button>', "") + '<iframe id="t" width="1" height="1"></iframe>'));
+      // A page still loading its boxes: the form is put in by a script 2.5 s after the page loaded.
+      case "latebox":
+        return html(page(`<p>Trade supplies.</p><div id="slot"></div><script>setTimeout(()=>{document.getElementById("slot").innerHTML=${JSON.stringify(userAndPasswordForm("latebox"))}},2500)</script>`));
+      case "latechoice":
+        return html(page(`<div id="slot"></div><script>setTimeout(()=>{document.getElementById("slot").innerHTML=${JSON.stringify('<button type="button" onclick="document.getElementById(\'f\').style.display=\'block\';this.remove()">Use password</button><div id="f" style="display:none">' + userAndPasswordForm("latechoice") + "</div>")}},2500)</script>`));
+      case "neverbox": return html(page("<p>Trade supplies. Nothing to see.</p>"));
       case "choice": return html(page(form("/choice/user", '<input type="email" name="username">')));
       case "modal":
         return html(page(`<p>Trade supplies.</p><button type="button" onclick="document.getElementById('m').style.display='block'">Sign in</button><div id="m" style="display:none">${form("/modal/login", userAndPassword)}</div>`));
@@ -229,10 +237,10 @@ afterAll(async () => {
 });
 
 /** A new checker with its own, empty profile folder, so cases do not share a login. */
-const checker = (log?: (line: string) => void, settleMs = 3000, loginDeadlineMs?: number) => {
+const checker = (log?: (line: string) => void, settleMs = 3000, loginDeadlineMs?: number, loginFormWaitMs?: number) => {
   const dir = mkdtempSync(join(tmpdir(), "sm-test-login-"));
   dirs.push(dir);
-  return Object.assign(createProfileChecker({ proxy, sandbox: !process.env.CI, headless: !process.env.DISPLAY, baseDir: dir, settleMs, loginStepMs: 5000, loginDeadlineMs, log }), { dir });
+  return Object.assign(createProfileChecker({ proxy, sandbox: !process.env.CI, headless: !process.env.DISPLAY, baseDir: dir, settleMs, loginStepMs: 5000, loginDeadlineMs, loginFormWaitMs, log }), { dir });
 };
 const ask = (kase: string, extra: Partial<LoginRequest> = {}): LoginRequest => ({
   loginUrl: `${base}/${kase}/login`, checkUrl: `${base}/account`, username: USER, password: PASSWORD, stealth: false, ...extra,
@@ -295,6 +303,28 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     posts.one = [];
     expect((await checker(undefined, 3000, 1).login(ask("one"))).result).toBe("unknown");
     expect(posts.one.length).toBe(0);
+  });
+  it("a page that shows its boxes 2.5 s late: ok, one POST with the exact values", async () => {
+    posts.latebox = [];
+    expect((await checker().login(ask("latebox"))).result).toBe("ok");
+    expect(posts.latebox.length).toBe(1);
+    expect(posts.latebox[0].get("username")).toBe(USER);
+    expect(posts.latebox[0].get("password")).toBe(PASSWORD);
+  });
+  it("a late page and an Open login override that is not on it: the boxes appear, the override is never needed", async () => {
+    posts.latebox = [];
+    expect((await checker().login(ask("latebox", { selectors: { open: "#not-here" } }))).result).toBe("ok");
+    expect(posts.latebox.length).toBe(1);
+  });
+  it("a late choice screen (Use password) works too", async () => {
+    posts.latechoice = [];
+    expect((await checker().login(ask("latechoice"))).result).toBe("ok");
+    expect(posts.latechoice.length).toBe(1);
+  });
+  it("a page that never shows a box: form_not_found after the wait, nothing sent", async () => {
+    const t0 = Date.now();
+    expect((await checker(undefined, 3000, undefined, 1500).login(ask("neverbox"))).result).toBe("form_not_found");
+    expect(Date.now() - t0).toBeLessThan(20_000);
   });
   it("stay signed in", async () => {
     expect((await checker().login(ask("stay"))).result).toBe("ok");

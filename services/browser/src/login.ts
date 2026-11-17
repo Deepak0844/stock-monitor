@@ -211,13 +211,16 @@ async function typeVerified(page: Page, field: Locator, value: string, trimOk = 
   return false;
 }
 
-export type StepOptions = { settleMs: number; stepWaitMs?: number; maxSteps?: number; deadlineMs?: number };
+/** How long a step waits for a page that is still loading to show a box, a choice button or a puzzle. */
+export const FORM_WAIT_MS = 10_000;
+
+export type StepOptions = { settleMs: number; stepWaitMs?: number; maxSteps?: number; deadlineMs?: number; formWaitMs?: number };
 
 /**
  * Logs in on `page`, which is already in the supplier's profile: open the login page, run the step loop, read the page after
  * the password, confirm on `checkUrl`. Returns only the result; the caller reads the session when it is `ok`.
  */
-export async function runLogin(page: Page, request: LoginRequest, { settleMs, stepWaitMs = 15_000, maxSteps = 5, deadlineMs = 150_000 }: StepOptions): Promise<LoginResult> {
+export async function runLogin(page: Page, request: LoginRequest, { settleMs, stepWaitMs = 15_000, maxSteps = 5, deadlineMs = 150_000, formWaitMs = FORM_WAIT_MS }: StepOptions): Promise<LoginResult> {
   const selectors = request.selectors ?? {};
   /** Past this, nothing more is typed or pressed. Never checked after the submit press: from there the login only waits and decides. */
   const deadline = Date.now() + deadlineMs;
@@ -338,6 +341,24 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
       await page.waitForTimeout(250);
     }
   };
+  /**
+   * Gives a page that is still loading time to show what this step needs: waits (bounded) for the load, then polls until a
+   * username, password, account or code box, a "Use password" button, the opener or a puzzle is visible. Returns at once when one is
+   * already there. Never waits past `formWaitMs` or the overall deadline; a page that never loads is not an error here.
+   */
+  const waitForForm = async (opened: boolean) => {
+    const end = Math.min(Date.now() + formWaitMs, deadline);
+    await page.waitForLoadState("load", { timeout: Math.max(1, Math.min(10_000, end - Date.now())) }).catch(() => {});
+    for (;;) {
+      const f = await findFields(page, selectors);
+      if (f.username || f.password || f.account || f.code) return;
+      if ((await challengeVisible(page)) || (await findButton(page, whole(USE_PASSWORD_WORDS)))) return;
+      // The opener of a login that stays hidden until clicked is on screen: nothing more to wait for, the step opens it.
+      if (!opened && (selectors.open ? await firstVisible(page, selectors.open) : await findButton(page, whole(OPEN_WORDS)))) return;
+      if (Date.now() >= end) return;
+      await page.waitForTimeout(Math.min(250, Math.max(1, end - Date.now())));
+    }
+  };
   const anyFormVisible = async () => {
     const f = await findFields(page, selectors);
     return !!(f.password || f.username || f.account);
@@ -350,6 +371,9 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
     return "unreachable";
   }
   if (status === 429) return "unreachable";
+  // goto already waited for "load", but a script can still be building the page: look again only once it settles. A page with too
+  // little text is never ok, so a half-loaded page cannot pass for a logged-in one; the box wait below covers the rest.
+  await page.waitForLoadState("load", { timeout: 5000 }).catch(() => {});
   let first = await classifyHere(request.loginUrl, true);
   if (first === "unreachable") return "unreachable";
   if (await challengeVisible(page)) return "captcha";
@@ -370,7 +394,14 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
     for (let step = 0; step < maxSteps && !submitted; step++) {
       if (expired()) return "unknown";
       if (await challengeVisible(page)) return "captcha";
-      const f = await findFields(page, selectors);
+      let f = await findFields(page, selectors);
+      // Nothing to fill yet: the page may still be loading its boxes. Only a page that stays empty goes on to the opener.
+      if (!f.username && !f.password && !f.account && !f.code) {
+        await waitForForm(opened);
+        if (expired()) return "unknown";
+        if (await challengeVisible(page)) return "captcha";
+        f = await findFields(page, selectors);
+      }
       // A code box counts only on a step with no username or password box: a login form can sit next to a shop's other boxes.
       if (f.code && !f.username && !f.password) return "code_required";
       // The username step, still on screen after its Next: the supplier is still answering. Never click Next again.
