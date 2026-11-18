@@ -76,10 +76,10 @@ flowchart TD
 
 1. **Permission.** Read the supplier's terms. If they forbid automated access, ask the supplier first. This decision is yours, not the app's.
 2. **Shopify.** In **Settings**, connect your store, pick the inventory location and press **Sync**. **Products** then lists your variants and SKUs.
-3. **Supplier.** On **Suppliers**, add the supplier and press **Connect**. Log in as you normally would, then press **I'm logged in**. You have 15 minutes. The supplier then shows **Connected**.
+3. **Supplier.** On **Suppliers**, add the supplier and press **Connect**. Log in as you normally would, then press **I'm logged in**. You have 15 minutes. The supplier then shows **Connected**. A supplier whose product pages show stock without a login needs none: turn **Needs a login** off on its **Edit** page instead.
 4. **Permission and pause.** On the supplier's **Edit** page, set permission to **Allowed** and set the pause between pages (at least the crawl-delay in the supplier's `robots.txt`).
 5. **Links.** Add links on **Links**. Check them once with **Check all links**.
-6. **Stock rules.** On **Stock rules**, capture at least one in-stock page and one out-of-stock page, label them, write the rules, and turn the rules on when every example passes.
+6. **Stock rules.** On **Stock rules**, capture at least one in-stock page and one out-of-stock page, label them, write the rules, and turn the rules on when every example passes. Most suppliers publish stock in data built into their pages: with **Use the stock data built into the supplier's pages** on (the default), no words need typing.
 7. **Automatic checks.** On the supplier's **Edit** page, turn on automatic checks (daily, 07:00 to 22:00 by default).
 
 The full walk-through, with worked examples of stock rules, is in [docs/pilot-flow.md](docs/pilot-flow.md).
