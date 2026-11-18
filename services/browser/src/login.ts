@@ -97,7 +97,7 @@ async function inputsOf(frame: Frame, overrides: LoginSelectors): Promise<Input[
           }
           const box = el.getBoundingClientRect();
           const style = getComputedStyle(el);
-          const visible = box.width > 0 && box.height > 0 && style.visibility !== "hidden" && style.display !== "none" && Number(style.opacity) > 0.1;
+          const visible = box.width > 0 && box.height > 0 && style.visibility !== "hidden" && style.display !== "none" && Number(style.opacity) > 0.1 && !el.readOnly && !el.disabled;
           const is = (sel: string | undefined) => {
             try {
               return !!sel && el.matches(sel);
@@ -207,6 +207,22 @@ async function findConsentButton(page: Page): Promise<Locator | null> {
           .catch(() => true);
         if (!unsafe) return el;
       }
+    }
+  }
+  return null;
+}
+
+/**
+ * The icon that closes a promo popup when nothing on it is named "Close" or "OK": an element called close by its label,
+ * title, class or id. Used once, only when the page showed no login box. Never a control of a form with a password box.
+ */
+async function findPopupCloseIcon(page: Page): Promise<Locator | null> {
+  const selector = '[aria-label*="close" i], [title*="close" i], [class*="close" i], [id*="close" i], [data-dismiss], [data-bs-dismiss]';
+  for (const frame of page.frames()) {
+    for (const el of await frame.locator(selector).all().catch(() => [])) {
+      if (!(await el.isVisible().catch(() => false))) continue;
+      const unsafe = await el.evaluate((node) => !!node.closest("form")?.querySelector('input[type="password"]')).catch(() => true);
+      if (!unsafe) return el;
     }
   }
   return null;
@@ -498,6 +514,7 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
   // 2. The step loop, unless the profile is still logged in.
   if (first !== "ok") {
     let opened = false;
+    let closedIcon = false;
     let submitted = false;
     let typedUsername = false;
     let typedAccount = false;
@@ -531,7 +548,13 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
           if (!(await afterAction(() => click(choice), stepWaitMs))) return notFound("choice_no_change");
           continue;
         }
-        if (opened) return notFound("opener_clicked_no_boxes");
+        if (opened) {
+          // A promo popup may hide the login until it is closed. Its close icon is tried once.
+          const icon = closedIcon ? null : await findPopupCloseIcon(page);
+          closedIcon = true;
+          if (icon && (await icon.click({ timeout: 3000, noWaitAfter: true }).then(() => true, () => false))) continue;
+          return notFound(`opener_clicked_no_boxes ${await sawCounts(page, selectors, request.loginUrl)}`);
+        }
         opened = true;
         const opener = selectors.open ? await firstVisible(page, selectors.open) : await findButton(page, whole(OPEN_WORDS));
         if (!opener) return notFound(`no_opener ${await sawCounts(page, selectors, request.loginUrl)}`);

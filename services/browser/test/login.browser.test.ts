@@ -62,6 +62,7 @@ const AFTER: Record<string, string | null> = {
   banner2: null,
   modal: null,
   modalx: null,
+  promoicon: null,
   check: null,
   postcode: null,
   push: page("<p>We sent a notification. Approve the sign-in on your phone.</p>"),
@@ -234,6 +235,9 @@ function startSite(): Promise<Server> {
       case "choice": return html(page(form("/choice/user", '<input type="email" name="username">')));
       case "modal":
         return html(page(`<p>Trade supplies.</p><button type="button" onclick="document.getElementById('m').style.display='block'">Sign in</button><div id="m" style="display:none">${form("/modal/login", userAndPassword)}</div>`));
+      // The login opens only once a promo popup, closed by an icon with no name, has been closed.
+      case "promoicon":
+        return html(page(`<button type="button" onclick="document.getElementById('pp').style.display='block'">Log in</button><div id="pp" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5)"><div class="promo"><span class="close-x" role="presentation" style="cursor:pointer;display:inline-block;width:20px;height:20px">&#10005;</span><p>Get 5% off</p><input readonly value="WELCOME5"><button type="button">Copy</button></div></div><div id="f"></div><script>document.querySelector(".close-x").addEventListener("click",function(){document.getElementById("pp").remove();document.getElementById("f").innerHTML=${JSON.stringify(form("/promoicon/login", userAndPassword))}})</script>`));
       case "modalx":
         return html(page(`<p>Trade supplies.</p><button id="acct" type="button" style="width:30px;height:30px" onclick="document.getElementById('m').style.display='block'"><svg width="20" height="20"></svg></button><div id="m" style="display:none"><form method="post" action="/modalx/login">${userAndPassword}<input type="submit" value="Go"></form></div>`));
       case "frame":
@@ -361,6 +365,13 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
   });
   it("choice screen", async () => {
     expect((await checker().login(ask("choice"))).result).toBe("ok");
+  });
+  it("a promo popup closed only by an icon is closed once, and the login goes through", async () => {
+    posts.promoicon = [];
+    const lines: string[] = [];
+    const out = await checker((line) => lines.push(line)).login(ask("promoicon"));
+    expect(out.result, `the log said: ${lines.join(" | ")}`).toBe("ok");
+    expect(posts.promoicon.length).toBe(1);
   });
   it("modal by auto rule", async () => {
     expect((await checker().login(ask("modal"))).result).toBe("ok");
