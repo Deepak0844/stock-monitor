@@ -81,6 +81,18 @@ const AFTER: Record<string, string | null> = {
   stay: page('<h1>Stay signed in?</h1><form method="post" action="/stay/yes"><button type="submit">Yes</button></form>'),
 };
 
+const CODE = "482913";
+/** The page a code supplier shows after the username (and password): one code box, or six one-digit boxes. */
+const codePage = (kase: string, note = "") =>
+  page(
+    `<form method="post" action="/${kase}/verify"><p>We emailed you a code.</p>${
+      kase === "codesplit"
+        ? [1, 2, 3, 4, 5, 6].map((i) => `<input name="d${i}" maxlength="1" inputmode="numeric" ${i === 1 ? 'autocomplete="one-time-code" aria-label="Code digit 1"' : `aria-label="digit ${i}"`} oninput="if(this.value)this.nextElementSibling?.focus()">`).join("")
+        : '<label>Code <input autocomplete="one-time-code" name="c"></label>'
+    }<button type="submit">Continue</button></form>${note}`,
+  );
+const codeIn = (b: URLSearchParams) => b.get("c") ?? [1, 2, 3, 4, 5, 6].map((i) => b.get(`d${i}`) ?? "").join("");
+
 const loggedIn = (req: IncomingMessage) => /(?:^|; )sid=ok(?:;|$)/.test(req.headers.cookie ?? "");
 const loginCookie = { "set-cookie": "sid=ok; Path=/; HttpOnly", location: "/account" };
 
@@ -109,6 +121,10 @@ function startSite(): Promise<Server> {
       // The captcha and hashing logins' server takes 2 s, so a second send would land before the first answer.
       if (kase === "recap" || kase === "hash") await new Promise((r) => setTimeout(r, 2000));
       if (kase === "beacon" && step === "collect") return res.writeHead(204).end();
+      // Code suppliers: the emailed code ends the login; a wrong one shows the code page again.
+      if (step === "verify") return codeIn(b) === CODE ? res.writeHead(302, loginCookie).end() : html(codePage(kase, "<p>That code is wrong.</p>"));
+      if (kase === "codeb" && step === "user") return html(codePage("codeb"));
+      if ((kase === "codea" || kase === "codesplit") && good(b)) return html(codePage(kase));
       // A WebForms-style server: a POST without the button's name and value is not a login.
       if (kase === "webforms") return good(b) && b.get("btnLogin") === "Log in" ? res.writeHead(302, loginCookie).end() : html(page(webForm));
       if (kase === "two" && step === "user") return html(page(form("/two/pass", `<input type="hidden" name="username" value="${b.get("username")}"><input type="password" name="password">`)));
@@ -160,6 +176,8 @@ function startSite(): Promise<Server> {
         return html(page(form("/slow/login", userAndPassword, `onsubmit="event.preventDefault();document.getElementById('t').src='/slow/track';setTimeout(()=>this.submit(),200)"`) + '<iframe id="t" width="1" height="1"></iframe>'));
       case "one": case "slower": case "push": case "locked": case "question": case "puzzle": case "code": case "stay": case "promo": case "busy": case "public": case "hcap": case "hidverify":
         return html(page(form(`/${kase}/login`, userAndPassword)));
+      case "codea": case "codesplit": return html(page(form(`/${kase}/login`, userAndPassword)));
+      case "codeb": return html(page(form("/codeb/user", '<label>Email <input type="email" name="username"></label>').replace("Sign in", "Next")));
       case "two": return html(page(form("/two/user", '<input type="email" name="username"><button type="submit">Next</button>').replace('<button type="submit">Sign in</button>', "")));
       // A first click that never reaches the submit button, as on a window that has just opened: a cover appears under
       // the pointer between press and release, so the click lands on the page, not the button.
@@ -683,6 +701,56 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
   });
   it("code", async () => {
     expect((await checker().login(ask("code"))).result).toBe("code_required");
+  });
+
+  describe("a supplier that emails a code", () => {
+    const codePosts = (kase: string) => (posts[kase] ?? []).filter((b) => b.has("c") || b.has("d1")).map(codeIn);
+
+    it("username, password, then code: the code is typed once and the login is ok", async () => {
+      posts.codea = [];
+      let asked = 0;
+      const lines: string[] = [];
+      const out = await checker((l) => lines.push(l)).login(ask("codea"), { awaitCode: async () => (asked++, CODE) });
+      expect(out.result, lines.join(" | ")).toBe("ok");
+      expect(asked).toBe(1);
+      expect(codePosts("codea")).toEqual([CODE]);
+      expect(lines.join("\n")).not.toContain(CODE);
+    });
+
+    it("username, then code with no password: ok", async () => {
+      posts.codeb = [];
+      const out = await checker().login(ask("codeb"), { awaitCode: async () => CODE });
+      expect(out.result).toBe("ok");
+      expect(codePosts("codeb")).toEqual([CODE]);
+      expect((posts.codeb ?? []).some((b) => b.has("password"))).toBe(false);
+    });
+
+    it("six one-digit boxes get one digit each", async () => {
+      posts.codesplit = [];
+      const out = await checker().login(ask("codesplit"), { awaitCode: async () => CODE });
+      expect(out.result).toBe("ok");
+      expect(codePosts("codesplit")).toEqual([CODE]);
+    });
+
+    it("a wrong code is code_required, and the code is sent once", async () => {
+      posts.codea = [];
+      const out = await checker().login(ask("codea"), { awaitCode: async () => "111111" });
+      expect(out.result).toBe("code_required");
+      expect(codePosts("codea")).toEqual(["111111"]);
+    });
+
+    it("no code from the email is code_required, and nothing is typed in the code box", async () => {
+      posts.codea = [];
+      const out = await checker().login(ask("codea"), { awaitCode: async () => null });
+      expect(out.result).toBe("code_required");
+      expect(codePosts("codea")).toEqual([]);
+    });
+
+    it("without a code reader it stops at the code box as before", async () => {
+      posts.codeb = [];
+      expect((await checker().login(ask("codeb"))).result).toBe("code_required");
+      expect(codePosts("codeb")).toEqual([]);
+    });
   });
   it("a postcode box next to the login form is not a code box", async () => {
     posts.postcode = [];
