@@ -21,7 +21,14 @@ describe("loadConfig", () => {
       language: undefined,
       timezone: undefined,
       loginProfile: "fresh",
+      profileDir: undefined,
     });
+  });
+
+  it("keeps the kept profiles in PROFILE_DIR when it is set, and refuses a relative path", () => {
+    expect(loadConfig({ ...base, PROFILE_DIR: "/data/profiles" }).profileDir).toBe("/data/profiles");
+    expect(loadConfig({ ...base, PROFILE_DIR: "" }).profileDir).toBeUndefined();
+    expect(() => loadConfig({ ...base, PROFILE_DIR: "profiles/x" })).toThrow("PROFILE_DIR must be an absolute path.");
   });
   it.each([[undefined], [""], ["short"], ["x".repeat(31)]])(
     "refuses a control token of %j",

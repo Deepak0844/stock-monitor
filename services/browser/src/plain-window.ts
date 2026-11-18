@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import type { SessionState } from "@stock-monitor/supplier-session";
 import { readCookies } from "./chromium-cookies.js";
-import { cookieHash, holdProfile, profileDirFor, releaseProfile } from "./profile-store.js";
+import { clearStaleLocks, cookieHash, holdProfile, profileDirFor, releaseProfile } from "./profile-store.js";
 import type { GuardProxy } from "./proxy.js";
 import { chromeVersion, writeDisguise } from "./disguise.js";
 import type { LiveWindow } from "./sessions.js";
@@ -182,6 +182,7 @@ export function createPlainWindowOpener({
       }
       await mkdir(profile, { recursive: true });
       await rm(join(profile, "DevToolsActivePort"), { force: true });
+      await clearStaleLocks(profile);
       await forgetOpenTabs(profile);
     } else {
       profile = await mkdtemp(join(tmpdir(), "sm-plain-"));

@@ -22,6 +22,8 @@ export type Config = {
   verifyMode: "headless" | "profile";
   /** SPIKE. `persistent` keeps one login-window profile per supplier site between logins. Plain windows only. */
   loginProfile: "fresh" | "persistent";
+  /** Where kept profiles live, from PROFILE_DIR. Unset keeps them in memory (/tmp), gone on restart. */
+  profileDir?: string;
   /** The owner's real browser language, for example en-IN. Not set means Chromium's own default. */
   language: string | undefined;
   /** The owner's real timezone, from TZ. The container's default, UTC, counts as not set. A stealth visit needs it and the language, or it is refused. */
@@ -77,6 +79,8 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
   const loginProfile = env.LOGIN_PROFILE === undefined || env.LOGIN_PROFILE === "" ? "fresh" : env.LOGIN_PROFILE;
   if (loginProfile !== "fresh" && loginProfile !== "persistent") throw new Error("LOGIN_PROFILE must be fresh or persistent.");
   if (loginProfile === "persistent" && mode !== "plain") throw new Error("LOGIN_PROFILE=persistent needs LOGIN_WINDOW_MODE=plain.");
+  const profileDir = env.PROFILE_DIR === "" ? undefined : env.PROFILE_DIR;
+  if (profileDir !== undefined && !profileDir.startsWith("/")) throw new Error("PROFILE_DIR must be an absolute path.");
   const language = env.BROWSER_LANGUAGE === "" ? undefined : env.BROWSER_LANGUAGE;
   if (language !== undefined && !/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(language))
     throw new Error("BROWSER_LANGUAGE must look like en-IN or en-US.");
@@ -103,5 +107,6 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     language,
     timezone: env.TZ === undefined || env.TZ === "" || isUtcName(env.TZ) ? undefined : env.TZ,
     loginProfile,
+    profileDir,
   };
 }
