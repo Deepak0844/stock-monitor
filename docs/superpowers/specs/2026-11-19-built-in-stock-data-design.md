@@ -108,7 +108,7 @@ Mapping (fixed, in one table in `packages/extraction/src/built-in.ts`):
 | `PreOrder`, `PreSale`, `BackOrder`, `MadeToOrder` | the owner's `waiting` choice |
 | `InStoreOnly`, `Reserved`, anything else | not clear (fall back) |
 
-Choosing the offer for a link (`pickOffer(offers, linkUrl)`):
+Choosing the offer for a link (`pickOffer(offers, link)`):
 
 1. No offers: no data.
 2. One offer (or all offers give the same answer): that answer.
@@ -125,7 +125,7 @@ Today the owner's links have no options, so step 2 is the usual path. Steps 3 to
 several options with different stock. The answer is never a guess: without a clear match it is "cannot tell", with a reason
 that tells the owner to set the link's option.
 
-`decide(page, recipe, region, linkUrl)` order:
+`decide(page, recipe, region, link)` order:
 
 1. Page checks (all must pass), as today. An empty list passes.
 2. Region rule on and a region set: as today. The region table is more specific than built-in data, so it wins.
@@ -139,11 +139,11 @@ Failing page checks always win, even over a clear built-in answer: the page is n
 on and data missing, word rules present: the word rules decide (step 4). Login, puzzle and block pages never reach `decide`:
 the worker already answers them `check_failed`.
 
-`linkUrl` is the mapping's own address (with its query string). The capture's `finalUrl` has no query string, so it cannot be
+`link.url` is the mapping's own address (with its query string). The capture's `finalUrl` has no query string, so it cannot be
 used for variant matching. The editor's Test button (`runExamples` in `packages/extraction/src/testing.ts`, fed by `examplesFor`
 in `apps/api/src/routes/recipes.ts`) passes each saved page's link as described below.
 
-`decide` gains a fourth input with the link, `{ url: string | null; option: string | null }`, in place of a bare `linkUrl`.
+`decide` gains a fourth input with the link, `{ url: string | null; option: string | null }`. `Example` gains the same `link`.
 `Example` gains the same `link`. For a saved page whose link still exists, the test uses the link's current address and option
 (so setting an option and testing again works at once). For a saved page whose link was deleted, it uses the copy stored in the
 description at capture time.
