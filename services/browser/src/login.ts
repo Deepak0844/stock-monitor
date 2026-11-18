@@ -312,7 +312,10 @@ const boxFacts = (field: Locator, want: string, secret: boolean) =>
         const rel = box.value.length < w.length ? "shorter" : box.value.length > w.length ? "longer" : "same-length";
         return `rel=${rel} type=${box.type} maxlength=${box.maxLength} focus=${box.ownerDocument.activeElement === box} readonly=${box.readOnly || box.disabled}`;
       }
-      return `typed=${w.length} box=${box.value.length} samecase=${box.value.toLowerCase() === w.toLowerCase()} maxlength=${box.maxLength} focus=${box.ownerDocument.activeElement === box} readonly=${box.readOnly || box.disabled}`;
+      // Where the box first differs, as a position only: says whether the first key, a middle one or the end went missing.
+      let firstdiff = 0;
+      while (firstdiff < w.length && box.value[firstdiff] === w[firstdiff]) firstdiff++;
+      return `typed=${w.length} box=${box.value.length} firstdiff=${firstdiff} samecase=${box.value.toLowerCase() === w.toLowerCase()} maxlength=${box.maxLength} focus=${box.ownerDocument.activeElement === box} readonly=${box.readOnly || box.disabled}`;
     }, { w: want, secret }, { timeout: 3000 })
     .catch(() => "box unreadable");
 
@@ -341,6 +344,8 @@ async function typeVerified(
     // An error here could carry the typed text: it is dropped, and the box is simply checked.
     try {
       await field.fill("", { timeout: 5000 });
+      // A box that lost keys may still be settling, as a window that has just opened is: give it a moment before typing again.
+      if (attempt > 0) await page.waitForTimeout(RETYPE_SETTLE_MS);
       await type(field, value);
     } catch {
       // checked below
@@ -350,6 +355,9 @@ async function typeVerified(
   report?.(await boxFacts(field, value, secret));
   return false;
 }
+
+/** The pause between clearing a box that lost keys and typing it again. */
+export const RETYPE_SETTLE_MS = 1000;
 
 /** How long a step waits for a page that is still loading to show a box, a choice button or a puzzle. */
 export const FORM_WAIT_MS = 10_000;
