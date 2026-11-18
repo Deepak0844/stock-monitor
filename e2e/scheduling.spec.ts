@@ -138,7 +138,7 @@ test("the quiet hours start at 07:00 to 22:00 and an end time equal to the start
   await page.getByLabel("How often").selectOption("360");
   await page.getByLabel("Until").fill("07:00");
   await page.getByRole("button", { name: "Save automatic checks" }).click();
-  await expect(page.getByText(/different/)).toBeVisible();
+  await expect(page.getByText("Choose a start and an end time that are different.")).toBeVisible();
 });
 
 test("the automatic check screens pass the accessibility scan in light and dark, and never scroll sideways", async ({ page }) => {
