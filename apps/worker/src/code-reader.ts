@@ -8,23 +8,34 @@ export type Mail = { from: string; arrived: Date; subject: string; text: string 
 /** The mail since a time (IMAP searches by day, so it may return older mail too), newest first. */
 export type MailSource = (since: Date) => Promise<Mail[]>;
 
-/** Reads the Gmail inbox over IMAP with its app password. One short connection per look. */
-export function createImapSource(c: { user: string; appPassword: string }): MailSource {
+const DAY_MS = 24 * 3600_000;
+const gmail = (c: { user: string; appPassword: string }) =>
+  new ImapFlow({ host: "imap.gmail.com", port: 993, secure: true, auth: { user: c.user, pass: c.appPassword }, logger: false, connectionTimeout: 15_000, greetingTimeout: 15_000, socketTimeout: 30_000 });
+
+/**
+ * Reads the Gmail inbox over IMAP with its app password, one short connection per look. IMAP's SINCE is a date only (and
+ * Gmail's day may not be ours), so the search starts a day earlier; then only mail Gmail received at or after `since` is
+ * downloaded in full. `connect` is for tests.
+ */
+export function createImapSource(c: { user: string; appPassword: string }, connect: () => ImapFlow = () => gmail(c)): MailSource {
   return async (since) => {
-    const client = new ImapFlow({ host: "imap.gmail.com", port: 993, secure: true, auth: { user: c.user, pass: c.appPassword }, logger: false, connectionTimeout: 15_000, greetingTimeout: 15_000, socketTimeout: 30_000 });
+    const client = connect();
     await client.connect();
     try {
       await client.mailboxOpen("INBOX", { readOnly: true });
-      const mails: Mail[] = [];
-      const uids = (await client.search({ since }, { uid: true })) || [];
+      const uids = (await client.search({ since: new Date(since.getTime() - DAY_MS) }, { uid: true })) || [];
       if (uids.length === 0) return [];
-      // The last 20 is plenty: codes are wanted from the last few minutes only.
-      for await (const m of client.fetch(uids.slice(-20), { source: true, internalDate: true, envelope: true }, { uid: true })) {
+      // The last 20 is plenty: codes are wanted from the last few minutes only. Dates first, so old mail is never downloaded.
+      const recent: number[] = [];
+      for await (const m of client.fetch(uids.slice(-20), { internalDate: true }, { uid: true })) {
+        if (m.internalDate && new Date(m.internalDate) >= since) recent.push(m.uid);
+      }
+      if (recent.length === 0) return [];
+      const mails: Mail[] = [];
+      for await (const m of client.fetch(recent, { source: true, internalDate: true }, { uid: true })) {
         if (!m.source) continue;
         const parsed = await simpleParser(m.source);
-        const from = parsed.from?.value[0]?.address ?? m.envelope?.from?.[0]?.address ?? "";
-        const arrived = m.internalDate instanceof Date ? m.internalDate : new Date(m.internalDate ?? 0);
-        mails.push({ from, arrived, subject: parsed.subject ?? "", text: parsed.text ?? (typeof parsed.html === "string" ? parsed.html.replace(/<[^>]+>/g, " ") : "") });
+        mails.push({ from: parsed.from?.value[0]?.address ?? "", arrived: new Date(m.internalDate ?? 0), subject: parsed.subject ?? "", text: parsed.text ?? "" });
       }
       return mails.sort((a, b) => b.arrived.getTime() - a.arrived.getTime());
     } finally {

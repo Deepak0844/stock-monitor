@@ -183,6 +183,8 @@ Some suppliers email a one-time code at every login: after the username and pass
 - Every 5 seconds the app looks in the supplier Gmail for an email that arrived after this login started and comes from the supplier's website domain. For example, `mail.supplier-site.com` counts for `www.supplier-site.com`.
 - It takes the code from it, types it once, and finishes the login.
 - The inbox is only read: the app never marks, moves or deletes an email. A code is never written to a log.
+- The browser opens one page at a time, so while a login waits for its code, other suppliers' checks wait too. Usually that is seconds. If a code never comes, they wait up to 3 minutes, and a page check that waits too long counts as "cannot tell".
+- Check that the supplier's code emails do not land in Spam in the supplier Gmail. The app reads the inbox only.
 
 **If no code comes in time,** or the supplier refuses it, the login stops as `code_required`: a Dashboard message and an alert email. Two in a row pause automatic login, as for any failed login. Press **Resume** after you have fixed the cause.
 

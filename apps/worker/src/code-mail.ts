@@ -3,19 +3,36 @@
 
 /** A code: 4 to 8 digits, or capitals and digits with at least one digit, standing on its own. */
 const CANDIDATE = /\b(?=[A-Z0-9]*\d)[A-Z0-9]{4,8}\b/g;
-const CODE_WORD = /\b(?:code|verification|one[- ]time|otp|passcode|pin|security)\b/gi;
+/** Words right before a code. The strong ones name the code itself; the weak ones only the subject ("verification"). */
+const STRONG_WORD = /\b(?:code|otp|passcode|pin)\b/gi;
+const WEAK_WORD = /\b(?:verification|one[- ]time|security)\b/gi;
 const SIX_DIGITS = /\b\d{6}\b/g;
+const YEAR = /^(?:19|20)\d{2}$/;
 /** How far after a code word the code may sit. */
 const NEAR = 60;
+
+type Candidate = { value: string; at: number };
+
+/** The candidate nearest after any of these words, within NEAR. A year counts only right after the word ("code 2019"). */
+function nearestAfter(text: string, words: RegExp, candidates: Candidate[]): string | null {
+  let best: { value: string; gap: number } | null = null;
+  for (const word of text.matchAll(words)) {
+    const end = word.index + word[0].length;
+    for (const c of candidates) {
+      const gap = c.at - end;
+      if (gap < 0 || gap > NEAR || (YEAR.test(c.value) && gap > 3)) continue;
+      if (!best || gap < best.gap) best = { value: c.value, gap };
+      break; // candidates are in order: the first one after this word is the nearest to it
+    }
+  }
+  return best?.value ?? null;
+}
 
 /** The login code in an email's subject and text, or null when there is none, or more than one could be it. */
 export function findCode(text: string): string | null {
   const candidates = [...text.matchAll(CANDIDATE)].map((m) => ({ value: m[0], at: m.index }));
-  for (const word of text.matchAll(CODE_WORD)) {
-    const end = word.index + word[0].length;
-    const near = candidates.find((c) => c.at >= end && c.at - end <= NEAR);
-    if (near) return near.value;
-  }
+  const named = nearestAfter(text, STRONG_WORD, candidates) ?? nearestAfter(text, WEAK_WORD, candidates);
+  if (named) return named;
   const six = new Set([...text.matchAll(SIX_DIGITS)].map((m) => m[0]));
   return six.size === 1 ? [...six][0]! : null;
 }

@@ -8,6 +8,9 @@ describe("finding a login code in an email", () => {
     ["OTP 7731", "7731"],
     ["Hello 123456 regards", "123456"],
     ["Your one-time passcode\n\n  905513  \n\nIt expires in 10 minutes.", "905513"],
+    ["Security alert: sign-in on 19 Nov 2026. Your code is 559021", "559021"],
+    ["Verification of order AB1234 is done. Your code: 559021", "559021"],
+    ["Your verification code is below.\n\n  4821  ", "4821"],
   ])("finds the code in %j", (text, code) => expect(findCode(text)).toBe(code));
 
   it.each([

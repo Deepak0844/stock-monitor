@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { waitForCode, type Mail, type MailSource } from "./code-reader.js";
+import { createImapSource, waitForCode, type Mail, type MailSource } from "./code-reader.js";
 
 const T0 = Date.UTC(2026, 10, 19, 10, 0);
 const at = (s: number) => new Date(T0 + s * 1000);
@@ -71,5 +71,36 @@ describe("waiting for a login code", () => {
     const { source, q, lines } = setup([[mail({ subject: "Secret subject 482913" })]]);
     await waitForCode(source, q);
     expect(lines.join("\n")).not.toMatch(/482913|Secret/);
+  });
+});
+
+describe("the Gmail inbox reader", () => {
+  const since = new Date("2026-11-19T02:00:00Z");
+  const raw = (from: string, subject: string, body: string) => Buffer.from(`From: ${from}\r\nSubject: ${subject}\r\nContent-Type: text/plain\r\n\r\n${body}\r\n`);
+  const box = [
+    { uid: 1, internalDate: new Date("2026-11-18T23:00:00Z"), source: raw("noreply@acme.com", "Old code", "Your code is 111111") },
+    { uid: 2, internalDate: new Date("2026-11-19T02:01:00Z"), source: raw("Acme <noreply@acme.com>", "Your code", "Your code is 482913") },
+  ];
+
+  it("searches from a day earlier (IMAP SINCE is a date), opens the inbox read-only, and downloads only mail from after the login started", async () => {
+    const seen: { searched?: Date; readOnly?: boolean; sourceFor: number[] } = { sourceFor: [] };
+    const client = {
+      connect: async () => {},
+      mailboxOpen: async (_name: string, o: { readOnly: boolean }) => void (seen.readOnly = o.readOnly),
+      search: async (q: { since: Date }) => ((seen.searched = q.since), box.map((m) => m.uid)),
+      async *fetch(range: number[], query: { source?: boolean }) {
+        for (const m of box.filter((x) => range.includes(x.uid))) {
+          if (query.source) seen.sourceFor.push(m.uid);
+          yield { uid: m.uid, internalDate: m.internalDate, ...(query.source ? { source: m.source } : {}) };
+        }
+      },
+      logout: async () => {},
+      close: () => {},
+    };
+    const mails = await createImapSource({ user: "u@example.com", appPassword: "x" }, () => client as never)(since);
+    expect(seen.searched?.getTime()).toBe(since.getTime() - 24 * 3600_000);
+    expect(seen.readOnly).toBe(true);
+    expect(seen.sourceFor).toEqual([2]);
+    expect(mails).toEqual([{ from: "noreply@acme.com", arrived: box[1]!.internalDate, subject: "Your code", text: expect.stringContaining("482913") }]);
   });
 });
