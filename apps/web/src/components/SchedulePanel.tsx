@@ -6,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton.js";
 import type { Api, CheckRun, ScheduleRow, Supplier } from "../api.js";
 import { Field } from "./Field.js";
 import { Notice } from "./Notice.js";
-import { INTERVAL_CHOICES, runSummary, whenWords } from "./scheduleWords.js";
+import { INTERVAL_CHOICES, KEEP_ALIVE_WORDS, runSummary, whenWords } from "./scheduleWords.js";
 import { toast } from "../lib/toast.js";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong. Please try again.");
@@ -21,6 +21,7 @@ export function SchedulePanel({ api, supplier }: { api: Api; supplier: Supplier 
   const [anyTime, setAnyTime] = useState(on && supplier.scheduleWindowStart === null);
   const [from, setFrom] = useState(supplier.scheduleWindowStart ?? DEFAULT_WINDOW.start);
   const [until, setUntil] = useState(supplier.scheduleWindowEnd ?? DEFAULT_WINDOW.end);
+  const [keepAlive, setKeepAlive] = useState<string>(supplier.keepAliveMinutes === null ? "off" : String(supplier.keepAliveMinutes));
   const [row, setRow] = useState<ScheduleRow | null>(null);
   const [runs, setRuns] = useState<CheckRun[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +39,7 @@ export function SchedulePanel({ api, supplier }: { api: Api; supplier: Supplier 
     if (!anyTime && from === until) return setError("Choose a start and an end time that are different.");
     setSaving(true);
     try {
-      await api.schedule.set(supplier.id, { intervalMinutes: interval === "off" ? null : Number(interval), window: anyTime ? null : { start: from, end: until } });
+      await api.schedule.set(supplier.id, { intervalMinutes: interval === "off" ? null : Number(interval), window: anyTime ? null : { start: from, end: until }, keepAliveMinutes: keepAlive === "off" ? null : Number(keepAlive) });
       toast("Automatic checks saved.");
       load();
     } catch (e) {
@@ -85,6 +86,15 @@ export function SchedulePanel({ api, supplier }: { api: Api; supplier: Supplier 
             </label>
             <p className="text-sm text-muted-foreground">A check that comes due outside these hours waits until they start.</p>
           </div>
+          <Field id="schedule-keep-alive" label="Keep login alive" hint="Visits the supplier with your saved login so it does not log you out. Only inside the hours above.">
+            <Select id="schedule-keep-alive" className="w-full" value={keepAlive} onChange={(e) => setKeepAlive(e.target.value)}>
+              {KEEP_ALIVE_WORDS.map((c) => (
+                <option key={c.words} value={c.minutes === null ? "off" : String(c.minutes)}>
+                  {c.words}
+                </option>
+              ))}
+            </Select>
+          </Field>
           {status?.state === "waiting" && row?.nextCheckAt && <p className="text-sm">Next check: {whenWords(row.nextCheckAt)}</p>}
           {status?.state === "running" && row?.run && (
             <p role="status" className="text-sm">

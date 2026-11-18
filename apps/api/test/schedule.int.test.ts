@@ -118,11 +118,10 @@ describe("PUT /api/suppliers/:id/schedule", () => {
   });
 
   describe("keep login alive", () => {
-    it("stores the keep-alive, shows it on the supplier and in the schedule, and audits it", async () => {
+    it("stores the keep-alive, shows it on the supplier, and audits it", async () => {
       const r = await call("PUT", `/api/suppliers/${acme}/schedule`, { intervalMinutes: 1440, window: day, keepAliveMinutes: 30 });
       expect(r.status).toBe(200);
       expect(r.body.supplier).toMatchObject({ keepAliveMinutes: 30, keepAliveNextAt: null });
-      expect((await call("GET", "/api/schedule")).body.schedule[0]).toMatchObject({ keepAliveMinutes: 30 });
       const audit = await t.pool.query("select details from audit_events where action = 'supplier.schedule_set'");
       expect(audit.rows[0].details).toEqual({ intervalMinutes: 1440, window: day, keepAliveMinutes: 30 });
     });
@@ -148,7 +147,7 @@ describe("PUT /api/suppliers/:id/schedule", () => {
 describe("GET /api/schedule", () => {
   it("is off for a supplier with no interval", async () => {
     const r = await call("GET", "/api/schedule");
-    expect(r.body.schedule).toEqual([{ supplierId: acme, status: { state: "off" }, intervalMinutes: null, window: null, keepAliveMinutes: null, nextCheckAt: null, run: null, lastRun: null }]);
+    expect(r.body.schedule).toEqual([{ supplierId: acme, status: { state: "off" }, intervalMinutes: null, window: null, nextCheckAt: null, run: null, lastRun: null }]);
   });
 
   it("is waiting for a ready supplier, with the next check time", async () => {

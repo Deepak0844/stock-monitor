@@ -89,6 +89,8 @@ export type Supplier = {
   scheduleIntervalMinutes: number | null;
   scheduleWindowStart: string | null;
   scheduleWindowEnd: string | null;
+  /** Keep login alive: minutes between visits, null = off. */
+  keepAliveMinutes: number | null;
   nextCheckAt: string | null;
   enabled: boolean;
   sessionStatus: "not_connected" | "connected" | "needs_reconnect" | "blocked";
@@ -152,8 +154,8 @@ export type ScheduleRow = {
 };
 export type ScheduleApi = {
   overview(): Promise<ScheduleRow[]>;
-  /** Turns automatic checks on (an interval from the list) or off (null), with the quiet-hours window or null for all day. */
-  set(supplierId: string, input: { intervalMinutes: number | null; window: ScheduleWindow }): Promise<Supplier>;
+  /** Turns automatic checks on (an interval from the list) or off (null), with the quiet-hours window or null for all day, and keep-alive (null = off). */
+  set(supplierId: string, input: { intervalMinutes: number | null; window: ScheduleWindow; keepAliveMinutes: number | null }): Promise<Supplier>;
   runs(supplierId: string): Promise<CheckRun[]>;
 };
 

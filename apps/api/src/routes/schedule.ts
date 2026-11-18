@@ -82,7 +82,7 @@ export function registerScheduleRoutes(app: App, deps: ScheduleRoutesDeps, audit
     for (const s of await suppliers.list()) {
       const run = await checkRuns.current(s.id);
       const lastRun = (await checkRuns.recent(s.id, 2)).find((r) => r.endedAt) ?? null;
-      schedule.push({ supplierId: s.id, status: await status(s, run), intervalMinutes: s.scheduleIntervalMinutes, window: windowOf(s), keepAliveMinutes: s.keepAliveMinutes, nextCheckAt: s.nextCheckAt, run, lastRun });
+      schedule.push({ supplierId: s.id, status: await status(s, run), intervalMinutes: s.scheduleIntervalMinutes, window: windowOf(s), nextCheckAt: s.nextCheckAt, run, lastRun });
     }
     return { schedule };
   });

@@ -11,6 +11,16 @@ export const INTERVAL_CHOICES: { minutes: number | null; words: string }[] = [
   { minutes: 1440, words: "Every day" },
 ];
 
+/** The choices for keeping the login alive. null is off. */
+export const KEEP_ALIVE_WORDS: { minutes: number | null; words: string }[] = [
+  { minutes: null, words: "Off" },
+  { minutes: 15, words: "Every 15 minutes" },
+  { minutes: 30, words: "Every 30 minutes" },
+  { minutes: 45, words: "Every 45 minutes" },
+  { minutes: 60, words: "Every hour" },
+  { minutes: 120, words: "Every 2 hours" },
+];
+
 export const intervalWords = (minutes: number | null): string => (minutes === null ? "Automatic checks off" : (INTERVAL_CHOICES.find((c) => c.minutes === minutes)?.words ?? `Every ${minutes} minutes`));
 
 export const whenWords = (iso: string | null): string => (iso ? formatWhen(iso) : "");
