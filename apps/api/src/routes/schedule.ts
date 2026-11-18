@@ -3,7 +3,7 @@ import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
 import type { CheckRun, createCheckRunRepository, createRecipeRepository, createSupplierRepository, createSupplierSessionRepository, SupplierRecord } from "@stock-monitor/db";
 import { whyNotChecked, type CheckGateReason } from "@stock-monitor/mapping";
-import { INTERVALS, nextCheckAt, type Window } from "@stock-monitor/scheduling";
+import { INTERVALS, KEEP_ALIVE_CHOICES, nextCheckAt, type Window } from "@stock-monitor/scheduling";
 import { AppError } from "../errors.js";
 
 type App = FastifyInstance<RawServerDefault, RawRequestDefaultExpression, RawReplyDefaultExpression, Logger>;
@@ -30,19 +30,25 @@ const INVALID = () => new AppError(400, "invalid_schedule", "Choose how often to
 const NOT_FOUND = () => new AppError(404, "supplier_not_found", "That supplier does not exist.");
 const NO_RECIPE = "Turn on stock rules for this supplier first.";
 
-/** The body of PUT /schedule: an interval from the list or null (off), and a window or null (all day). Nothing else. */
-function readSchedule(body: unknown): { intervalMinutes: number | null; window: Window } {
+/**
+ * The body of PUT /schedule: an interval from the list or null (off), a window or null (all day), and optionally a
+ * keep-alive from its list or null (off). Left out, the keep-alive stays as it is. Nothing else.
+ */
+function readSchedule(body: unknown): { intervalMinutes: number | null; window: Window; keepAliveMinutes?: number | null } {
   if (typeof body !== "object" || body === null || Array.isArray(body)) throw INVALID();
   const input = body as Record<string, unknown>;
-  if (Object.keys(input).some((k) => k !== "intervalMinutes" && k !== "window")) throw INVALID();
+  if (Object.keys(input).some((k) => k !== "intervalMinutes" && k !== "window" && k !== "keepAliveMinutes")) throw INVALID();
   const interval = input.intervalMinutes;
   if (interval !== null && !(typeof interval === "number" && (INTERVALS as readonly number[]).includes(interval))) throw INVALID();
+  const keep = input.keepAliveMinutes;
+  if (keep !== undefined && keep !== null && !(typeof keep === "number" && (KEEP_ALIVE_CHOICES as readonly number[]).includes(keep))) throw INVALID();
+  const keepAlive = keep === undefined ? {} : { keepAliveMinutes: keep };
   const w = input.window;
-  if (w === null) return { intervalMinutes: interval, window: null };
+  if (w === null) return { intervalMinutes: interval, window: null, ...keepAlive };
   if (typeof w !== "object" || w === undefined || Array.isArray(w)) throw INVALID();
   const { start, end, ...rest } = w as Record<string, unknown>;
   if (Object.keys(rest).length > 0 || typeof start !== "string" || typeof end !== "string" || !TIME.test(start) || !TIME.test(end) || start === end) throw INVALID();
-  return { intervalMinutes: interval, window: { start, end } };
+  return { intervalMinutes: interval, window: { start, end }, ...keepAlive };
 }
 
 const windowOf = (s: SupplierRecord): Window => (s.scheduleWindowStart && s.scheduleWindowEnd ? { start: s.scheduleWindowStart, end: s.scheduleWindowEnd } : null);
@@ -62,11 +68,12 @@ export function registerScheduleRoutes(app: App, deps: ScheduleRoutesDeps, audit
   }
 
   app.put<{ Params: { id: string } }>("/api/suppliers/:id/schedule", async (request) => {
-    const { intervalMinutes, window } = readSchedule(request.body);
+    const input = readSchedule(request.body);
+    const { intervalMinutes, window } = input;
     const next = intervalMinutes ? nextCheckAt(now(), intervalMinutes, window, deps.timezone, deps.random) : null;
-    const supplier = await suppliers.setSchedule(request.params.id, { intervalMinutes, window, nextCheckAt: next });
+    const supplier = await suppliers.setSchedule(request.params.id, { ...input, nextCheckAt: next });
     if (!supplier) throw NOT_FOUND();
-    await audit.record({ actorUserId: request.user?.id, action: "supplier.schedule_set", entityType: "supplier", entityId: supplier.id, details: { intervalMinutes, window }, requestId: request.id });
+    await audit.record({ actorUserId: request.user?.id, action: "supplier.schedule_set", entityType: "supplier", entityId: supplier.id, details: input, requestId: request.id });
     return { supplier };
   });
 
@@ -75,7 +82,7 @@ export function registerScheduleRoutes(app: App, deps: ScheduleRoutesDeps, audit
     for (const s of await suppliers.list()) {
       const run = await checkRuns.current(s.id);
       const lastRun = (await checkRuns.recent(s.id, 2)).find((r) => r.endedAt) ?? null;
-      schedule.push({ supplierId: s.id, status: await status(s, run), intervalMinutes: s.scheduleIntervalMinutes, window: windowOf(s), nextCheckAt: s.nextCheckAt, run, lastRun });
+      schedule.push({ supplierId: s.id, status: await status(s, run), intervalMinutes: s.scheduleIntervalMinutes, window: windowOf(s), keepAliveMinutes: s.keepAliveMinutes, nextCheckAt: s.nextCheckAt, run, lastRun });
     }
     return { schedule };
   });
