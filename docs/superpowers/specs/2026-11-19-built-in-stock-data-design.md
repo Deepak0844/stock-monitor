@@ -254,3 +254,21 @@ supplier by View Source, and that a fresh capture is needed before testing.
 - Variants are matched by the `variant` value in the link's address first, then by the link's own option (supplier SKU or
   option name). The store's own SKUs are never used.
 - "Data there but unclear" never raises the supplier-wide "pages changed" notice.
+
+## Addendum (2026-11-19): no-login suppliers need no stock rules to start
+
+The owner asked that a supplier with **Needs a login** off is checked without any Stock rules setup.
+
+- **Built-in default.** A no-login supplier with no turned-on rules version is checked with a fixed default: built-in data on,
+  pre-order and back-order counting as out of stock, no word rules, no page checks. Its answers are recorded as rules version `0`.
+  A supplier that needs a login still needs a turned-on version, as before.
+- **Held back from Shopify.** An answer recorded under version `0` never makes a Shopify suggestion. It shows on the Links page
+  and in the link's history ("built-in data, not confirmed yet").
+- **Confirming** is the existing flow: label one in-stock and one out-of-stock saved page, test, save and turn on a version (the
+  first draft already has built-in data on, and turning on already needs both labels). From then on answers carry that version
+  and reach Shopify as usual.
+- The Stock rules page of such a supplier says so in one notice.
+
+Approaches considered: (1) this default plus hold-back, chosen; (2) the default with no hold-back, refused because stale public
+data would reach Shopify unchecked; (3) creating a real rules version automatically when the login is turned off, refused
+because it would make a version the owner never tested.
