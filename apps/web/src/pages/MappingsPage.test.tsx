@@ -120,6 +120,25 @@ describe("filters", () => {
     expect(window.location.search).toBe(`?supplier=${acme.id}&status=works&search=blue`);
   });
 
+  it.each([
+    ["Out of stock", "out_of_stock"],
+    ["Cannot tell", "cannot_tell"],
+    ["In stock", "in_stock"],
+    ["No stock check yet", "none"],
+  ])("asks the server for links whose latest stock answer is %s, and keeps it in the address", async (words, value) => {
+    const { api, user } = setup([blue]);
+    await screen.findByText("Blue Tee");
+    await user.selectOptions(screen.getByLabelText("Stock answer"), words);
+    await waitFor(() => expect(api.mappings.page).toHaveBeenLastCalledWith(expect.objectContaining({ stock: value, page: 1 })));
+    expect(window.location.search).toBe(`?stock=${value}`);
+  });
+
+  it("ignores a stock answer in the address it does not know", async () => {
+    window.history.replaceState(null, "", "/mappings?stock=maybe");
+    const { api } = setup([blue]);
+    await waitFor(() => expect(api.mappings.page).toHaveBeenCalledWith(expect.objectContaining({ stock: undefined })));
+  });
+
   it("opens on the filters, page and size in the address", async () => {
     window.history.replaceState(null, "", `/mappings?supplier=${acme.id}&status=works&page=2`);
     const { api } = setup([blue]);
@@ -164,18 +183,20 @@ describe("checking links", () => {
     expect(button).not.toHaveAttribute("aria-busy");
   });
 
-  it("reads the list again after a check, so the new status shows without a reload", async () => {
+  it("reads only that link again after a check, never the list, so the new status shows without a reload", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
     try {
-      const reply = (m: Mapping) => ({ items: [m], total: 1, page: 1, pageSize: 10 });
-      const page = vi.fn().mockResolvedValueOnce(reply(blue)).mockResolvedValue(reply({ ...blue, linkStatus: "needs_login", lastLinkCheckAt: "2026-11-11T08:00:00Z" }));
-      const { user } = setup([blue], { mappings: { page } });
+      const get = vi.fn().mockResolvedValueOnce(blue).mockResolvedValue({ ...blue, linkStatus: "needs_login", lastLinkCheckAt: "2026-11-11T08:00:00Z" });
+      const { user, api } = setup([blue], { mappings: { get } });
       await user.click(await screen.findByRole("button", { name: "Check now Blue Tee Large" }));
-      expect(page).toHaveBeenCalledTimes(1);
-      await act(async () => void vi.advanceTimersByTime(4_500));
-      expect(page).toHaveBeenCalledTimes(2);
+      await act(async () => void vi.advanceTimersByTime(3_100));
+      expect(get).toHaveBeenCalledTimes(1); // not answered yet
+      await act(async () => void vi.advanceTimersByTime(3_100));
+      expect(await within(screen.getByRole("row", { name: /Blue Tee/ })).findByText("Needs login")).toBeInTheDocument();
       await act(async () => void vi.advanceTimersByTime(20_000)); // the answer has shown, so it stops asking
-      expect(page).toHaveBeenCalledTimes(2);
+      expect(get).toHaveBeenCalledTimes(2);
+      expect(get).toHaveBeenCalledWith(blue.id);
+      expect(api.mappings.page).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }
@@ -233,17 +254,38 @@ describe("progress in the row", () => {
   it("shows Checking… in the Status cell after Check now, and in the Stock cell after Check stock, until the answer arrives", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
     try {
-      const reply = (m: Mapping) => ({ items: [m], total: 1, page: 1, pageSize: 10 });
-      const answered = { ...blue, linkStatus: "works" as const, lastLinkCheckAt: "2026-11-11T08:00:00Z", latestStock: { answer: "in_stock" as const, reason: null, quantity: null, matchedText: null, observedAt: "2026-11-11T08:00:00Z" } };
-      const page = vi.fn().mockResolvedValueOnce(reply(blue)).mockResolvedValue(reply(answered));
-      const { user } = setup([blue], { mappings: { page } });
+      const linked = { ...blue, linkStatus: "works" as const, lastLinkCheckAt: "2026-11-11T08:00:00Z" };
+      const stocked = { ...linked, latestStock: { answer: "in_stock" as const, reason: null, quantity: null, matchedText: null, observedAt: "2026-11-11T08:01:00Z" } };
+      const get = vi.fn().mockResolvedValueOnce(linked).mockResolvedValue(stocked);
+      const { user } = setup([blue], { mappings: { get } });
       const row = within(await screen.findByRole("row", { name: /Blue Tee/ }));
       await user.click(row.getByRole("button", { name: "Check now Blue Tee Large" }));
       expect(await row.findByText("Checking…")).toBeInTheDocument();
       expect(row.queryByText("Not checked")).toBeNull();
-      await act(async () => void vi.advanceTimersByTime(4_500));
+      await act(async () => void vi.advanceTimersByTime(3_100));
       expect(await row.findByText("Works")).toBeInTheDocument();
       expect(row.queryByText("Checking…")).toBeNull();
+      await user.click(row.getByRole("button", { name: "Check stock Blue Tee Large" }));
+      expect(await row.findByText("Checking…")).toBeInTheDocument();
+      await act(async () => void vi.advanceTimersByTime(3_100));
+      expect(await row.findByText("In stock")).toBeInTheDocument();
+      expect(row.queryByText("Checking…")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("follows checks of two links at once without one cancelling the other", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    try {
+      const red = aMapping({ id: "77777777-7777-4777-8777-777777777777", productTitle: "Red Tee", variantTitle: "Small", linkStatus: "not_checked" });
+      const get = vi.fn().mockImplementation(async (id: string) => ({ ...(id === red.id ? red : blue), linkStatus: "works", lastLinkCheckAt: "2026-11-11T08:00:00Z" }));
+      const { user } = setup([blue, red], { mappings: { get } });
+      await user.click(await screen.findByRole("button", { name: "Check now Blue Tee Large" }));
+      await user.click(await screen.findByRole("button", { name: "Check now Red Tee Small" }));
+      await act(async () => void vi.advanceTimersByTime(3_100));
+      await waitFor(() => expect(within(screen.getByRole("table")).getAllByText("Works")).toHaveLength(2));
+      expect(screen.queryByText("Checking…")).toBeNull();
     } finally {
       vi.useRealTimers();
     }

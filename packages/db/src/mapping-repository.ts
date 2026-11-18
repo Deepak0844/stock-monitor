@@ -37,7 +37,9 @@ export type LinkCheckResult = {
   firstMissingAt: Date | null;
   checkedAt: Date | null;
 };
-export type MappingFilter = { supplierId?: string; linkStatus?: LinkStatusValue; search?: string };
+/** The latest stock answer of a link, or `none` for a link with no stock check yet. */
+export type StockFilter = "in_stock" | "out_of_stock" | "cannot_tell" | "none";
+export type MappingFilter = { supplierId?: string; linkStatus?: LinkStatusValue; stock?: StockFilter; search?: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const UNIQUE_VIOLATION = "23505";
@@ -79,10 +81,17 @@ export function createMappingRepository<S extends Record<string, unknown>>(db: N
     return text.trim() ? or(ilike(shopifyVariants.productTitle, like), ilike(shopifyVariants.variantTitle, like), ilike(shopifyVariants.sku, like)) : undefined;
   };
 
+  // The newest observation decides, as on screen. In SQL, so paging and the total stay right.
+  const stockIs = (stock: StockFilter) =>
+    stock === "none"
+      ? sql`not exists (select 1 from stock_observations o where o.mapping_id = ${mappings.id})`
+      : sql`(select o.answer from stock_observations o where o.mapping_id = ${mappings.id} order by o.observed_at desc, o.id desc limit 1) = ${stock}`;
+
   const whereFor = (filter: MappingFilter) =>
     and(
       filter.supplierId ? eq(mappings.supplierId, filter.supplierId) : undefined,
       filter.linkStatus ? eq(mappings.linkStatus, filter.linkStatus) : undefined,
+      filter.stock ? stockIs(filter.stock) : undefined,
       filter.search ? search(filter.search) : undefined,
     );
 

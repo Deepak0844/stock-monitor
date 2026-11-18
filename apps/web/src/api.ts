@@ -302,7 +302,9 @@ export type StockApi = {
   checkSupplier(supplierId: string): Promise<StartedRun>;
   observations(mappingId: string): Promise<Observation[]>;
 };
-export type MappingFilter = { supplierId?: string; status?: LinkStatus; search?: string };
+/** A link's latest stock answer, or `none` for no stock check yet. */
+export type StockFilter = StockAnswer | "none";
+export type MappingFilter = { supplierId?: string; status?: LinkStatus; stock?: StockFilter; search?: string };
 export type MappingInput = { variantId: string; supplierId: string; url: string; note?: string | null; region?: string | null };
 export type UnmappedVariant = { variantId: string; productTitle: string; variantTitle: string; sku: string | null };
 export type UnmappedList = { total: number; unmapped: number; items: UnmappedVariant[] };
@@ -639,6 +641,7 @@ const mappings: MappingsApi = {
     const params = new URLSearchParams();
     if (filter.supplierId) params.set("supplierId", filter.supplierId);
     if (filter.status) params.set("status", filter.status);
+    if (filter.stock) params.set("stock", filter.stock);
     if (filter.search) params.set("search", filter.search);
     params.set("page", String(page));
     params.set("pageSize", String(pageSize));
