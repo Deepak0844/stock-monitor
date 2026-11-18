@@ -438,6 +438,8 @@ export const checkRuns = pgTable(
       .notNull()
       .references(() => suppliers.id, { onDelete: "cascade" }),
     trigger: text("trigger").notNull(),
+    // What the run checks: stock answers, or only whether each link still works. One run of either kind at a time per supplier.
+    kind: text("kind").notNull().default("stock"),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
     endedAt: timestamp("ended_at", { withTimezone: true }),
     linksTotal: integer("links_total").notNull().default(0),
@@ -450,6 +452,7 @@ export const checkRuns = pgTable(
   },
   (t) => [
     check("check_runs_trigger", sql`${t.trigger} in ('scheduled', 'manual')`),
+    check("check_runs_kind", sql`${t.kind} in ('stock', 'links')`),
     check("check_runs_outcome", sql`${t.outcome} in ('running', 'finished', 'stopped', 'failed')`),
     uniqueIndex("check_runs_one_running").on(t.supplierId).where(sql`${t.outcome} = 'running'`),
     index("check_runs_supplier_started").on(t.supplierId, t.startedAt),

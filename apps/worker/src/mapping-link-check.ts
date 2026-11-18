@@ -2,7 +2,7 @@ import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
 import type { BrowserClient } from "@stock-monitor/browser-client";
 import type {
-  createMappingRepository, createNotificationRepository, createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository, LinkCheckResult, MappingRow, SupplierRecord,
+  createCheckRunRepository, createMappingRepository, createNotificationRepository, createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository, LinkCheckResult, MappingRow, SupplierRecord,
 } from "@stock-monitor/db";
 import { decideLinkStatus, isSupplierWide, whyNotChecked, type CheckGateReason, type LinkState, type LinkStatus, type Observation } from "@stock-monitor/mapping";
 import { unsealSessionState } from "@stock-monitor/supplier-session";
@@ -20,6 +20,8 @@ export type LinkCheckDeps = {
   /** The saved login, for automatic login. */
   supplierCredentials: ReturnType<typeof createSupplierCredentialsRepository>;
   notifications: ReturnType<typeof createNotificationRepository>;
+  /** The run record a whole-supplier run reports its progress and end to. */
+  checkRuns: ReturnType<typeof createCheckRunRepository>;
   audit: ReturnType<typeof createAuditWriter>;
   browser: BrowserClient;
   /** Opens saved sessions. The browser service never has it. */
@@ -29,7 +31,7 @@ export type LinkCheckDeps = {
   now?: () => Date;
 };
 
-export type SkipReason = CheckGateReason | "no_mapping" | "no_supplier" | "link_off";
+export type SkipReason = CheckGateReason | "no_mapping" | "no_supplier" | "link_off" | "run_ended";
 export type LinkOutcome = { kind: "skipped"; reason: SkipReason } | { kind: "checked"; status: LinkStatus };
 /** `stopped` is set when an automatic login failed and ended the run. */
 export type SupplierRunOutcome = { kind: "skipped"; reason: SkipReason } | { kind: "done"; checked: number; supplierWide: boolean; stopped?: StopReason };
@@ -54,7 +56,7 @@ export const toState = (m: MappingRow): LinkState => ({
  * pages behind the login do not).
  */
 export function createLinkChecker(deps: LinkCheckDeps) {
-  const { mappings, suppliers, supplierSessions, audit, browser, logger } = deps;
+  const { mappings, suppliers, supplierSessions, checkRuns, audit, browser, logger } = deps;
   const needsOwner = (result: string): result is "login_required" | "captcha" | "blocked" => result === "login_required" || result === "captcha" || result === "blocked";
   const sleep = deps.sleep ?? wait;
   const now = deps.now ?? (() => new Date());
@@ -134,53 +136,76 @@ export function createLinkChecker(deps: LinkCheckDeps) {
      * Results are saved at the end, so a run where many links went missing at once can be recognised as a
      * supplier-wide problem and counted against none of them.
      */
-    async checkSupplierLinks(supplierId: string): Promise<SupplierRunOutcome> {
-      const first = await gate(supplierId);
-      if ("reason" in first) return { kind: "skipped", reason: first.reason };
-      const links = (await mappings.forSupplier(supplierId)).filter((m) => m.enabled);
-      const seen: { mapping: MappingRow; observation: Observation }[] = [];
-      const checkUrl = loginCheckUrl(first.supplier, links);
-      // A failed automatic login already told the owner, and ends the run.
-      let stopped: StopReason | undefined;
-      // A login at the start of the run is not repeated if the first page still asks for one: the supplier just accepted it.
-      let loggedInAtStart = false;
-      if (links.length > 0) {
-        const login = await ensureLoggedIn(deps, first.supplier, { force: false, checkUrl, onLoggedIn: () => void (loggedInAtStart = true) });
-        if (login !== "ready" && login !== "skipped") stopped = login;
+    async checkSupplierLinks(supplierId: string, runId?: string): Promise<SupplierRunOutcome> {
+      try {
+        return await runLinks(supplierId, runId);
+      } catch (error) {
+        if (runId) await checkRuns.end(runId, "failed", "error");
+        throw error;
       }
-      // One automatic login when a page asks for one, at most, per run.
-      let loggedInAgain = false;
-      for (const [index, mapping] of stopped ? [] : links.entries()) {
-        if (index > 0) await sleep(first.supplier.checkPauseSeconds * 1000);
-        const gated = await gate(supplierId);
-        if ("reason" in gated) break;
-        let observation = await observe(gated.supplier, mapping);
-        if (observation.result === "login_required" && !loggedInAgain && !loggedInAtStart) {
-          loggedInAgain = true;
-          const login = await ensureLoggedIn(deps, gated.supplier, { force: true, checkUrl });
-          if (login === "ready") observation = await observe(gated.supplier, mapping);
-          else if (login !== "skipped") stopped = login;
-        }
-        if (observation.result !== "login_required") loggedInAtStart = false;
-        seen.push({ mapping, observation });
-        if (stopped) break;
-      }
-      // What each link would be on its own, to see whether the run as a whole looks like a site change or outage.
-      const trial = seen.map(({ mapping, observation }) =>
-        decideLinkStatus(toState(mapping), observation, { requestedUrl: mapping.url, homeUrl: first.supplier.websiteUrl, now: now(), supplierWide: false }).status,
-      );
-      const supplierWide = isSupplierWide(trial);
-      for (const { mapping, observation } of seen) await save(first.supplier, mapping, observation, supplierWide);
-      const refused = seen.map((s) => s.observation.result).find(needsOwner);
-      if (refused && !stopped) await raiseNeedsAttention(deps, first.supplier, refused);
-      return { kind: "done", checked: seen.length, supplierWide, ...(stopped ? { stopped } : {}) };
     },
   };
+
+  /** `runId` is left out only by a job queued before link runs were recorded. */
+  async function runLinks(supplierId: string, runId?: string): Promise<SupplierRunOutcome> {
+    const first = await gate(supplierId);
+    if ("reason" in first) {
+      if (runId) await checkRuns.end(runId, "stopped", "supplier_not_ready");
+      return { kind: "skipped", reason: first.reason };
+    }
+    // A job left queued over a restart: its run was already ended. It must not visit anything.
+    if (runId && !(await checkRuns.isRunning(runId))) return { kind: "skipped", reason: "run_ended" };
+    const links = (await mappings.forSupplier(supplierId)).filter((m) => m.enabled);
+    const seen: { mapping: MappingRow; observation: Observation }[] = [];
+    const checkUrl = loginCheckUrl(first.supplier, links);
+    // A failed automatic login already told the owner, and ends the run.
+    let stopped: StopReason | undefined;
+    // A login at the start of the run is not repeated if the first page still asks for one: the supplier just accepted it.
+    let loggedInAtStart = false;
+    if (links.length > 0) {
+      const login = await ensureLoggedIn(deps, first.supplier, { force: false, checkUrl, onLoggedIn: () => void (loggedInAtStart = true) });
+      if (login !== "ready" && login !== "skipped") stopped = login;
+    }
+    // One automatic login when a page asks for one, at most, per run.
+    let loggedInAgain = false;
+    // Paused or no longer allowed while the run waited.
+    let notReady = false;
+    for (const [index, mapping] of stopped ? [] : links.entries()) {
+      if (index > 0) await sleep(first.supplier.checkPauseSeconds * 1000);
+      const gated = await gate(supplierId);
+      if ("reason" in gated) {
+        notReady = true;
+        break;
+      }
+      let observation = await observe(gated.supplier, mapping);
+      if (observation.result === "login_required" && !loggedInAgain && !loggedInAtStart) {
+        loggedInAgain = true;
+        const login = await ensureLoggedIn(deps, gated.supplier, { force: true, checkUrl });
+        if (login === "ready") observation = await observe(gated.supplier, mapping);
+        else if (login !== "skipped") stopped = login;
+      }
+      if (observation.result !== "login_required") loggedInAtStart = false;
+      seen.push({ mapping, observation });
+      if (runId) await checkRuns.progress(runId, { linksDone: seen.length, inStock: 0, outOfStock: 0, cannotTell: 0 });
+      if (stopped) break;
+    }
+    // What each link would be on its own, to see whether the run as a whole looks like a site change or outage.
+    const trial = seen.map(({ mapping, observation }) =>
+      decideLinkStatus(toState(mapping), observation, { requestedUrl: mapping.url, homeUrl: first.supplier.websiteUrl, now: now(), supplierWide: false }).status,
+    );
+    const supplierWide = isSupplierWide(trial);
+    for (const { mapping, observation } of seen) await save(first.supplier, mapping, observation, supplierWide);
+    const refused = seen.map((s) => s.observation.result).find(needsOwner);
+    if (refused && !stopped) await raiseNeedsAttention(deps, first.supplier, refused);
+    const stopReason = stopped ?? (notReady ? "supplier_not_ready" : null);
+    if (runId) await checkRuns.end(runId, stopReason ? "stopped" : "finished", stopReason);
+    return { kind: "done", checked: seen.length, supplierWide, ...(stopped ? { stopped } : {}) };
+  }
 }
 
 // The standalone functions the tests and the job handlers call.
 export const checkLink = (deps: LinkCheckDeps, mappingId: string) => createLinkChecker(deps).checkLink(mappingId);
-export const checkSupplierLinks = (deps: LinkCheckDeps, supplierId: string) => createLinkChecker(deps).checkSupplierLinks(supplierId);
+export const checkSupplierLinks = (deps: LinkCheckDeps, supplierId: string, runId?: string) => createLinkChecker(deps).checkSupplierLinks(supplierId, runId);
 
 /** The `mapping.link.check` and `mapping.links.check` jobs. Their payloads are only an id. */
 export function createLinkCheckHandlers(deps: LinkCheckDeps) {
@@ -189,9 +214,9 @@ export function createLinkCheckHandlers(deps: LinkCheckDeps) {
       const outcome = await checkLink(deps, payload.mappingId);
       deps.logger.info({ mappingId: payload.mappingId, outcome: outcome.kind, ...(outcome.kind === "skipped" ? { reason: outcome.reason } : { status: outcome.status }) }, "link check finished");
     },
-    async links(payload: { supplierId: string }): Promise<void> {
-      const outcome = await checkSupplierLinks(deps, payload.supplierId);
-      deps.logger.info({ supplierId: payload.supplierId, outcome: outcome.kind, ...(outcome.kind === "skipped" ? { reason: outcome.reason } : { checked: outcome.checked, supplierWide: outcome.supplierWide, stopped: outcome.stopped ?? null }) }, "supplier link check finished");
+    async links(payload: { supplierId: string; runId?: string }): Promise<void> {
+      const outcome = await checkSupplierLinks(deps, payload.supplierId, payload.runId);
+      deps.logger.info({ supplierId: payload.supplierId, runId: payload.runId ?? null, outcome: outcome.kind, ...(outcome.kind === "skipped" ? { reason: outcome.reason } : { checked: outcome.checked, supplierWide: outcome.supplierWide, stopped: outcome.stopped ?? null }) }, "supplier link check finished");
     },
   };
 }

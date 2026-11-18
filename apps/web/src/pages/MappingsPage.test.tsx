@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { ApiError, type Mapping } from "../api.js";
-import { aMapping, aSupplier, fakeApi } from "../test/fake-api.js";
+import { aMapping, aRun, aSupplier, fakeApi } from "../test/fake-api.js";
 import { MappingsPage } from "./MappingsPage.js";
 
 beforeEach(() => window.history.replaceState(null, "", "/mappings"));
@@ -189,14 +189,43 @@ describe("checking links", () => {
   });
 
   it("checks all of one supplier's links once that supplier is chosen", async () => {
-    const checkSupplierLinks = vi.fn().mockResolvedValue(3);
+    const checkSupplierLinks = vi.fn().mockResolvedValue({ links: 3, runId: "r1" });
     const { user } = setup([blue], { mappings: { checkSupplierLinks } });
     await screen.findByText("Blue Tee");
     expect(screen.queryByRole("button", { name: /Check all links/ })).toBeNull();
     await user.selectOptions(screen.getByLabelText("Supplier"), acme.id);
     await user.click(await screen.findByRole("button", { name: "Check all links for Acme Supply" }));
     expect(checkSupplierLinks).toHaveBeenCalledWith(acme.id);
-    expect(await screen.findByText(/3 links/)).toBeInTheDocument();
+    expect(await screen.findByText(/Checking 3 links for Acme Supply/)).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Link check for Acme Supply" })).toHaveAttribute("aria-valuenow", "0");
+    expect(screen.getByRole("button", { name: "Check all stock for Acme Supply" })).toBeDisabled();
+  });
+
+  it("follows a whole run through its own status, then reads the list once when it ends", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    try {
+      const going = aRun({ id: "r1", kind: "links", supplierId: acme.id, linksTotal: 4, linksDone: 1, outcome: "running", endedAt: null, inStock: 0, outOfStock: 0, cannotTell: 0 });
+      const currentRun = vi.fn().mockResolvedValue(going);
+      const runById = vi.fn().mockResolvedValueOnce({ ...going, linksDone: 3 }).mockResolvedValue({ ...going, linksDone: 4, outcome: "finished" });
+      const { user, api } = setup([blue], { schedule: { currentRun, run: runById } });
+      await screen.findByText("Blue Tee");
+      await user.selectOptions(screen.getByLabelText("Supplier"), acme.id);
+      expect(await screen.findByText("Checking 1 of 4 links")).toBeInTheDocument();
+      expect(currentRun).toHaveBeenCalledWith(acme.id);
+      const listReads = vi.mocked(api.mappings.page).mock.calls.length;
+      await act(async () => void vi.advanceTimersByTime(3_100));
+      expect(await screen.findByText("Checking 3 of 4 links")).toBeInTheDocument();
+      expect(screen.getByRole("progressbar", { name: "Link check for Acme Supply" })).toHaveAttribute("aria-valuenow", "3");
+      expect(api.mappings.page).toHaveBeenCalledTimes(listReads);
+      await act(async () => void vi.advanceTimersByTime(3_100));
+      expect(await screen.findByText("Checked 4 links")).toBeInTheDocument();
+      expect(screen.queryByRole("progressbar")).toBeNull();
+      await waitFor(() => expect(api.mappings.page).toHaveBeenCalledTimes(listReads + 1));
+      await act(async () => void vi.advanceTimersByTime(10_000));
+      expect(runById).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -340,7 +369,7 @@ describe("stock answers", () => {
   });
 
   it("checks all of one supplier's stock once that supplier is chosen", async () => {
-    const checkSupplier = vi.fn().mockResolvedValue(3);
+    const checkSupplier = vi.fn().mockResolvedValue({ links: 3, runId: "r1" });
     const { user } = setup([blue], { stock: { checkSupplier } });
     await screen.findByText("Blue Tee");
     await user.selectOptions(screen.getByLabelText("Supplier"), acme.id);

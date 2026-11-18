@@ -1,0 +1,2 @@
+ALTER TABLE "check_runs" ADD COLUMN "kind" text DEFAULT 'stock' NOT NULL;--> statement-breakpoint
+ALTER TABLE "check_runs" ADD CONSTRAINT "check_runs_kind" CHECK ("check_runs"."kind" in ('stock', 'links'));

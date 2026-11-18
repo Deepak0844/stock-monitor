@@ -63,7 +63,7 @@ const makeReady = async () => {
 };
 
 describe("every schedule route needs a signed-in owner", () => {
-  it.each([["PUT", `/api/suppliers/x/schedule`], ["GET", "/api/schedule"], ["GET", "/api/suppliers/x/runs"], ["GET", "/api/suppliers/x/runs/current"]])("%s %s returns 401", async (method, url) => {
+  it.each([["PUT", `/api/suppliers/x/schedule`], ["GET", "/api/schedule"], ["GET", "/api/suppliers/x/runs"], ["GET", "/api/suppliers/x/runs/current"], ["GET", "/api/check-runs/x"]])("%s %s returns 401", async (method, url) => {
     expect((await call(method as "GET", url, undefined, false)).status).toBe(401);
   });
 });
@@ -200,5 +200,14 @@ describe("run history", () => {
   it("says plainly when the supplier is unknown, and has no current run when none is going", async () => {
     expect((await call("GET", "/api/suppliers/00000000-0000-4000-8000-000000000000/runs")).status).toBe(404);
     expect((await call("GET", `/api/suppliers/${acme}/runs/current`)).body).toEqual({ run: null });
+  });
+
+  it("reads one run by its id, also after it ended, and is a plain 404 for an unknown one", async () => {
+    const a = (await runs().start(acme, "manual", 3, "links"))!;
+    await runs().progress(a.id, { linksDone: 2, inStock: 0, outOfStock: 0, cannotTell: 0 });
+    expect((await call("GET", `/api/check-runs/${a.id}`)).body.run).toMatchObject({ id: a.id, kind: "links", linksDone: 2, outcome: "running" });
+    await runs().end(a.id, "finished", null);
+    expect((await call("GET", `/api/check-runs/${a.id}`)).body.run).toMatchObject({ outcome: "finished" });
+    expect((await call("GET", "/api/check-runs/00000000-0000-4000-8000-000000000000")).status).toBe(404);
   });
 });

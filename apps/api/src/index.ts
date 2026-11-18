@@ -37,7 +37,7 @@ const app = buildApp({
   webRoot,
   suppliers: { repo: createSupplierRepository(db), credentials: createSupplierCredentialsRepository(db), key: { key: config.encryptionKey, keyId: KEY_ID }, queue },
   notifications: { repo: createNotificationRepository(db) },
-  mappings: { mappings: createMappingRepository(db), suppliers: createSupplierRepository(db), observations: createObservationRepository(db), proposals: createProposalRepository(db), previews: createImportPreviewRepository(db), supplierSessions: createSupplierSessionRepository(db), queue },
+  mappings: { mappings: createMappingRepository(db), suppliers: createSupplierRepository(db), observations: createObservationRepository(db), proposals: createProposalRepository(db), previews: createImportPreviewRepository(db), supplierSessions: createSupplierSessionRepository(db), queue, checkRuns: createCheckRunRepository(db) },
   captures: { captures: createCaptureRepository(db), mappings: createMappingRepository(db), suppliers: createSupplierRepository(db), supplierSessions: createSupplierSessionRepository(db), queue },
   recipes: { recipes: createRecipeRepository(db), captures: createCaptureRepository(db), mappings: createMappingRepository(db), suppliers: createSupplierRepository(db) },
   schedule: { suppliers: createSupplierRepository(db), supplierSessions: createSupplierSessionRepository(db), recipes: createRecipeRepository(db), checkRuns: createCheckRunRepository(db), timezone: config.timezone },

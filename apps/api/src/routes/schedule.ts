@@ -92,6 +92,13 @@ export function registerScheduleRoutes(app: App, deps: ScheduleRoutesDeps, audit
     return { runs: await checkRuns.recent(request.params.id, 30) };
   });
 
+  // What one run is doing, or how it ended. The page asks this while a run goes instead of reading the whole list again.
+  app.get<{ Params: { id: string } }>("/api/check-runs/:id", async (request) => {
+    const run = await checkRuns.get(request.params.id);
+    if (!run) throw new AppError(404, "run_not_found", "That check run does not exist.");
+    return { run };
+  });
+
   app.get<{ Params: { id: string } }>("/api/suppliers/:id/runs/current", async (request) => {
     if (!(await suppliers.get(request.params.id))) throw NOT_FOUND();
     return { run: await checkRuns.current(request.params.id) };
