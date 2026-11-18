@@ -175,7 +175,7 @@ export type PermissionInput = { status: Supplier["automationPermission"]; note: 
 
 export type SupplierInput = { name: string; websiteUrl: string; loginUrl: string | null };
 
-export type SupplierStatusFilter = "connected" | "needs_reconnect" | "blocked" | "paused" | "not_connected";
+export type SupplierStatusFilter = "connected" | "needs_reconnect" | "blocked" | "paused" | "not_connected" | "no_login";
 export type SuppliersApi = {
   list(): Promise<Supplier[]>;
   /** One page, searched and filtered on the server. */

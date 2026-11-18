@@ -30,6 +30,7 @@ const STATUSES: { value: SupplierStatusFilter; label: string }[] = [
   { value: "blocked", label: "Blocked" },
   { value: "paused", label: "Paused" },
   { value: "not_connected", label: "Not connected" },
+  { value: "no_login", label: "No login needed" },
 ];
 // While a run is going, its progress is read again this often.
 const PROGRESS_REFRESH_MS = 5000;
@@ -56,7 +57,7 @@ function statusOf(s: Supplier): { words: string; tone: "success" | "warning" | "
 }
 
 /** The one status key the filter and the tiles use: paused wins, as `statusOf` does. */
-const keyOf = (s: Supplier): SupplierStatusFilter => (!s.enabled && s.pausedReason !== "session" ? "paused" : s.sessionStatus);
+const keyOf = (s: Supplier): SupplierStatusFilter => (!s.enabled && s.pausedReason !== "session" ? "paused" : !s.needsLogin ? "no_login" : s.sessionStatus);
 
 /** What the schedule is doing for one supplier, in a few plain lines. */
 function ScheduleCell({ row }: { row: ScheduleRow | undefined }) {

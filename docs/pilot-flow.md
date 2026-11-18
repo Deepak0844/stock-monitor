@@ -39,7 +39,8 @@ The supplier's terms decide whether automatic checks are allowed. This is your c
 window, press View Source (⌘⌥U on a Mac, Ctrl+U elsewhere) and search for `availability`. If you find
 `"availability": "https://schema.org/InStock"` (or `OutOfStock` on a sold-out product), the supplier needs no login: add it,
 open its **Edit** page and turn **Needs a login** off. Skip steps 2 to 6 below. The app then checks it with no saved login,
-no automatic login and no keep-alive, and the supplier list shows **No login needed**.
+no automatic login and no keep-alive, and the supplier list shows **No login needed**. Keep it on if the supplier hides stock
+until you log in. Turning it off also lifts a pause the app made because the login needed attention.
 
 1. Open **Suppliers**, then **Add supplier**.
    - **Name:** use exactly the name your Shopify export holds for this supplier (see Phase 4). Capitals do not matter.

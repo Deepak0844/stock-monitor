@@ -327,6 +327,8 @@ describe("GET /api/suppliers with a page", () => {
     expect(found.items.map((s) => s.name)).toEqual(["Supplier 02"]);
     const none = (await call("GET", "/api/suppliers?page=1&pageSize=10&status=paused")).body as unknown as Paged;
     expect(none.total).toBe(0);
+    const noLogin = (await call("GET", "/api/suppliers?page=1&pageSize=10&status=no_login")).body as unknown as Paged;
+    expect(noLogin.total).toBe(0);
   });
 
   it.each(["page=0", "page=abc", "page=1&pageSize=0", "page=1&pageSize=101", "page=1&pageSize=-5", "page=1&status=nonsense"])(

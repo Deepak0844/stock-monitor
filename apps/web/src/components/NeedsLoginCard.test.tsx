@@ -19,7 +19,7 @@ describe("Needs a login card", () => {
     setup();
     const toggle = screen.getByRole("switch", { name: "Needs a login" });
     expect(toggle).toBeChecked();
-    expect(toggle).toHaveAccessibleDescription("Off when the supplier's product pages show stock without logging in.");
+    expect(toggle).toHaveAccessibleDescription("Off when the supplier's product pages show stock without logging in. Keep it on if they hide stock until you log in.");
   });
 
   it("turns the login off and tells the page", async () => {

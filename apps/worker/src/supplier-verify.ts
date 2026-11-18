@@ -44,7 +44,7 @@ export type SessionReason = Exclude<AttentionReason, "code_required" | "wrong_pa
 
 export type CheckOutcome =
   /** not_checked: a keep-alive visit for a supplier paused or refused after it was queued. */
-  | { kind: "skipped"; reason: "no_supplier" | "no_session" | "not_checked" }
+  | { kind: "skipped"; reason: "no_supplier" | "no_session" | "not_checked" | "no_login" }
   | { kind: "ok" }
   | { kind: "needs_attention"; result: SessionReason }
   /** An early check found a page it could not read clearly. Nothing is marked: the run does not stop on one either. */
@@ -97,6 +97,8 @@ export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId
   const { suppliers, supplierSessions, notifications, audit, browser, logger } = deps;
   const supplier = await suppliers.get(supplierId);
   if (!supplier) return { kind: "skipped", reason: "no_supplier" };
+  // No login to check: a session kept from before the setting changed is never opened.
+  if (!supplier.needsLogin) return { kind: "skipped", reason: "no_login" };
 
   // The HTTP status tells us why a check was refused (403 vs 429 vs a challenge page). Never page text.
   let httpStatus: number | null = null;

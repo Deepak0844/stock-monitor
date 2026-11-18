@@ -33,7 +33,7 @@ export function NeedsLoginCard({ api, supplier, onChange }: { api: Api; supplier
             Login
           </h2>
           <p id="needs-login-hint" className="text-sm text-muted-foreground">
-            Off when the supplier's product pages show stock without logging in.
+            Off when the supplier's product pages show stock without logging in. Keep it on if they hide stock until you log in.
           </p>
           {!supplier.needsLogin && <p className="text-sm font-medium">Checked without logging in</p>}
         </div>

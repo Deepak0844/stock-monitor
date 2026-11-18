@@ -514,3 +514,14 @@ describe("the check after a hand login", () => {
     expect(await runs().current(acme)).not.toBeNull();
   });
 });
+
+describe("a supplier that needs no login", () => {
+  it("is never session-checked, even with an old session kept, and nothing about it changes", async () => {
+    await suppliers().setNeedsLogin(acme, false);
+    expect(await verifySupplierSession(deps(), acme)).toEqual({ kind: "skipped", reason: "no_login" });
+    expect(await verifySupplierSession(deps(), acme, { early: true })).toEqual({ kind: "skipped", reason: "no_login" });
+    expect(verifies()).toHaveLength(0);
+    expect(await supplier(acme)).toMatchObject({ sessionStatus: "connected", enabled: true });
+    expect(await notes().listOpen()).toEqual([]);
+  });
+});

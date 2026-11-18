@@ -13,7 +13,7 @@ afterEach(cleanup);
 const acme = aSupplier();
 const globex = aSupplier({ id: "22222222-2222-4222-8222-222222222222", name: "Globex", websiteUrl: "https://globex.example/login" });
 
-const statusOfRow = (s: Supplier) => (!s.enabled && s.pausedReason !== "session" ? "paused" : s.sessionStatus);
+const statusOfRow = (s: Supplier) => (!s.enabled && s.pausedReason !== "session" ? "paused" : !s.needsLogin ? "no_login" : s.sessionStatus);
 /** A tiny fake server: filters, then slices, like the real one. */
 const serve = (getAll: () => Supplier[]) =>
   vi.fn().mockImplementation(async (q: { page: number; pageSize: number; search?: string; status?: string }) => {
@@ -465,5 +465,18 @@ describe("a supplier that needs no login", () => {
     expect(within(rowOf("Acme Supply")).getByText("No login needed")).toBeInTheDocument();
     expect(within(rowOf("Acme Supply")).queryByRole("link", { name: "Connect Acme Supply" })).toBeNull();
     expect(within(rowOf("Acme Supply")).queryByRole("button", { name: "Check connection Acme Supply" })).toBeNull();
+  });
+});
+
+describe("suppliers that need no login in the tiles and the filter", () => {
+  it("are never counted as needing reconnecting, and have their own filter", async () => {
+    const noLogin = aSupplier({ id: "6", name: "Evans", needsLogin: false, sessionStatus: "needs_reconnect" });
+    const { api, user } = setup([acme, noLogin]);
+    const tile = (label: string) => screen.findByRole("link", { name: new RegExp(`^${label}\\s*\\d+`) });
+    expect(await tile("Needs reconnecting")).toHaveTextContent("0");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Filter by status" }), "no_login");
+    await waitFor(() => expect(api.suppliers.page).toHaveBeenLastCalledWith(expect.objectContaining({ status: "no_login" })));
+    expect(await screen.findByRole("row", { name: /Evans/ })).toBeInTheDocument();
+    expect(screen.queryByRole("row", { name: /Acme Supply/ })).toBeNull();
   });
 });

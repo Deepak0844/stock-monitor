@@ -57,6 +57,14 @@ describe("readPage: built-in offers", () => {
     expect(offers).toHaveLength(100);
     expect(offers[0]?.sku).toHaveLength(200);
   });
+  it("a huge first script does not use up the reading of a later product script", async () => {
+    const huge = { "@type": "WebSite", items: Array.from({ length: 3000 }, (_, i) => ({ n: i })) };
+    expect(await offersOf(ld(huge) + ld({ "@type": "Product", offers: { availability: "InStock" } }))).toEqual([{ availability: "InStock", url: null, sku: null, name: null }]);
+  });
+  it("skips a script over a million characters, and still reads a later product script", async () => {
+    const giant = { "@type": "Product", offers: { availability: "OutOfStock" }, pad: "x".repeat(1_100_000) };
+    expect(await offersOf(ld(giant) + ld({ "@type": "Product", offers: { availability: "InStock" } }))).toEqual([{ availability: "InStock", url: null, sku: null, name: null }]);
+  });
   it("keeps nothing else from the script", async () => {
     const offers = await offersOf(ld({ "@type": "Product", secretKey: "s3cret", offers: { availability: "InStock", seller: { name: "Someone" }, token: "t0ken" } }));
     expect(JSON.stringify(offers)).not.toMatch(/s3cret|t0ken|Someone/);

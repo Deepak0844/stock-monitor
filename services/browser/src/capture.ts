@@ -16,7 +16,7 @@ export type CaptureOptions = VerifyOptions & { proxy: GuardProxy };
 
 const DEFAULT_TIMEOUT_MS = 20_000;
 const MAX_FIELD = 200;
-const LIMITS = { maxLines: 5000, maxLine: 2000, maxButtons: 500, maxBytes: 200_000, maxOffers: 100, maxOfferField: 200, maxNodes: 2000 };
+const LIMITS = { maxLines: 5000, maxLine: 2000, maxButtons: 500, maxBytes: 200_000, maxOffers: 100, maxOfferField: 200, maxNodes: 2000, maxScript: 1_000_000 };
 const MAX_PICTURE_BYTES = 1_000_000;
 const short = (text: string | null | undefined) => (text ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_FIELD) || null;
 const withoutQuery = (address: string): string | null => {
@@ -74,7 +74,7 @@ const describePage = (arg: { limits: typeof LIMITS; challenge: string }) => {
         const style = getComputedStyle(el);
         return el.getAttribute("data-size") !== "invisible" && box.width >= 50 && box.height >= 30 && style.visibility !== "hidden" && style.display !== "none" && Number(style.opacity) > 0.1 && box.bottom > 0 && box.right > 0;
       });
-  // The page's built-in product data. Bounded: at most maxNodes values looked at, maxOffers kept, each field cut short.
+  // The page's built-in product data. Bounded: at most maxNodes values looked at per script, maxOffers kept, each field cut short.
   type Offer = { availability: string; url: string | null; sku: string | null; name: string | null };
   type Context = { url: string | null; sku: string | null; name: string | null };
   const offers: Offer[] = [];
@@ -120,8 +120,11 @@ const describePage = (arg: { limits: typeof LIMITS; challenge: string }) => {
   }
   const none: Context = { url: null, sku: null, name: null };
   for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
+    nodes = 0; // each script gets its own budget, so a huge one cannot starve the product's own
+    const text = script.textContent ?? "";
+    if (text.length > limits.maxScript) continue; // never parse a giant blob
     try {
-      walk(JSON.parse(script.textContent ?? ""), none);
+      walk(JSON.parse(text), none);
     } catch {
       // Broken built-in data is no built-in data.
     }
