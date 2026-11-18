@@ -276,11 +276,22 @@ test("pressing I'm logged in with nothing to save says so, and Try again opens a
   await expect(liveCanvas(page)).toBeVisible({ timeout: 20_000 });
 });
 
+/** Makes the browser refuse to read the clipboard, as when the owner said no, then presses Ctrl+V in the window. That shows the Paste text box. */
+async function blockPaste(page: Page) {
+  await page.evaluate(() => {
+    navigator.clipboard.readText = () => Promise.reject(new DOMException("blocked", "NotAllowedError"));
+  });
+  await liveCanvas(page).click();
+  await page.keyboard.press("ControlOrMeta+V");
+}
+
 test("text can be sent to the window, and is cleared from the box afterwards", async ({ page }) => {
   await signIn(page);
   const supplier = await addViaApi(page);
   await page.goto(supplier.url);
   await expect(liveCanvas(page)).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByLabel("Paste text")).toHaveCount(0);
+  await blockPaste(page);
   await page.getByLabel("Paste text").fill("pasted-from-manager");
   await page.getByRole("button", { name: "Send to the window" }).click();
   await expect(page.getByText(/Sent\. Now click the field in the window and press Ctrl\+V\./)).toBeVisible();
@@ -511,6 +522,7 @@ test("no session, token or screen password is in any page, response, console mes
   await snapshot();
   const token = frames[0] ?? "";
   expect(token).toMatch(/^[0-9a-f]{64}$/);
+  await blockPaste(page);
   await page.getByLabel("Paste text").fill("typed-secret-1234");
   await page.getByRole("button", { name: "Send to the window" }).click();
   await snapshot();

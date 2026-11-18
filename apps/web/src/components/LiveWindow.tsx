@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FocusEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Button } from "@/components/ui/button.js";
 import { Input } from "@/components/ui/input.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
@@ -10,6 +10,15 @@ export type RfbLike = EventTarget & {
   disconnect(): void;
   focus(): void;
   clipboardPasteFrom(text: string): void;
+  sendKey(keysym: number, code: string | null, down?: boolean): void;
+};
+
+// X11 keysyms the window sends itself.
+const XK = { BackSpace: 0xff08, Return: 0xff0d, Shift_L: 0xffe1, Shift_R: 0xffe2, Control_L: 0xffe3, Control_R: 0xffe4, Alt_L: 0xffe9, Alt_R: 0xffea, Super_L: 0xffeb, Super_R: 0xffec };
+// Latin-1 keysyms equal the character code; anything else uses X11's Unicode keysym range.
+const keysymOf = (ch: string) => {
+  const cp = ch.codePointAt(0)!;
+  return cp < 0x100 ? cp : 0x01000000 + cp;
 };
 export type RfbConstructor = new (
   target: HTMLElement,
@@ -62,7 +71,13 @@ export function LiveWindow({
   const rfbRef = useRef<RfbLike | null>(null);
   const [phase, setPhase] = useState<"connecting" | "live">("connecting");
   const [pasteText, setPasteText] = useState("");
-  const [pasted, setPasted] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  // The Paste text box is only needed when the browser will not let the window read the clipboard.
+  const [pasteBlocked, setPasteBlocked] = useState(false);
+  // Text copied in the window that the browser would not let us put on this computer's clipboard by itself.
+  const [toCopy, setToCopy] = useState<string | null>(null);
+  const keyboardRef = useRef<HTMLInputElement>(null);
+  const typed = useRef("");
   const [now, setNow] = useState(() => Date.now());
   // The latest callbacks, so a parent's re-render never restarts the connection.
   const callbacks = useRef({ onConnected, onFailed, onExpired });
@@ -74,6 +89,7 @@ export function LiveWindow({
     let ready = false;
     let connected = false;
     let socket: WebSocket | null = null;
+    let stopKeys = () => {};
 
     const fail = (reason: LiveWindowFailure) => {
       if (cancelled || failed) return;
@@ -124,11 +140,74 @@ export function LiveWindow({
         rfb.addEventListener("disconnect", () => fail(connected ? "lost" : "refused"));
         rfb.addEventListener("credentialsrequired", () => fail("refused"));
         rfb.addEventListener("securityfailure", () => fail("refused"));
+        // Something was copied in the window: put it on this computer's clipboard too, but only right after the owner
+        // pressed copy. The supplier's website is not trusted, and its scripts can change the window's clipboard by themselves.
+        let copyKeyAt = 0;
+        rfb.addEventListener("clipboard", (event) => {
+          const text = (event as CustomEvent<{ text: string }>).detail.text;
+          if (!text || Date.now() - copyKeyAt > 3000) return;
+          Promise.resolve()
+            .then(() => navigator.clipboard.writeText(text))
+            .then(
+              () => {
+                setToCopy(null);
+                setNotice("Copied from the window. You can paste it on this computer.");
+              },
+              () => {
+                setToCopy(text);
+                setNotice(null);
+              },
+            );
+        });
+
+        const screenEl = screenRef.current as HTMLElement;
+        // Runs before noVNC's own key handler. Ctrl/Cmd+V pastes this computer's clipboard into the window. Cmd+letter
+        // on a Mac becomes Ctrl+letter, since noVNC sends Cmd as Alt and the remote browser expects Ctrl for copy and paste.
+        const onKeyDown = (e: KeyboardEvent) => {
+          if ((e.ctrlKey || e.metaKey) && (e.code === "KeyC" || e.code === "KeyX")) copyKeyAt = Date.now();
+          const letter = /^Key([A-Z])$/.exec(e.code)?.[1]?.toLowerCase();
+          if (!letter || e.altKey || !(e.metaKey || (e.ctrlKey && letter === "v"))) return;
+          e.stopPropagation();
+          e.preventDefault();
+          const cmd = e.metaKey && !e.ctrlKey;
+          const press = () => {
+            if (cmd) for (const k of [XK.Alt_L, XK.Super_L]) rfb.sendKey(k, null, false);
+            rfb.sendKey(XK.Control_L, "ControlLeft", true);
+            // Upper case when Shift is held, or x11vnc lets go of Shift to make the lower-case letter (Cmd+Shift+Z would undo).
+            rfb.sendKey(keysymOf(e.shiftKey ? letter.toUpperCase() : letter), e.code);
+            // Always let go: reading the clipboard can wait for a browser prompt, and the real Ctrl key-up may already have gone.
+            rfb.sendKey(XK.Control_L, "ControlLeft", false);
+          };
+          if (letter !== "v") return press();
+          Promise.resolve()
+            .then(() => navigator.clipboard.readText())
+            .then(
+              (text) => {
+                if (text) rfb.clipboardPasteFrom(text);
+              },
+              () => {
+                setPasteBlocked(true);
+                setNotice("Your browser did not let the window read your clipboard. Paste it in the box above instead.");
+              },
+            )
+            .finally(press);
+        };
+        // A key still held when the window loses focus would never be released there (a stuck Shift types only capitals).
+        const onFocusOut = () => {
+          for (const k of [XK.Shift_L, XK.Shift_R, XK.Control_L, XK.Control_R, XK.Alt_L, XK.Alt_R, XK.Super_L, XK.Super_R]) rfb.sendKey(k, null, false);
+        };
+        screenEl.addEventListener("keydown", onKeyDown, true);
+        screenEl.addEventListener("focusout", onFocusOut);
+        stopKeys = () => {
+          screenEl.removeEventListener("keydown", onKeyDown, true);
+          screenEl.removeEventListener("focusout", onFocusOut);
+        };
       };
     });
 
     return () => {
       cancelled = true;
+      stopKeys();
       rfbRef.current?.disconnect();
       rfbRef.current = null;
       socket?.close();
@@ -157,7 +236,43 @@ export function LiveWindow({
     if (!pasteText) return;
     rfbRef.current?.clipboardPasteFrom(pasteText);
     setPasteText("");
-    setPasted(true);
+    setNotice("Sent. Now click the field in the window and press Ctrl+V.");
+  };
+
+  const copyToComputer = () => {
+    if (toCopy === null) return;
+    void navigator.clipboard.writeText(toCopy).then(() => {
+      setToCopy(null);
+      setNotice("Copied from the window. You can paste it on this computer.");
+    });
+  };
+
+  // A phone's keyboard only opens for a text box, so typing goes through a hidden one. Its text is compared with what
+  // was sent before, so autocorrect and word suggestions that replace letters are sent as backspaces and new letters.
+  const onKeyboardInput = (e: FormEvent<HTMLInputElement>) => {
+    const rfb = rfbRef.current;
+    const prev = [...typed.current];
+    const next = [...e.currentTarget.value];
+    let same = 0;
+    while (same < prev.length && same < next.length && prev[same] === next[same]) same++;
+    for (let i = same; i < prev.length; i++) rfb?.sendKey(XK.BackSpace, "Backspace");
+    for (const ch of next.slice(same)) rfb?.sendKey(keysymOf(ch), null);
+    typed.current = e.currentTarget.value;
+  };
+  const onKeyboardKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      rfbRef.current?.sendKey(XK.Return, "Enter");
+      e.currentTarget.value = "";
+      typed.current = "";
+    } else if (e.key === "Backspace" && !e.currentTarget.value) {
+      // An empty box has nothing to delete, so it sends no input event.
+      rfbRef.current?.sendKey(XK.BackSpace, "Backspace");
+    }
+  };
+  const onKeyboardBlur = (e: FocusEvent<HTMLInputElement>) => {
+    e.currentTarget.value = "";
+    typed.current = "";
   };
 
   return (
@@ -178,19 +293,48 @@ export function LiveWindow({
         )}
         {phase === "live" && (
           <div className="max-w-xl flex-1 basis-96">
-            <Field id="paste-text" label="Paste text" hint={<span id="paste-hint">For a password from your password manager: send it, click the field in the window, then press Ctrl+V.</span>}>
-              <div className="flex gap-2">
-                <Input id="paste-text" type="password" autoComplete="off" value={pasteText} onChange={(e) => setPasteText(e.target.value)} aria-describedby="paste-hint" />
-                <Button type="button" variant="outline" className="shrink-0" onClick={sendPaste}>
-                  Send to the window
-                </Button>
-              </div>
-            </Field>
-            {pasted && (
+            {pasteBlocked && (
+              <Field id="paste-text" label="Paste text" hint={<span id="paste-hint">Send it to the window, click the field there, then press Ctrl+V.</span>}>
+                <div className="flex gap-2">
+                  <Input id="paste-text" type="password" autoComplete="off" value={pasteText} onChange={(e) => setPasteText(e.target.value)} aria-describedby="paste-hint" />
+                  <Button type="button" variant="outline" className="shrink-0" onClick={sendPaste}>
+                    Send to the window
+                  </Button>
+                </div>
+              </Field>
+            )}
+            {notice && (
               <p role="status" className="mt-2 text-sm font-medium text-success">
-                Sent. Now click the field in the window and press Ctrl+V.
+                {notice}
               </p>
             )}
+            {toCopy !== null && (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <p className="text-sm font-medium">Text was copied in the window.</p>
+                <Button type="button" variant="outline" size="sm" onClick={copyToComputer}>
+                  Copy it to this computer
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+        {phase === "live" && (
+          <div className="relative pointer-fine:hidden">
+            <Button type="button" variant="outline" onClick={() => keyboardRef.current?.focus()}>
+              Keyboard
+            </Button>
+            <input
+              ref={keyboardRef}
+              aria-label="Type into the window"
+              className="sr-only text-base"
+              autoCapitalize="off"
+              autoCorrect="off"
+              autoComplete="off"
+              spellCheck={false}
+              onInput={onKeyboardInput}
+              onKeyDown={onKeyboardKeyDown}
+              onBlur={onKeyboardBlur}
+            />
           </div>
         )}
       </div>

@@ -24,7 +24,7 @@ VNC_PASSWORD=""
 while [ "${#VNC_PASSWORD}" -lt 8 ]; do VNC_PASSWORD=$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 8); done
 export VNC_PASSWORD
 ( umask 077; printf '%s\n' "$VNC_PASSWORD" > /tmp/vnc.pass )
-x11vnc -display "$DISPLAY" -forever -shared -passwdfile rm:/tmp/vnc.pass -rfbport 5900 -noxdamage -quiet &
+x11vnc -display "$DISPLAY" -forever -shared -passwdfile rm:/tmp/vnc.pass -rfbport 5900 -noxdamage -skip_lockkeys -noprimary -quiet &
 
 node --import tsx services/browser/src/main.ts &
 
