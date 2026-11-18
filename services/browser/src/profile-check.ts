@@ -291,7 +291,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
             // What the page showed when the login did not work, for the owner to look at. Only the latest is kept, and a login that works removes it.
             const shot = join(profile, "last-login-failure.png");
             if (result === "ok") await rm(shot, { force: true }).catch(() => {});
-            else if (await page.screenshot({ path: shot }).then(() => true, () => false)) log(`login screenshot saved: ${shot}`);
+            else if (await page.screenshot({ path: shot, fullPage: true }).then(() => true, () => false)) log(`login screenshot saved: ${shot}`);
             // Page storage (a token in localStorage) can only be read while the channel is open. Cookies come from the file below.
             if (result === "ok") storage = (await context.storageState().catch(() => storage)) as unknown as SessionState;
           }

@@ -522,7 +522,10 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     expect((await checker().login(ask("check"))).result).toBe("ok");
   });
   it("push approval", async () => {
-    expect((await checker().login(ask("push"))).result).toBe("code_required");
+    const out = await checker().login(ask("push"));
+    expect(out.result).toBe("code_required");
+    // Which rule said so: one of our own second-check words, never page text.
+    expect(out).toMatchObject({ why: expect.stringMatching(/^after_submit code_box=(true|false) word=(approve|check your phone|sent a notification|check your email|verify|none)$/) });
   });
   it("account locked", async () => {
     expect((await checker().login(ask("locked"))).result).toBe("account_locked");
