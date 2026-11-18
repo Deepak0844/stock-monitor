@@ -183,18 +183,24 @@ describe("checking links", () => {
     expect(button).not.toHaveAttribute("aria-busy");
   });
 
-  it("reads only that link again after a check, never the list, so the new status shows without a reload", async () => {
+  it("asks only the link's small status after a check, then reads that link once, never the list", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
     try {
-      const get = vi.fn().mockResolvedValueOnce(blue).mockResolvedValue({ ...blue, linkStatus: "needs_login", lastLinkCheckAt: "2026-11-11T08:00:00Z" });
-      const { user, api } = setup([blue], { mappings: { get } });
+      const status = vi
+        .fn()
+        .mockResolvedValueOnce({ linkCheckedAt: blue.lastLinkCheckAt, stockCheckedAt: null })
+        .mockResolvedValue({ linkCheckedAt: "2026-11-11T08:00:00Z", stockCheckedAt: null });
+      const get = vi.fn().mockResolvedValue({ ...blue, linkStatus: "needs_login", lastLinkCheckAt: "2026-11-11T08:00:00Z" });
+      const { user, api } = setup([blue], { mappings: { status, get } });
       await user.click(await screen.findByRole("button", { name: "Check now Blue Tee Large" }));
       await act(async () => void vi.advanceTimersByTime(3_100));
-      expect(get).toHaveBeenCalledTimes(1); // not answered yet
+      expect(status).toHaveBeenCalledWith(blue.id);
+      expect(get).not.toHaveBeenCalled(); // not finished yet
       await act(async () => void vi.advanceTimersByTime(3_100));
       expect(await within(screen.getByRole("row", { name: /Blue Tee/ })).findByText("Needs login")).toBeInTheDocument();
-      await act(async () => void vi.advanceTimersByTime(20_000)); // the answer has shown, so it stops asking
-      expect(get).toHaveBeenCalledTimes(2);
+      await act(async () => void vi.advanceTimersByTime(20_000)); // finished, so it stops asking
+      expect(status).toHaveBeenCalledTimes(2);
+      expect(get).toHaveBeenCalledTimes(1);
       expect(get).toHaveBeenCalledWith(blue.id);
       expect(api.mappings.page).toHaveBeenCalledTimes(1);
     } finally {

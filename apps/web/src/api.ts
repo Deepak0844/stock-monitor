@@ -179,6 +179,8 @@ export type SuppliersApi = {
   /** One page, searched and filtered on the server. */
   page(query: { page: number; pageSize: number; search?: string; status?: SupplierStatusFilter }): Promise<Page<Supplier>>;
   get(id: string): Promise<Supplier>;
+  /** Only when the last connection check finished, to follow a check cheaply. */
+  status(id: string): Promise<{ checkedAt: string | null }>;
   create(input: SupplierInput): Promise<Supplier>;
   /** Only the fields given are changed. */
   update(id: string, patch: Partial<SupplierInput>): Promise<Supplier>;
@@ -331,6 +333,8 @@ export type MappingsApi = {
   /** One page, filtered on the server. */
   page(query: MappingFilter & { page: number; pageSize: number }): Promise<Page<Mapping>>;
   get(id: string): Promise<Mapping>;
+  /** Only when the last link and stock checks finished, to follow a check cheaply. */
+  status(id: string): Promise<{ linkCheckedAt: string | null; stockCheckedAt: string | null }>;
   create(input: MappingInput): Promise<Mapping>;
   update(id: string, patch: { url?: string; note?: string | null; region?: string | null; enabled?: boolean }): Promise<Mapping>;
   remove(id: string): Promise<void>;
@@ -549,6 +553,7 @@ const suppliers: SuppliersApi = {
     return request<Page<Supplier>>(`/api/suppliers?${params}`, { method: "GET" });
   },
   get: (id) => supplier(`/api/suppliers/${encodeURIComponent(id)}`, { method: "GET" }),
+  status: (id) => request(`/api/suppliers/${encodeURIComponent(id)}/status`, { method: "GET" }),
   create: (input) => supplier("/api/suppliers", { method: "POST", json: input }),
   update: (id, patch) => supplier(`/api/suppliers/${encodeURIComponent(id)}`, { method: "PATCH", json: patch }),
   async remove(id) {
@@ -651,6 +656,7 @@ const mappings: MappingsApi = {
   async get(id) {
     return (await request<{ mapping: Mapping }>(`/api/mappings/${enc(id)}`, { method: "GET" })).mapping;
   },
+  status: (id) => request(`/api/mappings/${enc(id)}/status`, { method: "GET" }),
   async create(input) {
     return (await request<{ mapping: Mapping }>("/api/mappings", { method: "POST", json: input })).mapping;
   },

@@ -322,7 +322,7 @@ describe("checking a connection", () => {
     expect(button).not.toHaveAttribute("aria-busy");
   });
 
-  it("reads only that supplier again a few seconds later, never the list, so the new status appears without a reload", async () => {
+  it("asks only the supplier's small status, then reads that supplier once, never the list", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
     try {
       const get = vi.fn().mockResolvedValue(aSupplier({ sessionStatus: "needs_reconnect", lastSessionCheckAt: "2026-11-11T09:00:00.000Z" }));
@@ -331,6 +331,8 @@ describe("checking a connection", () => {
       await act(async () => void vi.advanceTimersByTime(3_100));
       expect(await screen.findByRole("link", { name: "Reconnect supplier Acme Supply" })).toBeInTheDocument();
       await act(async () => void vi.advanceTimersByTime(20_000)); // the check has finished, so it stops asking
+      expect(api.suppliers.status).toHaveBeenCalledTimes(1);
+      expect(api.suppliers.status).toHaveBeenCalledWith(connected.id);
       expect(get).toHaveBeenCalledTimes(1);
       expect(get).toHaveBeenCalledWith(connected.id);
       expect(api.suppliers.page).toHaveBeenCalledTimes(1);
@@ -342,8 +344,9 @@ describe("checking a connection", () => {
   it("shows a pulsing Checking… badge in the row until the new status arrives, and moves nothing else", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
     try {
-      const get = vi.fn().mockResolvedValueOnce(connected).mockResolvedValue(aSupplier({ sessionStatus: "connected", lastSessionCheckAt: "2026-11-11T09:00:00.000Z" }));
-      const { user } = setup([connected], { suppliers: { get } });
+      const status = vi.fn().mockResolvedValueOnce({ checkedAt: connected.lastSessionCheckAt }).mockResolvedValue({ checkedAt: "2026-11-11T09:00:00.000Z" });
+      const get = vi.fn().mockResolvedValue(aSupplier({ sessionStatus: "connected", lastSessionCheckAt: "2026-11-11T09:00:00.000Z" }));
+      const { user } = setup([connected], { suppliers: { status, get } });
       const row = within(await screen.findByRole("row", { name: /Acme Supply/ }));
       await user.click(row.getByRole("button", { name: "Check connection Acme Supply" }));
       expect(await row.findByText("Checking…")).toBeInTheDocument();

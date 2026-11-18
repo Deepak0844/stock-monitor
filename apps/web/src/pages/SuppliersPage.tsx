@@ -186,8 +186,11 @@ export function SuppliersPage({ api }: { api: Api }) {
         setCheckingId(null);
       }
       toast(`A check of ${s.name} has started. Its status will update in a moment.`);
-      // That one supplier is read again until the check has finished; only its row changes.
-      watch(`session:${s.id}`, CHECK_READS, () => api.suppliers.get(s.id), (now) => now.lastSessionCheckAt !== s.lastSessionCheckAt, replace, () => stopWaiting(s.id));
+      // The supplier's small status is asked until the check has finished, then the supplier is read once; only its row changes.
+      void watch(`session:${s.id}`, CHECK_READS, () => api.suppliers.status(s.id), (st) => st.checkedAt !== s.lastSessionCheckAt)
+        .then(async (finished) => finished && replace(await api.suppliers.get(s.id)))
+        .catch(() => {})
+        .finally(() => stopWaiting(s.id));
     });
   const remove = async (s: Supplier) => {
     await api.suppliers.remove(s.id);

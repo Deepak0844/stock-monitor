@@ -130,6 +130,13 @@ export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit
     return reply.status(201).send({ supplier: await decorate(result.supplier) });
   });
 
+  // Only when the last connection check finished. The page asks this while a check goes, then reads the supplier once.
+  app.get<{ Params: { id: string } }>("/api/suppliers/:id/status", async (request) => {
+    const supplier = await repo.get(request.params.id);
+    if (!supplier) throw NOT_FOUND();
+    return { checkedAt: supplier.lastSessionCheckAt };
+  });
+
   app.get<{ Params: { id: string } }>("/api/suppliers/:id", async (request) => {
     const supplier = await repo.get(request.params.id);
     if (!supplier) throw NOT_FOUND();

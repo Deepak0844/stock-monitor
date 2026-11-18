@@ -135,6 +135,14 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
     return reply.status(201).send({ mapping: result.mapping });
   });
 
+  // Only when the last link check and the last stock check finished. The page asks this while a check goes, then reads the link once.
+  app.get<{ Params: { id: string } }>("/api/mappings/:id/status", async (request) => {
+    const mapping = await mappings.get(request.params.id);
+    if (!mapping) throw MAPPING_NOT_FOUND();
+    const [latest] = deps.observations ? await deps.observations.listFor(mapping.id, 1) : [];
+    return { linkCheckedAt: mapping.lastLinkCheckAt, stockCheckedAt: latest?.observedAt ?? null };
+  });
+
   app.get<{ Params: { id: string } }>("/api/mappings/:id", async (request) => {
     const mapping = await mappings.get(request.params.id);
     if (!mapping) throw MAPPING_NOT_FOUND();

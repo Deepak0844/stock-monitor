@@ -116,10 +116,19 @@ export function MappingsPage({ api }: { api: Api }) {
   }, [q, search, set]);
   useEffect(() => setQ(search), [search]);
 
-  // A check of one link is followed by reading that link alone until its answer shows; only its row changes.
+  // A check of one link is followed through the link's small status. Once it says the check finished, that link is read once and
+  // only its row changes.
   const watch = useWatch();
   const replaceRow = (m: Mapping) => setData((d) => d && { ...d, items: d.items.map((x) => (x.id === m.id ? m : x)) });
-  const follow = (key: string, m: Mapping, answered: (now: Mapping) => boolean) => watch(key, CHECK_READS, () => api.mappings.get(m.id), answered, replaceRow, () => stopWaiting(key));
+  const follow = async (key: string, m: Mapping, finished: (s: { linkCheckedAt: string | null; stockCheckedAt: string | null }) => boolean) => {
+    try {
+      if (await watch(key, CHECK_READS, () => api.mappings.status(m.id), finished)) replaceRow(await api.mappings.get(m.id));
+    } catch {
+      // The row keeps what it showed; the next page load brings the answer.
+    } finally {
+      stopWaiting(key);
+    }
+  };
 
   // The chosen supplier's whole run: one going when the page opens or the supplier is chosen, or one just started here.
   const [wholeRun, setWholeRun] = useState<CheckRun | null>(null);
@@ -176,7 +185,7 @@ export function MappingsPage({ api }: { api: Api }) {
         stopWaiting(`link:${m.id}`);
         throw e;
       }
-      follow(`link:${m.id}`, m, (now) => now.lastLinkCheckAt !== m.lastLinkCheckAt);
+      void follow(`link:${m.id}`, m, (s) => s.linkCheckedAt !== m.lastLinkCheckAt);
       toast(`A check of ${m.productTitle} (${m.variantTitle}) has started. Its status will update in a moment.`);
     });
   const checkStock = (m: Mapping) =>
@@ -188,7 +197,7 @@ export function MappingsPage({ api }: { api: Api }) {
         stopWaiting(`stock:${m.id}`);
         throw e;
       }
-      follow(`stock:${m.id}`, m, (now) => now.latestStock?.observedAt !== m.latestStock?.observedAt);
+      void follow(`stock:${m.id}`, m, (s) => s.stockCheckedAt !== (m.latestStock?.observedAt ?? null));
       toast(`A stock check of ${m.productTitle} (${m.variantTitle}) has started. The answer will appear here in a moment.`);
     });
   const supplier = suppliers.find((s) => s.id === supplierId);

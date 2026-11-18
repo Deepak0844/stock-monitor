@@ -194,6 +194,17 @@ describe("reading the answers", () => {
     expect((await call("GET", "/api/mappings")).body.mappings[0].latestStock).toMatchObject({ answer: "in_stock", quantity: 5, reason: null, matchedText: "Add to cart" });
   });
 
+  it("says only when the last link and stock checks finished, and a plain 404 for an unknown link", async () => {
+    expect((await call("GET", `/api/mappings/${linkId}/status`)).body).toEqual({ linkCheckedAt: null, stockCheckedAt: null });
+    await add("in_stock", 5);
+    await t.pool.query("update mappings set last_link_check_at = '2026-11-11T08:00:00Z' where id = $1", [linkId]);
+    const body = (await call("GET", `/api/mappings/${linkId}/status`)).body;
+    expect(Object.keys(body)).toEqual(["linkCheckedAt", "stockCheckedAt"]);
+    expect(body.linkCheckedAt).toBe("2026-11-11T08:00:00.000Z");
+    expect(body.stockCheckedAt).toBe((await call("GET", `/api/mappings/${linkId}`)).body.mapping.latestStock.observedAt);
+    expect((await call("GET", "/api/mappings/00000000-0000-4000-8000-000000000000/status")).status).toBe(404);
+  });
+
   it("puts the latest answer on one link read by its id, as the list does", async () => {
     expect((await call("GET", `/api/mappings/${linkId}`)).body.mapping.latestStock).toBeNull();
     await add("out_of_stock", 0);
