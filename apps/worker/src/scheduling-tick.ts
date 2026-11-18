@@ -1,10 +1,11 @@
 import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
-import type { createCheckRunRepository, createMappingRepository, createProposalRepository, createRecipeRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
+import type { createCheckRunRepository, createMappingRepository, createNotificationRepository, createProposalRepository, createRecipeRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
 import type { Queue } from "@stock-monitor/queue";
 import { keepAliveDue, needsSessionPrecheck, pickDue, runExpirySeconds } from "@stock-monitor/scheduling";
 import { whyNotChecked } from "@stock-monitor/mapping";
 import { stockGate, type SkipReason } from "./extraction-check.js";
+import { sendLoginAlerts, type SendMail } from "./alert-email.js";
 
 export type TickDeps = {
   suppliers: ReturnType<typeof createSupplierRepository>;
@@ -19,6 +20,8 @@ export type TickDeps = {
   logger: Logger;
   /** The owner's timezone, for each supplier's quiet-hours window. */
   timezone: string;
+  /** When set, each new login notice is emailed once. The link in the email points at `appOrigin`. */
+  alerts?: { notifications: ReturnType<typeof createNotificationRepository>; send: SendMail; appOrigin: string | undefined };
   now?: () => Date;
 };
 
@@ -83,6 +86,7 @@ export async function runTick(deps: TickDeps): Promise<{ started: string[]; skip
     started.push(id);
   }
   await keepLoginsAlive(deps, now, new Set([...busy, ...started, ...prechecked]));
+  if (deps.alerts) await sendLoginAlerts({ ...deps.alerts, logger });
   return { started, skipped };
 }
 
