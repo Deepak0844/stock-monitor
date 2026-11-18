@@ -293,3 +293,23 @@ describe("supplier repository: automatic login", () => {
     expect(await repo().get(s.id)).toMatchObject({ autoLogin: false, stealth: false });
   });
 });
+
+describe("supplier repository: keep login alive", () => {
+  it("stores the keep-alive interval with the schedule, keeps it when left out, and lists the suppliers that have it", async () => {
+    const s = await made();
+    const set = await repo().setSchedule(s.id, { intervalMinutes: null, window: null, nextCheckAt: null, keepAliveMinutes: 30 });
+    expect(set).toMatchObject({ keepAliveMinutes: 30, keepAliveNextAt: null });
+    await repo().setKeepAliveNext(s.id, new Date("2026-11-18T10:00:00Z"));
+    expect((await repo().get(s.id))?.keepAliveNextAt).toEqual(new Date("2026-11-18T10:00:00Z"));
+    const again = await repo().setSchedule(s.id, { intervalMinutes: 60, window: null, nextCheckAt: null });
+    expect(again).toMatchObject({ keepAliveMinutes: 30, keepAliveNextAt: new Date("2026-11-18T10:00:00Z") });
+    expect((await repo().keepingAlive()).map((x) => x.id)).toEqual([s.id]);
+    await repo().setSchedule(s.id, { intervalMinutes: 60, window: null, nextCheckAt: null, keepAliveMinutes: null });
+    expect(await repo().keepingAlive()).toEqual([]);
+  });
+
+  it("refuses an interval that is not one of the choices", async () => {
+    const s = await made();
+    await expect(repo().setSchedule(s.id, { intervalMinutes: null, window: null, nextCheckAt: null, keepAliveMinutes: 20 })).rejects.toThrow();
+  });
+});

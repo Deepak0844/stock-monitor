@@ -159,6 +159,10 @@ export const suppliers = pgTable(
     scheduleWindowEnd: text("schedule_window_end"),
     nextCheckAt: timestamp("next_check_at", { withTimezone: true }),
     sessionPrecheckFor: timestamp("session_precheck_for", { withTimezone: true }),
+    /** Visit the supplier with the saved session this often (minutes) inside the check window, so it does not log out. null = off. */
+    keepAliveMinutes: integer("keep_alive_minutes"),
+    /** When the next keep-alive visit is due. Written before the visit is queued, so one that fails is not queued again at once. */
+    keepAliveNextAt: timestamp("keep_alive_next_at", { withTimezone: true }),
     /** Failed runs in a row, for the retry delay. */
     failureCount: integer("failure_count").notNull().default(0),
     /** Log in again by itself when the session ends. Needs saved credentials and `granted` permission. */
@@ -193,6 +197,7 @@ export const suppliers = pgTable(
     check("suppliers_check_pause", sql`${t.checkPauseSeconds} >= 1`),
     check("suppliers_default_region", sql`${t.defaultRegion} is null or char_length(${t.defaultRegion}) between 1 and 200`),
     check("suppliers_schedule_interval", sql`${t.scheduleIntervalMinutes} is null or ${t.scheduleIntervalMinutes} in (60, 180, 360, 720, 1440)`),
+    check("suppliers_keep_alive", sql`${t.keepAliveMinutes} is null or ${t.keepAliveMinutes} in (15, 30, 45, 60, 120)`),
     check("suppliers_schedule_window", sql`(${t.scheduleWindowStart} is null) = (${t.scheduleWindowEnd} is null)`),
     check("suppliers_check_interval", sql`${t.checkIntervalMinutes} between 15 and 1440`),
     check(
