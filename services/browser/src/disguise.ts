@@ -82,5 +82,6 @@ export async function writeDisguise(dir: string, full: string): Promise<void> {
   const page = await readFile(new URL("./disguise-page.js", import.meta.url), "utf8");
   await writeFile(join(dir, "manifest.json"), JSON.stringify(manifest));
   await writeFile(join(dir, "rules.json"), JSON.stringify(rules));
-  await writeFile(join(dir, "page.js"), `const FULL = ${JSON.stringify(chromeBrands(full))};\n${page}`);
+  // In a block, so FULL never becomes a page-wide name that clashes with a site's own.
+  await writeFile(join(dir, "page.js"), `{\nconst FULL = ${JSON.stringify(chromeBrands(full))};\n${page}}\n`);
 }

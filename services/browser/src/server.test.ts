@@ -177,7 +177,7 @@ describe("the live window routes", () => {
     expect(Object.keys(await plain.json())).toEqual(["id", "expiresAt"]);
   });
 
-  it.each([["no address", {}], ["an ftp address", { url: "ftp://a.example/" }], ["a number", { url: 5 }], ["an extra field", { url: "https://a.example/", state: {} }], ["a stealth that is not true or false", { url: "https://a.example/", stealth: "yes" }]])(
+  it.each([["no address", {}], ["an ftp address", { url: "ftp://a.example/" }], ["a number", { url: 5 }], ["an extra field", { url: "https://a.example/", state: {} }], ["a stealth that is not true or false", { url: "https://a.example/", stealth: "yes" }], ["a null body", null], ["a list", []]])(
     "refuses %s with a plain 400",
     async (_n, payload) => {
       const res = await call("POST", "/sessions", TOKEN, payload);

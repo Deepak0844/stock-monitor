@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createContext, runInContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 import { chromeBrands, parseChromeVersion, secChUa, writeDisguise } from "./disguise.js";
 
@@ -47,8 +48,22 @@ describe("writeDisguise", () => {
       const rules = JSON.parse(await readFile(join(dir, "rules.json"), "utf8"));
       expect(rules[0].action.requestHeaders).toEqual([{ header: "sec-ch-ua", operation: "set", value: secChUa("158.0.8127.18") }]);
       const page = await readFile(join(dir, "page.js"), "utf8");
-      expect(page.startsWith(`const FULL = ${JSON.stringify(chromeBrands("158.0.8127.18"))};`)).toBe(true);
+      expect(page.startsWith(`{\nconst FULL = ${JSON.stringify(chromeBrands("158.0.8127.18"))};`)).toBe(true);
       expect(page).toContain("UHD Graphics 620");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("the page script", () => {
+  it("leaves no name behind that a page script could clash with", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "disguise-test-"));
+    try {
+      await writeDisguise(dir, "158.0.8127.18");
+      const page = createContext({});
+      runInContext(await readFile(join(dir, "page.js"), "utf8"), page);
+      expect(() => runInContext("let FULL = 1;", page)).not.toThrow(); // a site's own top-level name
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

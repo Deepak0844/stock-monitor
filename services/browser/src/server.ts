@@ -144,8 +144,8 @@ export function createControlServer({ token, verify, checkPage, capture, login, 
         } catch {
           body = null;
         }
-        const keys = typeof body === "object" && body !== null && !Array.isArray(body) ? Object.keys(body) : [];
-        const { url, stealth = false } = keys.every((k) => k === "url" || k === "stealth") ? (body as { url?: unknown; stealth?: unknown }) : {};
+        const fields = typeof body === "object" && body !== null && !Array.isArray(body) ? (body as { url?: unknown; stealth?: unknown }) : {};
+        const { url, stealth = false } = Object.keys(fields).every((k) => k === "url" || k === "stealth") ? fields : {};
         if (!isWebUrl(url) || typeof stealth !== "boolean") return reply(res, 400, { error: "invalid_request" });
         const opened = await api.open(url, { stealth });
         if (opened.ok) return reply(res, 201, { id: opened.id, expiresAt: opened.expiresAt, ...(vncPassword ? { vncPassword } : {}) });
