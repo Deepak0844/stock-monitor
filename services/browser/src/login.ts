@@ -667,8 +667,10 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
     if (decided === "unknown") return unclear(`unclear_after_submit page=${seen.pageClass}`);
     if (decided === "code_required") {
       // Which rule said so, from our own fixed word list only: a code-like box, or one of the second-check words on the page.
-      const text = (await Promise.all(page.frames().map((fr) => fr.evaluate(() => document.body?.innerText ?? "").catch(() => "")))).join("\n");
-      onWhy?.(`after_submit code_box=${seen.codeFieldVisible} word=${SECOND_CHECK_WORDS.find((w) => within([w]).test(text)) ?? "none"}`);
+      const texts = await Promise.all(page.frames().map((fr) => fr.evaluate(() => document.body?.innerText ?? "").catch(() => "")));
+      const word = SECOND_CHECK_WORDS.find((w) => texts.some((t) => within([w]).test(t))) ?? "none";
+      const inMain = texts[0] !== undefined && within(SECOND_CHECK_WORDS).test(texts[0]);
+      onWhy?.(`after_submit code_box=${seen.codeFieldVisible} word=${word} in=${word === "none" ? "none" : inMain ? "main" : "other_frame"} class=${seen.pageClass} loginpage=${seen.onLoginPage} password=${seen.passwordFieldVisible}`);
     }
     if (decided !== "ok") return decided;
   }
