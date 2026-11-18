@@ -9,6 +9,7 @@ import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { driverFor } from "./driver.js";
+import { shimPage } from "./page-shim.js";
 import { classifyPage, mergeSessionState, type PageClass, type SessionState } from "@stock-monitor/supplier-session";
 import { readCookies } from "./chromium-cookies.js";
 import { cookieStore, forgetOpenTabs, plainLaunchArgs, quitCleanly, seedProfile, waitForDebuggingPort } from "./plain-window.js";
@@ -122,6 +123,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
       try {
         const context = cdp.contexts()[0];
         const page = context?.pages()[0] ?? (await context?.newPage());
+        if (page) shimPage(page);
         if (!page) return null;
         const response = await page.goto(request.url, { timeout: 20_000, waitUntil: "load" });
         const status = response?.status() ?? null;
@@ -244,6 +246,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
         try {
           const context = cdp.contexts()[0];
           const page = context?.pages()[0] ?? (await context?.newPage());
+        if (page) shimPage(page);
           outcome = page ? await run(page, b.tracker) : unavailable;
         } finally {
           await cdp.close().catch(() => {});
@@ -282,6 +285,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
         try {
           const context = cdp.contexts()[0];
           const page = context?.pages()[0] ?? (await context?.newPage());
+        if (page) shimPage(page);
           if (context && page) {
             result = await runLogin(page, request, { settleMs, stepWaitMs: loginStepMs, ...(loginDeadlineMs ? { deadlineMs: loginDeadlineMs } : {}), ...(loginFormWaitMs ? { formWaitMs: loginFormWaitMs } : {}), onWhy: (w) => void (why = w) });
             // Page storage (a token in localStorage) can only be read while the channel is open. Cookies come from the file below.

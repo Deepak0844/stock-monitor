@@ -4,7 +4,9 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { chromium } from "playwright";
+import { driverFor } from "../src/driver.js";
 import { runLogin } from "../src/login.js";
+import { shimPage } from "../src/page-shim.js";
 
 const USER = "buyer@example.test";
 const PASSWORD = "correct horse";
@@ -44,13 +46,23 @@ const form_ = () =>
 
 await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-const browser = await chromium.launch({ args: process.env.CI ? ["--no-sandbox"] : [] });
+// PROBE_STEALTH=1: the way a stealth login runs. Chromium is started on its own and Patchright attaches to it, so the page
+// scripts run in an isolated world that the page's own scripts never reach.
+const stealth = process.env.PROBE_STEALTH === "1";
+const browser = await chromium.launch({ args: [...(process.env.CI ? ["--no-sandbox"] : []), ...(stealth ? ["--remote-debugging-port=9339"] : [])] });
 try {
-  const page = await browser.newPage();
+  let page;
+  if (stealth) {
+    const cdp = await (await driverFor(true)).connectOverCDP("http://127.0.0.1:9339");
+    const context = cdp.contexts()[0];
+    page = context?.pages()[0] ?? (await context?.newPage());
+    if (!page) throw new Error("no page");
+    if (process.env.PROBE_NO_SHIM !== "1") shimPage(page);
+  } else page = await browser.newPage();
   const why: string[] = [];
   const result = await runLogin(
     page,
-    { loginUrl: `${base}/Account/Login`, checkUrl: `${base}/account`, username: USER, password: PASSWORD, stealth: false, selectors: { username: "#UserName", password: "#Password" } },
+    { loginUrl: `${base}/Account/Login`, checkUrl: `${base}/account`, username: USER, password: PASSWORD, stealth, selectors: { username: "#UserName", password: "#Password" } },
     { settleMs: 2000, formWaitMs: 3000, onWhy: (w) => why.push(w) },
   );
   // A tripwire for the shim: in a bare page, with no shim, a function with a named inner function must still fail under tsx. If it
