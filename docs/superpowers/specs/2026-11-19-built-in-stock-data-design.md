@@ -73,7 +73,8 @@ The owner chose approach 1 after seeing these three.
   and `@graph` it takes each offer's `availability`, `url` and `sku`.
 - every element with `itemprop="availability"`: its `href` or `content` attribute.
 
-It returns `offers: { availability: string; url: string | null; sku: string | null }[]`, capped at 100 offers, every field cut to
+It returns `offers: { availability: string; url: string | null; sku: string | null; name: string | null }[]` (`name` is the
+offer's own `name`, else the name of the `hasVariant` item it sits in, e.g. "500 ml"), capped at 100 offers, every field cut to
 200 characters, `availability` kept as the last path part (`https://schema.org/InStock`, `http://schema.org/InStock` and
 `InStock` all become `InStock`). Nothing else from the script is kept. The doc comment on `describePage` changes from "never a
 script" to "never a script, except the availability facts of the page's built-in product data".
@@ -82,8 +83,8 @@ An offer with no `url` of its own takes the `url` of the `ProductGroup.hasVarian
 resolved against the page's address.
 
 `PageDescription` (`packages/extraction/src/types.ts`) and the capture's `description` gain `offers?: Offer[]` and
-`linkUrl?: string`. The worker writes `linkUrl` (the mapping's address, with its query string) into the description when it
-saves a capture, so a saved page keeps it even after its link is deleted (`page_captures.mapping_id` goes null then). Saved pages
+`link?: { url: string; option: string | null }`. The worker writes `link` (the mapping's address with its query string, and
+its option) into the description when it saves a capture, so a saved page keeps it even after its link is deleted (`page_captures.mapping_id` goes null then). Saved pages
 already store `description` as JSON, so no column changes. Old saved pages have no `offers`, which means "no built-in data".
 
 ### 2. The rules gain a built-in switch (`packages/extraction`)
@@ -111,9 +112,18 @@ Choosing the offer for a link (`pickOffer(offers, linkUrl)`):
 
 1. No offers: no data.
 2. One offer (or all offers give the same answer): that answer.
-3. Several that differ: the offer whose `url` has the same path (trailing slash ignored, host ignored) and the same `variant`
-   query value as the link's address. One found: its answer. None found, or no link address: not clear, reason `variant_unclear`.
-   `sku` is kept for the Saved pages view only: the store's SKUs are not the supplier's, so they are never matched.
+3. Several that differ, and the link's address has a `variant` query value: the offer whose `url` has the same path (trailing
+   slash ignored, host ignored) and the same `variant` value. One found: its answer.
+4. Several that differ, and the link has an option set by the owner (see "Option per link" below): the one offer whose `sku`
+   or `name` equals it (compared with `normaliseWords`). One found: its answer.
+5. Anything else (none found, more than one found, no link address): not clear, reason `variant_unclear`.
+
+The store's own SKUs are never matched: they are not the supplier's. Only the supplier's SKU or option name, as shown on the
+page's built-in data and copied by the owner into the link, is matched.
+
+Today the owner's links have no options, so step 2 is the usual path. Steps 3 to 5 are the worst case: a product page that lists
+several options with different stock. The answer is never a guess: without a clear match it is "cannot tell", with a reason
+that tells the owner to set the link's option.
 
 `decide(page, recipe, region, linkUrl)` order:
 
@@ -131,7 +141,12 @@ the worker already answers them `check_failed`.
 
 `linkUrl` is the mapping's own address (with its query string). The capture's `finalUrl` has no query string, so it cannot be
 used for variant matching. The editor's Test button (`runExamples` in `packages/extraction/src/testing.ts`, fed by `examplesFor`
-in `apps/api/src/routes/recipes.ts`) passes each saved page's `description.linkUrl`; `Example` gains `linkUrl?: string`.
+in `apps/api/src/routes/recipes.ts`) passes each saved page's link as described below.
+
+`decide` gains a fourth input with the link, `{ url: string | null; option: string | null }`, in place of a bare `linkUrl`.
+`Example` gains the same `link`. For a saved page whose link still exists, the test uses the link's current address and option
+(so setting an option and testing again works at once). For a saved page whose link was deleted, it uses the copy stored in the
+description at capture time.
 
 `decidedBy` is stored nowhere new: it travels in the decision and the test results only. Observations keep `matchedText`, which
 already says "Built-in data: …", and store the new reasons in the existing `reason` text column. Only `page_changed` counts
@@ -153,6 +168,16 @@ in stock and one expected out of stock, and all pass. Data that never changes fr
 - The tick skips session checks, early checks and keep-alive for such suppliers. No reconnect notices are raised for them.
 - A page that still comes back `login_required`, `captcha` or `blocked` stops the run as today, so a wrong setting is visible.
 - Profile mode (`VERIFY_MODE=profile`) keeps working: the per-site profile simply has no login.
+
+### 3b. Option per link (the worst case for variants)
+
+- The same migration `0022` adds `mappings.supplier_option text null` (up to 200 characters), next to the existing per-link
+  `region`.
+- The mapping create and update routes (`apps/api/src/routes/mappings.ts`) accept `supplierOption` the same way they accept
+  `region`: text up to 200 characters, or empty/null to clear it.
+- The worker passes `{ url: mapping.url, option: mapping.supplierOption }` to `decide`, and writes both into a saved page's
+  description (`link: { url, option }`) at capture time.
+- Only used when a page lists several options with different stock and the address has no `variant` value.
 
 ### 4. API
 
@@ -176,10 +201,16 @@ Stock rules page:
   On by default in a new supplier's first draft. Existing versions open with it off, as saved.
 - With the switch on, the word rule groups are headed "If the built-in data is missing or unclear", and page checks become optional.
 - Saved pages: each page shows a small line "Built-in data: In stock" (or "No built-in data" for an old page, with a hint to
-  capture it again).
+  capture it again). A page with several options lists them (name, supplier SKU, stock), so the owner can copy one into the link.
+
+Links page:
+
+- The link edit form gains "Option on the supplier's page (optional)", next to the region field, with the hint "Only needed when
+  the supplier's page lists several sizes or colours with different stock. Copy the option name or the supplier's SKU from the
+  saved page."
 - Test results: each example says "decided by built-in data" or "decided by your rules".
-- New reason words: `variant_unclear` "The page lists several options with different stock, and none matches this link's
-  option.", `built_in_unclear` "The built-in stock data gives a value the app does not count as in or out of stock."
+- New reason words: `variant_unclear` "The page lists several options with different stock. Set this link's option on the
+  Links page.", `built_in_unclear` "The built-in stock data gives a value the app does not count as in or out of stock."
 
 The UI work follows the project's existing components (`Panel`, `Field`, `Select`, `Notice`) and wording style.
 
@@ -190,8 +221,8 @@ supplier by View Source, and that a fresh capture is needed before testing.
 
 ## Testing
 
-- `built-in.ts`: every mapping row, the URL forms of a value, `pickOffer` with one offer, same-answer offers, a matching variant,
-  no matching variant.
+- `built-in.ts`: every mapping row, the URL forms of a value, `pickOffer` with one offer, same-answer offers, a matching
+  `variant` value, a matching link option by SKU and by name, two offers matching one option, no match, no link.
 - `decide`: order (region wins, built-in before words, fallback to words, missing data with and without word rules), the
   `waiting` choice.
 - `validateRecipe`: `builtIn` allowed, bad values refused, empty page checks only with built-in on.
@@ -220,5 +251,6 @@ supplier by View Source, and that a fresh capture is needed before testing.
 - Built-in data wins over word rules; word rules never override a clear built-in answer.
 - Old rule versions stay as they are (built-in off); only new drafts start with it on.
 - With built-in on, turning a version on needs at least one labelled in-stock and one labelled out-of-stock saved page.
-- Variants are matched by the `variant` value in the link's address, never by SKU.
+- Variants are matched by the `variant` value in the link's address first, then by the link's own option (supplier SKU or
+  option name). The store's own SKUs are never used.
 - "Data there but unclear" never raises the supplier-wide "pages changed" notice.
