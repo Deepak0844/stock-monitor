@@ -123,7 +123,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
       try {
         const context = cdp.contexts()[0];
         const page = context?.pages()[0] ?? (await context?.newPage());
-        if (page) shimPage(page);
+          if (page) shimPage(page);
         if (!page) return null;
         const response = await page.goto(request.url, { timeout: 20_000, waitUntil: "load" });
         const status = response?.status() ?? null;
@@ -288,6 +288,10 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
         if (page) shimPage(page);
           if (context && page) {
             result = await runLogin(page, request, { settleMs, stepWaitMs: loginStepMs, ...(loginDeadlineMs ? { deadlineMs: loginDeadlineMs } : {}), ...(loginFormWaitMs ? { formWaitMs: loginFormWaitMs } : {}), onWhy: (w) => void (why = w) });
+            // What the page showed when the login did not work, for the owner to look at. Only the latest is kept, and a login that works removes it.
+            const shot = join(profile, "last-login-failure.png");
+            if (result === "ok") await rm(shot, { force: true }).catch(() => {});
+            else if (await page.screenshot({ path: shot }).then(() => true, () => false)) log(`login screenshot saved: ${shot}`);
             // Page storage (a token in localStorage) can only be read while the channel is open. Cookies come from the file below.
             if (result === "ok") storage = (await context.storageState().catch(() => storage)) as unknown as SessionState;
           }

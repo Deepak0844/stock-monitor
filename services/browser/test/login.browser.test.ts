@@ -3,7 +3,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createGuard } from "../src/guard.js";
@@ -237,7 +237,7 @@ function startSite(): Promise<Server> {
         return html(page(`<p>Trade supplies.</p><button type="button" onclick="document.getElementById('m').style.display='block'">Sign in</button><div id="m" style="display:none">${form("/modal/login", userAndPassword)}</div>`));
       // The login opens only once a promo popup, closed by an icon with no name, has been closed.
       case "promoicon":
-        return html(page(`<button type="button" onclick="document.getElementById('pp').style.display='block'">Log in</button><div id="pp" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5)"><div class="promo"><span class="close-x" role="presentation" style="cursor:pointer;display:inline-block;width:20px;height:20px">&#10005;</span><p>Get 5% off</p><input readonly value="WELCOME5"><button type="button">Copy</button></div></div><div id="f"></div><script>document.querySelector(".close-x").addEventListener("click",function(){document.getElementById("pp").remove();document.getElementById("f").innerHTML=${JSON.stringify(form("/promoicon/login", userAndPassword))}})</script>`));
+        return html(page(`<button type="button" onclick="document.getElementById('pp').style.display='block'">Log in</button><div id="pp" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5)"><div class="promo"><span class="close-x" role="presentation" style="cursor:pointer;display:inline-block;width:20px;height:20px">&#10005;</span><p>Get 5% off</p><input name="code" value="WELCOME5"><button type="button">Copy</button></div></div><div id="f"></div><script>document.querySelector(".close-x").addEventListener("click",function(){document.getElementById("pp").remove();document.getElementById("f").innerHTML=${JSON.stringify(form("/promoicon/login", userAndPassword))}})</script>`));
       case "modalx":
         return html(page(`<p>Trade supplies.</p><button id="acct" type="button" style="width:30px;height:30px" onclick="document.getElementById('m').style.display='block'"><svg width="20" height="20"></svg></button><div id="m" style="display:none"><form method="post" action="/modalx/login">${userAndPassword}<input type="submit" value="Go"></form></div>`));
       case "frame":
@@ -495,6 +495,16 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     // Plus counts and whether it is still the login page's address (never the path itself, the host, the query, page text or anything typed).
     // `locator` is a plain count of input elements; `evalfailed` counts frames where reading them failed.
     expect(lines.some((l) => /^login result: form_not_found \(no_opener frames=1 inputs=0 locator=0 evalfailed=0 visible=0 password=0 username=0 samepath=yes\)$/.test(l))).toBe(true);
+  });
+  it("a login that fails leaves a screenshot of the page", async () => {
+    const lines: string[] = [];
+    const c = checker((line) => lines.push(line), 3000, undefined, 1500);
+    const failing = ask("neverbox");
+    expect((await c.login(failing)).result).toBe("form_not_found");
+    const shot = join(profileDirFor(c.dir, failing.checkUrl), "last-login-failure.png");
+    expect(existsSync(shot), lines.join(" | ")).toBe(true);
+    expect(readFileSync(shot).subarray(1, 4).toString()).toBe("PNG");
+    expect(lines.some((l) => l.startsWith("login screenshot saved: "))).toBe(true);
   });
   it("stay signed in", async () => {
     expect((await checker().login(ask("stay"))).result).toBe("ok");

@@ -111,14 +111,16 @@ async function inputsOf(frame: Frame, overrides: LoginSelectors): Promise<Input[
           const accountWords = /account|customer\s*(?:number|no\b)/i.test(says) && type !== "email" && type !== "password" && !/username|email/.test(autocomplete);
           const account = o.account ? is(o.account) : accountWords && (type === "text" || type === "tel" || type === "number");
           const password = o.password ? is(o.password) : type === "password";
-          const code = !password && (autocomplete === "one-time-code" || (new RegExp(codeWords, "i").test(says) && !new RegExp(notCodeWords, "i").test(says)));
+          const codeLike = !password && (autocomplete === "one-time-code" || (new RegExp(codeWords, "i").test(says) && !new RegExp(notCodeWords, "i").test(says)));
+          // A code box that already holds text (a popup's coupon code) is not one the supplier is asking us to fill, nor a username box.
+          const code = codeLike && el.value === "";
           return {
             index,
             mark,
             visible,
             empty: el.value === "",
             password,
-            usernameLike: o.username ? is(o.username) : !code && (["email", "text", "tel"].includes(type) || autocomplete === "username"),
+            usernameLike: o.username ? is(o.username) : !codeLike && (["email", "text", "tel"].includes(type) || autocomplete === "username"),
             account,
             checkbox: type === "checkbox",
             code,
