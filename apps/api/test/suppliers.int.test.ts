@@ -84,6 +84,7 @@ describe("every supplier route needs a signed-in owner", () => {
     ["GET", "/api/suppliers"],
     ["POST", "/api/suppliers"],
     ["GET", `/api/suppliers/${UNKNOWN}`],
+    ["GET", `/api/suppliers/${UNKNOWN}/status`],
     ["PATCH", `/api/suppliers/${UNKNOWN}`],
     ["DELETE", `/api/suppliers/${UNKNOWN}`],
     ["POST", `/api/suppliers/${UNKNOWN}/pause`],
@@ -220,6 +221,14 @@ describe("GET /api/suppliers", () => {
       expect(res.status).toBe(404);
       expect(res.body.error).toMatchObject({ code: "supplier_not_found", message: "That supplier does not exist." });
     }
+  });
+
+  it("says only when the last connection check finished, and a plain 404 for an unknown supplier", async () => {
+    const s = await create();
+    expect((await call("GET", `/api/suppliers/${s.id}/status`)).body).toEqual({ checkedAt: null });
+    await t.pool.query("update suppliers set last_session_check_at = '2026-11-11T09:00:00Z' where id = $1", [s.id]);
+    expect((await call("GET", `/api/suppliers/${s.id}/status`)).body).toEqual({ checkedAt: "2026-11-11T09:00:00.000Z" });
+    expect((await call("GET", `/api/suppliers/${UNKNOWN}/status`)).status).toBe(404);
   });
 });
 

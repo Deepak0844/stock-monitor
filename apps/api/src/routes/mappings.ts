@@ -92,6 +92,7 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
   const filterQuery = z.object({
     supplierId: z.string().uuid().optional(),
     status: z.enum(["not_checked", "works", "never_worked", "page_missing", "moved", "looks_different", "needs_login", "could_not_check"]).optional(),
+    stock: z.enum(["in_stock", "out_of_stock", "cannot_tell", "none"]).optional(),
     search: z.string().trim().max(100).optional(),
   });
 
@@ -100,8 +101,8 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
     const query = request.query as { page?: string; pageSize?: string };
     const filters = filterQuery.safeParse(request.query);
     if (!filters.success) throw new AppError(400, "invalid_input", "Check the search and status and try again.");
-    const { supplierId, status, search } = filters.data;
-    const filter = { supplierId, linkStatus: status, search: search || undefined };
+    const { supplierId, status, stock, search } = filters.data;
+    const filter = { supplierId, linkStatus: status, stock, search: search || undefined };
     const latest = deps.observations ? await deps.observations.latestByMapping() : new Map<string, ObservationRecord>();
     const suggestions = deps.proposals ? await deps.proposals.latestByMapping() : new Map();
     if (query.page === undefined) {
@@ -134,10 +135,21 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
     return reply.status(201).send({ mapping: result.mapping });
   });
 
+  // Only when the last link check and the last stock check finished. The page asks this while a check goes, then reads the link once.
+  app.get<{ Params: { id: string } }>("/api/mappings/:id/status", async (request) => {
+    const mapping = await mappings.get(request.params.id);
+    if (!mapping) throw MAPPING_NOT_FOUND();
+    const [latest] = deps.observations ? await deps.observations.listFor(mapping.id, 1) : [];
+    return { linkCheckedAt: mapping.lastLinkCheckAt, stockCheckedAt: latest?.observedAt ?? null };
+  });
+
   app.get<{ Params: { id: string } }>("/api/mappings/:id", async (request) => {
     const mapping = await mappings.get(request.params.id);
     if (!mapping) throw MAPPING_NOT_FOUND();
-    return { mapping: present(mapping) };
+    // The same row the list shows, so the page can follow one check by asking for this link alone.
+    const [latest] = deps.observations ? await deps.observations.listFor(mapping.id, 1) : [];
+    const suggestion = deps.proposals ? (await deps.proposals.latestByMapping(mapping.id)).get(mapping.id) : undefined;
+    return { mapping: present(mapping, latest, suggestion) };
   });
 
   app.patch<{ Params: { id: string } }>("/api/mappings/:id", async (request) => {

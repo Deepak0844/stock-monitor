@@ -322,19 +322,20 @@ describe("checking a connection", () => {
     expect(button).not.toHaveAttribute("aria-busy");
   });
 
-  it("reads the page again a few seconds later, so the new status appears without a reload", async () => {
+  it("asks only the supplier's small status, then reads that supplier once, never the list", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
     try {
-      const page = vi
-        .fn()
-        .mockResolvedValueOnce({ items: [connected], total: 1, page: 1, pageSize: 10 })
-        .mockResolvedValue({ items: [aSupplier({ sessionStatus: "needs_reconnect" })], total: 1, page: 1, pageSize: 10 });
-      const { user } = setup([connected], { suppliers: { page } });
+      const get = vi.fn().mockResolvedValue(aSupplier({ sessionStatus: "needs_reconnect", lastSessionCheckAt: "2026-11-11T09:00:00.000Z" }));
+      const { api, user } = setup([connected], { suppliers: { get } });
       await user.click(await screen.findByRole("button", { name: "Check connection Acme Supply" }));
-      expect(page).toHaveBeenCalledTimes(1);
-      await act(async () => void vi.advanceTimersByTime(4_500));
-      expect(page).toHaveBeenCalledTimes(2);
+      await act(async () => void vi.advanceTimersByTime(3_100));
       expect(await screen.findByRole("link", { name: "Reconnect supplier Acme Supply" })).toBeInTheDocument();
+      await act(async () => void vi.advanceTimersByTime(20_000)); // the check has finished, so it stops asking
+      expect(api.suppliers.status).toHaveBeenCalledTimes(1);
+      expect(api.suppliers.status).toHaveBeenCalledWith(connected.id);
+      expect(get).toHaveBeenCalledTimes(1);
+      expect(get).toHaveBeenCalledWith(connected.id);
+      expect(api.suppliers.page).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }
@@ -343,15 +344,17 @@ describe("checking a connection", () => {
   it("shows a pulsing Checking… badge in the row until the new status arrives, and moves nothing else", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
     try {
-      const reply = (s: Supplier) => ({ items: [s], total: 1, page: 1, pageSize: 10 });
-      const page = vi.fn().mockResolvedValueOnce(reply(connected)).mockResolvedValue(reply(aSupplier({ sessionStatus: "connected", lastSessionCheckAt: "2026-11-11T09:00:00.000Z" })));
-      const { user } = setup([connected], { suppliers: { page } });
+      const status = vi.fn().mockResolvedValueOnce({ checkedAt: connected.lastSessionCheckAt }).mockResolvedValue({ checkedAt: "2026-11-11T09:00:00.000Z" });
+      const get = vi.fn().mockResolvedValue(aSupplier({ sessionStatus: "connected", lastSessionCheckAt: "2026-11-11T09:00:00.000Z" }));
+      const { user } = setup([connected], { suppliers: { status, get } });
       const row = within(await screen.findByRole("row", { name: /Acme Supply/ }));
       await user.click(row.getByRole("button", { name: "Check connection Acme Supply" }));
       expect(await row.findByText("Checking…")).toBeInTheDocument();
       expect(row.queryByText("Connected")).toBeNull();
       expect(screen.getByText(/has started/).closest("main, section, table")).toBeNull(); // a toast, never a banner among the page content
-      await act(async () => void vi.advanceTimersByTime(4_500));
+      await act(async () => void vi.advanceTimersByTime(3_100));
+      expect(row.getByText("Checking…")).toBeInTheDocument(); // the first read is not the answer yet
+      await act(async () => void vi.advanceTimersByTime(3_100));
       expect(await row.findByText("Connected")).toBeInTheDocument();
       expect(row.queryByText("Checking…")).toBeNull();
     } finally {

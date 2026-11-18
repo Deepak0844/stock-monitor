@@ -179,6 +179,8 @@ export type SuppliersApi = {
   /** One page, searched and filtered on the server. */
   page(query: { page: number; pageSize: number; search?: string; status?: SupplierStatusFilter }): Promise<Page<Supplier>>;
   get(id: string): Promise<Supplier>;
+  /** Only when the last connection check finished, to follow a check cheaply. */
+  status(id: string): Promise<{ checkedAt: string | null }>;
   create(input: SupplierInput): Promise<Supplier>;
   /** Only the fields given are changed. */
   update(id: string, patch: Partial<SupplierInput>): Promise<Supplier>;
@@ -302,7 +304,9 @@ export type StockApi = {
   checkSupplier(supplierId: string): Promise<StartedRun>;
   observations(mappingId: string): Promise<Observation[]>;
 };
-export type MappingFilter = { supplierId?: string; status?: LinkStatus; search?: string };
+/** A link's latest stock answer, or `none` for no stock check yet. */
+export type StockFilter = StockAnswer | "none";
+export type MappingFilter = { supplierId?: string; status?: LinkStatus; stock?: StockFilter; search?: string };
 export type MappingInput = { variantId: string; supplierId: string; url: string; note?: string | null; region?: string | null };
 export type UnmappedVariant = { variantId: string; productTitle: string; variantTitle: string; sku: string | null };
 export type UnmappedList = { total: number; unmapped: number; items: UnmappedVariant[] };
@@ -329,6 +333,8 @@ export type MappingsApi = {
   /** One page, filtered on the server. */
   page(query: MappingFilter & { page: number; pageSize: number }): Promise<Page<Mapping>>;
   get(id: string): Promise<Mapping>;
+  /** Only when the last link and stock checks finished, to follow a check cheaply. */
+  status(id: string): Promise<{ linkCheckedAt: string | null; stockCheckedAt: string | null }>;
   create(input: MappingInput): Promise<Mapping>;
   update(id: string, patch: { url?: string; note?: string | null; region?: string | null; enabled?: boolean }): Promise<Mapping>;
   remove(id: string): Promise<void>;
@@ -547,6 +553,7 @@ const suppliers: SuppliersApi = {
     return request<Page<Supplier>>(`/api/suppliers?${params}`, { method: "GET" });
   },
   get: (id) => supplier(`/api/suppliers/${encodeURIComponent(id)}`, { method: "GET" }),
+  status: (id) => request(`/api/suppliers/${encodeURIComponent(id)}/status`, { method: "GET" }),
   create: (input) => supplier("/api/suppliers", { method: "POST", json: input }),
   update: (id, patch) => supplier(`/api/suppliers/${encodeURIComponent(id)}`, { method: "PATCH", json: patch }),
   async remove(id) {
@@ -639,6 +646,7 @@ const mappings: MappingsApi = {
     const params = new URLSearchParams();
     if (filter.supplierId) params.set("supplierId", filter.supplierId);
     if (filter.status) params.set("status", filter.status);
+    if (filter.stock) params.set("stock", filter.stock);
     if (filter.search) params.set("search", filter.search);
     params.set("page", String(page));
     params.set("pageSize", String(pageSize));
@@ -648,6 +656,7 @@ const mappings: MappingsApi = {
   async get(id) {
     return (await request<{ mapping: Mapping }>(`/api/mappings/${enc(id)}`, { method: "GET" })).mapping;
   },
+  status: (id) => request(`/api/mappings/${enc(id)}/status`, { method: "GET" }),
   async create(input) {
     return (await request<{ mapping: Mapping }>("/api/mappings", { method: "POST", json: input })).mapping;
   },
