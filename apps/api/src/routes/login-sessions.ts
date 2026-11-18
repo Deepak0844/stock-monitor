@@ -155,8 +155,9 @@ export function registerLoginSessionRoutes(app: App, deps: LoginSessionRoutesDep
     ended(attempt.id);
     // The supplier has a working login again, so whatever was asking for one is no longer true.
     await notifications.resolve("supplier_needs_reconnect", attempt.supplierId);
-    // A first check, to see that the saved login really works. If the queue is down the login still stands.
-    await queue.enqueue("supplier.session.verify", { supplierId: attempt.supplierId }).catch(() => {});
+    // A first check, to see that the saved login really works. If it does, a run the login problem stopped runs again.
+    // If the queue is down the login still stands.
+    await queue.enqueue("supplier.session.verify", { supplierId: attempt.supplierId, afterLogin: true }).catch(() => {});
     const facts = await supplierSessions.facts(attempt.supplierId);
     await record(request, "login_session.finished", attempt.id, { supplierId: attempt.supplierId, savedItems: facts?.cookieCount ?? 0 });
     return { loginSession: view((await loginSessions.get(attempt.id)) as LoginSessionRecord), session: facts };

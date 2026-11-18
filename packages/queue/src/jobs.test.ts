@@ -42,6 +42,8 @@ describe("parseJob", () => {
       expect(() => parseJob("supplier.session.verify", { supplierId: id, early: "yes" })).toThrow();
       expect(parseJob("supplier.session.verify", { supplierId: id, login: true })).toEqual({ supplierId: id, login: true });
       expect(parseJob("supplier.session.verify", { supplierId: id, keepAlive: true })).toEqual({ supplierId: id, keepAlive: true });
+      expect(parseJob("supplier.session.verify", { supplierId: id, afterLogin: true })).toEqual({ supplierId: id, afterLogin: true });
+      expect(() => parseJob("supplier.session.verify", { supplierId: id, afterLogin: false })).toThrow();
       expect(() => parseJob("supplier.session.verify", { supplierId: id, keepAlive: false })).toThrow();
       expect(() => parseJob("supplier.session.verify", { supplierId: id, login: false })).toThrow();
     });

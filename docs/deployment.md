@@ -337,6 +337,43 @@ A supplier is only checked automatically when it is connected, running (not paus
 - Run records hold only counts and a reason. They never hold page text, addresses, or login details, and are deleted after 30 days.
 - The old "Check every (minutes)" box on the supplier form is gone: it never did anything. Use **Automatic checks** instead.
 
+## Email alerts
+
+The app can email you when a supplier needs you to log in: the session ended, a puzzle (CAPTCHA) or a code is asked for, the supplier refused the check, or automatic login paused. The email says what is wrong and links straight to that supplier's login page in the app. Other messages (changed pages, Shopify problems) stay on the Dashboard only.
+
+### Setting it up
+
+Alerts are sent from the Gmail you use only for suppliers, through Gmail's own mail server.
+
+1. Sign in to that Gmail. Open **Google Account > Security**, and turn on **2-Step Verification** if it is not on.
+2. In **Google Account > Security**, open **App passwords**. Make one called "Stock Monitor" and copy the 16 letters. They are shown once.
+3. In `.env` on the server, set:
+   - `ALERT_EMAIL_FROM`: that Gmail address.
+   - `ALERT_EMAIL_APP_PASSWORD`: the 16 letters (spaces are fine).
+   - `ALERT_EMAIL_TO`: the address alerts go to, for example your usual email.
+
+   Also check that `APP_ORIGIN` is set to the address you open the app at, or the link in the email points at `localhost`.
+4. Run `docker compose up -d --build`.
+
+Leave all three blank to keep alerts off. If only some are set, the worker refuses to start and its log names what is missing. If alerts are off, the worker's log says so once when it starts.
+
+### How it works
+
+- **One email per problem.** A new login problem is emailed within about a minute. The same problem found again does not send another. A new email comes only after you have logged in and the problem comes back.
+- **No email for a problem that fixed itself.** If automatic login gets back in before the email goes out, nothing is sent.
+- **Gmail down or the app password wrong:** the email is tried again every minute until it goes. The worker's log says `alert email could not be sent` with a short code (`EAUTH` means the app password is wrong). It never logs the password.
+- At most 10 emails go out each minute.
+- Problems that were already on the Dashboard on the day you install this are not emailed.
+
+### After you log in by hand
+
+When you press **I'm logged in**, the app checks the login once. If it works, and the supplier's last run was stopped by a login, puzzle or block, the check runs again by itself:
+
+- With **Automatic checks** on, the run starts within a minute, inside the hours you set. The limit of 2 suppliers at once still applies.
+- With them off, the run starts at once, as if you had pressed **Check all stock**.
+
+**Check login** does not start a run.
+
 ## Stock suggestions
 
 After a supplier check, the app compares what the supplier said with the number Shopify shows. When they disagree in a way that matters, it adds a **suggestion** to **Proposals**. Nothing changes in Shopify until you press **Approve** on that one suggestion.

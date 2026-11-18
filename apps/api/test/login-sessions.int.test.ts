@@ -419,11 +419,11 @@ describe("deleting a supplier that has a login open", () => {
 });
 
 describe("the first check after a login, and checking by hand", () => {
-  it("queues a check of the supplier when a login is finished, carrying only the supplier's id", async () => {
+  it("queues a check of the supplier when a login is finished, carrying only the supplier's id and the after-login flag", async () => {
     fake.behaviour.state = sessionState;
     const { id } = await start();
     await call("POST", `/api/login-sessions/${id}/finish`);
-    expect(queued).toEqual([{ name: "supplier.session.verify", payload: { supplierId: acme } }]);
+    expect(queued).toEqual([{ name: "supplier.session.verify", payload: { supplierId: acme, afterLogin: true } }]);
     expect(JSON.stringify(queued)).not.toMatch(new RegExp(`${COOKIE}|${STORAGE}`));
   });
 

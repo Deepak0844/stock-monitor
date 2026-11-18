@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { randomBytes } from "node:crypto";
 import { Writable } from "node:stream";
 import { startTestDb, type TestDb } from "@stock-monitor/db/test-harness";
-import { createProposalRepository, createCheckRunRepository, createMappingRepository, createRecipeRepository, createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
+import { createNotificationRepository, createProposalRepository, createCheckRunRepository, createMappingRepository, createRecipeRepository, createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
 import { createAuditWriter } from "@stock-monitor/audit";
 import { createLogger } from "@stock-monitor/shared";
 import { sealCredentials, sealSessionState } from "@stock-monitor/supplier-session";
@@ -330,5 +330,78 @@ describe("keep login alive", () => {
     await suppliers().setSchedule(id, { intervalMinutes: 1440, window: { start: "07:00", end: "22:00" }, nextCheckAt: new Date(now.getTime() - MIN) });
     await runTick(deps());
     expect(enqueued.map((e) => e.name)).toEqual(["extraction.checks"]);
+  });
+});
+
+describe("login alert emails", () => {
+  let mails: { subject: string; text: string }[] = [];
+  let sendFails = false;
+  const send = async (m: { subject: string; text: string }) => {
+    if (sendFails) throw Object.assign(new Error("Invalid login: 535"), { code: "EAUTH" });
+    mails.push(m);
+  };
+  const notes = () => createNotificationRepository(t.appDb);
+  const alerts = () => ({ notifications: notes(), send, appOrigin: "https://stock.example.com" });
+  beforeEach(() => {
+    mails = [];
+    sendFails = false;
+  });
+  const needsLogin = async (name: string) => {
+    const r = await suppliers().create({ name, websiteUrl: `https://${name.toLowerCase()}.example/`, loginUrl: null, checkIntervalMinutes: 60 });
+    if (!r.ok) throw new Error("setup");
+    await notes().raise({ kind: "supplier_needs_reconnect", supplierId: r.supplier.id, message: `${name} needs you to log in again.`, reason: "login_required" });
+    return r.supplier.id;
+  };
+
+  it("emails a login notice once over two ticks, with the supplier's name and link", async () => {
+    const id = await needsLogin("Acme");
+    await runTick(deps({ alerts: alerts() }));
+    await runTick(deps({ alerts: alerts() }));
+    expect(mails).toEqual([{ subject: "Acme needs you to log in", text: `Acme needs you to log in again.\n\nLog in here: https://stock.example.com/suppliers/${id}/connect\n\nSent by Stock Monitor.` }]);
+  });
+
+  it("never emails a changed-pages notice", async () => {
+    const id = await ready("Acme", -600);
+    await notes().raise({ kind: "recipe_needs_review", supplierId: id, message: "Acme's pages changed.", reason: "page_changed" });
+    await runTick(deps({ alerts: alerts() }));
+    expect(mails).toEqual([]);
+  });
+
+  it("tries again on the next tick when Gmail refuses, and the tick still finishes", async () => {
+    await needsLogin("Acme");
+    sendFails = true;
+    await expect(runTick(deps({ alerts: alerts() }))).resolves.toBeDefined();
+    expect(mails).toEqual([]);
+    sendFails = false;
+    await runTick(deps({ alerts: alerts() }));
+    expect(mails).toHaveLength(1);
+  });
+
+  it("does not email a notice that closed before the tick", async () => {
+    const id = await needsLogin("Acme");
+    await notes().resolve("supplier_needs_reconnect", id);
+    await runTick(deps({ alerts: alerts() }));
+    expect(mails).toEqual([]);
+  });
+
+  it("sends at most 10 a tick", async () => {
+    for (let i = 0; i < 12; i++) await needsLogin(`S${i}`);
+    await runTick(deps({ alerts: alerts() }));
+    expect(mails).toHaveLength(10);
+    await runTick(deps({ alerts: alerts() }));
+    expect(mails).toHaveLength(12);
+  });
+
+  it("still finishes the tick when the notices cannot be read", async () => {
+    const id = await ready("Acme", 5);
+    const broken = { ...notes(), unemailedLogin: async () => { throw new Error("db blip"); } };
+    const result = await runTick(deps({ alerts: { notifications: broken, send, appOrigin: undefined } }));
+    expect(result.started).toEqual([id]);
+  });
+
+  it("sends nothing when alerts are off", async () => {
+    await needsLogin("Acme");
+    await runTick(deps());
+    expect(mails).toEqual([]);
   });
 });
