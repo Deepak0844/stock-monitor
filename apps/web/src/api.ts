@@ -243,7 +243,17 @@ export type Mapping = {
 };
 
 export type StockAnswer = "in_stock" | "out_of_stock" | "cannot_tell";
-export type StockReason = "page_changed" | "both_matched" | "neither_matched" | "quantity_text_disagree" | "not_listed" | "check_failed" | "page_missing" | "never_worked";
+export type StockReason =
+  | "page_changed"
+  | "both_matched"
+  | "neither_matched"
+  | "quantity_text_disagree"
+  | "not_listed"
+  | "check_failed"
+  | "page_missing"
+  | "never_worked"
+  | "variant_unclear"
+  | "built_in_unclear";
 export type LatestStock = { answer: StockAnswer; reason: StockReason | null; quantity: number | null; matchedText: string | null; observedAt: string };
 export type Observation = LatestStock & { id: number; quantityMismatch: boolean; recipeVersion: number | null; checkResult: string };
 
@@ -269,7 +279,13 @@ export type PageDescription = {
   pageClass: string;
   sections: { heading: string | null; level: number; lines: string[] }[];
   buttons: { label: string; enabled: boolean; section: string | null }[];
+  /** The offers in the page's built-in product data. Missing on pages saved before it was read. */
+  offers?: Offer[];
 };
+/** One offer from a page's built-in product data (schema.org): its availability, address, SKU and name. */
+export type Offer = { availability: string; url: string | null; sku: string | null; name: string | null };
+/** How pre-order and back-order count when built-in data is on. */
+export type Waiting = "in_stock" | "out_of_stock" | "cannot_tell";
 export type CaptureDetail = Capture & { description: PageDescription | null };
 
 export type StockRule = { type: "text"; text: string; under?: string } | { type: "button"; label: string; enabled?: boolean; under?: string };
@@ -279,9 +295,11 @@ export type Recipe = {
   outOfStock: StockRule[];
   quantity?: { label: string; under?: string };
   region?: { under: string };
+  /** Present means on: the page's built-in stock data answers first, the word rules only when it is missing or unclear. */
+  builtIn?: { waiting: Waiting };
 };
 export type RecipeVersion = { id: string; supplierId: string; version: number; rules: Recipe; active: boolean; createdAt: string; activatedAt: string | null };
-export type ExampleResult = { id: string; name: string; expected: StockAnswer; passed: boolean; got: { answer: StockAnswer; reason: StockReason | null; quantity: number | null; matchedText: string | null } };
+export type ExampleResult = { id: string; name: string; expected: StockAnswer; passed: boolean; got: { answer: StockAnswer; reason: StockReason | null; quantity: number | null; matchedText: string | null; decidedBy?: "built_in" | "rules" | null } };
 export type RecipeTest = { results: ExampleResult[]; passed: boolean };
 
 export type CapturesApi = {
