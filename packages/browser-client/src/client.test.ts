@@ -47,6 +47,11 @@ describe("openSession", () => {
     expect(r).toMatchObject({ ok: true, id: expect.stringMatching(/^[0-9a-f-]{36}$/), expiresAt: expect.any(String), vncPassword: "Ab3dE6gH" });
     expect(fake.requests[0]).toMatchObject({ method: "POST", path: "/sessions", auth: `Bearer ${FAKE_CONTROL_TOKEN}`, body: { url: "https://shop.acme.example/login" } });
   });
+  it("asks for a stealth window only when stealth is on", async () => {
+    await client().openSession("https://a.example/", { stealth: true });
+    await client().openSession("https://a.example/", { stealth: false });
+    expect(fake.requests.map((r) => r.body)).toEqual([{ url: "https://a.example/", stealth: true }, { url: "https://a.example/" }]);
+  });
   it("works whether or not the base address ends with a slash, and leaves out a password that is not sent", async () => {
     fake.behaviour.vncPassword = undefined;
     const r = await client({ baseUrl: `${fake.url}/` }).openSession("https://a.example/");

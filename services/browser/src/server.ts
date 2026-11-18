@@ -10,7 +10,7 @@ export type CheckPageFn = (request: CheckPageRequest) => Promise<CheckPageOutcom
 export type CaptureFn = (request: CaptureRequest) => Promise<CaptureOutcome>;
 export type LoginFn = (request: LoginRequest) => Promise<LoginOutcome>;
 export type SessionsApi = {
-  open(url: string): Promise<{ ok: true; id: string; expiresAt: string } | { ok: false; reason: "busy" | "failed" }>;
+  open(url: string, options: { stealth: boolean }): Promise<{ ok: true; id: string; expiresAt: string } | { ok: false; reason: "busy" | "failed" }>;
   /** The saved session, with the window closed. null when there is no such open window. */
   finish(id: string): Promise<SessionState | null>;
   cancel(id: string): Promise<boolean>;
@@ -145,9 +145,9 @@ export function createControlServer({ token, verify, checkPage, capture, login, 
           body = null;
         }
         const keys = typeof body === "object" && body !== null && !Array.isArray(body) ? Object.keys(body) : [];
-        const url = keys.length === 1 && keys[0] === "url" ? (body as { url: unknown }).url : undefined;
-        if (!isWebUrl(url)) return reply(res, 400, { error: "invalid_request" });
-        const opened = await api.open(url);
+        const { url, stealth = false } = keys.every((k) => k === "url" || k === "stealth") ? (body as { url?: unknown; stealth?: unknown }) : {};
+        if (!isWebUrl(url) || typeof stealth !== "boolean") return reply(res, 400, { error: "invalid_request" });
+        const opened = await api.open(url, { stealth });
         if (opened.ok) return reply(res, 201, { id: opened.id, expiresAt: opened.expiresAt, ...(vncPassword ? { vncPassword } : {}) });
         if (opened.reason === "busy") {
           return reply(res, 409, { error: "session_open", message: "A login window is already open. Finish or cancel it first." });

@@ -42,7 +42,8 @@ export type CancelOutcome = { ok: true } | { ok: false; reason: "not_found" | "u
 
 export type BrowserClient = {
   /** Opens a login window at the address. */
-  openSession(url: string): Promise<OpenOutcome>;
+  /** `stealth` gives the window the disguise (a real graphics card, Google Chrome's name). Only the plain window has it. */
+  openSession(url: string, options?: { stealth?: boolean }): Promise<OpenOutcome>;
   /** Saves the login as it is now and closes the window. */
   finishSession(id: string): Promise<FinishOutcome>;
   cancelSession(id: string): Promise<CancelOutcome>;
@@ -102,8 +103,8 @@ export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, pageTi
   }
 
   return {
-    async openSession(url) {
-      const r = await call("POST", "/sessions", { url });
+    async openSession(url, { stealth } = {}) {
+      const r = await call("POST", "/sessions", { url, ...(stealth ? { stealth: true } : {}) });
       if (!r) return { ok: false, reason: "unavailable" };
       if (r.status === 409) return { ok: false, reason: "busy" };
       const j = r.json;

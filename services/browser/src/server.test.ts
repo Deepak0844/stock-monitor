@@ -153,7 +153,13 @@ describe("the live window routes", () => {
     const res = await call("POST", "/sessions", TOKEN, { url: "https://shop.acme.example/login" });
     expect(res.status).toBe(201);
     expect(await res.json()).toEqual({ id: ID, expiresAt: "2026-11-08T12:00:00.000Z" });
-    expect(sessions.open).toHaveBeenCalledWith("https://shop.acme.example/login");
+    expect(sessions.open).toHaveBeenCalledWith("https://shop.acme.example/login", { stealth: false });
+  });
+
+  it("asks for a stealth window when the body says so", async () => {
+    const res = await call("POST", "/sessions", TOKEN, { url: "https://a.example/", stealth: true });
+    expect(res.status).toBe(201);
+    expect(sessions.open).toHaveBeenCalledWith("https://a.example/", { stealth: true });
   });
 
   it("includes the VNC password in the answer when the service has one, and leaves it out when it has none", async () => {
@@ -171,7 +177,7 @@ describe("the live window routes", () => {
     expect(Object.keys(await plain.json())).toEqual(["id", "expiresAt"]);
   });
 
-  it.each([["no address", {}], ["an ftp address", { url: "ftp://a.example/" }], ["a number", { url: 5 }], ["an extra field", { url: "https://a.example/", state: {} }]])(
+  it.each([["no address", {}], ["an ftp address", { url: "ftp://a.example/" }], ["a number", { url: 5 }], ["an extra field", { url: "https://a.example/", state: {} }], ["a stealth that is not true or false", { url: "https://a.example/", stealth: "yes" }]])(
     "refuses %s with a plain 400",
     async (_n, payload) => {
       const res = await call("POST", "/sessions", TOKEN, payload);
