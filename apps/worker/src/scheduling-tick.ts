@@ -86,7 +86,8 @@ export async function runTick(deps: TickDeps): Promise<{ started: string[]; skip
     started.push(id);
   }
   await keepLoginsAlive(deps, now, new Set([...busy, ...started, ...prechecked]));
-  if (deps.alerts) await sendLoginAlerts({ ...deps.alerts, logger });
+  // Email must never fail the tick: its runs have already started.
+  if (deps.alerts) await sendLoginAlerts({ ...deps.alerts, logger }).catch(() => logger.warn("login alert emails could not be checked"));
   return { started, skipped };
 }
 

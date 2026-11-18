@@ -392,6 +392,13 @@ describe("login alert emails", () => {
     expect(mails).toHaveLength(12);
   });
 
+  it("still finishes the tick when the notices cannot be read", async () => {
+    const id = await ready("Acme", 5);
+    const broken = { ...notes(), unemailedLogin: async () => { throw new Error("db blip"); } };
+    const result = await runTick(deps({ alerts: { notifications: broken, send, appOrigin: undefined } }));
+    expect(result.started).toEqual([id]);
+  });
+
   it("sends nothing when alerts are off", async () => {
     await needsLogin("Acme");
     await runTick(deps());
