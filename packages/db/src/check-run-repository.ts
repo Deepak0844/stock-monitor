@@ -6,6 +6,8 @@ export type CheckRun = {
   id: string;
   supplierId: string;
   trigger: "scheduled" | "manual";
+  /** `links` runs only check that each link still works, so their stock counts stay 0. */
+  kind: "stock" | "links";
   startedAt: Date;
   endedAt: Date | null;
   linksTotal: number;
@@ -27,11 +29,11 @@ const isTaken = (error: unknown) => {
 
 export function createCheckRunRepository<S extends Record<string, unknown>>(db: NodePgDatabase<S>) {
   return {
-    /** Starts a run, or returns null when this supplier already has one running. */
-    async start(supplierId: string, trigger: CheckRun["trigger"], linksTotal: number): Promise<CheckRun | null> {
+    /** Starts a run, or returns null when this supplier already has one running (of either kind). */
+    async start(supplierId: string, trigger: CheckRun["trigger"], linksTotal: number, kind: CheckRun["kind"] = "stock"): Promise<CheckRun | null> {
       if (!UUID.test(supplierId)) return null;
       try {
-        const [row] = await db.insert(checkRuns).values({ supplierId, trigger, linksTotal }).returning();
+        const [row] = await db.insert(checkRuns).values({ supplierId, trigger, kind, linksTotal }).returning();
         return row as CheckRun;
       } catch (error) {
         if (isTaken(error)) return null;
@@ -54,6 +56,12 @@ export function createCheckRunRepository<S extends Record<string, unknown>>(db: 
       return Boolean(row);
     },
 
+    async get(id: string): Promise<CheckRun | null> {
+      if (!UUID.test(id)) return null;
+      const [row] = await db.select().from(checkRuns).where(eq(checkRuns.id, id)).limit(1);
+      return (row as CheckRun | undefined) ?? null;
+    },
+
     async running(): Promise<CheckRun[]> {
       return (await db.select().from(checkRuns).where(eq(checkRuns.outcome, "running"))) as CheckRun[];
     },
@@ -64,13 +72,13 @@ export function createCheckRunRepository<S extends Record<string, unknown>>(db: 
       return (row as CheckRun | undefined) ?? null;
     },
 
-    /** The most recent runs of the last 30 days, newest first. */
+    /** The most recent stock runs of the last 30 days, newest first. */
     async recent(supplierId: string, limit: number): Promise<CheckRun[]> {
       if (!UUID.test(supplierId)) return [];
       return (await db
         .select()
         .from(checkRuns)
-        .where(and(eq(checkRuns.supplierId, supplierId), gte(checkRuns.startedAt, sql`now() - interval '30 days'`)))
+        .where(and(eq(checkRuns.supplierId, supplierId), eq(checkRuns.kind, "stock"), gte(checkRuns.startedAt, sql`now() - interval '30 days'`)))
         .orderBy(desc(checkRuns.startedAt))
         .limit(limit)) as CheckRun[];
     },

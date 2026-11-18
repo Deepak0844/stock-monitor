@@ -2,7 +2,7 @@ import type { FastifyInstance, RawReplyDefaultExpression, RawRequestDefaultExpre
 import { z } from "zod";
 import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
-import type { createImportPreviewRepository, createMappingRepository, createObservationRepository, createProposalRepository, ObservationRecord, createSupplierRepository, createSupplierSessionRepository, MappingRow } from "@stock-monitor/db";
+import type { createCheckRunRepository, createImportPreviewRepository, createMappingRepository, createObservationRepository, createProposalRepository, ObservationRecord, createSupplierRepository, createSupplierSessionRepository, MappingRow } from "@stock-monitor/db";
 import type { Queue } from "@stock-monitor/queue";
 import { runExpirySeconds } from "@stock-monitor/scheduling";
 import { isUnavailableCandidate, sameSite, whyNotChecked } from "@stock-monitor/mapping";
@@ -22,9 +22,10 @@ export type MappingRoutesDeps = {
   observations?: ReturnType<typeof createObservationRepository>;
   /** When set, each link carries its latest suggestion. */
   proposals?: ReturnType<typeof createProposalRepository>;
-  /** Link checks. Both are needed. Left out, there are no check routes. */
+  /** Link checks. All three are needed. Left out, there are no check routes. */
   supplierSessions?: ReturnType<typeof createSupplierSessionRepository>;
   queue?: Pick<Queue, "enqueue">;
+  checkRuns?: ReturnType<typeof createCheckRunRepository>;
   /** Test only: replaces the real DNS lookup. */
   lookup?: HostLookup;
 };
@@ -193,8 +194,8 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
     return { supplier };
   });
 
-  const { supplierSessions, queue } = deps;
-  if (!supplierSessions || !queue) return;
+  const { supplierSessions, queue, checkRuns } = deps;
+  if (!supplierSessions || !queue || !checkRuns) return;
 
   /** A supplier whose links may be checked now, or the plain reason they may not. */
   async function readySupplier(supplierId: string) {
@@ -226,16 +227,20 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
     const supplier = await readySupplier(request.params.id);
     const links = (await mappings.forSupplier(supplier.id)).filter((m) => m.enabled).length;
     if (links === 0) throw new AppError(409, "no_links", "This supplier has no links to check yet.");
+    // The run record shows the owner how far it got, and stops it running beside another run for the same supplier.
+    const run = await checkRuns.start(supplier.id, "manual", links, "links");
+    if (!run) throw new AppError(409, "run_in_progress", "A check for this supplier is already running. Wait for it to finish.");
     try {
       await queue.enqueue(
         "mapping.links.check",
-        { supplierId: supplier.id },
+        { supplierId: supplier.id, runId: run.id },
         { expireInSeconds: runExpirySeconds(links, supplier.checkPauseSeconds), retryLimit: 0 },
       );
     } catch {
+      await checkRuns.end(run.id, "failed", "not_queued");
       throw NOT_STARTED();
     }
     await record(request, "mapping.supplier_check_requested", "supplier", supplier.id, { links });
-    return reply.status(202).send({ queued: true, links });
+    return reply.status(202).send({ queued: true, links, runId: run.id });
   });
 }

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createHash, randomBytes } from "node:crypto";
 import { Writable } from "node:stream";
 import { startTestDb, type TestDb } from "@stock-monitor/db/test-harness";
-import { createMappingRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
+import { createCheckRunRepository, createMappingRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
 import { createLogger } from "@stock-monitor/shared";
 import { sealSessionState } from "@stock-monitor/supplier-session";
 import { buildApp } from "../src/app.js";
@@ -23,6 +23,7 @@ const app = () =>
       mappings: createMappingRepository(t.appDb),
       suppliers: createSupplierRepository(t.appDb),
       supplierSessions: createSupplierSessionRepository(t.appDb),
+      checkRuns: createCheckRunRepository(t.appDb),
       queue: {
         enqueue: async (name: string, payload: unknown, options?: unknown) => {
           if (enqueueFails) throw new Error("queue down");
@@ -116,10 +117,19 @@ describe("check one link", () => {
 });
 
 describe("check all of a supplier's links", () => {
-  it("queues one job that carries only the supplier's id", async () => {
+  it("starts a links run and queues one job that carries only the supplier's and run's ids", async () => {
     const r = await post(`/api/suppliers/${acme}/check-links`);
     expect(r).toMatchObject({ status: 202, body: { queued: true, links: 1 } });
-    expect(queued).toMatchObject([{ name: "mapping.links.check", payload: { supplierId: acme } }]);
+    expect(queued).toMatchObject([{ name: "mapping.links.check", payload: { supplierId: acme, runId: r.body.runId } }]);
+    expect(await createCheckRunRepository(t.appDb).get(r.body.runId)).toMatchObject({ kind: "links", outcome: "running", linksTotal: 1 });
+  });
+  it("refuses a second run while one is going, and ends the run when it could not be queued", async () => {
+    const first = await post(`/api/suppliers/${acme}/check-links`);
+    expect((await post(`/api/suppliers/${acme}/check-links`)).body.error.code).toBe("run_in_progress");
+    await createCheckRunRepository(t.appDb).end(first.body.runId, "finished", null);
+    enqueueFails = true;
+    expect((await post(`/api/suppliers/${acme}/check-links`)).status).toBe(503);
+    expect(await createCheckRunRepository(t.appDb).current(acme)).toBeNull();
   });
   it("lets a long run finish and never starts it twice: the job gets time for every page and no retry", async () => {
     await suppliers().setPermission(acme, { status: "granted", note: null, pauseSeconds: 60 });

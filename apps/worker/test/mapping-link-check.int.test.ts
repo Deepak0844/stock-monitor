@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { randomBytes } from "node:crypto";
 import { Writable } from "node:stream";
 import { startTestDb, type TestDb } from "@stock-monitor/db/test-harness";
-import { createMappingRepository, createNotificationRepository, createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
+import { createCheckRunRepository, createMappingRepository, createNotificationRepository, createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
 import { createAuditWriter } from "@stock-monitor/audit";
 import { createBrowserClient, type BrowserClient, type LoginCallOutcome, type LoginRequest } from "@stock-monitor/browser-client";
 import { createFakeBrowserService, FAKE_CONTROL_TOKEN, type FakeBrowserService } from "@stock-monitor/browser-client/testing";
@@ -25,12 +25,14 @@ let now = T0;
 
 const suppliers = () => createSupplierRepository(t.appDb);
 const maps = () => createMappingRepository(t.appDb);
+const runs = () => createCheckRunRepository(t.appDb);
 const deps = (over: Partial<LinkCheckDeps> = {}): LinkCheckDeps => ({
   mappings: maps(),
   suppliers: suppliers(),
   supplierSessions: createSupplierSessionRepository(t.appDb),
   supplierCredentials: createSupplierCredentialsRepository(t.appDb),
   notifications: createNotificationRepository(t.appDb),
+  checkRuns: runs(),
   audit: createAuditWriter(t.appDb),
   browser: createBrowserClient({ baseUrl: fake.url, token: FAKE_CONTROL_TOKEN, timeoutMs: 2000 }),
   key,
@@ -228,6 +230,28 @@ describe("all of a supplier's links", () => {
     await link("v2");
     await maps().update(id, { enabled: false });
     expect(await checkSupplierLinks(deps(), acme)).toMatchObject({ checked: 1 });
+  });
+
+  it("reports each page to its run record, then ends it finished", async () => {
+    await link("v1");
+    await link("v2");
+    const run = (await runs().start(acme, "manual", 2, "links"))!;
+    const done: number[] = [];
+    onSleep = async () => void done.push((await runs().get(run.id))!.linksDone);
+    expect(await checkSupplierLinks(deps(), acme, run.id)).toMatchObject({ kind: "done", checked: 2 });
+    expect(done).toEqual([1]);
+    expect(await runs().get(run.id)).toMatchObject({ outcome: "finished", linksDone: 2, stopReason: null });
+  });
+
+  it("ends its run stopped when the supplier is paused while it waits, and does nothing for a run already ended", async () => {
+    await link("v1");
+    await link("v2");
+    const run = (await runs().start(acme, "manual", 2, "links"))!;
+    onSleep = async () => void (await suppliers().pause(acme));
+    await checkSupplierLinks(deps(), acme, run.id);
+    expect(await runs().get(run.id)).toMatchObject({ outcome: "stopped", stopReason: "supplier_not_ready", linksDone: 1 });
+    await suppliers().resume(acme);
+    expect(await checkSupplierLinks(deps(), acme, run.id)).toEqual({ kind: "skipped", reason: "run_ended" });
   });
 
   it("does nothing for a supplier that was deleted while the job waited", async () => {

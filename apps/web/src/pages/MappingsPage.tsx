@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button.js";
 import { Card } from "@/components/ui/card.js";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu.js";
 import { Input, Select } from "@/components/ui/input.js";
-import type { Api, LinkStatus, Mapping, Observation, Supplier, UnmappedList } from "../api.js";
+import type { Api, CheckRun, LinkStatus, Mapping, Observation, StartedRun, Supplier, UnmappedList } from "../api.js";
 import { ConfirmDialog } from "../components/ConfirmDialog.js";
 import { DataTable, type Column } from "../components/DataTable.js";
 import { EmptyState } from "../components/EmptyState.js";
@@ -15,6 +15,7 @@ import { Notice } from "../components/Notice.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { Pager } from "../components/Pager.js";
 import { suggestionLine } from "../components/proposalWords.js";
+import { runSummary } from "../components/scheduleWords.js";
 import { ANSWER_TONE, reasonWords, stockSentence } from "../components/stockWords.js";
 import { badgeVariant } from "../components/tone.js";
 import { formatDay, formatWhen } from "../format.js";
@@ -28,9 +29,8 @@ const SEARCH_DELAY_MS = 300;
 // A check finishes some moments after it is asked for (a login-browser check takes up to half a minute), so the list is read again.
 const CHECK_REFRESH_MS = 4000;
 const CHECK_REFRESHES = 12;
-// A whole supplier run takes as long as its pauses, so it is followed longer and stops after this many unchanged reads.
-const RUN_REFRESHES = 60;
-const STILL_POLLS = 3;
+// A whole supplier run is followed through its own small status, not by reading the list again.
+const RUN_POLL_MS = 3000;
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong. Please try again.");
 const where = (url: string) => {
@@ -112,14 +112,14 @@ export function MappingsPage({ api }: { api: Api }) {
   }, [q, search, set]);
   useEffect(() => setQ(search), [search]);
 
-  // A check finishes some moments after it is asked for, so the page is read again until the answer shows. It stops as soon as it
-  // does, and never sets the list again when nothing changed (which would also re-read the unmapped variants).
+  // A check of one link finishes some moments after it is asked for, so the page is read again until the answer shows. It stops as
+  // soon as it does, and never sets the list again when nothing changed (which would also re-read the unmapped variants).
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latest = useRef<Mapping[] | null>(null);
   latest.current = data?.items ?? null;
   useEffect(() => () => void (refreshTimer.current && clearTimeout(refreshTimer.current)), []);
-  /** `finished` says when the answer has shown. Without it (a whole supplier run) it stops once the list has changed and then sat still. */
-  const refreshSoon = (times: number, finished?: (list: Mapping[]) => boolean, sawChange = false, still = 0, key?: string) => {
+  /** `finished` says when the answer has shown. */
+  const refreshSoon = (times: number, finished: (list: Mapping[]) => boolean, key: string) => {
     if (refreshTimer.current) clearTimeout(refreshTimer.current);
     refreshTimer.current = setTimeout(() => {
       api.mappings
@@ -127,13 +127,40 @@ export function MappingsPage({ api }: { api: Api }) {
         .then((result) => {
           const changed = JSON.stringify(result.items) !== JSON.stringify(latest.current);
           if (changed) setData({ items: result.items, total: result.total });
-          const stop = finished ? finished(result.items) : sawChange && !changed && still + 1 >= STILL_POLLS;
-          if (!stop && times > 1) refreshSoon(times - 1, finished, sawChange || changed, changed ? 0 : still + 1, key);
+          if (!finished(result.items) && times > 1) refreshSoon(times - 1, finished, key);
           else stopWaiting(key);
         })
         .catch(() => stopWaiting(key));
     }, CHECK_REFRESH_MS);
   };
+
+  // The chosen supplier's whole run: one going when the page opens or the supplier is chosen, or one just started here.
+  const [wholeRun, setWholeRun] = useState<CheckRun | null>(null);
+  const running = wholeRun?.outcome === "running";
+  useEffect(() => {
+    setWholeRun(null);
+    if (!supplierId) return;
+    let live = true;
+    api.schedule
+      .currentRun(supplierId)
+      .then((r) => live && setWholeRun((cur) => cur ?? r))
+      .catch(() => {});
+    return () => void (live = false);
+  }, [api, supplierId]);
+  // While it runs, its status is asked for every few seconds. When it ends the list is read once, for the new answers.
+  useEffect(() => {
+    if (!wholeRun || wholeRun.outcome !== "running") return;
+    const timer = setTimeout(() => {
+      api.schedule
+        .run(wholeRun.id)
+        .then((next) => {
+          setWholeRun((cur) => (cur?.id === next.id ? next : cur));
+          if (next.outcome !== "running") load();
+        })
+        .catch(() => setWholeRun((cur) => (cur?.id === wholeRun.id ? { ...cur } : cur))); // a new object asks again after the pause
+    }, RUN_POLL_MS);
+    return () => clearTimeout(timer);
+  }, [api, wholeRun, load]);
 
   useEffect(() => {
     api.mappings.unmapped(vq || undefined).then(setUnmapped).catch(() => setUnmapped(null));
@@ -162,7 +189,7 @@ export function MappingsPage({ api }: { api: Api }) {
         stopWaiting(`link:${m.id}`);
         throw e;
       }
-      refreshSoon(CHECK_REFRESHES, (list) => list.find((x) => x.id === m.id)?.lastLinkCheckAt !== m.lastLinkCheckAt, false, 0, `link:${m.id}`);
+      refreshSoon(CHECK_REFRESHES, (list) => list.find((x) => x.id === m.id)?.lastLinkCheckAt !== m.lastLinkCheckAt, `link:${m.id}`);
       toast(`A check of ${m.productTitle} (${m.variantTitle}) has started. Its status will update in a moment.`);
     });
   const checkStock = (m: Mapping) =>
@@ -174,22 +201,22 @@ export function MappingsPage({ api }: { api: Api }) {
         stopWaiting(`stock:${m.id}`);
         throw e;
       }
-      refreshSoon(CHECK_REFRESHES, (list) => list.find((x) => x.id === m.id)?.latestStock?.observedAt !== m.latestStock?.observedAt, false, 0, `stock:${m.id}`);
+      refreshSoon(CHECK_REFRESHES, (list) => list.find((x) => x.id === m.id)?.latestStock?.observedAt !== m.latestStock?.observedAt, `stock:${m.id}`);
       toast(`A stock check of ${m.productTitle} (${m.variantTitle}) has started. The answer will appear here in a moment.`);
     });
   const supplier = suppliers.find((s) => s.id === supplierId);
+  /** Starts a whole supplier run and follows it in the progress bar. */
+  const startRun = (key: string, s: Supplier, start: () => Promise<StartedRun>, words: (links: string) => string) =>
+    run(key, async () => {
+      const { links, runId } = await start();
+      const now = new Date().toISOString();
+      setWholeRun({ id: runId, supplierId: s.id, trigger: "manual", kind: key === "all-links" ? "links" : "stock", startedAt: now, endedAt: null, linksTotal: links, linksDone: 0, inStock: 0, outOfStock: 0, cannotTell: 0, outcome: "running", stopReason: null });
+      toast(words(`${links} ${links === 1 ? "link" : "links"}`));
+    });
   const checkAllStock = (s: Supplier) =>
-    run("all-stock", async () => {
-      const n = await api.stock.checkSupplier(s.id);
-      refreshSoon(RUN_REFRESHES);
-      toast(`Checking stock for ${n} ${n === 1 ? "link" : "links"} for ${s.name}, one page at a time. Answers will appear as they finish.`);
-    });
+    startRun("all-stock", s, () => api.stock.checkSupplier(s.id), (n) => `Checking stock for ${n} for ${s.name}, one page at a time. The answers appear when the run ends.`);
   const checkAll = (s: Supplier) =>
-    run("all-links", async () => {
-      const n = await api.mappings.checkSupplierLinks(s.id);
-      refreshSoon(RUN_REFRESHES);
-      toast(`Checking ${n} ${n === 1 ? "link" : "links"} for ${s.name}, one page at a time. Statuses will update as they finish.`);
-    });
+    startRun("all-links", s, () => api.mappings.checkSupplierLinks(s.id), (n) => `Checking ${n} for ${s.name}, one page at a time. The statuses update when the run ends.`);
   const toggleHistory = (m: Mapping) =>
     run(`history:${m.id}`, async () => {
       if (history?.mapping.id === m.id) return setHistory(null);
@@ -368,16 +395,17 @@ export function MappingsPage({ api }: { api: Api }) {
             </Select>
             {supplier && (
               <>
-                <Button variant="outline" disabled={busy} loading={busyKey === "all-links"} onClick={() => void checkAll(supplier)}>
+                <Button variant="outline" disabled={busy || running} loading={busyKey === "all-links"} onClick={() => void checkAll(supplier)}>
                   Check all links for {supplier.name}
                 </Button>
-                <Button variant="outline" disabled={busy} loading={busyKey === "all-stock"} onClick={() => void checkAllStock(supplier)}>
+                <Button variant="outline" disabled={busy || running} loading={busyKey === "all-stock"} onClick={() => void checkAllStock(supplier)}>
                   Check all stock for {supplier.name}
                 </Button>
               </>
             )}
           </div>
         )}
+        {supplier && wholeRun && <RunProgress run={wholeRun} supplierName={supplier.name} />}
         <DataTable
           label="Links"
           columns={columns}
@@ -486,5 +514,25 @@ export function MappingsPage({ api }: { api: Api }) {
         />
       )}
     </>
+  );
+}
+
+/** How far the chosen supplier's whole run is, or how it ended. */
+function RunProgress({ run, supplierName }: { run: CheckRun; supplierName: string }) {
+  const what = `${run.kind === "links" ? "Link check" : "Stock check"} for ${supplierName}`;
+  const share = run.linksTotal > 0 ? run.linksDone / run.linksTotal : 0;
+  const tone = run.outcome === "running" || run.outcome === "finished" ? "text-muted-foreground" : "text-danger";
+  return (
+    <div className="border-b border-border p-4" role="status" aria-live="polite">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm">
+        <span className="font-semibold">{what}</span>
+        <span className={tone}>{runSummary(run)}</span>
+      </div>
+      {run.outcome === "running" && (
+        <div role="progressbar" aria-label={what} aria-valuemin={0} aria-valuemax={run.linksTotal} aria-valuenow={run.linksDone} className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
+          <div className="h-full w-full origin-left rounded-full bg-primary transition-transform duration-500 motion-reduce:transition-none" style={{ transform: `scaleX(${share})` }} />
+        </div>
+      )}
+    </div>
   );
 }

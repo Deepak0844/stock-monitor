@@ -26,7 +26,8 @@ export const jobSchemas = {
   "proposals.evaluate": z.object({ supplierId: z.uuid().optional(), mappingId: z.uuid().optional() }).strict(),
   "proposals.apply": z.object({ proposalId: z.uuid() }).strict(),
   "mapping.link.check": z.object({ mappingId: z.uuid() }).strict(),
-  "mapping.links.check": z.object({ supplierId: z.uuid() }).strict(),
+  // runId is missing only from a job queued before link runs were recorded.
+  "mapping.links.check": z.object({ supplierId: z.uuid(), runId: z.uuid().optional() }).strict(),
 } as const;
 
 export type JobName = keyof typeof jobSchemas;

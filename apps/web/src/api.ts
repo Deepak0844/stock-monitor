@@ -132,6 +132,8 @@ export type CheckRun = {
   id: string;
   supplierId: string;
   trigger: "scheduled" | "manual";
+  /** `links` runs only check that each link still works, so their stock counts stay 0. */
+  kind: "stock" | "links";
   startedAt: string;
   endedAt: string | null;
   linksTotal: number;
@@ -142,6 +144,8 @@ export type CheckRun = {
   outcome: "running" | "finished" | "stopped" | "failed";
   stopReason: string | null;
 };
+/** A whole-supplier run that has just been started: how many links, and the run to follow. */
+export type StartedRun = { links: number; runId: string };
 export type ScheduleWindow = { start: string; end: string } | null;
 export type ScheduleStatus = { state: "off" | "waiting" | "running" } | { state: "not_checked"; reason: string; message: string };
 /** What the schedule is doing for one supplier. */
@@ -159,6 +163,10 @@ export type ScheduleApi = {
   /** Turns automatic checks on (an interval from the list) or off (null), with the quiet-hours window or null for all day, and keep-alive (null = off). */
   set(supplierId: string, input: { intervalMinutes: number | null; window: ScheduleWindow; keepAliveMinutes: number | null }): Promise<Supplier>;
   runs(supplierId: string): Promise<CheckRun[]>;
+  /** The supplier's run that is going now, of either kind, or null. */
+  currentRun(supplierId: string): Promise<CheckRun | null>;
+  /** One run by its id: how far it is, or how it ended. */
+  run(runId: string): Promise<CheckRun>;
 };
 
 export type PermissionInput = { status: Supplier["automationPermission"]; note: string | null; pauseSeconds?: number };
@@ -291,7 +299,7 @@ export type RecipesApi = {
 export type StockApi = {
   checkLink(mappingId: string): Promise<void>;
   /** Asks for a stock check of all of a supplier's links. Returns how many are queued. */
-  checkSupplier(supplierId: string): Promise<number>;
+  checkSupplier(supplierId: string): Promise<StartedRun>;
   observations(mappingId: string): Promise<Observation[]>;
 };
 export type MappingFilter = { supplierId?: string; status?: LinkStatus; search?: string };
@@ -327,7 +335,7 @@ export type MappingsApi = {
   /** Asks for a check of one link. The answer arrives later, as the link's status. */
   checkLink(id: string): Promise<void>;
   /** Asks for a check of all of a supplier's links. Returns how many are queued. */
-  checkSupplierLinks(supplierId: string): Promise<number>;
+  checkSupplierLinks(supplierId: string): Promise<StartedRun>;
   unmapped(search?: string): Promise<UnmappedList>;
   /** The file is the text of the CSV the owner chose. Nothing is saved. */
   importColumns(file: string): Promise<ImportColumns>;
@@ -567,6 +575,12 @@ const schedule: ScheduleApi = {
   async runs(supplierId) {
     return (await request<{ runs: CheckRun[] }>(`/api/suppliers/${enc(supplierId)}/runs`, { method: "GET" })).runs;
   },
+  async currentRun(supplierId) {
+    return (await request<{ run: CheckRun | null }>(`/api/suppliers/${enc(supplierId)}/runs/current`, { method: "GET" })).run;
+  },
+  async run(runId) {
+    return (await request<{ run: CheckRun }>(`/api/check-runs/${enc(runId)}`, { method: "GET" })).run;
+  },
 };
 const captures: CapturesApi = {
   async list(supplierId) {
@@ -606,7 +620,8 @@ const stock: StockApi = {
     await request(`/api/mappings/${enc(mappingId)}/check-stock`, { method: "POST" });
   },
   async checkSupplier(supplierId) {
-    return (await request<{ links: number }>(`/api/suppliers/${enc(supplierId)}/check-stock`, { method: "POST" })).links;
+    const { links, runId } = await request<StartedRun>(`/api/suppliers/${enc(supplierId)}/check-stock`, { method: "POST" });
+    return { links, runId };
   },
   async observations(mappingId) {
     return (await request<{ observations: Observation[] }>(`/api/mappings/${enc(mappingId)}/observations`, { method: "GET" })).observations;
@@ -646,7 +661,8 @@ const mappings: MappingsApi = {
     await request(`/api/mappings/${enc(id)}/check-link`, { method: "POST" });
   },
   async checkSupplierLinks(supplierId) {
-    return (await request<{ links: number }>(`/api/suppliers/${enc(supplierId)}/check-links`, { method: "POST" })).links;
+    const { links, runId } = await request<StartedRun>(`/api/suppliers/${enc(supplierId)}/check-links`, { method: "POST" });
+    return { links, runId };
   },
   unmapped: (search) => request(`/api/variants?${new URLSearchParams({ mapped: "false", ...(search ? { search } : {}) })}`, { method: "GET" }),
   importColumns: (file) => request("/api/mappings/import/columns", { method: "POST", csv: file }),
