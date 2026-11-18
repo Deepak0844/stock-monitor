@@ -66,8 +66,9 @@ export function registerRecipeRoutes(app: App, deps: RecipeRoutesDeps, audit: Au
     const input = object(request.body, ["recipe"]);
     const supplier = await suppliers.get(request.params.id);
     if (!supplier) throw SUPPLIER_NOT_FOUND();
-    const results = runExamples(await examplesFor(supplier.id, supplier.defaultRegion), valid(input.recipe));
-    return { results, passed: allPass(results) };
+    const recipe = valid(input.recipe);
+    const results = runExamples(await examplesFor(supplier.id, supplier.defaultRegion), recipe);
+    return { results, passed: allPass(results, recipe) };
   });
 
   app.post<{ Params: { id: string } }>("/api/recipes/:id/activate", async (request) => {
@@ -77,7 +78,7 @@ export function registerRecipeRoutes(app: App, deps: RecipeRoutesDeps, audit: Au
     if (!supplier) throw SUPPLIER_NOT_FOUND();
     const results = runExamples(await examplesFor(supplier.id, supplier.defaultRegion), valid(recipe.rules));
     if (results.length === 0) throw new AppError(409, "no_examples", "Label at least one saved page with the answer you expect before turning rules on.");
-    if (!allPass(results)) {
+    if (!allPass(results, valid(recipe.rules))) {
       const failing = results.filter((r) => !r.passed).map((r) => r.name).join(", ");
       throw new AppError(409, "examples_failed", `These saved pages do not give the answer you expect: ${failing}. Fix the rules and test again.`);
     }

@@ -58,7 +58,7 @@ const STOP_AT_ONCE = new Set(["login_required", "captcha", "blocked"]);
 const UNREACHABLE_RESULTS = new Set(["unreachable", "service_unavailable"]);
 const UNREACHABLE_IN_A_ROW = 3;
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-const tell = (reason: Reason): Decision => ({ answer: "cannot_tell", reason, quantity: null, matchedText: null, quantityMismatch: false });
+const tell = (reason: Reason): Decision => ({ answer: "cannot_tell", reason, quantity: null, matchedText: null, quantityMismatch: false, decidedBy: null });
 const RETENTION_DAYS = 30;
 
 /** The supplier and its active rules, or the plain reason a check must not run now. The tick uses the same gate, so it never starts a run the checker would refuse. */
@@ -123,7 +123,7 @@ export function createStockChecker(deps: StockCheckDeps) {
         ? tell("page_missing")
         : trial === "never_worked"
           ? tell("never_worked")
-          : decide(page, recipe, region);
+          : decide(page, recipe, region, { url: mapping.url, option: null });
     return { mapping, obs, page, picture: outcome.picture, checkResult: outcome.result, decision, linkTrial: trial };
   }
 
