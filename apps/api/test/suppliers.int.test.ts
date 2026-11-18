@@ -2,9 +2,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createHash, randomBytes } from "node:crypto";
 import { Writable } from "node:stream";
 import { startTestDb, type TestDb } from "@stock-monitor/db/test-harness";
-import { createSupplierCredentialsRepository, createSupplierRepository } from "@stock-monitor/db";
+import { createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
 import { createLogger } from "@stock-monitor/shared";
-import type { HostLookup } from "@stock-monitor/supplier-session";
+import { sealSessionState, type HostLookup } from "@stock-monitor/supplier-session";
 import { buildApp } from "../src/app.js";
 
 let t: TestDb;
@@ -53,6 +53,7 @@ beforeEach(async () => {
 });
 
 type Supplier = {
+  needsLogin: boolean;
   id: string;
   name: string;
   websiteUrl: string;
@@ -538,5 +539,44 @@ describe("automatic login", () => {
     expect(lines.length).toBeGreaterThan(0);
     expect(lines.join("")).not.toContain(SECRET);
     expect(lines.join("")).not.toContain(creds.username);
+  });
+});
+
+describe("PATCH /api/suppliers/:id needsLogin", () => {
+  it("a new supplier needs a login, and it can be turned off and on", async () => {
+    const s = await create();
+    expect(s.needsLogin).toBe(true);
+    const off = await call("PATCH", `/api/suppliers/${s.id}`, { needsLogin: false });
+    expect(off.status).toBe(200);
+    expect(off.body.supplier.needsLogin).toBe(false);
+    expect((await call("GET", `/api/suppliers/${s.id}`)).body.supplier.needsLogin).toBe(false);
+    expect((await call("PATCH", `/api/suppliers/${s.id}`, { needsLogin: true })).body.supplier.needsLogin).toBe(true);
+    const [event] = await events("supplier.updated");
+    expect(event?.details).toEqual({ changed: ["needsLogin"] });
+  });
+
+  it("changes needsLogin together with other fields", async () => {
+    const s = await create();
+    const r = await call("PATCH", `/api/suppliers/${s.id}`, { needsLogin: false, name: "Acme Ltd" });
+    expect(r.body.supplier).toMatchObject({ needsLogin: false, name: "Acme Ltd" });
+  });
+
+  it("refuses a needsLogin that is not yes or no, and changes nothing", async () => {
+    const s = await create();
+    expect((await call("PATCH", `/api/suppliers/${s.id}`, { needsLogin: "no" })).status).toBe(400);
+    expect((await call("GET", `/api/suppliers/${s.id}`)).body.supplier.needsLogin).toBe(true);
+  });
+
+  it("keeps the saved login when turned off", async () => {
+    const s = await create();
+    const sessions = createSupplierSessionRepository(t.appDb);
+    const state = { cookies: [], origins: [] };
+    await sessions.save(s.id, sealSessionState(state, key.key, key.keyId), state);
+    await call("PATCH", `/api/suppliers/${s.id}`, { needsLogin: false });
+    expect(await sessions.getSealed(s.id)).not.toBeNull();
+  });
+
+  it("says not found for an unknown supplier", async () => {
+    expect((await call("PATCH", `/api/suppliers/${UNKNOWN}`, { needsLogin: false })).status).toBe(404);
   });
 });

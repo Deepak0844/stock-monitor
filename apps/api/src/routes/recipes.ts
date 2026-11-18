@@ -2,7 +2,7 @@ import type { FastifyInstance, RawReplyDefaultExpression, RawRequestDefaultExpre
 import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
 import type { createCaptureRepository, createMappingRepository, createRecipeRepository, createSupplierRepository } from "@stock-monitor/db";
-import { allPass, runExamples, validateRecipe, type Example, type PageDescription, type Recipe } from "@stock-monitor/extraction";
+import { allPass, hasBothAnswers, runExamples, validateRecipe, type Example, type LinkRef, type PageDescription, type Recipe } from "@stock-monitor/extraction";
 import { AppError } from "../errors.js";
 
 type App = FastifyInstance<RawServerDefault, RawRequestDefaultExpression, RawReplyDefaultExpression, Logger>;
@@ -41,13 +41,13 @@ export function registerRecipeRoutes(app: App, deps: RecipeRoutesDeps, audit: Au
   async function examplesFor(supplierId: string, defaultRegion: string | null): Promise<Example[]> {
     const rows = await captures.examples(supplierId);
     return Promise.all(
-      rows.map(async (row) => ({
-        id: row.id,
-        name: row.name || "Unnamed capture",
-        expected: row.expectedAnswer,
-        page: row.description as PageDescription,
-        region: ((row.mappingId ? (await mappings.get(row.mappingId))?.region : null) ?? defaultRegion) || null,
-      })),
+      rows.map(async (row) => {
+        const page = row.description as PageDescription;
+        const mapping = row.mappingId ? await mappings.get(row.mappingId) : null;
+        // The link's current address and option, so a change is tested at once; else the copy kept on the saved page.
+        const link: LinkRef = mapping ? { url: mapping.url, option: mapping.supplierOption } : { url: page.link?.url ?? null, option: page.link?.option ?? null };
+        return { id: row.id, name: row.name || "Unnamed capture", expected: row.expectedAnswer, page, region: (mapping?.region ?? defaultRegion) || null, link };
+      }),
     );
   }
 
@@ -78,6 +78,9 @@ export function registerRecipeRoutes(app: App, deps: RecipeRoutesDeps, audit: Au
     if (!supplier) throw SUPPLIER_NOT_FOUND();
     const results = runExamples(await examplesFor(supplier.id, supplier.defaultRegion), valid(recipe.rules));
     if (results.length === 0) throw new AppError(409, "no_examples", "Label at least one saved page with the answer you expect before turning rules on.");
+    if (valid(recipe.rules).builtIn && !hasBothAnswers(results)) {
+      throw new AppError(409, "examples_need_both", "Label at least one in-stock and one out-of-stock saved page before turning on rules that use built-in data.");
+    }
     if (!allPass(results, valid(recipe.rules))) {
       const failing = results.filter((r) => !r.passed).map((r) => r.name).join(", ");
       throw new AppError(409, "examples_failed", `These saved pages do not give the answer you expect: ${failing}. Fix the rules and test again.`);

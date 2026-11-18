@@ -216,3 +216,50 @@ describe("regions", () => {
     expect((await call("PATCH", `/api/mappings/${link}`, { region: "x".repeat(201) })).body.error.code).toBe("invalid_region");
   });
 });
+
+describe("built-in data in the rules", () => {
+  const builtIn = { pageChecks: [], inStock: [], outOfStock: [], builtIn: { waiting: "out_of_stock" } };
+  const offer = (availability: string, url: string | null = null) => ({ availability, url, sku: null, name: null });
+  const withOffers = (offers: unknown[], extra: Record<string, unknown> = {}) => ({ ...page(), offers, ...extra });
+
+  it("says which part of the rules decided each example", async () => {
+    await example(withOffers([offer("InStock")]), "in_stock");
+    const r = await call("POST", `/api/suppliers/${acme}/recipes/test`, { recipe: builtIn });
+    expect(r.body.results[0].got).toMatchObject({ answer: "in_stock", decidedBy: "built_in" });
+  });
+
+  it("refuses to turn on built-in rules without an in-stock and an out-of-stock example", async () => {
+    await example(withOffers([offer("InStock")]), "in_stock");
+    const r = await call("POST", `/api/recipes/${(await saved(builtIn)).id}/activate`);
+    expect(r.status).toBe(409);
+    expect(r.body.error).toMatchObject({ code: "examples_need_both", message: "Label at least one in-stock and one out-of-stock saved page before turning on rules that use built-in data." });
+    await example(withOffers([offer("OutOfStock")]), "out_of_stock");
+    expect((await call("POST", `/api/recipes/${(await saved(builtIn)).id}/activate`)).status).toBe(200);
+  });
+
+  it("tests each example with its link's current address and option", async () => {
+    await createMappingRepository(t.appDb).update(link, { url: "https://shop.example/p?variant=2" });
+    await example(withOffers([offer("InStock", "https://shop.example/p?variant=1"), offer("OutOfStock", "https://shop.example/p?variant=2")]), "out_of_stock");
+    expect((await call("POST", `/api/suppliers/${acme}/recipes/test`, { recipe: builtIn })).body.passed).toBe(false); // needs both answers
+    expect((await call("POST", `/api/suppliers/${acme}/recipes/test`, { recipe: builtIn })).body.results[0].passed).toBe(true);
+    await createMappingRepository(t.appDb).update(link, { url: "https://shop.example/p", supplierOption: "Red" });
+    await example(withOffers([{ ...offer("InStock"), name: "Red" }, { ...offer("OutOfStock"), name: "Blue" }]), "in_stock", "by option");
+    const results = (await call("POST", `/api/suppliers/${acme}/recipes/test`, { recipe: builtIn })).body.results as { name: string; passed: boolean }[];
+    expect(results.find((x) => x.name === "by option")?.passed).toBe(true);
+  });
+
+  it("uses the link kept on a saved page whose link was deleted", async () => {
+    const id = await example(withOffers([offer("InStock", "https://shop.example/p?variant=1"), offer("OutOfStock", "https://shop.example/p?variant=2")], { link: { url: "https://shop.example/p?variant=1", option: null } }), "in_stock");
+    await t.pool.query("update page_captures set mapping_id = null where id = $1", [id]);
+    const r = await call("POST", `/api/suppliers/${acme}/recipes/test`, { recipe: builtIn });
+    expect(r.body.results[0]).toMatchObject({ passed: true, got: { decidedBy: "built_in" } });
+  });
+
+  it("tests an old saved page with no link and no offers without failing", async () => {
+    const id = await example(page(), "in_stock");
+    await t.pool.query("update page_captures set mapping_id = null where id = $1", [id]);
+    const r = await call("POST", `/api/suppliers/${acme}/recipes/test`, { recipe: builtIn });
+    expect(r.status).toBe(200);
+    expect(r.body.results[0].got).toMatchObject({ answer: "cannot_tell", reason: "page_changed" });
+  });
+});
