@@ -25,9 +25,8 @@ export function chromeBrands(full: string): Brand[] {
     version: `${GREASE_VERSIONS[major % 3]}.0.0.0`,
   };
   const list = [grease, { brand: "Chromium", version: full }, { brand: "Google Chrome", version: full }];
-  const out: Brand[] = [];
-  ORDERS[major % 6].forEach((to, from) => (out[to] = list[from]));
-  return out;
+  const order = ORDERS[major % 6] as number[]; // brand i goes to place order[i]
+  return list.map((_, place) => list[order.indexOf(place)] as Brand);
 }
 
 const major = (version: string) => version.split(".")[0];
