@@ -6,6 +6,7 @@ import type {
 } from "@stock-monitor/db";
 import { decideLinkStatus, isSupplierWide, whyNotChecked, type CheckGateReason, type LinkState, type LinkStatus, type Observation } from "@stock-monitor/mapping";
 import { unsealSessionState } from "@stock-monitor/supplier-session";
+import { EMPTY_STATE, loginFields } from "./supplier-visit.js";
 import { ensureLoggedIn, loginCheckUrl, type AutoLoginDeps } from "./auto-login.js";
 import type { StopReason } from "./extraction-check.js";
 import { saveRefreshedSession } from "./session-refresh.js";
@@ -71,16 +72,17 @@ export function createLinkChecker(deps: LinkCheckDeps) {
 
   /** Opens one page with the supplier's saved session and says what was seen. */
   async function observe(supplier: SupplierRecord, mapping: MappingRow): Promise<Observation> {
-    const sealed = await supplierSessions.getSealed(supplier.id);
+    // A supplier that needs no login is visited with no session at all.
+    const sealed = supplier.needsLogin ? await supplierSessions.getSealed(supplier.id) : null;
     let state;
     try {
-      state = sealed ? unsealSessionState(sealed, deps.key) : null;
+      state = !supplier.needsLogin ? EMPTY_STATE : sealed ? unsealSessionState(sealed, deps.key) : null;
     } catch {
       state = null;
     }
     // A session that cannot be opened cannot be used. That is the session check's business, so nothing is concluded here.
     if (!state) return { result: "service_unavailable", status: null, finalUrl: null, title: null, heading: null, softNotFound: false };
-    const outcome = await browser.checkPage({ url: mapping.url, loginUrl: supplier.loginUrl ?? undefined, ...(supplier.loggedInMarker ? { loggedInMarker: supplier.loggedInMarker } : {}), state, ...(supplier.stealth ? { stealth: true } : {}) });
+    const outcome = await browser.checkPage({ url: mapping.url, ...loginFields(supplier), state, ...(supplier.stealth ? { stealth: true } : {}) });
     if (!outcome.ok) {
       logger.warn({ mappingId: mapping.id }, "link check could not run: the browser service did not answer");
       return { result: "service_unavailable", status: null, finalUrl: null, title: null, heading: null, softNotFound: false };

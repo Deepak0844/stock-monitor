@@ -8,6 +8,7 @@ import type {
 import { decide, isSupplierWideChange, validateRecipe, type Answer, type Decision, type PageDescription, type Reason, type Recipe } from "@stock-monitor/extraction";
 import { decideLinkStatus, isSupplierWide, whyNotChecked, type CheckGateReason, type LinkStatus, type Observation } from "@stock-monitor/mapping";
 import { unsealSessionState } from "@stock-monitor/supplier-session";
+import { EMPTY_STATE, loginFields } from "./supplier-visit.js";
 import { saveRefreshedSession } from "./session-refresh.js";
 import { backoffMs, nextCheckAt } from "@stock-monitor/scheduling";
 import { ensureLoggedIn, loginCheckUrl, type AutoLoginDeps } from "./auto-login.js";
@@ -90,14 +91,15 @@ export function createStockChecker(deps: StockCheckDeps) {
   const gate = (supplierId: string) => stockGate(deps, supplierId);
 
   async function visit(supplier: SupplierRecord, mapping: MappingRow, recipe: Recipe): Promise<Visit> {
-    const sealed = await supplierSessions.getSealed(supplier.id);
+    // A supplier that needs no login is visited with no session, no login address and no logged-in marker.
+    const sealed = supplier.needsLogin ? await supplierSessions.getSealed(supplier.id) : null;
     let state;
     try {
-      state = sealed ? unsealSessionState(sealed, deps.key) : null;
+      state = !supplier.needsLogin ? EMPTY_STATE : sealed ? unsealSessionState(sealed, deps.key) : null;
     } catch {
       state = null;
     }
-    const outcome = state ? await browser.capture({ url: mapping.url, loginUrl: supplier.loginUrl ?? undefined, ...(supplier.loggedInMarker ? { loggedInMarker: supplier.loggedInMarker } : {}), state, picture: true, ...(supplier.stealth ? { stealth: true } : {}) }) : null;
+    const outcome = state ? await browser.capture({ url: mapping.url, ...loginFields(supplier), state, picture: true, ...(supplier.stealth ? { stealth: true } : {}) }) : null;
     if (!outcome || !outcome.ok) {
       if (outcome) logger.warn({ mappingId: mapping.id }, "stock check could not run: the browser service did not answer");
       const obs: Observation = { result: "service_unavailable", status: null, finalUrl: null, title: null, heading: null, softNotFound: false };
@@ -115,6 +117,7 @@ export function createStockChecker(deps: StockCheckDeps) {
       pageClass: outcome.result,
       sections: outcome.description.sections,
       buttons: outcome.description.buttons,
+      offers: outcome.description.offers,
     };
     const region = (mapping.region ?? supplier.defaultRegion) || null;
     const decision = FAILED_VISIT.has(outcome.result)
@@ -123,7 +126,7 @@ export function createStockChecker(deps: StockCheckDeps) {
         ? tell("page_missing")
         : trial === "never_worked"
           ? tell("never_worked")
-          : decide(page, recipe, region, { url: mapping.url, option: null });
+          : decide(page, recipe, region, { url: mapping.url, option: mapping.supplierOption });
     return { mapping, obs, page, picture: outcome.picture, checkResult: outcome.result, decision, linkTrial: trial };
   }
 

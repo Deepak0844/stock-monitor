@@ -22,6 +22,13 @@ describe("whyNotChecked", () => {
     expect(whyNotChecked({ ...ready, enabled: false, pausedReason: "owner" }, true)).toMatchObject({ reason: "paused", message: expect.stringContaining("paused") });
     expect(whyNotChecked({ ...ready, enabled: false, pausedReason: "session", sessionStatus: "needs_reconnect" }, true)).toMatchObject({ reason: "needs_attention" });
   });
+  it("lets a supplier that needs no login be checked without a saved login", () => {
+    const noLogin = { ...ready, sessionStatus: "not_connected", needsLogin: false };
+    expect(whyNotChecked(noLogin, false)).toBeNull();
+    expect(whyNotChecked({ ...noLogin, automationPermission: "unknown" }, false)?.reason).toBe("no_permission");
+    expect(whyNotChecked({ ...noLogin, enabled: false, pausedReason: "owner" }, false)?.reason).toBe("paused");
+    expect(whyNotChecked({ ...ready, needsLogin: true }, false)?.reason).toBe("not_connected");
+  });
   it("puts permission first", () => {
     expect(whyNotChecked({ ...ready, automationPermission: "unknown", enabled: false, pausedReason: "owner" }, false)?.reason).toBe("no_permission");
   });

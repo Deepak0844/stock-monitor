@@ -659,3 +659,64 @@ describe("automatic login in a run", () => {
     });
   });
 });
+
+describe("a supplier that needs no login", () => {
+  const builtIn = { pageChecks: [], inStock: [], outOfStock: [], builtIn: { waiting: "out_of_stock" } };
+  const offer = (availability: string, name: string | null = null) => ({ availability, url: null, sku: null, name });
+  const noLogin = async () => {
+    await createSupplierSessionRepository(t.appDb).remove(acme);
+    await suppliers().markNotConnected(acme);
+    await suppliers().setNeedsLogin(acme, false);
+  };
+
+  it("is checked with an empty session, no login address or marker, and never logs in", async () => {
+    const id = await link("v1");
+    await turnOn();
+    await suppliers().setAutoLogin(acme, { autoLogin: true, loggedInMarker: "Log out" });
+    await noLogin();
+    expect(await checkStock(deps(), id)).toMatchObject({ kind: "checked", answer: "in_stock" });
+    const body = requests("/capture")[0]?.body as Record<string, unknown>;
+    expect(body.state).toEqual({ cookies: [], origins: [] });
+    expect(body.loginUrl).toBeUndefined();
+    expect(body.loggedInMarker).toBeUndefined();
+    expect(requests("/login")).toHaveLength(0);
+    expect(await createSupplierSessionRepository(t.appDb).getSealed(acme)).toBeNull();
+  });
+
+  it("never keeps a session the browser sent back", async () => {
+    const id = await link("v1");
+    await turnOn();
+    await noLogin();
+    fake.behaviour.refreshed = state;
+    await checkStock(deps(), id);
+    expect(await createSupplierSessionRepository(t.appDb).getSealed(acme)).toBeNull();
+  });
+
+  it("answers from the built-in data", async () => {
+    const id = await link("v1");
+    await turnOn(builtIn);
+    await noLogin();
+    fake.behaviour.description = { ...inStock, offers: [offer("https://schema.org/OutOfStock")] };
+    await checkStock(deps(), id);
+    expect(await latest(id)).toMatchObject({ answer: "out_of_stock", matchedText: "Built-in data: OutOfStock" });
+  });
+
+  it("uses the link's supplier option when the page lists several options", async () => {
+    const id = await link("v1");
+    await maps().update(id, { supplierOption: "1 L" });
+    await turnOn(builtIn);
+    await noLogin();
+    fake.behaviour.description = { ...inStock, offers: [offer("InStock", "500 ml"), offer("OutOfStock", "1 L")] };
+    await checkStock(deps(), id);
+    expect(await latest(id)).toMatchObject({ answer: "out_of_stock" });
+  });
+
+  it("still stops the run at a login wall", async () => {
+    await link("v1");
+    await link("v2");
+    await turnOn();
+    await noLogin();
+    fake.behaviour.page = { ...normal, result: "login_required" };
+    expect(await runAll()).toMatchObject({ kind: "done", stopped: "login_required", checked: 1 });
+  });
+});
