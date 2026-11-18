@@ -5,9 +5,16 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
+const probe = fileURLToPath(new URL("./login-probe.ts", import.meta.url));
+const run = (env: Record<string, string>) => JSON.parse(execFileSync("node", ["--import", "tsx", probe], { encoding: "utf8", timeout: 90_000, env: { ...process.env, ...env } }).trim().split("\n").pop() as string);
+
 describe("runLogin under tsx", () => {
+  // Stealth runs the page scripts in an isolated world, where the page shim does not reach: the login read an empty page.
+  it("finds the boxes and logs in when the page is driven through Patchright", () => {
+    expect(run({ PROBE_STEALTH: "1" })).toMatchObject({ result: "ok", why: [], posts: ["true/true"] });
+  }, 120_000);
+
   it("finds the boxes, logs in with one request, and reports ok", () => {
-    const probe = fileURLToPath(new URL("./login-probe.ts", import.meta.url));
     const out = execFileSync("node", ["--import", "tsx", probe], { encoding: "utf8", timeout: 90_000 });
     const seen = JSON.parse(out.trim().split("\n").pop() as string);
     expect(seen).toMatchObject({ result: "ok", why: [], posts: ["true/true"] });
