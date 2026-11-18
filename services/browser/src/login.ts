@@ -494,12 +494,22 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
   // 1. The login page. Its scripts have named inner functions, and the container's tsx wraps those in a helper the page does not
   // have: without the shim every page read fails, and a read that swallows its errors sees a page with no boxes at all.
   await page.addInitScript(NAME_SHIM).catch(() => {});
-  try {
-    status = (await page.goto(request.loginUrl, { timeout: 20_000, waitUntil: "load" }))?.status() ?? null;
-  } catch {
+  // A supplier's server can answer with an error for a moment: the page is asked for once more, after a short pause. A 429 is
+  // not retried (that is the supplier asking us to slow down).
+  for (let attempt = 0; attempt < 2; attempt++) {
+    status = null;
+    try {
+      status = (await page.goto(request.loginUrl, { timeout: 20_000, waitUntil: "load" }))?.status() ?? null;
+    } catch {
+      // no answer at all
+    }
+    if (status !== null && status < 500) break;
+    if (attempt === 0 && !expired()) await page.waitForTimeout(3000);
+  }
+  if (status === null || status >= 500 || status === 429) {
+    onWhy?.(`login_page_status=${status ?? "none"}`);
     return "unreachable";
   }
-  if (status === 429) return "unreachable";
   // goto already waited for "load", but a script can still be building the page: look again only once it settles. A page with too
   // little text is never ok, so a half-loaded page cannot pass for a logged-in one; the box wait below covers the rest.
   await page.waitForLoadState("load", { timeout: 5000 }).catch(() => {});

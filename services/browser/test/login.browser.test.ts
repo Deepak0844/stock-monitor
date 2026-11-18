@@ -63,6 +63,8 @@ const AFTER: Record<string, string | null> = {
   modal: null,
   modalx: null,
   promoicon: null,
+  flaky: null,
+  down: null,
   check: null,
   postcode: null,
   push: page("<p>We sent a notification. Approve the sign-in on your phone.</p>"),
@@ -142,7 +144,11 @@ function startSite(): Promise<Server> {
     if (step === "track") return html(page("tracked"));
     if (step !== "login" && step !== "inner" && step !== "form" && step !== "app") return html(page("not here"), 404);
     if (kase === "one" && loggedIn(req)) return res.writeHead(302, { location: "/account" }).end();
+    if (kase === "down") return html(page("<p>Down.</p>"), 503);
+    if (kase === "flaky" && (events["flaky/hit"] = (events["flaky/hit"] ?? 0) + 1) === 1) return html(page("<p>Try again.</p>"), 503);
     switch (kase) {
+      case "flaky":
+        return html(page(form("/flaky/login", userAndPassword)));
       case "slow":
         return html(page(form("/slow/login", userAndPassword, `onsubmit="event.preventDefault();document.getElementById('t').src='/slow/track';setTimeout(()=>this.submit(),200)"`) + '<iframe id="t" width="1" height="1"></iframe>'));
       case "one": case "slower": case "push": case "locked": case "question": case "puzzle": case "code": case "stay": case "promo": case "busy": case "public":
@@ -372,6 +378,17 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     const out = await checker((line) => lines.push(line)).login(ask("promoicon"));
     expect(out.result, `the log said: ${lines.join(" | ")}`).toBe("ok");
     expect(posts.promoicon.length).toBe(1);
+  });
+  it("a login page that answers 503 once is asked for again, and the login goes through", async () => {
+    posts.flaky = [];
+    const lines: string[] = [];
+    const out = await checker((line) => lines.push(line)).login(ask("flaky"));
+    expect(out.result, `the log said: ${lines.join(" | ")}`).toBe("ok");
+    expect(posts.flaky.length).toBe(1);
+  });
+  it("a login page that keeps answering 503 is unreachable, and the log says the status", async () => {
+    const out = await checker().login(ask("down"));
+    expect(out).toMatchObject({ result: "unreachable", why: "login_page_status=503" });
   });
   it("modal by auto rule", async () => {
     expect((await checker().login(ask("modal"))).result).toBe("ok");
