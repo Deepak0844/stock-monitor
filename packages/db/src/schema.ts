@@ -287,6 +287,8 @@ export const notifications = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     readAt: timestamp("read_at", { withTimezone: true }),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    /** When the login alert email went out. Set before sending (a claim) and cleared again if the send fails. */
+    emailedAt: timestamp("emailed_at", { withTimezone: true }),
   },
   (t) => [
     check("notifications_kind", sql`${t.kind} in ('supplier_needs_reconnect', 'recipe_needs_review', 'proposal_needs_attention')`),

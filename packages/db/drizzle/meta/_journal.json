@@ -134,6 +134,13 @@
       "when": 1795024002726,
       "tag": "0018_keep_alive",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1795026595786,
+      "tag": "0019_alert_emails",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { startTestDb, type TestDb } from "./harness.js";
 import { createNotificationRepository, type NotificationReason } from "../src/notification-repository.js";
 import { createSupplierRepository } from "../src/supplier-repository.js";
@@ -131,5 +132,55 @@ describe("marking all as read", () => {
     expect((await notes().listOpen())[0]?.readAt).not.toBeNull();
     await notes().resolve("supplier_needs_reconnect", a);
     expect(await notes().markAllRead()).toBe(0);
+  });
+});
+
+describe("login alert emails", () => {
+  const emailedAt = async (id: string) => (await t.pool.query("select emailed_at from notifications where id = $1", [id])).rows[0].emailed_at as Date | null;
+
+  it("lists only open login notices that were not emailed, oldest first", async () => {
+    await raise(a);
+    await raise(b, "Globex needs you to log in again.");
+    await notes().raise({ kind: "recipe_needs_review", supplierId: a, message: "Acme's pages changed.", reason: "page_changed" });
+    const listed = await notes().unemailedLogin(10);
+    expect(listed.map((n) => n.supplierId)).toEqual([a, b]);
+    expect(listed[0]).toMatchObject({ supplierName: "Acme", message: "Acme needs you to log in again." });
+    await notes().resolve("supplier_needs_reconnect", b);
+    expect((await notes().unemailedLogin(10)).map((n) => n.supplierId)).toEqual([a]);
+    expect(await notes().unemailedLogin(0)).toEqual([]);
+  });
+
+  it("claims a notice once, never a closed one, and lists it again when released", async () => {
+    await raise(a);
+    const [n] = await notes().unemailedLogin(10);
+    expect(await notes().claimEmail(n!.id)).toBe(true);
+    expect(await notes().claimEmail(n!.id)).toBe(false);
+    expect(await notes().unemailedLogin(10)).toEqual([]);
+    await notes().releaseEmail(n!.id);
+    expect((await notes().unemailedLogin(10)).map((x) => x.id)).toEqual([n!.id]);
+    await notes().resolve("supplier_needs_reconnect", a);
+    expect(await notes().claimEmail(n!.id)).toBe(false);
+  });
+
+  it("keeps the email mark when the open notice is raised again with a new reason", async () => {
+    await raise(a);
+    const [n] = await notes().unemailedLogin(10);
+    await notes().claimEmail(n!.id);
+    await raise(a, "Acme is asking you to solve a puzzle.", "captcha");
+    expect(await emailedAt(n!.id)).not.toBeNull();
+    expect(await notes().unemailedLogin(10)).toEqual([]);
+  });
+
+  it("marks notices open when migration 0019 runs as emailed, so old ones are never sent", async () => {
+    await raise(a);
+    await raise(b);
+    await notes().resolve("supplier_needs_reconnect", b);
+    await t.pool.query("update notifications set emailed_at = null");
+    const sql = readFileSync(new URL("../drizzle/0019_alert_emails.sql", import.meta.url), "utf8");
+    const backfill = sql.split("--> statement-breakpoint").map((x) => x.trim()).find((x) => /^update/im.test(x));
+    await t.pool.query(backfill!);
+    expect(await notes().unemailedLogin(10)).toEqual([]);
+    const resolved = (await t.pool.query("select emailed_at from notifications where supplier_id = $1", [b])).rows[0].emailed_at;
+    expect(resolved).toBeNull();
   });
 });
