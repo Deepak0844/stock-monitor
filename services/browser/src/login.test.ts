@@ -3,6 +3,7 @@ import { decideAfterSubmit, type AfterSubmitFacts } from "./login.js";
 
 const none: AfterSubmitFacts = {
   challengeVisible: false,
+  captchaFrameText: false,
   codeFieldVisible: false,
   secondCheckText: false,
   lockedText: false,
@@ -14,6 +15,12 @@ const none: AfterSubmitFacts = {
 describe("decideAfterSubmit", () => {
   it("a visible puzzle is a captcha", () => {
     expect(decideAfterSubmit({ ...none, challengeVisible: true })).toBe("captcha");
+  });
+  it("a captcha frame that loaded a challenge, on a page that is not ok, is a captcha, not a code", () => {
+    expect(decideAfterSubmit({ ...none, captchaFrameText: true, pageClass: "login_required", passwordFieldVisible: true, onLoginPage: true })).toBe("captcha");
+  });
+  it("a captcha frame's text on a logged-in page changes nothing", () => {
+    expect(decideAfterSubmit({ ...none, captchaFrameText: true })).toBe("ok");
   });
   it("a puzzle wins over a code field", () => {
     expect(decideAfterSubmit({ ...none, challengeVisible: true, codeFieldVisible: true })).toBe("captcha");

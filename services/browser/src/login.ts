@@ -11,6 +11,8 @@ export type LoginRequest = { loginUrl: string; checkUrl: string; username: strin
 export type LoginOutcome = { result: LoginResult; state?: SessionState; why?: string };
 export type AfterSubmitFacts = {
   challengeVisible: boolean;
+  /** A captcha provider's frame says a second-check word ("Verify"): it has loaded a challenge, shown or not yet. */
+  captchaFrameText: boolean;
   codeFieldVisible: boolean;
   secondCheckText: boolean;
   lockedText: boolean;
@@ -50,6 +52,7 @@ export const NOT_CODE_WORDS = /post|zip|promo|voucher|discount|coupon|gift/i;
 export function decideAfterSubmit(f: AfterSubmitFacts): LoginResult {
   const notOk = f.pageClass !== "ok";
   if (f.challengeVisible) return "captcha";
+  if (notOk && f.captchaFrameText) return "captcha";
   if (notOk && (f.codeFieldVisible || f.secondCheckText)) return "code_required";
   if (notOk && f.lockedText) return "account_locked";
   if (f.passwordFieldVisible && f.onLoginPage) return "wrong_password";
@@ -241,6 +244,26 @@ async function firstVisible(page: Page, selector: string): Promise<Locator | nul
 async function codeFieldVisible(page: Page, overrides: LoginSelectors): Promise<boolean> {
   for (const frame of page.frames()) if ((await inputsOf(frame, overrides)).some((i) => i.visible && i.code)) return true;
   return false;
+}
+
+/** Captcha providers' frames, by address: the same providers as CHALLENGE_WIDGET. The name is what the log says. */
+const CAPTCHA_FRAMES: [string, RegExp][] = [["hcaptcha", /hcaptcha\.com\/captcha/], ["recaptcha", /recaptcha\/api2/], ["turnstile", /challenges\.cloudflare\.com/]];
+type FrameText = { text: string; captcha?: string; shown: boolean };
+/** Every frame's text, its captcha provider if it is one, and whether anyone can see it (the main page always). */
+async function frameTexts(page: Page): Promise<FrameText[]> {
+  return Promise.all(
+    page.frames().map(async (fr) => {
+      const text = await fr.evaluate(() => document.body?.innerText ?? "").catch(() => "");
+      const el = fr === page.mainFrame() ? null : await fr.frameElement().catch(() => null);
+      // Same size rule as a challenge widget: a 1 px or hidden frame (tracking, a preloaded widget) is seen by no one.
+      const shown = !el || (await el.evaluate((e: Element) => {
+        const box = e.getBoundingClientRect();
+        const style = getComputedStyle(e);
+        return box.width >= 50 && box.height >= 30 && style.visibility !== "hidden" && style.display !== "none" && Number(style.opacity) > 0.1;
+      }).catch(() => false));
+      return { text, captcha: CAPTCHA_FRAMES.find(([, at]) => at.test(fr.url()))?.[0], shown };
+    }),
+  );
 }
 
 async function challengeVisible(page: Page): Promise<boolean> {
@@ -655,13 +678,16 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
     }
 
     // 4. What the page says now. A wrong password only once the page has settled, read again: it pauses automatic login.
+    let frames: FrameText[] = [];
     const facts = async (): Promise<AfterSubmitFacts> => {
-      const text = (await Promise.all(page.frames().map((fr) => fr.evaluate(() => document.body?.innerText ?? "").catch(() => "")))).join("\n");
+      frames = await frameTexts(page);
       return {
         challengeVisible: await challengeVisible(page),
+        captchaFrameText: frames.some((f) => f.captcha && SECOND_CHECK.test(f.text)),
         codeFieldVisible: await codeFieldVisible(page, selectors),
-        secondCheckText: SECOND_CHECK.test(text),
-        lockedText: LOCKED.test(text),
+        // A captcha's own "Verify" is no code, and a frame no one can see asks the owner nothing.
+        secondCheckText: frames.some((f) => f.shown && !f.captcha && SECOND_CHECK.test(f.text)),
+        lockedText: LOCKED.test(frames.map((f) => f.text).join("\n")),
         passwordFieldVisible: !!(await firstVisible(page, 'input[type="password"]')),
         onLoginPage: onLoginPage(page.url(), request.loginUrl),
         pageClass: await classifyHere(request.loginUrl),
@@ -675,11 +701,12 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
       decided = decideAfterSubmit(seen);
     }
     if (decided === "unknown") return unclear(`unclear_after_submit page=${seen.pageClass}`);
+    if (decided === "captcha" && !seen.challengeVisible) onWhy?.(`after_submit captcha_frame=${frames.find((f) => f.captcha && SECOND_CHECK.test(f.text))?.captcha}`);
     if (decided === "code_required") {
-      // Which rule said so, from our own fixed word list only: a code-like box, or one of the second-check words on the page.
-      const texts = await Promise.all(page.frames().map((fr) => fr.evaluate(() => document.body?.innerText ?? "").catch(() => "")));
-      const word = SECOND_CHECK_WORDS.find((w) => texts.some((t) => within([w]).test(t))) ?? "none";
-      const inMain = texts[0] !== undefined && within(SECOND_CHECK_WORDS).test(texts[0]);
+      // Which rule said so, from our own fixed word list only: a code-like box, or one of the second-check words in a frame that counts.
+      const counted = frames.filter((f) => f.shown && !f.captcha);
+      const word = SECOND_CHECK_WORDS.find((w) => counted.some((f) => within([w]).test(f.text))) ?? "none";
+      const inMain = frames[0] !== undefined && within(SECOND_CHECK_WORDS).test(frames[0].text);
       onWhy?.(`after_submit code_box=${seen.codeFieldVisible} word=${word} in=${word === "none" ? "none" : inMain ? "main" : "other_frame"} class=${seen.pageClass} loginpage=${seen.onLoginPage} password=${seen.passwordFieldVisible}`);
     }
     if (decided !== "ok") return decided;
