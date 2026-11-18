@@ -42,16 +42,27 @@ const parse = (address: string, base?: string): URL | null => {
     return null;
   }
 };
-const path = (url: URL) => url.pathname.replace(/\/+$/, "");
+// The product's own part of the address: "/collections/tees/products/w/" and "/products/w" are the same product.
+const product = (url: URL) => url.pathname.replace(/\/+$/, "").split("/").pop() ?? "";
 
 export type Picked = { answer: Answer; offer: Offer } | { unclear: "variant_unclear" | "built_in_unclear" };
 
 /**
- * The answer the built-in data gives for this link, or null when the page has no offers. One offer, or offers that all say
+ * The answer the built-in data gives for this link, or null when the page has no offers for it (offers whose address is
+ * another product are left out). One offer, or offers that all say
  * the same, answer at once. Otherwise the offer must be found: by the `variant` value in the link's address, else by the
  * option the owner set on the link (the supplier's SKU or option name). Never a guess: no single match is "variant_unclear".
  */
-export function pickOffer(offers: Offer[], link: LinkRef, waiting: Waiting): Picked | null {
+export function pickOffer(allOffers: Offer[], link: LinkRef, waiting: Waiting): Picked | null {
+  const linkUrl = link.url ? parse(link.url) : null;
+  // Offers whose address is another product (a listing, related products) never answer for this link.
+  const offers = linkUrl
+    ? allOffers.filter((o) => {
+        if (o.url === null) return true;
+        const u = parse(o.url, linkUrl.href);
+        return u !== null && product(u) === product(linkUrl);
+      })
+    : allOffers;
   if (offers.length === 0) return null;
   const answers = offers.map((o) => availabilityAnswer(o.availability, waiting));
   const first = answers[0] ?? null;
@@ -64,12 +75,11 @@ export function pickOffer(offers: Offer[], link: LinkRef, waiting: Waiting): Pic
     return answer === null ? { unclear: "built_in_unclear" } : { answer, offer };
   };
 
-  const linkUrl = link.url ? parse(link.url) : null;
   const variant = linkUrl?.searchParams.get("variant");
   if (linkUrl && variant) {
     const hit = found((o) => {
       const u = o.url ? parse(o.url, linkUrl.href) : null;
-      return u !== null && path(u) === path(linkUrl) && u.searchParams.get("variant") === variant;
+      return u !== null && product(u) === product(linkUrl) && u.searchParams.get("variant") === variant;
     });
     if (hit) return hit;
   }

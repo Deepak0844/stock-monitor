@@ -39,8 +39,8 @@ describe("pickOffer", () => {
   ];
   it("matches the link's variant value, host and trailing slash ignored", () =>
     expect(pickOffer(two, { url: "https://other.example/products/w?variant=2&x=1", option: null }, "in_stock")).toMatchObject({ answer: "out_of_stock" }));
-  it("a variant value on another product does not match", () =>
-    expect(pickOffer(two, { url: "https://supplier.example/products/other?variant=2", option: null }, "in_stock")).toEqual({ unclear: "variant_unclear" }));
+  it("offers of another product are no data for this link, even with the same variant value", () =>
+    expect(pickOffer(two, { url: "https://supplier.example/products/other?variant=2", option: null }, "in_stock")).toBeNull());
   it("matches the link's option by sku", () => expect(pickOffer(two, { url: "https://supplier.example/products/w", option: "a-1" }, "out_of_stock")).toMatchObject({ answer: "in_stock" }));
   it("matches the link's option by name", () => expect(pickOffer(two, { url: null, option: "1 l" }, "in_stock")).toMatchObject({ answer: "out_of_stock" }));
   it("no match is variant_unclear", () => expect(pickOffer(two, { url: "https://supplier.example/products/w", option: "2 L" }, "in_stock")).toEqual({ unclear: "variant_unclear" }));
@@ -53,4 +53,16 @@ describe("pickOffer", () => {
     expect(pickOffer([offer("InStock", { url: "http://[bad" }), offer("OutOfStock", { url: "/products/w?variant=2" })], { url: "https://supplier.example/products/w?variant=2", option: null }, "in_stock")).toMatchObject({
       answer: "out_of_stock",
     }));
+});
+
+describe("pickOffer: offers of other products", () => {
+  const link = { url: "https://supplier.example/products/w", option: null };
+  it("ignores an offer whose address is another product", () => expect(pickOffer([offer("OutOfStock", { url: "https://supplier.example/products/other" })], link, "in_stock")).toBeNull());
+  it("a listing whose products all agree does not answer for this link", () =>
+    expect(pickOffer([offer("OutOfStock", { url: "/products/a" }), offer("OutOfStock", { url: "/products/b" })], link, "in_stock")).toBeNull());
+  it("keeps this product's own offer beside related products", () =>
+    expect(pickOffer([offer("InStock", { url: "/products/w" }), offer("OutOfStock", { url: "/products/other" })], link, "out_of_stock")).toMatchObject({ answer: "in_stock" }));
+  it("a link through a collection path is the same product", () =>
+    expect(pickOffer([offer("InStock", { url: "/products/w?variant=1" }), offer("OutOfStock", { url: "/products/w?variant=2" })], { url: "https://supplier.example/collections/tees/products/w?variant=2", option: null }, "in_stock")).toMatchObject({ answer: "out_of_stock" }));
+  it("offers without an address still count", () => expect(pickOffer([offer("InStock")], link, "out_of_stock")).toMatchObject({ answer: "in_stock" }));
 });
