@@ -70,7 +70,7 @@ const events = async (action: string) => (await t.pool.query("select details fro
 describe("every mapping route needs a signed-in owner", () => {
   const routes: [string, string][] = [
     ["GET", "/api/mappings"], ["POST", "/api/mappings"], ["GET", "/api/mappings/x"], ["PATCH", "/api/mappings/x"],
-    ["DELETE", "/api/mappings/x"], ["GET", "/api/variants?mapped=false"], ["PATCH", "/api/suppliers/x/permission"],
+    ["DELETE", "/api/mappings/x"], ["GET", "/api/variants?mapped=false"], ["GET", "/api/variants/unmapped.csv"], ["PATCH", "/api/suppliers/x/permission"],
   ];
   it.each(routes)("%s %s returns 401 without a session", async (method, url) => {
     expect((await call(method as "GET", url, undefined, false)).status).toBe(401);
@@ -192,6 +192,19 @@ describe("list filters are checked", () => {
 });
 
 describe("unmapped variants", () => {
+  it("downloads every variant with no link as a CSV file, narrowed by the search", async () => {
+    await create();
+    await addVariant("v3", null);
+    const res = await app().inject({ method: "GET", url: "/api/variants/unmapped.csv", cookies: { sid } });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/^text\/csv/);
+    expect(res.headers["content-disposition"]).toBe('attachment; filename="variants-with-no-link.csv"');
+    expect(res.body).toBe("\uFEFFProduct,Variant,SKU,Variant ID\r\nTee,Variant v2,S2,v2\r\nTee,Variant v3,,v3\r\n");
+    const narrowed = await app().inject({ method: "GET", url: "/api/variants/unmapped.csv?search=S2", cookies: { sid } });
+    expect(narrowed.body).toBe("\uFEFFProduct,Variant,SKU,Variant ID\r\nTee,Variant v2,S2,v2\r\n");
+    expect((await call("GET", "/api/variants/unmapped.csv?search=a&search=b")).status).toBe(400);
+  });
+
   it("counts and lists variants with no link", async () => {
     await create();
     const r = await call("GET", "/api/variants?mapped=false");

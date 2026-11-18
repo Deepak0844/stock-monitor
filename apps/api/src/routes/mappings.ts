@@ -5,7 +5,7 @@ import type { createAuditWriter } from "@stock-monitor/audit";
 import type { createCheckRunRepository, createImportPreviewRepository, createMappingRepository, createObservationRepository, createProposalRepository, ObservationRecord, createSupplierRepository, createSupplierSessionRepository, MappingRow } from "@stock-monitor/db";
 import type { Queue } from "@stock-monitor/queue";
 import { runExpirySeconds } from "@stock-monitor/scheduling";
-import { isUnavailableCandidate, sameSite, whyNotChecked } from "@stock-monitor/mapping";
+import { isUnavailableCandidate, sameSite, toCsv, whyNotChecked } from "@stock-monitor/mapping";
 import { validateSupplierUrl, verifyPublicHost, type HostLookup } from "@stock-monitor/supplier-session";
 import { AppError } from "../errors.js";
 import { registerMappingImportRoutes } from "./mapping-import.js";
@@ -175,6 +175,19 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
     const search = z.string().trim().max(100).optional().safeParse((request.query as { search?: unknown }).search);
     if (!search.success) throw new AppError(400, "invalid_input", "Check the search and try again.");
     return mappings.unmappedVariants({ search: search.data || undefined });
+  });
+
+  app.get("/api/variants/unmapped.csv", async (request, reply) => {
+    const search = z.string().trim().max(100).optional().safeParse((request.query as { search?: unknown }).search);
+    if (!search.success) throw new AppError(400, "invalid_input", "Check the search and try again.");
+    // shortcut: every row in one response, fine for a shop's few thousand variants; stream if it ever reaches hundreds of thousands
+    const { items } = await mappings.unmappedVariants({ search: search.data || undefined, limit: 100_000 });
+    const csv = toCsv([["Product", "Variant", "SKU", "Variant ID"], ...items.map((v) => [v.productTitle, v.variantTitle, v.sku ?? "", v.variantId])]);
+    return reply
+      .header("content-type", "text/csv; charset=utf-8")
+      .header("content-disposition", 'attachment; filename="variants-with-no-link.csv"')
+      .header("cache-control", "private, no-store")
+      .send(csv);
   });
 
   app.patch<{ Params: { id: string } }>("/api/suppliers/:id/permission", async (request) => {

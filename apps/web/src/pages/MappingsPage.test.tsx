@@ -298,6 +298,16 @@ describe("variants with no link", () => {
     await waitFor(() => expect(unmapped).toHaveBeenLastCalledWith("green"));
   });
 
+  it("downloads them as a CSV file, narrowed by the search", async () => {
+    const unmapped = vi.fn().mockResolvedValue({ total: 340, unmapped: 212, items: [] });
+    const { user } = setup([blue], { mappings: { unmapped } });
+    const download = await screen.findByRole("link", { name: "Download CSV" });
+    expect(download).toHaveAttribute("href", "/api/variants/unmapped.csv");
+    expect(download).toHaveAttribute("download");
+    await user.type(screen.getByLabelText("Search variants with no link"), "green tee");
+    await waitFor(() => expect(screen.getByRole("link", { name: "Download CSV" })).toHaveAttribute("href", "/api/variants/unmapped.csv?search=green+tee"));
+  });
+
   it("reads them again after a link is deleted, but not when only the page of links changes", async () => {
     const many = Array.from({ length: 12 }, (_, i) => aMapping({ id: `00000000-0000-4000-8000-0000000000${String(i).padStart(2, "0")}`, variantId: `v${i}`, productTitle: `Tee ${i}`, variantTitle: "Large" }));
     const unmapped = vi.fn().mockResolvedValue({ total: 20, unmapped: 8, items: [] });

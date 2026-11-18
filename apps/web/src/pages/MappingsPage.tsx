@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { History, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
+import { Download, History, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import { isStale } from "@stock-monitor/scheduling";
 import { Badge } from "@/components/ui/badge.js";
 import { Button } from "@/components/ui/button.js";
@@ -477,9 +477,17 @@ export function MappingsPage({ api }: { api: Api }) {
             <p className="text-sm text-muted-foreground">Every variant has a link.</p>
           ) : (
             <>
-              <p className="mb-3 text-sm">
-                {unmapped.unmapped} of {unmapped.total} variants are not mapped
-              </p>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm">
+                  {unmapped.unmapped} of {unmapped.total} variants are not mapped
+                </p>
+                <Button variant="outline" size="sm" asChild>
+                  <a href={`/api/variants/unmapped.csv${vq ? `?${new URLSearchParams({ search: vq })}` : ""}`} download>
+                    <Download aria-hidden="true" />
+                    Download CSV
+                  </a>
+                </Button>
+              </div>
               <Input id="variant-search" type="search" aria-label="Search variants with no link" placeholder="Search variants with no link" autoComplete="off" className="mb-3 max-w-md" value={variantSearch} onChange={(e) => setVariantSearch(e.target.value)} />
               <ul className="flex flex-col">
                 {unmapped.items.slice(0, SHOW_UNMAPPED).map((v) => (

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseCsv } from "./csv.js";
+import { parseCsv, toCsv } from "./csv.js";
 
 const parse = (text: string) => {
   const r = parseCsv(text);
@@ -44,5 +44,18 @@ describe("parseCsv", () => {
 
   it("skips blank lines", () => {
     expect(parse("a\n\n1\n\n").rows).toEqual([["1"]]);
+  });
+});
+
+describe("toCsv", () => {
+  it("writes cells that read back the same, with a byte order mark for Excel", () => {
+    const rows = [["Product", "SKU"], ["Tee, blue", 'say "hi"'], ["two\nlines", ""]];
+    const text = toCsv(rows);
+    expect(text.startsWith("\uFEFF")).toBe(true);
+    expect(parse(text)).toMatchObject({ header: rows[0], rows: rows.slice(1).filter((r) => r.some(Boolean)) });
+  });
+
+  it("stops a spreadsheet reading a cell as a formula", () => {
+    expect(parse(toCsv([["a"], ["=HYPERLINK(1)"], ["+1"], ["@x"], ["-5"]])).rows).toEqual([["'=HYPERLINK(1)"], ["'+1"], ["'@x"], ["-5"]]);
   });
 });
