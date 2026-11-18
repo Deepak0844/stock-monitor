@@ -68,7 +68,7 @@ This is how you give the app access to a supplier's website, so it can check sto
 1. Open **Suppliers**, then **Add supplier**. Give it a name, its website address (starting with `https://`), and, if its login page is somewhere else, the login address. The app refuses addresses that are not plain public websites.
 2. Press **Connect** on that supplier. After a few seconds a window appears in your page. It is the supplier's real website, running in a locked-down browser on the server.
 3. **Log in as you normally would.** Solve any puzzle (CAPTCHA) or code, and complete any text-message or app check. Click inside the window to type into it.
-4. If you want to paste a password from your password manager, put it in **Paste text**, press **Send to the window**, click the field in the window, then press **Ctrl+V**. The box is cleared after sending.
+4. Ctrl+V (⌘V on a Mac) in the window pastes what you copied on your computer, and text you copy in the window lands on your computer's clipboard. If your browser blocks pasting, put the text in **Paste text**, press **Send to the window**, click the field in the window, then press **Ctrl+V**. The box is cleared after sending.
 5. When you can see you are logged in, press **I'm logged in**. The window closes and the supplier shows **Connected**.
 
 You have 15 minutes. The clock is shown. If time runs out, or you press **Cancel**, or you leave the page, the window is closed and **nothing is saved**.

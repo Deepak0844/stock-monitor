@@ -41,7 +41,7 @@ The supplier's terms decide whether automatic checks are allowed. This is your c
    - **Login address:** only if the login page is somewhere else.
    - Save.
 2. On the supplier's row press **Connect**. A live window opens, showing the supplier's real site.
-3. Log in yourself, as you normally would. Solve any puzzle or code. Click inside the window to type. To paste a password, use **Paste text**, then **Send to the window**, click the field, press Ctrl+V.
+3. Log in yourself, as you normally would. Solve any puzzle or code. Click inside the window to type. Ctrl+V (⌘V on a Mac) in the window pastes what you copied on your computer, and copying in the window copies to your computer. If your browser blocks that, use **Paste text**, then **Send to the window**, click the field, press Ctrl+V. On a phone, press **Keyboard** to type.
 4. When you see you are logged in, press **I'm logged in**. You have 15 minutes. Cancel or timeout saves nothing.
 5. The supplier must show **Connected** after a few seconds. Press **Check connection** to confirm.
    - **Blocked:** the supplier's bot protection refused the automatic check. The app will not retry it. Options: ask the supplier for a feed, or leave it paused.

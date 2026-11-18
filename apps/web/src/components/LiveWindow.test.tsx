@@ -44,6 +44,7 @@ class FakeRfb extends EventTarget {
   scaleViewport = false;
   disconnected = false;
   pasted: string[] = [];
+  keys: [number, boolean | undefined][] = [];
   constructor(readonly target: HTMLElement, readonly socket: FakeSocket, readonly options: { credentials?: { password: string } }) {
     super();
     FakeRfb.all.push(this);
@@ -54,6 +55,9 @@ class FakeRfb extends EventTarget {
   focus() {}
   clipboardPasteFrom(text: string) {
     this.pasted.push(text);
+  }
+  sendKey(keysym: number, _code: string | null, down?: boolean) {
+    this.keys.push([keysym, down]);
   }
   fire(type: string, detail: unknown = {}) {
     this.dispatchEvent(new CustomEvent(type, { detail }));
@@ -243,6 +247,122 @@ describe("pasting text", () => {
     setup();
     await flush();
     expect(screen.queryByLabelText("Paste text")).toBeNull();
+  });
+});
+
+describe("copy and paste with the keyboard", () => {
+  const CTRL = 0xffe3;
+  const V = 0x76;
+  async function live() {
+    setup();
+    await connectToReady();
+    act(() => FakeRfb.all[0]!.fire("connect"));
+    return { rfb: FakeRfb.all[0]!, box: screen.getByRole("group", { name: /live login window/i }) };
+  }
+  function clipboard(api: Partial<Clipboard>) {
+    Object.defineProperty(navigator, "clipboard", { value: api, configurable: true });
+  }
+  const key = (el: HTMLElement, init: KeyboardEventInit) => el.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }));
+
+  it("Ctrl+V puts this computer's clipboard into the window, then presses Ctrl+V there, and noVNC never sees the key", async () => {
+    clipboard({ readText: async () => "from-my-pc" });
+    const { rfb, box } = await live();
+    const seen = vi.fn();
+    box.addEventListener("keydown", seen);
+    key(box, { code: "KeyV", key: "v", ctrlKey: true });
+    await flush();
+    expect(seen).not.toHaveBeenCalled();
+    expect(rfb.pasted).toEqual(["from-my-pc"]);
+    expect(rfb.keys).toEqual([[CTRL, true], [V, undefined]]); // the held Ctrl is released by its own key-up
+  });
+
+  it("still presses Ctrl+V, and says to use the box, when the browser will not give the clipboard", async () => {
+    clipboard({ readText: () => Promise.reject(new Error("denied")) });
+    const { rfb, box } = await live();
+    key(box, { code: "KeyV", key: "v", ctrlKey: true });
+    await flush();
+    expect(rfb.pasted).toEqual([]);
+    expect(rfb.keys).toEqual([[CTRL, true], [V, undefined]]);
+    expect(screen.getByRole("status")).toHaveTextContent(/Paste text box/);
+  });
+
+  it("turns Cmd+C into Ctrl+C, letting go of the Alt and Super that noVNC sent for Cmd", async () => {
+    const { rfb, box } = await live();
+    key(box, { code: "KeyC", key: "c", metaKey: true });
+    expect(rfb.keys).toEqual([[0xffe9, false], [0xffeb, false], [CTRL, true], [0x63, undefined], [CTRL, false]]);
+  });
+
+  it("leaves other keys, and Ctrl+C, to noVNC", async () => {
+    const { rfb, box } = await live();
+    key(box, { code: "KeyC", key: "c", ctrlKey: true });
+    key(box, { code: "KeyA", key: "A", shiftKey: true });
+    expect(rfb.keys).toEqual([]);
+  });
+
+  it("lets go of Shift, Ctrl, Alt and Super in the window when it loses focus, so none stays held", async () => {
+    const { rfb, box } = await live();
+    box.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    expect(rfb.keys).toHaveLength(8);
+    expect(rfb.keys.every(([, down]) => down === false)).toBe(true);
+    expect(rfb.keys.map(([k]) => k)).toContain(0xffe1);
+  });
+
+  it("puts text copied in the window on this computer's clipboard", async () => {
+    const writeText = vi.fn(async () => {});
+    clipboard({ writeText });
+    const { rfb } = await live();
+    act(() => rfb.fire("clipboard", { text: "order-123" }));
+    await flush();
+    expect(writeText).toHaveBeenCalledWith("order-123");
+    expect(screen.getByRole("status")).toHaveTextContent(/Copied from the window/);
+  });
+
+  it("offers a button when the browser will not copy by itself", async () => {
+    const writeText = vi.fn().mockRejectedValueOnce(new Error("no gesture")).mockResolvedValue(undefined);
+    const user = userEvent.setup(); // installs its own clipboard, so ours goes on after it
+    clipboard({ writeText });
+    const { rfb } = await live();
+    act(() => rfb.fire("clipboard", { text: "order-123" }));
+    await flush();
+    await user.click(screen.getByRole("button", { name: "Copy it to this computer" }));
+    expect(writeText).toHaveBeenLastCalledWith("order-123");
+    expect(screen.queryByRole("button", { name: "Copy it to this computer" })).toBeNull();
+  });
+});
+
+describe("the phone keyboard", () => {
+  async function live() {
+    const user = userEvent.setup();
+    setup();
+    await connectToReady();
+    act(() => FakeRfb.all[0]!.fire("connect"));
+    return { user, rfb: FakeRfb.all[0]!, input: screen.getByLabelText("Type into the window") };
+  }
+
+  it("the Keyboard button focuses a text box, so a phone opens its keyboard", async () => {
+    const { user, input } = await live();
+    await user.click(screen.getByRole("button", { name: "Keyboard" }));
+    expect(input).toHaveFocus();
+    expect(input).toHaveAttribute("autocapitalize", "off");
+  });
+
+  it("sends each typed letter, Enter, and Backspace on an empty box", async () => {
+    const { user, rfb, input } = await live();
+    await user.click(input);
+    await user.keyboard("aB{Enter}{Backspace}");
+    expect(rfb.keys).toEqual([[0x61, undefined], [0x42, undefined], [0xff0d, undefined], [0xff08, undefined]]);
+  });
+
+  it("sends a word suggestion that replaces letters as backspaces and the new letters", async () => {
+    const { rfb, input } = await live();
+    const set = (v: string) => {
+      (input as HTMLInputElement).value = v;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    set("teh");
+    rfb.keys = [];
+    set("the ");
+    expect(rfb.keys).toEqual([[0xff08, undefined], [0xff08, undefined], [0x68, undefined], [0x65, undefined], [0x20, undefined]]);
   });
 });
 
