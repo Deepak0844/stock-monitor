@@ -180,10 +180,18 @@ export function createPlainWindowOpener({
         if (i >= 120) throw new Error("This supplier's profile is in use.");
         await new Promise((resolve) => setTimeout(resolve, 500));
       }
-      await mkdir(profile, { recursive: true });
-      await rm(join(profile, "DevToolsActivePort"), { force: true });
-      await clearStaleLocks(profile);
-      await forgetOpenTabs(profile);
+      try {
+        await mkdir(profile, { recursive: true });
+        await rm(join(profile, "DevToolsActivePort"), { force: true });
+        await clearStaleLocks(profile);
+        await forgetOpenTabs(profile);
+      } catch (error) {
+        // A profile that cannot be made ready is let go, or every later login and check would be told it is in use.
+        releaseProfile(profile);
+        tracker.stop();
+        await listener.close().catch(() => {});
+        throw error;
+      }
     } else {
       profile = await mkdtemp(join(tmpdir(), "sm-plain-"));
     }
