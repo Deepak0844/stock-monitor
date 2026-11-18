@@ -73,6 +73,10 @@ const AFTER: Record<string, string | null> = {
   question: page('<label>Your first school <input type="text" name="answer" oninput="fetch(\'/question/typed\')"></label><button>Go</button>'),
   puzzle: page('<div class="g-recaptcha" style="width:300px;height:80px;background:#eee"></div>'),
   code: page('<label>Code <input autocomplete="one-time-code" name="c"></label>'),
+  // A shop's bot guard after Sign in: still the login page, and a 1 px captcha frame that has loaded a challenge.
+  hcap: page(form("/hcap/login", userAndPassword) + '<iframe src="/hcap/frame/hcaptcha.com/captcha" width="1" height="1"></iframe>'),
+  // A wrong password, and a 1 px frame that happens to say "verify": no one can see it, so it is no second check.
+  hidverify: page(form("/hidverify/login", userAndPassword) + '<p>Wrong password, try again.</p><iframe src="/hidverify/frame" width="1" height="1"></iframe>'),
   stay: page('<h1>Stay signed in?</h1><form method="post" action="/stay/yes"><button type="submit">Yes</button></form>'),
 };
 
@@ -142,6 +146,8 @@ function startSite(): Promise<Server> {
     if (kase === "promo" && step === "home") return html(page(`<h1>Your account</h1><p>${FILLER}</p><label>Promo code <input type="text" name="promo_code"></label>`, "Account"));
     if (kase === "public" && step === "product") return html(page(`<h1>Blue widget</h1><p>${FILLER}</p>${loggedIn(req) ? '<a href="/logout">Log  out</a>' : ""}`, "Blue widget"));
     if (step === "track") return html(page("tracked"));
+    if (kase === "hcap" && step === "frame") return html(page("<p>Please verify you are human.</p><button>Verify</button>"));
+    if (kase === "hidverify" && step === "frame") return html(page("<p>Verify your email for offers.</p>"));
     if (step !== "login" && step !== "inner" && step !== "form" && step !== "app") return html(page("not here"), 404);
     if (kase === "one" && loggedIn(req)) return res.writeHead(302, { location: "/account" }).end();
     if (kase === "down") return html(page("<p>Down.</p>"), 503);
@@ -151,7 +157,7 @@ function startSite(): Promise<Server> {
         return html(page(form("/flaky/login", userAndPassword)));
       case "slow":
         return html(page(form("/slow/login", userAndPassword, `onsubmit="event.preventDefault();document.getElementById('t').src='/slow/track';setTimeout(()=>this.submit(),200)"`) + '<iframe id="t" width="1" height="1"></iframe>'));
-      case "one": case "slower": case "push": case "locked": case "question": case "puzzle": case "code": case "stay": case "promo": case "busy": case "public":
+      case "one": case "slower": case "push": case "locked": case "question": case "puzzle": case "code": case "stay": case "promo": case "busy": case "public": case "hcap": case "hidverify":
         return html(page(form(`/${kase}/login`, userAndPassword)));
       case "two": return html(page(form("/two/user", '<input type="email" name="username"><button type="submit">Next</button>').replace('<button type="submit">Sign in</button>', "")));
       // A first click that never reaches the submit button, as on a window that has just opened: a cover appears under
@@ -657,6 +663,14 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     const out = await checker().login(ask("puzzle"));
     expect(out.result).toBe("captcha");
     expect(out).not.toHaveProperty("state");
+  });
+  it("a captcha frame that loads a challenge after Sign in is a captcha, not a code, and the log names the provider", async () => {
+    const out = await checker().login(ask("hcap"));
+    expect(out.result).toBe("captcha");
+    expect(out).toMatchObject({ why: expect.stringMatching(/^after_submit captcha_frame=hcaptcha$/) });
+  });
+  it("a hidden frame that says verify is no second check: a wrong password stays a wrong password", async () => {
+    expect((await checker().login(ask("hidverify"))).result).toBe("wrong_password");
   });
   it("code", async () => {
     expect((await checker().login(ask("code"))).result).toBe("code_required");
