@@ -143,7 +143,7 @@ the worker already answers them `check_failed`.
 used for variant matching. The editor's Test button (`runExamples` in `packages/extraction/src/testing.ts`, fed by `examplesFor`
 in `apps/api/src/routes/recipes.ts`) passes each saved page's link as described below.
 
-`decide` gains a fourth input with the link, `{ url: string | null; option: string | null }`. `Example` gains the same `link`.
+`decide` gains a fourth input with the link, `{ url: string | null; option: string | null }`.
 `Example` gains the same `link`. For a saved page whose link still exists, the test uses the link's current address and option
 (so setting an option and testing again works at once). For a saved page whose link was deleted, it uses the copy stored in the
 description at capture time.
