@@ -52,6 +52,7 @@ export function AutoLoginCard({ api, supplier, onChange }: { api: Api; supplier:
     submit: supplier.loginSelectors?.submit ?? "",
   });
   const [marker, setMarker] = useState(supplier.loggedInMarker ?? "");
+  const [codeSender, setCodeSender] = useState(supplier.codeEmailFrom ?? "");
   const [savedAt, setSavedAt] = useState(supplier.credentialsSavedAt);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -131,7 +132,7 @@ export function AutoLoginCard({ api, supplier, onChange }: { api: Api; supplier:
     event.preventDefault();
     const filled = Object.fromEntries(SELECTOR_FIELDS.map(({ key }) => [key, selectors[key].trim()]).filter(([, v]) => v)) as LoginSelectors;
     void run("selectors", async () => {
-      await api.suppliers.setAutoLogin(supplier.id, { loginSelectors: Object.keys(filled).length > 0 ? filled : null, loggedInMarker: marker.trim() || null });
+      await api.suppliers.setAutoLogin(supplier.id, { loginSelectors: Object.keys(filled).length > 0 ? filled : null, loggedInMarker: marker.trim() || null, codeEmailFrom: codeSender.trim() || null });
       onChange();
       return "Page fields saved.";
     });
@@ -283,6 +284,9 @@ export function AutoLoginCard({ api, supplier, onChange }: { api: Api; supplier:
           ))}
           <Field id="auto-marker" label="Only shows when logged in" hint="Text you see only when logged in, like 'Log out' or your account name">
             <Input id="auto-marker" autoComplete="off" maxLength={200} value={marker} onChange={(e) => setMarker(e.target.value)} />
+          </Field>
+          <Field id="auto-code-sender" label="Code email sender" hint="Only if the supplier's code emails come from a different address than its website. Example: login@mail.example.com">
+            <Input id="auto-code-sender" type="text" inputMode="email" autoComplete="off" autoCapitalize="none" spellCheck={false} maxLength={254} value={codeSender} onChange={(e) => setCodeSender(e.target.value)} />
           </Field>
           <div>
             <Button type="submit" variant="outline" loading={busy === "selectors"} disabled={busy !== null}>

@@ -112,6 +112,8 @@ export type Supplier = {
   loginSelectors: LoginSelectors | null;
   /** Text that only shows when logged in. Set, a page without it counts as logged out. */
   loggedInMarker: string | null;
+  /** Where this supplier's login-code emails come from, when not its website's domain. */
+  codeEmailFrom: string | null;
   /** When a password was saved, never the password. */
   credentialsSavedAt: string | null;
   lastAutoLoginAt: string | null;
@@ -185,7 +187,7 @@ export type SuppliersApi = {
   saveCredentials(id: string, input: CredentialsInput): Promise<{ savedAt: string }>;
   removeCredentials(id: string): Promise<void>;
   /** Turns automatic login on or off, and/or sets the login page selectors (null clears them). */
-  setAutoLogin(id: string, patch: { autoLogin?: boolean; stealth?: boolean; loginSelectors?: LoginSelectors | null; loggedInMarker?: string | null }): Promise<Supplier>;
+  setAutoLogin(id: string, patch: { autoLogin?: boolean; stealth?: boolean; loginSelectors?: LoginSelectors | null; loggedInMarker?: string | null; codeEmailFrom?: string | null }): Promise<Supplier>;
   /** Asks for one test login. The answer arrives later, as the last automatic login. */
   testAutoLogin(id: string): Promise<void>;
   /** Clears the pause after a failed automatic login. */

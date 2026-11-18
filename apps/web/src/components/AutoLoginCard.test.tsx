@@ -121,7 +121,7 @@ describe("Automatic login card", () => {
     await user.type(screen.getByLabelText("Username field"), "#email");
     await user.type(screen.getByLabelText("Login button"), "button.go");
     await user.click(screen.getByRole("button", { name: "Save page fields" }));
-    expect(api.suppliers.setAutoLogin).toHaveBeenCalledWith(aSupplier().id, { loginSelectors: { username: "#email", submit: "button.go" }, loggedInMarker: null });
+    expect(api.suppliers.setAutoLogin).toHaveBeenCalledWith(aSupplier().id, { loginSelectors: { username: "#email", submit: "button.go" }, loggedInMarker: null, codeEmailFrom: null });
   });
 
   it("clears the login page fields with null when all are empty", async () => {
@@ -129,7 +129,7 @@ describe("Automatic login card", () => {
     await user.click(screen.getByText("Login page fields (advanced)"));
     await user.clear(screen.getByLabelText("Username field"));
     await user.click(screen.getByRole("button", { name: "Save page fields" }));
-    expect(api.suppliers.setAutoLogin).toHaveBeenCalledWith(aSupplier().id, { loginSelectors: null, loggedInMarker: null });
+    expect(api.suppliers.setAutoLogin).toHaveBeenCalledWith(aSupplier().id, { loginSelectors: null, loggedInMarker: null, codeEmailFrom: null });
   });
 
   it("saves the logged-in marker with the page fields, trimmed, and shows its hint", async () => {
@@ -138,18 +138,33 @@ describe("Automatic login card", () => {
     expect(screen.getByText("Text you see only when logged in, like 'Log out' or your account name")).toBeInTheDocument();
     await user.type(screen.getByLabelText("Only shows when logged in"), "  Log out ");
     await user.click(screen.getByRole("button", { name: "Save page fields" }));
-    expect(api.suppliers.setAutoLogin).toHaveBeenCalledWith(aSupplier().id, { loginSelectors: null, loggedInMarker: "Log out" });
+    expect(api.suppliers.setAutoLogin).toHaveBeenCalledWith(aSupplier().id, { loginSelectors: null, loggedInMarker: "Log out", codeEmailFrom: null });
   });
 
   it("shows a saved logged-in marker, and clears it with null when emptied", async () => {
-    const { api, user } = setup({ ...granted, loggedInMarker: "Log out" });
+    const { api, user } = setup({ ...granted, loggedInMarker: "Log out", codeEmailFrom: null });
     await user.click(screen.getByText("Login page fields (advanced)"));
     const field = screen.getByLabelText("Only shows when logged in");
     expect(field).toHaveValue("Log out");
     expect(field).toHaveAttribute("maxLength", "200");
     await user.clear(field);
     await user.click(screen.getByRole("button", { name: "Save page fields" }));
-    expect(api.suppliers.setAutoLogin).toHaveBeenCalledWith(aSupplier().id, { loginSelectors: null, loggedInMarker: null });
+    expect(api.suppliers.setAutoLogin).toHaveBeenCalledWith(aSupplier().id, { loginSelectors: null, loggedInMarker: null, codeEmailFrom: null });
+  });
+
+  it("saves the code email sender with the page fields, trimmed, and shows its hint", async () => {
+    const { api, user } = setup();
+    await user.click(screen.getByText("Login page fields (advanced)"));
+    expect(screen.getByText("Only if the supplier's code emails come from a different address than its website. Example: login@mail.example.com")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Code email sender"), " login.example.net ");
+    await user.click(screen.getByRole("button", { name: "Save page fields" }));
+    expect(api.suppliers.setAutoLogin).toHaveBeenCalledWith(aSupplier().id, { loginSelectors: null, loggedInMarker: null, codeEmailFrom: "login.example.net" });
+  });
+
+  it("shows a saved code email sender", async () => {
+    const { user } = setup({ ...granted, codeEmailFrom: "codes@example.net" });
+    await user.click(screen.getByText("Login page fields (advanced)"));
+    expect(screen.getByLabelText("Code email sender")).toHaveValue("codes@example.net");
   });
 
   it("starts a test login", async () => {
