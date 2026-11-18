@@ -105,6 +105,8 @@ export type Supplier = {
   checkPauseSeconds: number;
   /** The region label stock checks look for on this supplier's pages, unless a link has its own. */
   defaultRegion: string | null;
+  /** False: the supplier's pages show stock without logging in, so checks use no login at all. */
+  needsLogin: boolean;
   /** Log in for the owner before each check, with the saved username and password. */
   autoLogin: boolean;
   stealth: boolean;
@@ -191,6 +193,8 @@ export type SuppliersApi = {
   checkSession(id: string): Promise<void>;
   /** The region stock checks look for. null clears it. */
   setRegion(id: string, region: string | null): Promise<Supplier>;
+  /** Whether the supplier's pages need a login. */
+  setNeedsLogin(id: string, needsLogin: boolean): Promise<Supplier>;
   /** Records whether the supplier allows automatic checks, and the pause between pages. */
   setPermission(id: string, input: PermissionInput): Promise<Supplier>;
   /** Saves the supplier login. The server seals it and never returns it. */
@@ -215,6 +219,8 @@ export type Mapping = {
   note: string | null;
   /** The region to look for on this page. null means the supplier's default region. */
   region: string | null;
+  /** The supplier's own option name or SKU, for a page that lists several options. null: none. */
+  supplierOption: string | null;
   enabled: boolean;
   linkStatus: LinkStatus;
   lastLinkCheckAt: string | null;
@@ -307,7 +313,7 @@ export type StockApi = {
 /** A link's latest stock answer, or `none` for no stock check yet. */
 export type StockFilter = StockAnswer | "none";
 export type MappingFilter = { supplierId?: string; status?: LinkStatus; stock?: StockFilter; search?: string };
-export type MappingInput = { variantId: string; supplierId: string; url: string; note?: string | null; region?: string | null };
+export type MappingInput = { variantId: string; supplierId: string; url: string; note?: string | null; region?: string | null; supplierOption?: string | null };
 export type UnmappedVariant = { variantId: string; productTitle: string; variantTitle: string; sku: string | null };
 export type UnmappedList = { total: number; unmapped: number; items: UnmappedVariant[] };
 
@@ -336,7 +342,7 @@ export type MappingsApi = {
   /** Only when the last link and stock checks finished, to follow a check cheaply. */
   status(id: string): Promise<{ linkCheckedAt: string | null; stockCheckedAt: string | null }>;
   create(input: MappingInput): Promise<Mapping>;
-  update(id: string, patch: { url?: string; note?: string | null; region?: string | null; enabled?: boolean }): Promise<Mapping>;
+  update(id: string, patch: { url?: string; note?: string | null; region?: string | null; supplierOption?: string | null; enabled?: boolean }): Promise<Mapping>;
   remove(id: string): Promise<void>;
   /** Asks for a check of one link. The answer arrives later, as the link's status. */
   checkLink(id: string): Promise<void>;
@@ -565,6 +571,7 @@ const suppliers: SuppliersApi = {
     await request(`/api/suppliers/${encodeURIComponent(id)}/check-session`, { method: "POST" });
   },
   setRegion: (id, region) => supplier(`/api/suppliers/${encodeURIComponent(id)}/region`, { method: "PATCH", json: { region } }),
+  setNeedsLogin: (id, needsLogin) => supplier(`/api/suppliers/${encodeURIComponent(id)}`, { method: "PATCH", json: { needsLogin } }),
   setPermission: (id, input) => supplier(`/api/suppliers/${encodeURIComponent(id)}/permission`, { method: "PATCH", json: input }),
   saveCredentials: (id, input) => request(`/api/suppliers/${encodeURIComponent(id)}/credentials`, { method: "PUT", json: input }),
   removeCredentials: (id) => done(`/api/suppliers/${encodeURIComponent(id)}/credentials`, { method: "DELETE" }),

@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
 import { ApiError, type Api, type Supplier, type SupplierInput } from "../api.js";
 import { AutoLoginCard } from "../components/AutoLoginCard.js";
+import { NeedsLoginCard } from "../components/NeedsLoginCard.js";
 import { Field as FormField } from "../components/Field.js";
 import { Notice } from "../components/Notice.js";
 import { PageHeader } from "../components/PageHeader.js";
@@ -94,8 +95,13 @@ export function SupplierFormPage({ api, id }: { api: Api; id?: string }) {
                 <SchedulePanel api={api} supplier={load.supplier} />
               </Card>
               <Card className="p-6">
-                <AutoLoginCard api={api} supplier={load.supplier} onChange={reload} />
+                <NeedsLoginCard api={api} supplier={load.supplier} onChange={reload} />
               </Card>
+              {load.supplier.needsLogin && (
+                <Card className="p-6">
+                  <AutoLoginCard api={api} supplier={load.supplier} onChange={reload} />
+                </Card>
+              )}
             </>
           )}
         </div>

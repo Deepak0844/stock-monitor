@@ -86,6 +86,8 @@ export function SchedulePanel({ api, supplier }: { api: Api; supplier: Supplier 
             </label>
             <p className="text-sm text-muted-foreground">A check that comes due outside these hours waits until they start.</p>
           </div>
+          {/* A supplier that needs no login has no login to keep alive. */}
+          {supplier.needsLogin && (
           <Field id="schedule-keep-alive" label="Keep login alive" hint="Visits the supplier with your saved login so it does not log you out. Only inside the hours above.">
             <Select id="schedule-keep-alive" className="w-full" value={keepAlive} onChange={(e) => setKeepAlive(e.target.value)}>
               {KEEP_ALIVE_WORDS.map((c) => (
@@ -95,6 +97,7 @@ export function SchedulePanel({ api, supplier }: { api: Api; supplier: Supplier 
               ))}
             </Select>
           </Field>
+          )}
           {status?.state === "waiting" && row?.nextCheckAt && <p className="text-sm">Next check: {whenWords(row.nextCheckAt)}</p>}
           {status?.state === "running" && row?.run && (
             <p role="status" className="text-sm">

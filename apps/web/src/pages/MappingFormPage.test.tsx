@@ -173,3 +173,40 @@ describe("a link set from Shopify", () => {
     expect(screen.queryByText(/This link is set from Shopify/)).not.toBeInTheDocument();
   });
 });
+
+describe("supplier option", () => {
+  it("adds an optional supplier option to a new link, with its hint", async () => {
+    const { api, user } = setup();
+    await screen.findByRole("option", { name: /Blue Tee/ });
+    await user.selectOptions(screen.getByLabelText("Variant", { exact: true }), "v1");
+    await user.selectOptions(screen.getByLabelText("Supplier", { exact: true }), aSupplier().id);
+    await user.type(screen.getByLabelText("Supplier page address"), "https://shop.acme.example/p/blue");
+    const option = screen.getByLabelText("Option on the supplier's page (optional)");
+    expect(screen.getByText("Only needed when the supplier's page lists several sizes or colours with different stock. Copy the option name or the supplier's SKU from the saved page.")).toBeInTheDocument();
+    await user.type(option, "1 L");
+    await user.click(screen.getByRole("button", { name: "Add link" }));
+    await waitFor(() => expect(api.mappings.create).toHaveBeenCalledWith(expect.objectContaining({ supplierOption: "1 L" })));
+  });
+
+  it("changes only the option of an existing link, and clears it", async () => {
+    const { api, user } = setup({ mappings: { get: vi.fn().mockResolvedValue(aMapping({ supplierOption: "1 L" })) } }, { id: aMapping().id });
+    const option = await screen.findByLabelText("Option on the supplier's page (optional)");
+    expect(option).toHaveValue("1 L");
+    await user.clear(option);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(api.mappings.update).toHaveBeenCalledWith(aMapping().id, { supplierOption: null }));
+  });
+
+  it("puts the server's complaint under the option field and focuses it", async () => {
+    const create = vi.fn().mockRejectedValue(new ApiError("A supplier option can be up to 200 characters of text, or empty to clear it.", 400, "invalid_supplier_option"));
+    const { user } = setup({ mappings: { create } });
+    await screen.findByRole("option", { name: /Blue Tee/ });
+    await user.selectOptions(screen.getByLabelText("Variant", { exact: true }), "v1");
+    await user.selectOptions(screen.getByLabelText("Supplier", { exact: true }), aSupplier().id);
+    await user.type(screen.getByLabelText("Supplier page address"), "https://shop.acme.example/p/blue");
+    await user.type(screen.getByLabelText("Option on the supplier's page (optional)"), "x");
+    await user.click(screen.getByRole("button", { name: "Add link" }));
+    await waitFor(() => expect(screen.getByLabelText("Option on the supplier's page (optional)")).toHaveFocus());
+    expect(screen.getByLabelText("Option on the supplier's page (optional)")).toHaveAccessibleDescription(/up to 200 characters/);
+  });
+});

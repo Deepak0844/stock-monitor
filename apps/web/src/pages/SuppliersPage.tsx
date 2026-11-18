@@ -42,6 +42,7 @@ const message = (e: unknown) => (e instanceof Error ? e.message : "Something wen
  */
 function statusOf(s: Supplier): { words: string; tone: "success" | "warning" | "neutral" } {
   if (!s.enabled && s.pausedReason !== "session") return { words: "Paused", tone: "neutral" };
+  if (!s.needsLogin) return { words: "No login needed", tone: "success" };
   switch (s.sessionStatus) {
     case "connected":
       return { words: "Connected", tone: "success" };
@@ -223,7 +224,7 @@ export function SuppliersPage({ api }: { api: Api }) {
       className: "text-right",
       cell: (s) => (
         <div className="flex items-center justify-end gap-2">
-          {s.sessionStatus === "connected" ? (
+          {!s.needsLogin ? null : s.sessionStatus === "connected" ? (
             <Button variant="outline" size="sm" loading={checkingId === s.id} aria-label={`Check connection ${s.name}`} onClick={() => void check(s)}>
               Check connection
             </Button>

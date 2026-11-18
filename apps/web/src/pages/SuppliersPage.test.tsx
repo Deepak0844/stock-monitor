@@ -457,3 +457,13 @@ describe("automatic checks", () => {
     expect(cellOf("Acme Supply")).toBeInTheDocument();
   });
 });
+
+describe("a supplier that needs no login", () => {
+  it("says No login needed and offers no Connect button", async () => {
+    setup([aSupplier({ needsLogin: false })]);
+    await screen.findByRole("row", { name: /Acme Supply/ });
+    expect(within(rowOf("Acme Supply")).getByText("No login needed")).toBeInTheDocument();
+    expect(within(rowOf("Acme Supply")).queryByRole("link", { name: "Connect Acme Supply" })).toBeNull();
+    expect(within(rowOf("Acme Supply")).queryByRole("button", { name: "Check connection Acme Supply" })).toBeNull();
+  });
+});
