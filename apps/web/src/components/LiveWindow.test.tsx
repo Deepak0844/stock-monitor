@@ -273,7 +273,8 @@ describe("copy and paste with the keyboard", () => {
     await flush();
     expect(seen).not.toHaveBeenCalled();
     expect(rfb.pasted).toEqual(["from-my-pc"]);
-    expect(rfb.keys).toEqual([[CTRL, true], [V, undefined]]); // the held Ctrl is released by its own key-up
+    // Ctrl is let go of too: the clipboard may take a while, and by then the real Ctrl key-up has already been sent.
+    expect(rfb.keys).toEqual([[CTRL, true], [V, undefined], [CTRL, false]]);
   });
 
   it("still presses Ctrl+V, and says to use the box, when the browser will not give the clipboard", async () => {
@@ -282,7 +283,7 @@ describe("copy and paste with the keyboard", () => {
     key(box, { code: "KeyV", key: "v", ctrlKey: true });
     await flush();
     expect(rfb.pasted).toEqual([]);
-    expect(rfb.keys).toEqual([[CTRL, true], [V, undefined]]);
+    expect(rfb.keys).toEqual([[CTRL, true], [V, undefined], [CTRL, false]]);
     expect(screen.getByRole("status")).toHaveTextContent(/Paste text box/);
   });
 
@@ -290,6 +291,12 @@ describe("copy and paste with the keyboard", () => {
     const { rfb, box } = await live();
     key(box, { code: "KeyC", key: "c", metaKey: true });
     expect(rfb.keys).toEqual([[0xffe9, false], [0xffeb, false], [CTRL, true], [0x63, undefined], [CTRL, false]]);
+  });
+
+  it("keeps Shift in a Cmd shortcut, so Cmd+Shift+Z is redo and not undo", async () => {
+    const { rfb, box } = await live();
+    key(box, { code: "KeyZ", key: "z", metaKey: true, shiftKey: true });
+    expect(rfb.keys).toContainEqual([0x5a, undefined]); // "Z", so x11vnc does not let go of Shift to make "z"
   });
 
   it("leaves other keys, and Ctrl+C, to noVNC", async () => {
@@ -310,18 +317,30 @@ describe("copy and paste with the keyboard", () => {
   it("puts text copied in the window on this computer's clipboard", async () => {
     const writeText = vi.fn(async () => {});
     clipboard({ writeText });
-    const { rfb } = await live();
+    const { rfb, box } = await live();
+    key(box, { code: "KeyC", key: "c", ctrlKey: true });
     act(() => rfb.fire("clipboard", { text: "order-123" }));
     await flush();
     expect(writeText).toHaveBeenCalledWith("order-123");
     expect(screen.getByRole("status")).toHaveTextContent(/Copied from the window/);
   });
 
+  it("ignores the window's clipboard when nobody pressed copy, so a website cannot fill this computer's clipboard", async () => {
+    const writeText = vi.fn(async () => {});
+    clipboard({ writeText });
+    const { rfb } = await live();
+    act(() => rfb.fire("clipboard", { text: "planted" }));
+    await flush();
+    expect(writeText).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Copy it to this computer" })).toBeNull();
+  });
+
   it("offers a button when the browser will not copy by itself", async () => {
     const writeText = vi.fn().mockRejectedValueOnce(new Error("no gesture")).mockResolvedValue(undefined);
     const user = userEvent.setup(); // installs its own clipboard, so ours goes on after it
     clipboard({ writeText });
-    const { rfb } = await live();
+    const { rfb, box } = await live();
+    key(box, { code: "KeyC", key: "c", ctrlKey: true });
     act(() => rfb.fire("clipboard", { text: "order-123" }));
     await flush();
     await user.click(screen.getByRole("button", { name: "Copy it to this computer" }));

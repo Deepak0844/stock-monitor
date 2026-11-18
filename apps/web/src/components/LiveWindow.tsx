@@ -138,10 +138,12 @@ export function LiveWindow({
         rfb.addEventListener("disconnect", () => fail(connected ? "lost" : "refused"));
         rfb.addEventListener("credentialsrequired", () => fail("refused"));
         rfb.addEventListener("securityfailure", () => fail("refused"));
-        // Something was copied in the window: put it on this computer's clipboard too.
+        // Something was copied in the window: put it on this computer's clipboard too, but only right after the owner
+        // pressed copy. The supplier's website is not trusted, and its scripts can change the window's clipboard by themselves.
+        let copyKeyAt = 0;
         rfb.addEventListener("clipboard", (event) => {
           const text = (event as CustomEvent<{ text: string }>).detail.text;
-          if (!text) return;
+          if (!text || Date.now() - copyKeyAt > 3000) return;
           Promise.resolve()
             .then(() => navigator.clipboard.writeText(text))
             .then(
@@ -160,6 +162,7 @@ export function LiveWindow({
         // Runs before noVNC's own key handler. Ctrl/Cmd+V pastes this computer's clipboard into the window. Cmd+letter
         // on a Mac becomes Ctrl+letter, since noVNC sends Cmd as Alt and the remote browser expects Ctrl for copy and paste.
         const onKeyDown = (e: KeyboardEvent) => {
+          if ((e.ctrlKey || e.metaKey) && (e.code === "KeyC" || e.code === "KeyX")) copyKeyAt = Date.now();
           const letter = /^Key([A-Z])$/.exec(e.code)?.[1]?.toLowerCase();
           if (!letter || e.altKey || !(e.metaKey || (e.ctrlKey && letter === "v"))) return;
           e.stopPropagation();
@@ -168,9 +171,10 @@ export function LiveWindow({
           const press = () => {
             if (cmd) for (const k of [XK.Alt_L, XK.Super_L]) rfb.sendKey(k, null, false);
             rfb.sendKey(XK.Control_L, "ControlLeft", true);
-            rfb.sendKey(keysymOf(letter), e.code);
-            // A held Ctrl is released by its own key-up; only a Ctrl made up from Cmd is released here.
-            if (cmd) rfb.sendKey(XK.Control_L, "ControlLeft", false);
+            // Upper case when Shift is held, or x11vnc lets go of Shift to make the lower-case letter (Cmd+Shift+Z would undo).
+            rfb.sendKey(keysymOf(e.shiftKey ? letter.toUpperCase() : letter), e.code);
+            // Always let go: reading the clipboard can wait for a browser prompt, and the real Ctrl key-up may already have gone.
+            rfb.sendKey(XK.Control_L, "ControlLeft", false);
           };
           if (letter !== "v") return press();
           Promise.resolve()
