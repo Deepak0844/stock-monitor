@@ -217,13 +217,25 @@ describe("after the window was working", () => {
 });
 
 describe("pasting text", () => {
+  /** A working window where Ctrl+V was blocked by the browser, which is what shows the Paste text box. */
   async function live() {
-    const user = userEvent.setup();
+    const user = userEvent.setup(); // installs its own clipboard, so the blocked one goes on after it
+    Object.defineProperty(navigator, "clipboard", { value: { readText: () => Promise.reject(new Error("denied")) }, configurable: true });
     setup();
     await connectToReady();
     act(() => FakeRfb.all[0]!.fire("connect"));
+    const box = screen.getByRole("group", { name: /live login window/i });
+    box.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyV", key: "v", ctrlKey: true, bubbles: true, cancelable: true }));
+    await flush();
     return { user, rfb: FakeRfb.all[0]! };
   }
+
+  it("is hidden while Ctrl+V works", async () => {
+    setup();
+    await connectToReady();
+    act(() => FakeRfb.all[0]!.fire("connect"));
+    expect(screen.queryByLabelText("Paste text")).toBeNull();
+  });
 
   it("sends what is typed to the remote clipboard, then clears the box so a password does not linger", async () => {
     const { user, rfb } = await live();
@@ -284,7 +296,8 @@ describe("copy and paste with the keyboard", () => {
     await flush();
     expect(rfb.pasted).toEqual([]);
     expect(rfb.keys).toEqual([[CTRL, true], [V, undefined], [CTRL, false]]);
-    expect(screen.getByRole("status")).toHaveTextContent(/Paste text box/);
+    expect(screen.getByRole("status")).toHaveTextContent(/box above/);
+    expect(screen.getByLabelText("Paste text")).toBeVisible();
   });
 
   it("turns Cmd+C into Ctrl+C, letting go of the Alt and Super that noVNC sent for Cmd", async () => {

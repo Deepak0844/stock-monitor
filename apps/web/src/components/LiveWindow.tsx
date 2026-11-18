@@ -72,6 +72,8 @@ export function LiveWindow({
   const [phase, setPhase] = useState<"connecting" | "live">("connecting");
   const [pasteText, setPasteText] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
+  // The Paste text box is only needed when the browser will not let the window read the clipboard.
+  const [pasteBlocked, setPasteBlocked] = useState(false);
   // Text copied in the window that the browser would not let us put on this computer's clipboard by itself.
   const [toCopy, setToCopy] = useState<string | null>(null);
   const keyboardRef = useRef<HTMLInputElement>(null);
@@ -183,7 +185,10 @@ export function LiveWindow({
               (text) => {
                 if (text) rfb.clipboardPasteFrom(text);
               },
-              () => setNotice("Your browser did not let the window read your clipboard. Use the Paste text box instead."),
+              () => {
+                setPasteBlocked(true);
+                setNotice("Your browser did not let the window read your clipboard. Paste it in the box above instead.");
+              },
             )
             .finally(press);
         };
@@ -288,14 +293,16 @@ export function LiveWindow({
         )}
         {phase === "live" && (
           <div className="max-w-xl flex-1 basis-96">
-            <Field id="paste-text" label="Paste text" hint={<span id="paste-hint">Ctrl+V (⌘V on a Mac) in the window pastes what you copied. If your browser blocks that: send it here, click the field in the window, then press Ctrl+V.</span>}>
-              <div className="flex gap-2">
-                <Input id="paste-text" type="password" autoComplete="off" value={pasteText} onChange={(e) => setPasteText(e.target.value)} aria-describedby="paste-hint" />
-                <Button type="button" variant="outline" className="shrink-0" onClick={sendPaste}>
-                  Send to the window
-                </Button>
-              </div>
-            </Field>
+            {pasteBlocked && (
+              <Field id="paste-text" label="Paste text" hint={<span id="paste-hint">Send it to the window, click the field there, then press Ctrl+V.</span>}>
+                <div className="flex gap-2">
+                  <Input id="paste-text" type="password" autoComplete="off" value={pasteText} onChange={(e) => setPasteText(e.target.value)} aria-describedby="paste-hint" />
+                  <Button type="button" variant="outline" className="shrink-0" onClick={sendPaste}>
+                    Send to the window
+                  </Button>
+                </div>
+              </Field>
+            )}
             {notice && (
               <p role="status" className="mt-2 text-sm font-medium text-success">
                 {notice}
