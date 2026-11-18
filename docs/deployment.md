@@ -163,7 +163,38 @@ If the saved login has ended, the app logs in with your saved details, then carr
 
 ### When the app cannot log in
 
-If the supplier shows a puzzle, or asks for a code, a text message or an approval on your phone, the app stops. It leaves a message on the Dashboard. Press **Reconnect supplier**, log in through the live window, and type the code there.
+If the supplier shows a puzzle, or asks for a text message or an approval on your phone, the app stops. It leaves a message on the Dashboard. Press **Reconnect supplier**, log in through the live window, and do the step there. A supplier that **emails** a code can log in by itself: see the next section. Without that set up, a code stops the login the same way.
+
+### Suppliers that email a code
+
+Some suppliers email a one-time code at every login: after the username and password, or after the username only. The app can read that code and type it, so these suppliers log in with no step from you.
+
+**What it needs:**
+
+1. **Email alerts set up** (see "Email alerts"). The app reads the codes from the same supplier Gmail, with the same app password. No new settings.
+2. **A Gmail filter in your own email** that forwards only the supplier code emails to the supplier Gmail:
+   1. In your own Gmail, open **Settings > Forwarding and POP/IMAP > Add a forwarding address**, and enter the supplier Gmail. Gmail sends a confirmation code to the supplier Gmail: sign in there, open that email, and confirm.
+   2. Open **Settings > Filters and blocked addresses > Create a new filter**. In **From**, put the supplier's sending address (for example `noreply@supplier-site.com`). Then choose **Forward it to** the supplier Gmail. Do this for each supplier that sends codes.
+3. **For a supplier that asks only for the username and then a code** (no password), save any word as the password. It is never typed, because the page never asks for it.
+
+**How it works:**
+
+- When the login reaches the code box, it waits there, for up to 3 minutes.
+- Every 5 seconds the app looks in the supplier Gmail for an email that arrived after this login started and comes from the supplier's website domain. For example, `mail.supplier-site.com` counts for `www.supplier-site.com`.
+- It takes the code from it, types it once, and finishes the login.
+- The inbox is only read: the app never marks, moves or deletes an email. A code is never written to a log.
+
+**If no code comes in time,** or the supplier refuses it, the login stops as `code_required`: a Dashboard message and an alert email. Two in a row pause automatic login, as for any failed login. Press **Resume** after you have fixed the cause.
+
+**Reading the log** (`docker compose logs worker | grep "code:"`):
+
+| Line | Meaning | What to do |
+|---|---|---|
+| `code: found from=supplier-site.com waited=12s` | The code was found and typed. | Nothing. |
+| `code: no_email waited=150s` | No email from anyone arrived. | Check the Gmail filter and the forwarding in your own email. |
+| `code: sender_mismatch seen=other-site.com` | An email arrived, from another domain. | Put that address or domain in **Code email sender** (under Login page fields). |
+| `code: no_code_in_email from=supplier-site.com` | The supplier's email came, but the app could not tell which part is the code. | Ask the developer, with the email's layout (never the code). |
+| `code: imap_failed reason=EAUTH` | The app could not open the supplier Gmail. | Check `ALERT_EMAIL_APP_PASSWORD`. |
 
 ### When a login box changes what the app types
 
@@ -222,6 +253,8 @@ Ask the developer for the right values for a supplier.
 **Only shows when logged in.** Some suppliers show their product pages to everyone and only hide the stock and prices when you are logged out, so the app cannot tell it was logged out. Type a word or phrase you see on the supplier's pages only when logged in, like "Log out" or your account name, then press **Save page fields**. From then on a page without it counts as logged out, for checks and for automatic login. Capitals and extra spaces do not matter. Leave it empty for any other supplier.
 
 Pick text you can see near the top of every page without opening a menu, like a "Log out" link in the header. The text must appear on every page the app opens for that supplier: product pages, the home page, and the login page when you are already logged in. Text hidden inside a menu you have to open, or only at the very bottom of a long page, may not be found. If the app keeps saying the supplier needs you to log in when you are logged in, pick different text. With a marker set, a login check loads the page one extra time.
+
+**Code email sender.** Only for a supplier that emails a login code from a domain other than its website's. Type the domain (`mail.example.com`) or the full address (`login@mail.example.com`), then press **Save page fields**. Leave it empty otherwise.
 
 ### Things to know
 
