@@ -84,19 +84,21 @@ export async function raiseNeedsAttention(
  * what the page was. A supplier that cannot be reached is tried again before anything is decided, and an
  * unreachable supplier alone never marks a session broken.
  */
-export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId: string, options: { early?: boolean; login?: boolean } = {}): Promise<CheckOutcome> {
+export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId: string, options: { early?: boolean; login?: boolean; keepAlive?: boolean } = {}): Promise<CheckOutcome> {
   const { suppliers, supplierSessions, notifications, audit, browser, logger } = deps;
   const supplier = await suppliers.get(supplierId);
   if (!supplier) return { kind: "skipped", reason: "no_supplier" };
 
   // The HTTP status tells us why a check was refused (403 vs 429 vs a challenge page). Never page text.
   let httpStatus: number | null = null;
-  const record = (result: string) => audit.record({ action: "supplier.session_checked", entityType: "supplier", entityId: supplierId, details: { result, httpStatus } });
+  const record = (result: string) => audit.record({ action: "supplier.session_checked", entityType: "supplier", entityId: supplierId, details: { result, httpStatus, ...(options.keepAlive && { keepAlive: true }) } });
 
   // The owner's "Check login" button, with automatic login on, is a fresh login: an old session that timed out must not
   // pause the supplier. The check after a live-window login stays plain, or a code or puzzle supplier would fail a forced
   // login seconds after the owner fixed it by hand.
-  if (options.login && supplier.autoLogin && !supplier.autoLoginPausedReason) {
+  const canLogIn = supplier.autoLogin && !supplier.autoLoginPausedReason;
+  /** A forced login. Undefined when it was skipped, so the caller goes on as without one. */
+  const logIn = async (): Promise<CheckOutcome | undefined> => {
     const login = await ensureLoggedIn(deps, supplier, { force: true, checkUrl: loginCheckUrl(supplier, await deps.mappings.forSupplier(supplierId)) });
     if (login === "ready") {
       await record("ok");
@@ -112,6 +114,11 @@ export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId
       await record("unreachable");
       return { kind: "unreachable" };
     }
+    return undefined;
+  };
+  if (options.login && canLogIn) {
+    const done = await logIn();
+    if (done) return done;
   }
 
   const sealed = await supplierSessions.getSealed(supplierId);
@@ -161,8 +168,13 @@ export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId
       logger.warn({ supplierId }, "session check could not run: the browser service did not answer");
       return { kind: "service_unavailable" };
     default:
-      // The early check before a run must not be stricter than the run, which does not stop on an unclear page.
-      if (options.early && result === "unknown") {
+      // A keep-alive visit that finds the session gone logs in again by itself, when it may.
+      if (options.keepAlive && result === "login_required" && canLogIn) {
+        const done = await logIn();
+        if (done) return done;
+      }
+      // The early check before a run, and a keep-alive visit, must not be stricter than the run, which does not stop on an unclear page.
+      if ((options.early || options.keepAlive) && result === "unknown") {
         await record(result);
         return { kind: "unclear" };
       }
@@ -172,11 +184,11 @@ export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId
 
 /**
  * The `supplier.session.verify` job. The payload is the supplier's id, `early` for the check the scheduler queues before
- * a run, and `login` for the owner's "Check login" button.
+ * a run, `login` for the owner's "Check login" button, and `keepAlive` for the visit that keeps an idle login from timing out.
  */
 export function createSupplierVerifyHandler(deps: SupplierVerifyDeps) {
-  return async function handleSupplierVerify(payload: { supplierId: string; early?: true; login?: true }): Promise<void> {
-    const outcome = await verifySupplierSession(deps, payload.supplierId, { early: payload.early === true, login: payload.login === true });
+  return async function handleSupplierVerify(payload: { supplierId: string; early?: true; login?: true; keepAlive?: true }): Promise<void> {
+    const outcome = await verifySupplierSession(deps, payload.supplierId, { early: payload.early === true, login: payload.login === true, keepAlive: payload.keepAlive === true });
     deps.logger.info({ supplierId: payload.supplierId, outcome: outcome.kind, ...(outcome.kind === "needs_attention" && { result: outcome.result }) }, "session check finished");
   };
 }

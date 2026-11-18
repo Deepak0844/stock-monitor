@@ -2,7 +2,8 @@ import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
 import type { createCheckRunRepository, createMappingRepository, createProposalRepository, createRecipeRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
 import type { Queue } from "@stock-monitor/queue";
-import { needsSessionPrecheck, pickDue, runExpirySeconds } from "@stock-monitor/scheduling";
+import { keepAliveDue, needsSessionPrecheck, pickDue, runExpirySeconds } from "@stock-monitor/scheduling";
+import { whyNotChecked } from "@stock-monitor/mapping";
 import { stockGate, type SkipReason } from "./extraction-check.js";
 
 export type TickDeps = {
@@ -79,7 +80,26 @@ export async function runTick(deps: TickDeps): Promise<{ started: string[]; skip
     await audit.record({ action: "check_run.started", entityType: "supplier", entityId: id, details: { runId: run.id, trigger: "scheduled", links } });
     started.push(id);
   }
+  await keepLoginsAlive(deps, now, new Set([...busy, ...started]));
   return { started, skipped };
+}
+
+/**
+ * Visits each supplier with keep-alive on, inside its window, so an idle supplier does not log the session out. Never one
+ * that is being checked or the gate refuses. The next visit time is written first: a visit that cannot reach the supplier
+ * must not be queued again on every tick.
+ */
+async function keepLoginsAlive(deps: TickDeps, now: Date, busy: Set<string>) {
+  for (const supplier of await deps.suppliers.keepingAlive()) {
+    if (busy.has(supplier.id) || !supplier.keepAliveMinutes) continue;
+    if (whyNotChecked(supplier, (await deps.supplierSessions.getSealed(supplier.id)) !== null)) continue;
+    const window = supplier.scheduleWindowStart && supplier.scheduleWindowEnd ? { start: supplier.scheduleWindowStart, end: supplier.scheduleWindowEnd } : null;
+    const lastVerifiedAt = (await deps.supplierSessions.facts(supplier.id))?.lastVerifiedAt ?? null;
+    const next = keepAliveDue({ now, minutes: supplier.keepAliveMinutes, nextAt: supplier.keepAliveNextAt, lastVerifiedAt, window, timeZone: deps.timezone });
+    if (next.nextAt.getTime() !== supplier.keepAliveNextAt?.getTime()) await deps.suppliers.setKeepAliveNext(supplier.id, next.nextAt);
+    if (!next.due) continue;
+    await deps.queue.enqueue("supplier.session.verify", { supplierId: supplier.id, keepAlive: true }, { retryLimit: 0 }).catch(() => deps.logger.warn({ supplierId: supplier.id }, "keep-alive visit could not be queued"));
+  }
 }
 
 /**
