@@ -18,7 +18,7 @@ export type FakeBrowserService = {
     checkPage: "ok" | "fail" | "garbage";
     /** How a page capture behaves, what it describes, and the picture (base64) it returns. */
     capture: "ok" | "fail" | "garbage";
-    description: { sections: { heading: string | null; level: number; lines: string[] }[]; buttons: { label: string; enabled: boolean; section: string | null }[] };
+    description: { sections: { heading: string | null; level: number; lines: string[] }[]; buttons: { label: string; enabled: boolean; section: string | null }[]; offers?: unknown };
     picture: string | null;
     /** Lets a test give each address its own description. Falls back to `description`. */
     descriptionFor?: (url: string) => FakeBrowserService["behaviour"]["description"] | undefined;

@@ -36,7 +36,9 @@ export type CheckPageOutcome =
   | { ok: true; result: PageClass; status: number | null; finalUrl: string | null; title: string | null; heading: string | null; softNotFound: boolean; blockedRequests: number; state?: SessionState }
   | { ok: false; reason: "failed" | "unavailable" };
 /** A page as the browser showed it: headings with their lines, and the buttons. The picture is for the owner's eyes only. */
-export type PageDescriptionParts = { sections: { heading: string | null; level: number; lines: string[] }[]; buttons: { label: string; enabled: boolean; section: string | null }[] };
+/** One offer from the page's built-in product data (schema.org): only these four facts. */
+export type PageOffer = { availability: string; url: string | null; sku: string | null; name: string | null };
+export type PageDescriptionParts = { sections: { heading: string | null; level: number; lines: string[] }[]; buttons: { label: string; enabled: boolean; section: string | null }[]; offers: PageOffer[] };
 export type CaptureOutcome =
   | ({ ok: true; picture: Buffer | null; description: PageDescriptionParts } & Omit<Extract<CheckPageOutcome, { ok: true }>, "ok">)
   | { ok: false; reason: "failed" | "unavailable" };
@@ -198,8 +200,12 @@ export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, pageTi
       const j = r.json;
       if (r.status !== 200 || !isObject(j) || typeof j.result !== "string" || !PAGE_CLASSES.includes(j.result) || !isObject(j.description)) return { ok: false, reason: "failed" };
       const d = j.description;
-      if (!Array.isArray(d.sections) || !Array.isArray(d.buttons)) return { ok: false, reason: "failed" };
+      if (!Array.isArray(d.sections) || !Array.isArray(d.buttons) || (d.offers !== undefined && !Array.isArray(d.offers))) return { ok: false, reason: "failed" };
       const text = (v: unknown) => (typeof v === "string" ? v : null);
+      // Only well-formed offers are kept; an older service sends none.
+      const offers: PageOffer[] = ((d.offers as unknown[] | undefined) ?? [])
+        .filter((o): o is Record<string, unknown> => isObject(o) && typeof o.availability === "string")
+        .map((o) => ({ availability: o.availability as string, url: text(o.url), sku: text(o.sku), name: text(o.name) }));
       return {
         ok: true,
         result: j.result as PageClass,
@@ -210,7 +216,7 @@ export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, pageTi
         softNotFound: j.softNotFound === true,
         blockedRequests: typeof j.blockedRequests === "number" ? j.blockedRequests : 0,
         ...(isSessionState(j.state) ? { state: j.state } : {}),
-        description: { sections: d.sections as PageDescriptionParts["sections"], buttons: d.buttons as PageDescriptionParts["buttons"] },
+        description: { sections: d.sections as PageDescriptionParts["sections"], buttons: d.buttons as PageDescriptionParts["buttons"], offers },
         picture: typeof j.picture === "string" ? Buffer.from(j.picture, "base64") : null,
       };
     },

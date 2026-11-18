@@ -21,7 +21,7 @@ beforeEach(async () => {
   logs.length = 0;
   verify = vi.fn<VerifyFn>().mockResolvedValue({ result: "ok", status: 200, blockedRequests: 0 });
   checkPage = vi.fn<CheckPageFn>().mockResolvedValue({ result: "ok", status: 200, blockedRequests: 0, finalUrl: "https://shop.acme.example/p", title: "P", heading: "P", softNotFound: false });
-  capture = vi.fn<CaptureFn>().mockResolvedValue({ result: "ok", status: 200, blockedRequests: 0, finalUrl: "https://shop.acme.example/p", title: "P", heading: "P", softNotFound: false, description: { sections: [], buttons: [] }, picture: null });
+  capture = vi.fn<CaptureFn>().mockResolvedValue({ result: "ok", status: 200, blockedRequests: 0, finalUrl: "https://shop.acme.example/p", title: "P", heading: "P", softNotFound: false, description: { sections: [], buttons: [], offers: [] }, picture: null });
   sessions = {
     open: vi.fn<SessionsApi["open"]>().mockResolvedValue({ ok: true, id: ID, expiresAt: "2026-11-08T12:00:00.000Z" }),
     finish: vi.fn<SessionsApi["finish"]>().mockResolvedValue(state),
