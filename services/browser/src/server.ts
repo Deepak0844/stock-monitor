@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { isLoginSelectors, isSessionState, type SessionState } from "@stock-monitor/supplier-session";
 import type { CaptureOutcome, CaptureRequest } from "./capture.js";
@@ -8,7 +8,8 @@ import type { CheckPageOutcome, CheckPageRequest, VerifyOutcome, VerifyRequest }
 export type VerifyFn = (request: VerifyRequest) => Promise<VerifyOutcome>;
 export type CheckPageFn = (request: CheckPageRequest) => Promise<CheckPageOutcome>;
 export type CaptureFn = (request: CaptureRequest) => Promise<CaptureOutcome>;
-export type LoginFn = (request: LoginRequest) => Promise<LoginOutcome>;
+/** `awaitCode` is passed only when the caller can read the emailed code: the login then waits for it at a code box. */
+export type LoginFn = (request: LoginRequest, codes?: { awaitCode: () => Promise<string | null> }) => Promise<LoginOutcome>;
 export type SessionsApi = {
   open(url: string, options: { stealth: boolean }): Promise<{ ok: true; id: string; expiresAt: string } | { ok: false; reason: "busy" | "failed" }>;
   /** The saved session, with the window closed. null when there is no such open window. */
@@ -31,6 +32,8 @@ export type ControlServerOptions = {
   vncPassword?: string;
   log?: (line: string) => void;
   maxBodyBytes?: number;
+  /** How long a login waits at a code box for the caller's code (default 180 s). Then it ends with no code. */
+  loginHoldMs?: number;
 };
 
 const MAX_URL = 2048;
@@ -88,7 +91,7 @@ function parse(raw: string): (VerifyRequest & { picture?: boolean; stealth?: boo
 }
 
 /** Exactly the login fields and nothing else. The password is only ever read here and handed on. */
-export function parseLogin(raw: string): LoginRequest | null {
+export function parseLogin(raw: string): (LoginRequest & { codeWanted?: true }) | null {
   let body: unknown;
   try {
     body = JSON.parse(raw);
@@ -97,13 +100,14 @@ export function parseLogin(raw: string): LoginRequest | null {
   }
   if (typeof body !== "object" || body === null || Array.isArray(body)) return null;
   const b = body as Record<string, unknown>;
-  const allowed = ["loginUrl", "checkUrl", "username", "password", "account", "stealth", "selectors", "loggedInMarker"];
+  const allowed = ["loginUrl", "checkUrl", "username", "password", "account", "stealth", "selectors", "loggedInMarker", "codeWanted"];
   if (!Object.keys(b).every((k) => allowed.includes(k))) return null;
   if (!isWebUrl(b.loginUrl) || !isWebUrl(b.checkUrl) || !isText(b.username) || !isText(b.password)) return null;
   if (b.account !== undefined && !isText(b.account)) return null;
   if (typeof b.stealth !== "boolean") return null;
   if (b.selectors !== undefined && !isLoginSelectors(b.selectors)) return null;
   if (b.loggedInMarker !== undefined && !isText(b.loggedInMarker)) return null;
+  if (b.codeWanted !== undefined && b.codeWanted !== true) return null;
   return {
     loginUrl: b.loginUrl,
     checkUrl: b.checkUrl,
@@ -113,15 +117,57 @@ export function parseLogin(raw: string): LoginRequest | null {
     stealth: b.stealth,
     ...(b.selectors === undefined ? {} : { selectors: b.selectors }),
     ...(b.loggedInMarker === undefined ? {} : { loggedInMarker: b.loggedInMarker }),
+    ...(b.codeWanted === true ? { codeWanted: true as const } : {}),
   };
 }
+
+const CODE = /^[A-Za-z0-9]{4,8}$/;
+const HOLD_PATH = /^\/login\/([0-9a-f-]{36})\/(code|cancel)$/i;
 
 const SESSION_PATH = /^\/sessions(?:\/([^/]+?)(\/finish)?)?$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The service's only door. Plain HTTP on the private network: the caller proves itself with the control token. */
-export function createControlServer({ token, verify, checkPage, capture, login, sessions, vncPassword, log = () => {}, maxBodyBytes = 5_000_000 }: ControlServerOptions): Server {
+export function createControlServer({ token, verify, checkPage, capture, login, sessions, vncPassword, log = () => {}, maxBodyBytes = 5_000_000, loginHoldMs = 180_000 }: ControlServerOptions): Server {
+  /** Logins waiting at a code box: `give` ends the wait (null: no code), `outcome` is how the login ended. A code is taken once. */
+  const holds = new Map<string, { give: (code: string | null) => void; outcome: () => Promise<LoginOutcome> }>();
   const tokenDigest = digest(token);
+
+  /**
+   * A login that may stop at a code box: the first answer is either its outcome, or `code_needed` with a hold id. The login
+   * waits for /login/:id/code (or /cancel, or `loginHoldMs`) inside its own turn, and that call answers how it ended.
+   */
+  async function holdLogin(res: ServerResponse, request: LoginRequest) {
+    const id = randomUUID();
+    let firstAnswer!: (a: { holdId: string } | { outcome: LoginOutcome } | { failed: unknown }) => void;
+    const first = new Promise<{ holdId: string } | { outcome: LoginOutcome } | { failed: unknown }>((resolve) => (firstAnswer = resolve));
+    // Read lazily, by the /code call: a login can ask for the code before this line has finished.
+    const outcome: Promise<LoginOutcome> = login!(request, {
+      awaitCode: () =>
+        new Promise<string | null>((give) => {
+          const end = (code: string | null) => {
+            clearTimeout(timer);
+            holds.delete(id);
+            give(code);
+          };
+          const timer = setTimeout(() => end(null), loginHoldMs);
+          holds.set(id, { give: end, outcome: () => outcome });
+          firstAnswer({ holdId: id });
+        }),
+    });
+    outcome.then((o) => firstAnswer({ outcome: o }), (error: unknown) => firstAnswer({ failed: error }));
+    const answer = await first;
+    if ("holdId" in answer) {
+      log("login: code_needed");
+      return reply(res, 200, { result: "code_needed", holdId: answer.holdId });
+    }
+    if ("failed" in answer) {
+      log(`login failed: ${answer.failed instanceof Error ? answer.failed.name : "unknown"}`);
+      return reply(res, 500, { error: "login_failed" });
+    }
+    log(`login: ${answer.outcome.result}${answer.outcome.why ? ` (${answer.outcome.why})` : ""}`);
+    return reply(res, 200, answer.outcome);
+  }
   const authorised = (header: string | undefined) => {
     const given = /^Bearer (.+)$/.exec(header ?? "")?.[1];
     return given !== undefined && timingSafeEqual(digest(given), tokenDigest);
@@ -182,11 +228,40 @@ export function createControlServer({ token, verify, checkPage, capture, login, 
     if (!authorised(req.headers.authorization)) return reply(res, 401, { error: "unauthorised" });
     const session = sessions ? SESSION_PATH.exec(path) : null;
     if (sessions && session) return handleSession(sessions, req, res, session[1], session[2] === "/finish");
+    const held = login ? HOLD_PATH.exec(path) : null;
+    if (req.method === "POST" && held) {
+      const hold = holds.get(held[1]!.toLowerCase());
+      if (held[2] === "cancel") {
+        if (!hold) return reply(res, 404, { error: "not_found" });
+        hold.give(null);
+        return reply(res, 204, null);
+      }
+      const text = await readBody(req, 10_000);
+      let code: unknown;
+      try {
+        code = (JSON.parse(text ?? "") as { code?: unknown }).code;
+      } catch {
+        code = undefined;
+      }
+      if (!hold) return reply(res, 404, { error: "not_found" });
+      if (typeof code !== "string" || !CODE.test(code)) return reply(res, 400, { error: "invalid_request" });
+      hold.give(code);
+      try {
+        const outcome = await hold.outcome();
+        log(`login: ${outcome.result}${outcome.why ? ` (${outcome.why})` : ""} after code`);
+        return reply(res, 200, outcome);
+      } catch (error) {
+        log(`login failed: ${error instanceof Error ? error.name : "unknown"}`);
+        return reply(res, 500, { error: "login_failed" });
+      }
+    }
     if (req.method === "POST" && path === "/login" && login) {
       const text = await readBody(req, maxBodyBytes);
       if (text === null) return reply(res, 413, { error: "too_large" }, { connection: "close" });
-      const request = parseLogin(text);
-      if (!request) return reply(res, 400, { error: "invalid_request" });
+      const parsed = parseLogin(text);
+      if (!parsed) return reply(res, 400, { error: "invalid_request" });
+      const { codeWanted, ...request } = parsed;
+      if (codeWanted) return holdLogin(res, request);
       try {
         const outcome = await login(request);
         log(`login: ${outcome.result}${outcome.why ? ` (${outcome.why})` : ""}`);

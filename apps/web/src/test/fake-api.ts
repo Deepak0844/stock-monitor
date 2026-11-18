@@ -97,6 +97,7 @@ export const aSupplier = (over: Partial<Supplier> = {}): Supplier => ({
   stealth: false,
   loginSelectors: null,
   loggedInMarker: null,
+  codeEmailFrom: null,
   credentialsSavedAt: null,
   lastAutoLoginAt: null,
   lastAutoLoginResult: null,

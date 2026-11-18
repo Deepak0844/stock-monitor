@@ -70,7 +70,7 @@ const onLoginPage = (url: string, loginUrl: string) => {
   }
 };
 
-type Input = { index: number; mark: string; visible: boolean; empty: boolean; password: boolean; usernameLike: boolean; account: boolean; checkbox: boolean; code: boolean };
+type Input = { index: number; mark: string; visible: boolean; empty: boolean; password: boolean; usernameLike: boolean; account: boolean; checkbox: boolean; code: boolean; maxLength: number };
 type Found = { frame: Frame; field: Locator; empty: boolean } | null;
 /** `code`: a visible one-time-code box in the same frame. It is never taken for the username. */
 type Fields = { account: Found; username: Found; password: Found; code: boolean };
@@ -127,6 +127,7 @@ async function inputsOf(frame: Frame, overrides: LoginSelectors): Promise<Input[
             account,
             checkbox: type === "checkbox",
             code,
+            maxLength: el.maxLength,
           };
         }),
       { o: overrides, codeWords: CODE_WORDS.source, notCodeWords: NOT_CODE_WORDS.source, markAttr: MARK_ATTR },
@@ -236,6 +237,27 @@ async function findPopupCloseIcon(page: Page): Promise<Locator | null> {
 async function firstVisible(page: Page, selector: string): Promise<Locator | null> {
   for (const frame of page.frames()) {
     for (const el of await frame.locator(selector).all().catch(() => [])) if (await el.isVisible().catch(() => false)) return el;
+  }
+  return null;
+}
+
+/**
+ * Where an emailed code goes: the first visible, empty code box, and when it takes one character, the one-character boxes
+ * after it (a code split one digit per box).
+ */
+async function codeBoxes(page: Page, overrides: LoginSelectors): Promise<{ frame: Frame; boxes: Locator[] } | null> {
+  for (const frame of page.frames()) {
+    const inputs = (await inputsOf(frame, overrides)).filter((i) => i.visible && !i.checkbox && !i.password);
+    const first = inputs.findIndex((i) => i.code);
+    if (first < 0) continue;
+    const at = (i: Input) => frame.locator(`input[${MARK_ATTR}="${i.mark}"]`);
+    if (inputs[first]!.maxLength !== 1) return { frame, boxes: [at(inputs[first]!)] };
+    const run: Input[] = [];
+    for (const i of inputs.slice(first)) {
+      if (i.maxLength !== 1 || !i.empty) break;
+      run.push(i);
+    }
+    return { frame, boxes: run.map(at) };
   }
   return null;
 }
@@ -363,13 +385,22 @@ export const RETYPE_SETTLE_MS = 1000;
 export const FORM_WAIT_MS = 10_000;
 
 /** `onWhy` hears a fixed reason code whenever the login stops with form_not_found or unknown: which rule stopped it. Never page content, never anything typed. */
-export type StepOptions = { settleMs: number; stepWaitMs?: number; maxSteps?: number; deadlineMs?: number; formWaitMs?: number; onWhy?: (why: string) => void };
+export type StepOptions = {
+  settleMs: number;
+  stepWaitMs?: number;
+  maxSteps?: number;
+  deadlineMs?: number;
+  formWaitMs?: number;
+  onWhy?: (why: string) => void;
+  /** When set, a code box is not the end: the login asks for the emailed code, types it once and goes on. null means none came. */
+  awaitCode?: () => Promise<string | null>;
+};
 
 /**
  * Logs in on `page`, which is already in the supplier's profile: open the login page, run the step loop, read the page after
  * the password, confirm on `checkUrl`. Returns only the result; the caller reads the session when it is `ok`.
  */
-export async function runLogin(page: Page, request: LoginRequest, { settleMs, stepWaitMs = 15_000, maxSteps = 5, deadlineMs = 150_000, formWaitMs = FORM_WAIT_MS, onWhy }: StepOptions): Promise<LoginResult> {
+export async function runLogin(page: Page, request: LoginRequest, { settleMs, stepWaitMs = 15_000, maxSteps = 5, deadlineMs = 150_000, formWaitMs = FORM_WAIT_MS, onWhy, awaitCode }: StepOptions): Promise<LoginResult> {
   const selectors = request.selectors ?? {};
   /** What the password box must still be after it is typed in. Not when the owner named it by hand: a show-password box is text. */
   const passwordType = selectors.password ? undefined : "password";
@@ -564,6 +595,29 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
     /** How a box that would not take the typing differs (lengths and flags only), for the reason code. */
     let typingNote = "";
     let sent = { at: 0, navs: 0, frame: page.mainFrame() };
+    /** The emailed code went in. It is typed once: a code page that comes back means the code was not taken. */
+    let codeLength = 0;
+    /**
+     * Asks for the emailed code, types it into the code box (one character per box for a split code), checks it is there and
+     * presses the box's button, or Enter. The code is never logged: the reason line says its length only. No deadline: the
+     * wait for the email is the caller's, and every step after it is bounded.
+     */
+    const enterCode = async (): Promise<LoginResult | "sent"> => {
+      const code = await awaitCode!();
+      if (!code) return "code_required";
+      const found = await codeBoxes(page, selectors);
+      if (!found || found.boxes.length === 0 || (found.boxes.length > 1 && found.boxes.length < code.length)) return "code_required";
+      const parts = found.boxes.length > 1 ? [...code] : [code];
+      for (const [i, part] of parts.entries()) {
+        if (!(await typeVerified(page, found.boxes[i]!, part, { secret: true, report: (x) => (typingNote = x) }))) return unclear(`code_not_typed ${typingNote}`);
+      }
+      const last = found.boxes[parts.length - 1]!;
+      const next = await nextButton(page, found.frame, last, selectors.submit);
+      sent = { at: Date.now(), navs: navigated.length, frame: found.frame };
+      await afterAction(() => (next && next !== "missing" ? click(next) : last.press("Enter", { noWaitAfter: true })), settleMs);
+      codeLength = code.length;
+      return "sent";
+    };
     for (let step = 0; step < maxSteps && !submitted; step++) {
       if (expired()) return unclear("deadline");
       if (await challengeVisible(page)) return "captcha";
@@ -576,7 +630,13 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
         f = await findFields(page, selectors);
       }
       // A code box counts only on a step with no username or password box: a login form can sit next to a shop's other boxes.
-      if (f.code && !f.username && !f.password) return "code_required";
+      if (f.code && !f.username && !f.password) {
+        if (!awaitCode || codeLength) return "code_required";
+        const entered = await enterCode();
+        if (entered !== "sent") return entered;
+        submitted = true;
+        continue;
+      }
       // The username step, still on screen after its Next: the supplier is still answering. Never click Next again.
       if (typedUsername && f.username && !f.username.empty && !f.password) {
         const form = f.username.frame;
@@ -707,6 +767,17 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
       await settle(sent);
       seen = await facts();
       decided = decideAfterSubmit(seen);
+    }
+    // The page asks for the emailed code: type it once, then read the page again.
+    if (decided === "code_required" && awaitCode && !codeLength && seen.codeFieldVisible) {
+      const entered = await enterCode();
+      if (entered !== "sent") return entered;
+      seen = await facts();
+      decided = decideAfterSubmit(seen);
+    }
+    if (decided === "code_required" && codeLength) {
+      onWhy?.(`code_not_taken len=${codeLength}`);
+      return "code_required";
     }
     if (decided === "unknown") return unclear(`unclear_after_submit page=${seen.pageClass}`);
     if (decided === "captcha" && !seen.challengeVisible) onWhy?.(`after_submit captcha_frame=${frames.find((f) => f.captcha && SECOND_CHECK.test(f.text))?.captcha}`);

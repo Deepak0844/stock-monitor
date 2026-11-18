@@ -270,6 +270,27 @@ describe("login", () => {
   it("says not_supported when the service has no login (it is not in profile mode)", async () => {
     expect(await withReply(404, { error: "not_found" }).login(request)).toEqual({ ok: false, reason: "not_supported" });
   });
+  it("passes code_needed and its hold through, and refuses one without a hold", async () => {
+    const holdId = "0a1b2c3d-0000-4000-8000-000000000000";
+    expect(await withReply(200, { result: "code_needed", holdId }).login({ ...request, codeWanted: true })).toEqual({ ok: true, outcome: { result: "code_needed", holdId } });
+    expect(await withReply(200, { result: "code_needed" }).login({ ...request, codeWanted: true })).toEqual({ ok: false, reason: "failed" });
+  });
+  it("sends the code to the hold and reads the final outcome; a gone hold is failed", async () => {
+    const seen: { url: string; body: unknown }[] = [];
+    const c = (status: number, json: unknown) =>
+      createBrowserClient({ baseUrl: "http://x.test", token: "t", fetchImpl: (async (url: string, init: RequestInit) => (seen.push({ url, body: init.body ? JSON.parse(String(init.body)) : undefined }), new Response(JSON.stringify(json), { status }))) as unknown as typeof fetch });
+    expect(await c(200, { result: "ok", state: session }).sendCode("h-1", "482913")).toEqual({ ok: true, outcome: { result: "ok", state: session } });
+    expect(seen[0]).toEqual({ url: "http://x.test/login/h-1/code", body: { code: "482913" } });
+    expect(await c(404, { error: "not_found" }).sendCode("h-1", "482913")).toEqual({ ok: false, reason: "failed" });
+  });
+  it("cancels a hold and never throws", async () => {
+    const urls: string[] = [];
+    const ok = createBrowserClient({ baseUrl: "http://x.test", token: "t", fetchImpl: (async (url: string) => (urls.push(url), new Response(null, { status: 204 }))) as unknown as typeof fetch });
+    await ok.cancelCode("h-2");
+    expect(urls).toEqual(["http://x.test/login/h-2/cancel"]);
+    const down = createBrowserClient({ baseUrl: "http://x.test", token: "t", fetchImpl: (async () => { throw new Error("down"); }) as typeof fetch });
+    await expect(down.cancelCode("h-2")).resolves.toBeUndefined();
+  });
   it("waits for a login by its own limit, not the page limit", async () => {
     // Answers after 200 ms, unless the call gave up first.
     const slow = (async (_url: string, init: RequestInit) => {

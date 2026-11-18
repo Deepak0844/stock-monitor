@@ -8,11 +8,13 @@ import type {
 } from "@stock-monitor/db";
 import { whyNotChecked } from "@stock-monitor/mapping";
 import { unsealSessionState, type PageClass, type SessionState } from "@stock-monitor/supplier-session";
-import { ensureLoggedIn, loginCheckUrl } from "./auto-login.js";
+import { ensureLoggedIn, loginCheckUrl, type AutoLoginDeps } from "./auto-login.js";
 import { saveRefreshedSession } from "./session-refresh.js";
 import { stockGate } from "./extraction-check.js";
 
 export type SupplierVerifyDeps = {
+  /** Reads emailed login codes for automatic login. */
+  codes?: AutoLoginDeps["codes"];
   suppliers: ReturnType<typeof createSupplierRepository>;
   supplierSessions: ReturnType<typeof createSupplierSessionRepository>;
   /** The saved login and the links, for a supplier with automatic login: its check is a login. */

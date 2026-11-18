@@ -174,6 +174,8 @@ export const suppliers = pgTable(
     loggedInMarker: text("logged_in_marker"),
     /** Failed automatic logins in a row. */
     autoLoginFailures: integer("auto_login_failures").notNull().default(0),
+    /** Where this supplier's login-code emails come from, when not its website's domain: a domain or an address. */
+    codeEmailFrom: text("code_email_from"),
     autoLoginPausedReason: text("auto_login_paused_reason"),
     lastAutoLoginAt: timestamp("last_auto_login_at", { withTimezone: true }),
     lastAutoLoginResult: text("last_auto_login_result"),
@@ -181,6 +183,7 @@ export const suppliers = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
+    check("suppliers_code_email_from", sql`${t.codeEmailFrom} is null or char_length(${t.codeEmailFrom}) between 3 and 254`),
     check("suppliers_auto_login_permission", sql`not ${t.autoLogin} or ${t.automationPermission} = 'granted'`),
     check("suppliers_stealth_permission", sql`not ${t.stealth} or ${t.automationPermission} = 'granted'`),
     check("suppliers_logged_in_marker", sql`${t.loggedInMarker} is null or char_length(${t.loggedInMarker}) between 1 and 200`),

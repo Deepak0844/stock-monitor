@@ -13,7 +13,7 @@ import { shimPage } from "./page-shim.js";
 import { classifyPage, mergeSessionState, type PageClass, type SessionState } from "@stock-monitor/supplier-session";
 import { readCookies } from "./chromium-cookies.js";
 import { cookieStore, forgetOpenTabs, plainLaunchArgs, quitCleanly, seedProfile, waitForDebuggingPort } from "./plain-window.js";
-import { runLogin, type LoginOutcome, type LoginRequest, type LoginResult } from "./login.js";
+import { runLogin, type LoginOutcome, type LoginRequest, type LoginResult, type StepOptions } from "./login.js";
 import { clearStaleLocks, cookieHash, holdProfile, PROFILE_ROOT, profileDirFor, releaseProfile } from "./profile-store.js";
 import type { GuardProxy } from "./proxy.js";
 import { capturePageIn, type CaptureOutcome, type CaptureRequest } from "./capture.js";
@@ -267,7 +267,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
    * Logs in to the supplier in its persistent profile. The profile is never wiped or seeded with cookies: a returning browser
    * is the point. The debugging channel is open for the whole login. The username and password are typed into the page only.
    */
-  async function login(request: LoginRequest): Promise<LoginOutcome> {
+  async function login(request: LoginRequest, codes: Pick<StepOptions, "awaitCode"> = {}): Promise<LoginOutcome> {
     if (stealthRefused(request.stealth)) return { result: "unknown", why: "stealth_refused" };
     // Keyed by the site the checks visit, so a login page on another host still lands in the profile checks open.
     const profile = profileDirFor(baseDir, request.checkUrl);
@@ -288,7 +288,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
           const page = context?.pages()[0] ?? (await context?.newPage());
         if (page) shimPage(page);
           if (context && page) {
-            result = await runLogin(page, request, { settleMs, stepWaitMs: loginStepMs, ...(loginDeadlineMs ? { deadlineMs: loginDeadlineMs } : {}), ...(loginFormWaitMs ? { formWaitMs: loginFormWaitMs } : {}), onWhy: (w) => void (why = w) });
+            result = await runLogin(page, request, { settleMs, stepWaitMs: loginStepMs, ...(loginDeadlineMs ? { deadlineMs: loginDeadlineMs } : {}), ...(loginFormWaitMs ? { formWaitMs: loginFormWaitMs } : {}), onWhy: (w) => void (why = w), ...codes });
             // What the page showed when the login did not work, for the owner to look at. Only the latest is kept, and a login that works removes it.
             const shot = join(profile, "last-login-failure.png");
             if (result === "ok") await rm(shot, { force: true }).catch(() => {});
@@ -332,7 +332,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
 
   const verify = (request: VerifyRequest): Promise<VerifyOutcome> => inTurn(() => check(request));
   return Object.assign(verify, {
-    login: (request: LoginRequest): Promise<LoginOutcome> => inTurn(() => login(request)),
+    login: (request: LoginRequest, codes?: Pick<StepOptions, "awaitCode">): Promise<LoginOutcome> => inTurn(() => login(request, codes)),
     checkPage: (request: CheckPageRequest, timeoutMs = 20_000): Promise<CheckPageOutcome> =>
       inTurn(() => inProfile(request, noPage as CheckPageOutcome, (page, tracker) => inspectPage(page, request, tracker, timeoutMs))),
     capture: (request: CaptureRequest, timeoutMs = 20_000): Promise<CaptureOutcome> =>

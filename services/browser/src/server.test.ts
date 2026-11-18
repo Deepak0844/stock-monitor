@@ -379,3 +379,83 @@ describe("POST /login", () => {
     expect(logs).toEqual(["login failed: TypeError"]);
   });
 });
+
+describe("a login that waits for an emailed code", () => {
+  const good = { loginUrl: "https://shop.acme.example/login", checkUrl: "https://shop.acme.example/account", username: "buyer", password: "pw-test", stealth: false };
+  let login: ReturnType<typeof vi.fn<LoginFn>>;
+  let asked: (string | null)[];
+  let cserver: Server;
+  let cbase: string;
+  const start = async (holdMs?: number) => {
+    cserver = createControlServer({ token: TOKEN, verify, login, log: (line) => logs.push(line), ...(holdMs ? { loginHoldMs: holdMs } : {}) });
+    await new Promise<void>((resolve) => cserver.listen(0, "127.0.0.1", resolve));
+    cbase = `http://127.0.0.1:${(cserver.address() as AddressInfo).port}`;
+  };
+  beforeEach(async () => {
+    asked = [];
+    login = vi.fn<LoginFn>(async (_r, o) => {
+      const code = (await o?.awaitCode?.()) ?? null;
+      asked.push(code);
+      return code === "482913" ? { result: "ok", state } : { result: "code_required" };
+    });
+    await start();
+  });
+  afterEach(async () => {
+    cserver.closeAllConnections();
+    await new Promise<void>((resolve) => cserver.close(() => resolve()));
+  });
+  const post = (path: string, payload?: unknown) =>
+    fetch(`${cbase}${path}`, { method: "POST", headers: { authorization: `Bearer ${TOKEN}` }, ...(payload === undefined ? {} : { body: JSON.stringify(payload) }) });
+
+  it("answers code_needed with a hold, then the code finishes the login and answers its outcome", async () => {
+    const first = await post("/login", { ...good, codeWanted: true });
+    const { result, holdId } = (await first.json()) as { result: string; holdId: string };
+    expect(result).toBe("code_needed");
+    expect(holdId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(login).toHaveBeenCalledWith(good, expect.objectContaining({ awaitCode: expect.any(Function) }));
+    const done = await post(`/login/${holdId}/code`, { code: "482913" });
+    expect(done.status).toBe(200);
+    expect(await done.json()).toEqual({ result: "ok", state });
+    expect(asked).toEqual(["482913"]);
+    expect(logs.join("\n")).not.toContain("482913");
+  });
+
+  it("takes a code once: a second one is 404", async () => {
+    const { holdId } = (await (await post("/login", { ...good, codeWanted: true })).json()) as { holdId: string };
+    await post(`/login/${holdId}/code`, { code: "111111" });
+    expect((await post(`/login/${holdId}/code`, { code: "482913" })).status).toBe(404);
+    expect(asked).toEqual(["111111"]);
+  });
+
+  it("a login that never asks answers its outcome straight away", async () => {
+    login.mockResolvedValue({ result: "ok", state });
+    expect(await (await post("/login", { ...good, codeWanted: true })).json()).toEqual({ result: "ok", state });
+  });
+
+  it("cancel ends the wait with no code", async () => {
+    const { holdId } = (await (await post("/login", { ...good, codeWanted: true })).json()) as { holdId: string };
+    expect((await post(`/login/${holdId}/cancel`)).status).toBe(204);
+    await vi.waitFor(() => expect(asked).toEqual([null]));
+    expect((await post(`/login/${holdId}/cancel`)).status).toBe(404);
+  });
+
+  it("a hold nobody answers ends by itself", async () => {
+    cserver.closeAllConnections();
+    await new Promise<void>((resolve) => cserver.close(() => resolve()));
+    await start(200);
+    const { holdId } = (await (await post("/login", { ...good, codeWanted: true })).json()) as { holdId: string };
+    await vi.waitFor(() => expect(asked).toEqual([null]), { timeout: 2000 });
+    expect((await post(`/login/${holdId}/code`, { code: "482913" })).status).toBe(404);
+  });
+
+  it.each([[{ code: "12" }], [{ code: "12345678901" }], [{ code: "12 34" }], [{}]])("refuses a code body %j", async (payload) => {
+    const { holdId } = (await (await post("/login", { ...good, codeWanted: true })).json()) as { holdId: string };
+    expect((await post(`/login/${holdId}/code`, payload)).status).toBe(400);
+    await post(`/login/${holdId}/cancel`);
+  });
+
+  it("is 404 for an unknown hold, and refuses codeWanted that is not true", async () => {
+    expect((await post("/login/00000000-0000-4000-8000-000000000000/code", { code: "482913" })).status).toBe(404);
+    expect((await post("/login", { ...good, codeWanted: false })).status).toBe(400);
+  });
+});

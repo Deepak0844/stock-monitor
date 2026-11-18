@@ -333,7 +333,7 @@ describe("automatic login", () => {
   const SECRET = "hunter2-very-secret";
   const creds = { username: "buyer@acme.example", password: SECRET };
   const grant = (id: string) => createSupplierRepository(t.appDb).setPermission(id, { status: "granted", note: null });
-  type Full = Supplier & { autoLogin: boolean; stealth: boolean; credentialsSavedAt: string | null; autoLoginPausedReason: string | null; lastAutoLoginAt: string | null; lastAutoLoginResult: string | null; loggedInMarker: string | null };
+  type Full = Supplier & { autoLogin: boolean; stealth: boolean; credentialsSavedAt: string | null; autoLoginPausedReason: string | null; lastAutoLoginAt: string | null; lastAutoLoginResult: string | null; loggedInMarker: string | null; codeEmailFrom: string | null };
   const get = async (id: string) => (await call("GET", `/api/suppliers/${id}`)).body.supplier as Full;
 
   it("saves credentials and never returns, stores in clear or audits the password", async () => {
@@ -436,6 +436,24 @@ describe("automatic login", () => {
     const cleared = await call("PATCH", `/api/suppliers/${s.id}`, { loggedInMarker: null });
     expect(cleared.status).toBe(200);
     expect(cleared.body.supplier).toMatchObject({ loggedInMarker: null });
+  });
+
+  it("saves the code email sender (a domain or an address), returns it, and clears it with null", async () => {
+    const s = await create();
+    expect((await get(s.id)).codeEmailFrom).toBeNull();
+    for (const value of ["login.example.net", "Codes@Example.net"]) {
+      const saved = await call("PATCH", `/api/suppliers/${s.id}`, { codeEmailFrom: `  ${value} ` });
+      expect(saved.status).toBe(200);
+      expect(saved.body.supplier).toMatchObject({ codeEmailFrom: value.toLowerCase() });
+    }
+    const cleared = await call("PATCH", `/api/suppliers/${s.id}`, { codeEmailFrom: null });
+    expect(cleared.body.supplier).toMatchObject({ codeEmailFrom: null });
+  });
+
+  it.each([["not a domain"], ["example"], ["a@b"], [`${"x".repeat(251)}.com`], [7]])("refuses the code email sender %j", async (value) => {
+    const s = await create();
+    expect((await call("PATCH", `/api/suppliers/${s.id}`, { codeEmailFrom: value })).status).toBe(400);
+    expect((await get(s.id)).codeEmailFrom).toBeNull();
   });
 
   it("saves the logged-in marker without the spaces around it, since a page's text is matched without them", async () => {

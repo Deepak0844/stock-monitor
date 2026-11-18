@@ -12,9 +12,11 @@ export type LoginRequest = {
   selectors?: LoginSelectors;
   /** Text that only shows when logged in. Set, a page without it is not logged in. */
   loggedInMarker?: string;
+  /** The caller can read emailed codes: at a code box the login answers code_needed and waits for sendCode. */
+  codeWanted?: true;
 };
-/** `state` is the signed-in session, present only when the result is ok. */
-export type LoginOutcome = { result: LoginResult; state?: SessionState };
+/** `state` is the signed-in session, present only when the result is ok. `code_needed` comes with the hold to send the code to. */
+export type LoginOutcome = { result: LoginResult; state?: SessionState } | { result: "code_needed"; holdId: string };
 /** `not_supported`: the service has no login (it is not in profile mode). */
 export type LoginCallOutcome = { ok: true; outcome: LoginOutcome } | { ok: false; reason: "unavailable" | "failed" | "not_supported" };
 
@@ -53,6 +55,10 @@ export type BrowserClient = {
   capture(request: { url: string; loginUrl?: string; loggedInMarker?: string; state: SessionState; picture?: boolean; stealth?: boolean }): Promise<CaptureOutcome>;
   /** Signs in with a username and password, once, in the supplier's profile. The password goes in the request only, never in an answer or an error. */
   login(request: LoginRequest): Promise<LoginCallOutcome>;
+  /** Sends the emailed code to a login waiting at a code box, and answers how that login ended. */
+  sendCode(holdId: string, code: string): Promise<LoginCallOutcome>;
+  /** Ends a login waiting at a code box with no code. Never throws. */
+  cancelCode(holdId: string): Promise<void>;
   /** Loads a page with a saved session in a throw-away browser and says what it was. */
   verify(request: { url: string; loginUrl?: string; loggedInMarker?: string; state: SessionState; stealth?: boolean }): Promise<VerifyOutcome>;
 };
@@ -65,6 +71,8 @@ export type BrowserClientOptions = {
   pageTimeoutMs?: number;
   /** How long to wait for a login: the service types slowly, waits for a second step and lets the page settle. */
   loginTimeoutMs?: number;
+  /** How long to wait for a login to finish after its emailed code is sent: type, submit, confirm. */
+  codeTimeoutMs?: number;
   fetchImpl?: typeof fetch;
 };
 
@@ -77,8 +85,16 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "obj
  * Talks to the browser service over the private network. It never throws and never puts a token, an
  * address or a session in a message: every problem becomes a short reason the caller turns into plain words.
  */
-export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, pageTimeoutMs = 120_000, loginTimeoutMs = 240_000, fetchImpl = fetch }: BrowserClientOptions): BrowserClient {
+export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, pageTimeoutMs = 120_000, loginTimeoutMs = 240_000, codeTimeoutMs = 150_000, fetchImpl = fetch }: BrowserClientOptions): BrowserClient {
   const root = baseUrl.replace(/\/+$/, "");
+
+  /** A finished login's answer: the result, and the session when it is ok. */
+  const loginAnswer = (r: { status: number; json: unknown }): LoginCallOutcome => {
+    const j = r.json;
+    if (r.status !== 200 || !isObject(j) || typeof j.result !== "string" || !LOGIN_RESULTS.includes(j.result)) return { ok: false, reason: "failed" };
+    const result = j.result as LoginResult;
+    return { ok: true, outcome: { result, ...(result === "ok" && isSessionState(j.state) ? { state: j.state } : {}) } };
+  };
 
   /** The status and JSON body, or null when nothing answered in time. */
   async function call(method: string, path: string, body?: unknown, limit = timeoutMs): Promise<{ status: number; json: unknown } | null> {
@@ -141,10 +157,20 @@ export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, pageTi
       const r = await call("POST", "/login", request, loginTimeoutMs);
       if (!r) return { ok: false, reason: "unavailable" };
       if (r.status === 404) return { ok: false, reason: "not_supported" };
-      const j = r.json;
-      if (r.status !== 200 || !isObject(j) || typeof j.result !== "string" || !LOGIN_RESULTS.includes(j.result)) return { ok: false, reason: "failed" };
-      const result = j.result as LoginResult;
-      return { ok: true, outcome: { result, ...(result === "ok" && isSessionState(j.state) ? { state: j.state } : {}) } };
+      if (r.status === 200 && isObject(r.json) && r.json.result === "code_needed") {
+        return typeof r.json.holdId === "string" ? { ok: true, outcome: { result: "code_needed", holdId: r.json.holdId } } : { ok: false, reason: "failed" };
+      }
+      return loginAnswer(r);
+    },
+
+    async sendCode(holdId, code) {
+      const r = await call("POST", `/login/${encodeURIComponent(holdId)}/code`, { code }, codeTimeoutMs);
+      if (!r) return { ok: false, reason: "unavailable" };
+      return loginAnswer(r);
+    },
+
+    async cancelCode(holdId) {
+      await call("POST", `/login/${encodeURIComponent(holdId)}/cancel`).catch(() => null);
     },
 
     async checkPage({ url, loginUrl, loggedInMarker, state, stealth }) {

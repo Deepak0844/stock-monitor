@@ -80,7 +80,9 @@ function readFields(body: unknown, partial: boolean): { values: SupplierPatch; h
   return { values, hosts };
 }
 
-const AUTO_LOGIN_BODY = ["autoLogin", "stealth", "loginSelectors", "loggedInMarker"];
+const AUTO_LOGIN_BODY = ["autoLogin", "stealth", "loginSelectors", "loggedInMarker", "codeEmailFrom"];
+/** A code email sender: a domain (mail.example.com) or one address (codes@example.com). */
+const SENDER = /^(?:[^@\s]+@)?(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/;
 const NO_CREDENTIALS = () => new AppError(409, "no_credentials", "Save a username and password first.");
 const NOT_GRANTED = () => new AppError(409, "not_granted", "Mark this supplier as allowing automatic checks first.");
 
@@ -159,6 +161,13 @@ export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit
         const trimmed = marker === null ? null : marker.trim();
         if (trimmed !== null && (trimmed.length < 1 || trimmed.length > 200)) throw invalid();
         auto.loggedInMarker = trimmed;
+      }
+      if ("codeEmailFrom" in input) {
+        const sender = input.codeEmailFrom;
+        if (sender !== null && typeof sender !== "string") throw invalid();
+        const clean = sender === null ? null : sender.trim().toLowerCase();
+        if (clean !== null && (clean.length < 3 || clean.length > 254 || !SENDER.test(clean))) throw invalid();
+        auto.codeEmailFrom = clean;
       }
       rest = Object.fromEntries(Object.entries(input).filter(([k]) => !AUTO_LOGIN_BODY.includes(k)));
     }

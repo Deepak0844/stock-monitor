@@ -20,6 +20,7 @@ import { createQueue } from "@stock-monitor/queue";
 import { parseMetafieldName } from "@stock-monitor/shopify";
 import { createLogger, loadConfig } from "@stock-monitor/shared";
 import { registerHandlers } from "./worker.js";
+import { createImapSource } from "./code-reader.js";
 import { createGmailSender } from "./alert-email.js";
 
 const config = loadConfig(process.env);
@@ -29,6 +30,8 @@ function mustParseMetafield(name: string, value: string) {
   return parsed;
 }
 const logger = createLogger({ level: config.logLevel });
+// Emailed login codes are read from the same supplier Gmail the alerts are sent from.
+const codeReader = config.alertEmail ? { codes: { source: createImapSource({ user: config.alertEmail.from, appPassword: config.alertEmail.appPassword }) } } : {};
 if (!config.alertEmail) logger.info("email alerts are off: set ALERT_EMAIL_FROM, ALERT_EMAIL_APP_PASSWORD and ALERT_EMAIL_TO to turn them on");
 const pool = new pg.Pool({ connectionString: config.databaseUrl });
 const queue = createQueue({
@@ -62,6 +65,7 @@ await registerHandlers(queue, logger, {
           audit: createAuditWriter(db),
           browser: createBrowserClient({ baseUrl: config.browserServiceUrl, token: config.browserControlToken }),
           key: config.encryptionKey,
+          ...codeReader,
           // The check after a hand login runs again a check the login problem stopped.
           rerun: { checkRuns: createCheckRunRepository(db), recipes: createRecipeRepository(db), queue },
         }
@@ -80,6 +84,7 @@ await registerHandlers(queue, logger, {
           timezone: config.timezone,
           browser: createBrowserClient({ baseUrl: config.browserServiceUrl, token: config.browserControlToken }),
           key: config.encryptionKey,
+          ...codeReader,
         }
       : undefined,
   // Page captures for stock rules need the same browser service.
@@ -111,6 +116,7 @@ await registerHandlers(queue, logger, {
           timezone: config.timezone,
           browser: createBrowserClient({ baseUrl: config.browserServiceUrl, token: config.browserControlToken }),
           key: config.encryptionKey,
+          ...codeReader,
         }
       : undefined,
   // Automatic checks start the supplier runs above, so they need the same browser service.
@@ -156,6 +162,7 @@ await registerHandlers(queue, logger, {
           audit: createAuditWriter(db),
           browser: createBrowserClient({ baseUrl: config.browserServiceUrl, token: config.browserControlToken }),
           key: config.encryptionKey,
+          ...codeReader,
         }
       : undefined,
 });
