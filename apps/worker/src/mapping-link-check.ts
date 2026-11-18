@@ -6,12 +6,14 @@ import type {
 } from "@stock-monitor/db";
 import { decideLinkStatus, isSupplierWide, whyNotChecked, type CheckGateReason, type LinkState, type LinkStatus, type Observation } from "@stock-monitor/mapping";
 import { unsealSessionState } from "@stock-monitor/supplier-session";
-import { ensureLoggedIn, loginCheckUrl } from "./auto-login.js";
+import { ensureLoggedIn, loginCheckUrl, type AutoLoginDeps } from "./auto-login.js";
 import type { StopReason } from "./extraction-check.js";
 import { saveRefreshedSession } from "./session-refresh.js";
 import { raiseNeedsAttention } from "./supplier-verify.js";
 
 export type LinkCheckDeps = {
+  /** Reads emailed login codes for automatic login. */
+  codes?: AutoLoginDeps["codes"];
   mappings: ReturnType<typeof createMappingRepository>;
   suppliers: ReturnType<typeof createSupplierRepository>;
   supplierSessions: ReturnType<typeof createSupplierSessionRepository>;

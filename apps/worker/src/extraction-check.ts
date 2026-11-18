@@ -10,11 +10,13 @@ import { decideLinkStatus, isSupplierWide, whyNotChecked, type CheckGateReason, 
 import { unsealSessionState } from "@stock-monitor/supplier-session";
 import { saveRefreshedSession } from "./session-refresh.js";
 import { backoffMs, nextCheckAt } from "@stock-monitor/scheduling";
-import { ensureLoggedIn, loginCheckUrl } from "./auto-login.js";
+import { ensureLoggedIn, loginCheckUrl, type AutoLoginDeps } from "./auto-login.js";
 import { toState } from "./mapping-link-check.js";
 import { raiseNeedsAttention } from "./supplier-verify.js";
 
 export type StockCheckDeps = {
+  /** Reads emailed login codes for automatic login. */
+  codes?: AutoLoginDeps["codes"];
   mappings: ReturnType<typeof createMappingRepository>;
   suppliers: ReturnType<typeof createSupplierRepository>;
   supplierSessions: ReturnType<typeof createSupplierSessionRepository>;

@@ -9,6 +9,7 @@ import { createLogger } from "@stock-monitor/shared";
 import { sealCredentials, sealSessionState, unsealSessionState, type SessionState } from "@stock-monitor/supplier-session";
 import { AUTO_LOGIN_FRESH_MINUTES, createAutoLoginTestHandler, ensureLoggedIn, type AutoLoginDeps, type AutoLoginTestDeps } from "../src/auto-login.js";
 import { stockGate } from "../src/extraction-check.js";
+import type { Mail, MailSource } from "../src/code-reader.js";
 
 let t: TestDb;
 const key = randomBytes(32);
@@ -28,11 +29,19 @@ const credentials = () => createSupplierCredentialsRepository(t.appDb);
 /** A fake browser: only `login` is used. Each call returns the next queued reply. */
 let replies: (LoginCallOutcome | (() => Promise<LoginCallOutcome>))[] = [];
 const calls: LoginRequest[] = [];
+const codeCalls: { holdId: string; code?: string; cancelled?: true }[] = [];
 const browser = {
   async login(r: LoginRequest): Promise<LoginCallOutcome> {
     calls.push(r);
     const next = replies.shift() ?? { ok: true, outcome: { result: "ok", state: NEW } };
     return typeof next === "function" ? next() : next;
+  },
+  async sendCode(holdId: string, code: string): Promise<LoginCallOutcome> {
+    codeCalls.push({ holdId, code });
+    return code === "482913" ? { ok: true, outcome: { result: "ok", state: NEW } } : { ok: true, outcome: { result: "code_required" } };
+  },
+  async cancelCode(holdId: string): Promise<void> {
+    codeCalls.push({ holdId, cancelled: true });
   },
 } as unknown as BrowserClient;
 
@@ -60,6 +69,7 @@ beforeEach(async () => {
   await t.pool.query("truncate suppliers, shopify_variants, audit_events cascade");
   logLines.length = 0;
   calls.length = 0;
+  codeCalls.length = 0;
   replies = [];
   const s = await suppliers().create({ name: "Acme", websiteUrl: "https://shop.acme.example/", loginUrl: "https://shop.acme.example/login", checkIntervalMinutes: 60 });
   if (!s.ok) throw new Error("setup");
@@ -389,5 +399,53 @@ describe("the test login job", () => {
   it("is refused for a supplier that is gone", async () => {
     expect(await createAutoLoginTestHandler(testDeps())({ supplierId: "00000000-0000-4000-8000-000000000000" })).toEqual({ kind: "skipped", reason: "no_supplier" });
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("a supplier that emails a login code", () => {
+  const HOLD = "11111111-2222-4333-8444-555555555555";
+  const needed: LoginCallOutcome = { ok: true, outcome: { result: "code_needed", holdId: HOLD } };
+  const inbox = (mails: Mail[]): MailSource => async () => mails;
+  const fresh = (over: Partial<Mail> = {}): Mail => ({ from: "noreply@acme.example", arrived: new Date(), subject: "Your code", text: "Your verification code is 482913.", ...over });
+  const codes = (source: MailSource) => ({ codes: { source, timeoutMs: 50, pollMs: 10 } });
+
+  it("asks for codes only when it can read them", async () => {
+    await ensureLoggedIn(deps(), await supplier(), opts);
+    expect(calls[0]?.codeWanted).toBeUndefined();
+    await ensureLoggedIn(deps(codes(inbox([]))), await supplier(), opts);
+    expect(calls[1]?.codeWanted).toBe(true);
+  });
+
+  it("reads the code from the supplier's email, sends it, and keeps the login", async () => {
+    replies = [needed];
+    expect(await ensureLoggedIn(deps(codes(inbox([fresh()]))), await supplier(), opts)).toBe("ready");
+    expect(codeCalls).toEqual([{ holdId: HOLD, code: "482913" }]);
+    expect(await stored()).toEqual(NEW);
+    expect(logLines.join("")).toContain("code: found from=acme.example");
+    expect(logLines.join("")).not.toContain("482913");
+  });
+
+  it("with no code in time, ends the wait and stops as code_required", async () => {
+    replies = [needed];
+    expect(await ensureLoggedIn(deps(codes(inbox([]))), await supplier(), opts)).toBe("login_required");
+    expect(codeCalls).toEqual([{ holdId: HOLD, cancelled: true }]);
+    expect((await notice())?.reason).toBe("code_required");
+    expect((await supplier()).autoLoginFailures).toBe(1);
+  });
+
+  it("a code the supplier refuses is code_required", async () => {
+    replies = [needed];
+    expect(await ensureLoggedIn(deps(codes(inbox([fresh({ text: "Your code is 111111" })]))), await supplier(), opts)).toBe("login_required");
+    expect((await notice())?.reason).toBe("code_required");
+  });
+
+  it("uses the supplier's code email sender", async () => {
+    await suppliers().setAutoLogin(id, { codeEmailFrom: "login.example.net" });
+    expect((await supplier()).codeEmailFrom).toBe("login.example.net");
+    replies = [needed];
+    const mail = [fresh({ from: "codes@login.example.net" })];
+    expect(await ensureLoggedIn(deps(codes(inbox(mail))), await supplier(), opts)).toBe("ready");
+    await suppliers().setAutoLogin(id, { codeEmailFrom: null });
+    expect((await supplier()).codeEmailFrom).toBeNull();
   });
 });

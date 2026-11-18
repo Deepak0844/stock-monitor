@@ -35,6 +35,8 @@ export type SupplierRecord = {
   /** Text that only shows when logged in. Set, a page without it counts as logged out. */
   loggedInMarker: string | null;
   autoLoginFailures: number;
+  /** Where login-code emails come from, when not the website's domain. null: the website's domain. */
+  codeEmailFrom: string | null;
   autoLoginPausedReason: "wrong_password" | "account_locked" | "too_many_failures" | null;
   lastAutoLoginAt: Date | null;
   lastAutoLoginResult: string | null;
@@ -190,7 +192,7 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
     /** Changes the automatic login settings. Turning it on needs `granted` permission and saved credentials. */
     async setAutoLogin(
       id: string,
-      patch: { autoLogin?: boolean; stealth?: boolean; loginSelectors?: LoginSelectors | null; loggedInMarker?: string | null },
+      patch: { autoLogin?: boolean; stealth?: boolean; loginSelectors?: LoginSelectors | null; loggedInMarker?: string | null; codeEmailFrom?: string | null },
     ): Promise<SupplierWrite | { ok: false; reason: "not_granted" | "no_credentials" }> {
       const current = await one(id);
       if (!current) return { ok: false, reason: "not_found" };
@@ -206,6 +208,7 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
         ...(patch.stealth !== undefined ? { stealth: patch.stealth } : {}),
         ...(patch.loginSelectors !== undefined ? { loginSelectors: patch.loginSelectors } : {}),
         ...(patch.loggedInMarker !== undefined ? { loggedInMarker: patch.loggedInMarker } : {}),
+        ...(patch.codeEmailFrom !== undefined ? { codeEmailFrom: patch.codeEmailFrom } : {}),
       });
       return row ? { ok: true, supplier: row } : { ok: false, reason: "not_found" };
     },

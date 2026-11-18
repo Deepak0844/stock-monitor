@@ -7,6 +7,7 @@ import { insideWindow } from "@stock-monitor/scheduling";
 import { sealSessionState, unsealCredentials, type SessionState } from "@stock-monitor/supplier-session";
 import type { StopReason } from "./extraction-check.js";
 import type { SessionRefreshDeps } from "./session-refresh.js";
+import { waitForCode, type MailSource } from "./code-reader.js";
 import { raiseNeedsAttention, type AttentionReason } from "./supplier-verify.js";
 
 /** A session checked this recently is used as it is, unless the caller forces a login. */
@@ -18,6 +19,8 @@ export type AutoLoginDeps = SessionRefreshDeps & {
   browser: BrowserClient;
   notifications: ReturnType<typeof createNotificationRepository>;
   now?: () => Date;
+  /** Reads emailed login codes from the supplier Gmail. Without it, a code box stops the login as code_required. */
+  codes?: { source: MailSource; timeoutMs?: number; pollMs?: number };
 };
 
 type Outcome = Parameters<ReturnType<typeof createSupplierRepository>["recordAutoLogin"]>[2];
@@ -62,7 +65,9 @@ export async function ensureLoggedIn(deps: AutoLoginDeps, supplier: SupplierReco
     // Which login is stored now. A login the owner makes while this one runs changes it, and then wins.
     const expectedIv = (await supplierSessions.getSealed(id))?.iv ?? null;
 
-    const call = await deps.browser.login({
+    // Codes from before this login (less 30 s for clocks that differ) belong to an earlier one and are never used.
+    const since = new Date(now().getTime() - 30_000);
+    let call = await deps.browser.login({
       loginUrl: supplier.loginUrl ?? supplier.websiteUrl,
       checkUrl: opts.checkUrl,
       username: credentials.username,
@@ -71,7 +76,25 @@ export async function ensureLoggedIn(deps: AutoLoginDeps, supplier: SupplierReco
       stealth: supplier.stealth,
       selectors: supplier.loginSelectors ?? undefined,
       ...(supplier.loggedInMarker ? { loggedInMarker: supplier.loggedInMarker } : {}),
+      ...(deps.codes ? { codeWanted: true as const } : {}),
     });
+    if (call.ok && call.outcome.result === "code_needed" && deps.codes) {
+      // The login waits at the code box while the code email is read. No code: the wait ends and the login is code_required.
+      const { holdId } = call.outcome;
+      const code = await waitForCode(deps.codes.source, {
+        since,
+        websiteUrl: supplier.websiteUrl,
+        sender: supplier.codeEmailFrom,
+        timeoutMs: deps.codes.timeoutMs ?? 150_000,
+        pollMs: deps.codes.pollMs ?? 5000,
+        log: (line) => logger.info({ supplierId: id }, line),
+      }).catch(() => null);
+      if (code) call = await deps.browser.sendCode(holdId, code);
+      else {
+        await deps.browser.cancelCode(holdId);
+        call = { ok: true, outcome: { result: "code_required" } };
+      }
+    }
     if (!call.ok && call.reason === "not_supported") {
       // The browser service is not in profile mode: the run carries on as it would without automatic login.
       logger.warn({ supplierId: id, reason: call.reason }, "automatic login skipped: the browser service does not log in (VERIFY_MODE is not profile)");
@@ -84,7 +107,8 @@ export async function ensureLoggedIn(deps: AutoLoginDeps, supplier: SupplierReco
       return "unreachable";
     }
 
-    const { result, state } = call.outcome;
+    const outcome = call.outcome.result === "code_needed" ? { result: "unknown" as const } : call.outcome;
+    const { result, state } = outcome;
     if (result === "ok" && state) {
       await saveLogin(deps, id, expectedIv, state);
       await finish("ok", "reset");
