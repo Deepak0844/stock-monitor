@@ -26,6 +26,8 @@ export type SupplierRecord = {
   nextCheckAt: Date | null;
   /** The run an early session check was queued for, so each run gets at most one. */
   sessionPrecheckFor: Date | null;
+  keepAliveMinutes: number | null;
+  keepAliveNextAt: Date | null;
   failureCount: number;
   autoLogin: boolean;
   stealth: boolean;
@@ -242,14 +244,26 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
     setRegion: (id: string, region: string | null) => set(id, { defaultRegion: region }),
 
     /** Sets or turns off automatic checks. Resets the failure count. */
-    setSchedule: (id: string, input: { intervalMinutes: number | null; window: { start: string; end: string } | null; nextCheckAt: Date | null }) =>
+    /** `keepAliveMinutes` left out keeps the keep-alive as it is; given, it also clears the next keep-alive time. */
+    setSchedule: (id: string, input: { intervalMinutes: number | null; window: { start: string; end: string } | null; nextCheckAt: Date | null; keepAliveMinutes?: number | null }) =>
       set(id, {
         scheduleIntervalMinutes: input.intervalMinutes,
         scheduleWindowStart: input.window?.start ?? null,
         scheduleWindowEnd: input.window?.end ?? null,
         nextCheckAt: input.nextCheckAt,
         failureCount: 0,
+        ...(input.keepAliveMinutes !== undefined ? { keepAliveMinutes: input.keepAliveMinutes, keepAliveNextAt: null } : {}),
       }),
+
+    /** When the next keep-alive visit is due. */
+    async setKeepAliveNext(id: string, at: Date): Promise<void> {
+      await set(id, { keepAliveNextAt: at });
+    },
+
+    /** Suppliers with keep-alive turned on. */
+    async keepingAlive(): Promise<SupplierRecord[]> {
+      return (await db.select().from(suppliers).where(sql`${suppliers.keepAliveMinutes} is not null`)) as SupplierRecord[];
+    },
 
     /** The next check time and failure count, written when a run ends. */
     async recordRunEnd(id: string, input: { nextCheckAt: Date; failureCount: number }): Promise<void> {

@@ -354,6 +354,30 @@ describe("a supplier with automatic login", () => {
     expect(logins).toHaveLength(1);
   });
 
+  it("a keep-alive visit that finds the session gone logs in once, forced, and ends ok", async () => {
+    fake.behaviour.verifyResult = "login_required";
+    expect(await verifySupplierSession(deps({ browser: withLogin() }), acme, { keepAlive: true })).toEqual({ kind: "ok" });
+    expect(verifies()).toHaveLength(1);
+    expect(logins).toHaveLength(1);
+    expect(await supplier(acme)).toMatchObject({ sessionStatus: "connected", enabled: true });
+    expect(unsealSessionState((await sessions().getSealed(acme))!, key)).toEqual(NEW);
+    expect(await notes().listOpen()).toEqual([]);
+    expect((await audit()).map((a) => a.details)).toEqual([{ result: "ok", httpStatus: 200, keepAlive: true }]);
+  });
+
+  it("a keep-alive visit whose login fails keeps the notice the login raised", async () => {
+    fake.behaviour.verifyResult = "login_required";
+    answer = { ok: true, outcome: { result: "wrong_password" } as never };
+    expect(await verifySupplierSession(deps({ browser: withLogin() }), acme, { keepAlive: true })).toEqual({ kind: "needs_attention", result: "login_required" });
+    expect(logins).toHaveLength(1);
+    expect((await notes().listOpen()).map((n) => n.reason)).toEqual(["wrong_password"]);
+  });
+
+  it("a keep-alive visit with a working session does not log in", async () => {
+    expect(await verifySupplierSession(deps({ browser: withLogin() }), acme, { keepAlive: true })).toEqual({ kind: "ok" });
+    expect(logins).toHaveLength(0);
+  });
+
   it("does a plain session check when automatic login is paused, or skipped", async () => {
     await t.pool.query("update suppliers set auto_login_paused_reason = 'too_many_failures' where id = $1", [acme]);
     expect(await verifySupplierSession(deps({ browser: withLogin() }), acme, { login: true })).toEqual({ kind: "ok" });
@@ -362,5 +386,48 @@ describe("a supplier with automatic login", () => {
     expect(await verifySupplierSession(deps({ browser: withLogin() }), acme, { login: true })).toEqual({ kind: "ok" });
     expect(logins).toHaveLength(0);
     expect(verifies()).toHaveLength(2);
+  });
+});
+
+describe("a keep-alive visit with hand login", () => {
+  beforeEach(async () => {
+    await suppliers().setPermission(acme, { status: "granted", note: null });
+  });
+
+  it("keeps a working session: it is marked checked and the audit says keep-alive", async () => {
+    expect(await verifySupplierSession(deps(), acme, { keepAlive: true })).toEqual({ kind: "ok" });
+    expect(verifies()).toHaveLength(1);
+    expect((await sessions().facts(acme))!.lastVerifiedAt).not.toBeNull();
+    expect((await audit()).map((a) => a.details)).toEqual([{ result: "ok", httpStatus: 200, keepAlive: true }]);
+  });
+
+  it("raises the usual notice when the supplier logged the session out", async () => {
+    fake.behaviour.verifyResult = "login_required";
+    expect(await verifySupplierSession(deps(), acme, { keepAlive: true })).toEqual({ kind: "needs_attention", result: "login_required" });
+    expect(await supplier(acme)).toMatchObject({ sessionStatus: "needs_reconnect" });
+    expect((await notes().listOpen()).map((n) => n.reason)).toEqual(["login_required"]);
+  });
+
+  it("marks nothing for an unclear page", async () => {
+    fake.behaviour.verifyResult = "unknown";
+    expect(await verifySupplierSession(deps(), acme, { keepAlive: true })).toEqual({ kind: "unclear" });
+    expect(await supplier(acme)).toMatchObject({ sessionStatus: "connected", enabled: true });
+    expect(await notes().listOpen()).toEqual([]);
+  });
+
+  it("does not visit a supplier paused or refused after the visit was queued", async () => {
+    await suppliers().setPermission(acme, { status: "granted", note: null });
+    await suppliers().pause(acme);
+    expect(await verifySupplierSession(deps(), acme, { keepAlive: true })).toEqual({ kind: "skipped", reason: "not_checked" });
+    await suppliers().resume(acme);
+    await suppliers().setPermission(acme, { status: "not_granted", note: null });
+    expect(await verifySupplierSession(deps(), acme, { keepAlive: true })).toEqual({ kind: "skipped", reason: "not_checked" });
+    expect(verifies()).toHaveLength(0);
+  });
+
+  it("the job passes the keep-alive flag through", async () => {
+    fake.behaviour.verifyResult = "unknown";
+    await createSupplierVerifyHandler(deps())({ supplierId: acme, keepAlive: true });
+    expect(await supplier(acme)).toMatchObject({ sessionStatus: "connected" });
   });
 });

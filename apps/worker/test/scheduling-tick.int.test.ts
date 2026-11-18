@@ -253,3 +253,82 @@ describe("the early login check before a run", () => {
     expect(early()).toEqual([]);
   });
 });
+
+describe("keep login alive", () => {
+  const visits = () => enqueued.filter((e) => e.name === "supplier.session.verify");
+  /** Ready, its run 10 hours away (no run, no early check), keep-alive every 30 minutes. */
+  async function keeping(name: string) {
+    const id = await ready(name, -600);
+    await suppliers().setSchedule(id, { intervalMinutes: 1440, window: { start: "07:00", end: "22:00" }, nextCheckAt: new Date(now.getTime() + 600 * MIN), keepAliveMinutes: 30 });
+    return id;
+  }
+
+  it("queues one visit, writes the next visit time first, and does not queue again on the next tick", async () => {
+    const id = await keeping("Acme");
+    await runTick(deps());
+    expect(visits()).toEqual([{ name: "supplier.session.verify", payload: { supplierId: id, keepAlive: true }, options: { retryLimit: 0 } }]);
+    const next = (await suppliers().get(id))!.keepAliveNextAt!;
+    expect(next.getTime()).toBeGreaterThanOrEqual(now.getTime() + 27 * MIN);
+    expect(next.getTime()).toBeLessThanOrEqual(now.getTime() + 33 * MIN);
+    now = new Date(now.getTime() + MIN);
+    await runTick(deps());
+    expect(visits()).toHaveLength(1);
+  });
+
+  it("keeps the next visit time even when the visit cannot be queued", async () => {
+    const id = await keeping("Acme");
+    enqueueFails = true;
+    await runTick(deps());
+    expect((await suppliers().get(id))!.keepAliveNextAt).not.toBeNull();
+  });
+
+  it("does not visit a supplier with keep-alive off", async () => {
+    await ready("Acme", -600);
+    await runTick(deps());
+    expect(visits()).toEqual([]);
+  });
+
+  it("does not visit a paused supplier, one waiting for a new login, or one outside its hours", async () => {
+    const paused = await keeping("Paused");
+    await suppliers().pause(paused);
+    const waiting = await keeping("Waiting");
+    await suppliers().markNeedsAttention(waiting, "needs_reconnect");
+    const night = await keeping("Night");
+    await suppliers().setSchedule(night, { intervalMinutes: 1440, window: { start: "11:00", end: "22:00" }, nextCheckAt: new Date(now.getTime() + 600 * MIN) });
+    await runTick(deps());
+    expect(visits()).toEqual([]);
+  });
+
+  it("does not visit a supplier while a run is checking it", async () => {
+    const id = await keeping("Acme");
+    await runs().start(id, "manual", 1);
+    await runTick(deps());
+    expect(visits()).toEqual([]);
+  });
+
+  it("does not visit a supplier whose early login check was queued on this tick", async () => {
+    const id = await keeping("Acme");
+    await suppliers().setSchedule(id, { intervalMinutes: 1440, window: { start: "07:00", end: "22:00" }, nextCheckAt: new Date(now.getTime() + 90 * MIN) });
+    await runTick(deps());
+    expect(visits()).toEqual([{ name: "supplier.session.verify", payload: { supplierId: id, early: true }, options: { retryLimit: 0 } }]);
+  });
+
+  it("does not visit a supplier whose run is due within 5 minutes: the visit would still hold its browser profile", async () => {
+    const id = await keeping("Acme");
+    await createSupplierCredentialsRepository(t.appDb).save(id, sealCredentials({ username: "u", password: "p" }, key, "v1"));
+    if (!(await suppliers().setAutoLogin(id, { autoLogin: true })).ok) throw new Error("setup");
+    await suppliers().setSchedule(id, { intervalMinutes: 1440, window: { start: "07:00", end: "22:00" }, nextCheckAt: new Date(now.getTime() + 3 * MIN) });
+    await runTick(deps());
+    expect(visits()).toEqual([]);
+    await suppliers().setSchedule(id, { intervalMinutes: 1440, window: { start: "07:00", end: "22:00" }, nextCheckAt: new Date(now.getTime() + 10 * MIN) });
+    await runTick(deps());
+    expect(visits()).toHaveLength(1);
+  });
+
+  it("does not visit a supplier whose run starts on this tick", async () => {
+    const id = await keeping("Acme");
+    await suppliers().setSchedule(id, { intervalMinutes: 1440, window: { start: "07:00", end: "22:00" }, nextCheckAt: new Date(now.getTime() - MIN) });
+    await runTick(deps());
+    expect(enqueued.map((e) => e.name)).toEqual(["extraction.checks"]);
+  });
+});

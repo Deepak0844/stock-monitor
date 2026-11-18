@@ -117,6 +117,28 @@ describe("PUT /api/suppliers/:id/schedule", () => {
     expect((await suppliers().get(acme))?.scheduleIntervalMinutes).toBeNull();
   });
 
+  describe("keep login alive", () => {
+    it("stores the keep-alive, shows it on the supplier, and audits it", async () => {
+      const r = await call("PUT", `/api/suppliers/${acme}/schedule`, { intervalMinutes: 1440, window: day, keepAliveMinutes: 30 });
+      expect(r.status).toBe(200);
+      expect(r.body.supplier).toMatchObject({ keepAliveMinutes: 30, keepAliveNextAt: null });
+      const audit = await t.pool.query("select details from audit_events where action = 'supplier.schedule_set'");
+      expect(audit.rows[0].details).toEqual({ intervalMinutes: 1440, window: day, keepAliveMinutes: 30 });
+    });
+
+    it("leaves it as it is when the body does not say, and turns it off with null", async () => {
+      await call("PUT", `/api/suppliers/${acme}/schedule`, { intervalMinutes: 1440, window: day, keepAliveMinutes: 30 });
+      expect((await call("PUT", `/api/suppliers/${acme}/schedule`, { intervalMinutes: 360, window: day })).body.supplier.keepAliveMinutes).toBe(30);
+      expect((await call("PUT", `/api/suppliers/${acme}/schedule`, { intervalMinutes: 360, window: day, keepAliveMinutes: null })).body.supplier.keepAliveMinutes).toBeNull();
+    });
+
+    it.each([[20], ["30"], [true]])("refuses %j", async (keepAliveMinutes) => {
+      const r = await call("PUT", `/api/suppliers/${acme}/schedule`, { intervalMinutes: 60, window: null, keepAliveMinutes });
+      expect(r.status).toBe(400);
+      expect((await suppliers().get(acme))?.keepAliveMinutes).toBeNull();
+    });
+  });
+
   it("says plainly when the supplier does not exist", async () => {
     expect((await call("PUT", "/api/suppliers/00000000-0000-4000-8000-000000000000/schedule", { intervalMinutes: 60, window: null })).status).toBe(404);
   });

@@ -305,6 +305,15 @@ Open **Suppliers**, choose **Edit** on a supplier and find **Automatic checks**:
 
 Each run is the same as **Check all stock**: one page at a time, with the supplier's pause between pages. The next check is set one interval after the last one ended, plus a small random spread (up to 10%) so suppliers are not all visited together.
 
+### Keep login alive
+
+Some suppliers log you out after about an hour with nothing happening. **Keep login alive** (on the same card: Off, or every 15, 30, 45 or 60 minutes, or every 2 hours) visits the supplier with your saved login that often, so it does not time out. It is off by default, and it works with or without automatic checks turned on. Each visit is one page, the same as **Check login**; any other check or run also counts as a visit.
+
+- It only visits **inside the hours above** (all day when **Any time of day** is ticked). So a supplier that logs you out when idle will still do so overnight, and needs one login each morning.
+- It never visits a supplier that is paused, not allowed, or waiting for you to log in again, and never while a run is checking it.
+- If a visit finds you logged out: with **Automatic login** on, the app logs in again by itself. Otherwise you get the usual "log in again" message on the Dashboard. A page it cannot read clearly changes nothing.
+- A visit that cannot reach the supplier is not retried at once: the next one is one interval later.
+
 ### When a supplier is not checked
 
 A supplier is only checked automatically when it is connected, running (not paused), recorded as allowed, and has stock rules turned on. When it is not, the Suppliers list says why ("Not being checked. This supplier is paused...") and its next check is not moved: it is picked up again as soon as it is ready. At most 2 suppliers are checked at the same time.

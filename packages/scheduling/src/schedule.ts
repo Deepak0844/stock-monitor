@@ -90,3 +90,27 @@ export function needsSessionPrecheck(
   if (lastVerifiedAt && lastVerifiedAt.getTime() >= leadStart) return false;
   return precheckFor?.getTime() !== nextCheckAt.getTime();
 }
+
+/** Keep-alive choices in minutes. Off is null. */
+export const KEEP_ALIVE_CHOICES = [15, 30, 45, 60, 120] as const;
+
+/**
+ * Whether to visit the supplier now to keep its login alive, and when the visit after that is due.
+ * Never outside the window. Any good check (a run, an early check, a visit) counts as the last visit.
+ */
+export function keepAliveDue(i: {
+  now: Date;
+  minutes: number;
+  nextAt: Date | null;
+  lastVerifiedAt: Date | null;
+  window: Window;
+  timeZone: string;
+  rand?: () => number;
+}): { due: boolean; nextAt: Date } {
+  const { now, minutes, nextAt, lastVerifiedAt, window, timeZone, rand = Math.random } = i;
+  const after = (from: Date) => new Date(from.getTime() + minutes * (1 + rand() * 2 * SPREAD - SPREAD) * MINUTE);
+  if (!insideWindow(now, window, timeZone)) return { due: false, nextAt: nextAt ?? now };
+  if (nextAt && nextAt > now) return { due: false, nextAt };
+  if (lastVerifiedAt && now.getTime() - lastVerifiedAt.getTime() < minutes * MINUTE) return { due: false, nextAt: after(lastVerifiedAt) };
+  return { due: true, nextAt: after(now) };
+}

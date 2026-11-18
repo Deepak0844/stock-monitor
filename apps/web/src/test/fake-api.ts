@@ -82,6 +82,7 @@ export const aSupplier = (over: Partial<Supplier> = {}): Supplier => ({
   scheduleIntervalMinutes: null,
   scheduleWindowStart: null,
   scheduleWindowEnd: null,
+  keepAliveMinutes: null,
   nextCheckAt: null,
   enabled: true,
   sessionStatus: "not_connected",
@@ -256,7 +257,7 @@ export function fakeApi(
     },
     schedule: {
       overview: vi.fn().mockResolvedValue([]),
-      set: vi.fn().mockImplementation(async (_id, input) => aSupplier({ scheduleIntervalMinutes: input.intervalMinutes, scheduleWindowStart: input.window?.start ?? null, scheduleWindowEnd: input.window?.end ?? null })),
+      set: vi.fn().mockImplementation(async (_id, input) => aSupplier({ scheduleIntervalMinutes: input.intervalMinutes, scheduleWindowStart: input.window?.start ?? null, scheduleWindowEnd: input.window?.end ?? null, keepAliveMinutes: input.keepAliveMinutes })),
       runs: vi.fn().mockResolvedValue([]),
       ...schedule,
     },
