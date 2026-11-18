@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { randomBytes } from "node:crypto";
 import { Writable } from "node:stream";
 import { startTestDb, type TestDb } from "@stock-monitor/db/test-harness";
-import { createMappingRepository, createNotificationRepository, createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
+import { createCheckRunRepository, createMappingRepository, createNotificationRepository, createRecipeRepository, createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
 import { createAuditWriter } from "@stock-monitor/audit";
 import { createBrowserClient, type BrowserClient, type LoginCallOutcome, type LoginRequest } from "@stock-monitor/browser-client";
 import { createFakeBrowserService, FAKE_CONTROL_TOKEN, type FakeBrowserService } from "@stock-monitor/browser-client/testing";
@@ -429,5 +429,88 @@ describe("a keep-alive visit with hand login", () => {
     fake.behaviour.verifyResult = "unknown";
     await createSupplierVerifyHandler(deps())({ supplierId: acme, keepAlive: true });
     expect(await supplier(acme)).toMatchObject({ sessionStatus: "connected" });
+  });
+});
+
+describe("the check after a hand login", () => {
+  const runs = () => createCheckRunRepository(t.appDb);
+  let queued: { name: string; payload: unknown; options?: unknown }[] = [];
+  const rerunDeps = () => deps({ rerun: { checkRuns: runs(), recipes: createRecipeRepository(t.appDb), queue: { enqueue: async (name: string, payload: unknown, options?: unknown) => void queued.push({ name, payload, options }) } as never } });
+  const NOW = Date.now();
+  const H = 3600_000;
+  const auditRerun = async () => (await t.pool.query("select details from audit_events where action = 'supplier.rerun_queued'")).rows.map((r) => r.details);
+
+  beforeEach(async () => {
+    queued = [];
+    await suppliers().setPermission(acme, { status: "granted", note: null });
+    const recipe = await createRecipeRepository(t.appDb).create(acme, { pageChecks: [{ type: "text", text: "Tee" }], inStock: [], outOfStock: [] });
+    await createRecipeRepository(t.appDb).activate(recipe.id);
+    await t.pool.query("insert into shopify_variants (variant_id, product_id, product_title, variant_title, options, sku, inventory_item_id, tracked, inventory_policy) values ('v1', 'p1', 'Tee', 'v1', '[]', 'v1', 'v1', true, 'DENY') on conflict do nothing");
+    await createMappingRepository(t.appDb).create({ variantId: "v1", supplierId: acme, url: "https://shop.acme.example/p", note: null });
+  });
+  const stoppedRun = async (outcome: "stopped" | "finished", reason: string | null) => {
+    const run = (await runs().start(acme, "manual", 1))!;
+    await runs().end(run.id, outcome, reason);
+  };
+
+  it("moves the next check to now when automatic checks are on and the last run stopped for a puzzle", async () => {
+    await suppliers().setSchedule(acme, { intervalMinutes: 1440, window: null, nextCheckAt: new Date(NOW + 3 * H) });
+    await stoppedRun("stopped", "captcha");
+    expect(await verifySupplierSession(rerunDeps(), acme, { afterLogin: true })).toEqual({ kind: "ok" });
+    expect((await supplier(acme)).nextCheckAt!.getTime()).toBeLessThanOrEqual(Date.now());
+    expect(queued).toEqual([]);
+    expect(await auditRerun()).toEqual([{ how: "schedule" }]);
+  });
+
+  it("starts a run at once when automatic checks are off", async () => {
+    await stoppedRun("stopped", "login_required");
+    await verifySupplierSession(rerunDeps(), acme, { afterLogin: true });
+    const run = await runs().current(acme);
+    expect(run).toMatchObject({ trigger: "manual", outcome: "running", linksTotal: 1 });
+    expect(queued).toEqual([{ name: "extraction.checks", payload: { supplierId: acme, runId: run!.id }, options: expect.objectContaining({ retryLimit: 0 }) }]);
+    expect(await auditRerun()).toEqual([{ how: "started", runId: run!.id }]);
+  });
+
+  it.each([["finished", null], ["stopped", "unreachable"]] as const)("does nothing when the last run was %s %s", async (outcome, reason) => {
+    await stoppedRun(outcome, reason);
+    await verifySupplierSession(rerunDeps(), acme, { afterLogin: true });
+    expect(await runs().current(acme)).toBeNull();
+    expect(queued).toEqual([]);
+  });
+
+  it("does not start a second run while one is going", async () => {
+    await stoppedRun("stopped", "blocked");
+    const going = (await runs().start(acme, "manual", 1))!;
+    await verifySupplierSession(rerunDeps(), acme, { afterLogin: true });
+    expect((await runs().current(acme))!.id).toBe(going.id);
+    expect(queued).toEqual([]);
+  });
+
+  it("does not start a run the stock gate refuses (no stock rules)", async () => {
+    await stoppedRun("stopped", "login_required");
+    await t.pool.query("update stock_recipes set active = false where supplier_id = $1", [acme]);
+    await verifySupplierSession(rerunDeps(), acme, { afterLogin: true });
+    expect(await runs().current(acme)).toBeNull();
+    expect(queued).toEqual([]);
+  });
+
+  it("does not re-run when the check still finds a login page", async () => {
+    await stoppedRun("stopped", "login_required");
+    fake.behaviour.verifyResult = "login_required";
+    await verifySupplierSession(rerunDeps(), acme, { afterLogin: true });
+    expect(await runs().current(acme)).toBeNull();
+  });
+
+  it("an ordinary check never re-runs", async () => {
+    await stoppedRun("stopped", "login_required");
+    await verifySupplierSession(rerunDeps(), acme);
+    expect(await runs().current(acme)).toBeNull();
+    expect(queued).toEqual([]);
+  });
+
+  it("the job passes the after-login flag through", async () => {
+    await stoppedRun("stopped", "login_required");
+    await createSupplierVerifyHandler(rerunDeps())({ supplierId: acme, afterLogin: true });
+    expect(await runs().current(acme)).not.toBeNull();
   });
 });

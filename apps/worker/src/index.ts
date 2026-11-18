@@ -62,6 +62,8 @@ await registerHandlers(queue, logger, {
           audit: createAuditWriter(db),
           browser: createBrowserClient({ baseUrl: config.browserServiceUrl, token: config.browserControlToken }),
           key: config.encryptionKey,
+          // The check after a hand login runs again a check the login problem stopped.
+          rerun: { checkRuns: createCheckRunRepository(db), recipes: createRecipeRepository(db), queue },
         }
       : undefined,
   // "Test login now": one automatic login through the same browser service.

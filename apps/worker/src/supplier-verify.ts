@@ -1,13 +1,16 @@
 import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
 import type { BrowserClient } from "@stock-monitor/browser-client";
+import type { Queue } from "@stock-monitor/queue";
+import { runExpirySeconds } from "@stock-monitor/scheduling";
 import type {
-  createMappingRepository, createNotificationRepository, createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository, NotificationReason,
+  createCheckRunRepository, createRecipeRepository, createMappingRepository, createNotificationRepository, createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository, NotificationReason,
 } from "@stock-monitor/db";
 import { whyNotChecked } from "@stock-monitor/mapping";
 import { unsealSessionState, type PageClass, type SessionState } from "@stock-monitor/supplier-session";
 import { ensureLoggedIn, loginCheckUrl } from "./auto-login.js";
 import { saveRefreshedSession } from "./session-refresh.js";
+import { stockGate } from "./extraction-check.js";
 
 export type SupplierVerifyDeps = {
   suppliers: ReturnType<typeof createSupplierRepository>;
@@ -23,6 +26,8 @@ export type SupplierVerifyDeps = {
   logger: Logger;
   /** How long to wait before each retry when the supplier cannot be reached. */
   retryDelaysMs?: number[];
+  /** For the re-run after a hand login. Without it, the check after a hand login only checks. */
+  rerun?: { checkRuns: ReturnType<typeof createCheckRunRepository>; recipes: ReturnType<typeof createRecipeRepository>; queue: Pick<Queue, "enqueue"> };
   sleep?: (ms: number) => Promise<void>;
 };
 
@@ -86,7 +91,7 @@ export async function raiseNeedsAttention(
  * what the page was. A supplier that cannot be reached is tried again before anything is decided, and an
  * unreachable supplier alone never marks a session broken.
  */
-export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId: string, options: { early?: boolean; login?: boolean; keepAlive?: boolean } = {}): Promise<CheckOutcome> {
+export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId: string, options: { early?: boolean; login?: boolean; keepAlive?: boolean; afterLogin?: boolean } = {}): Promise<CheckOutcome> {
   const { suppliers, supplierSessions, notifications, audit, browser, logger } = deps;
   const supplier = await suppliers.get(supplierId);
   if (!supplier) return { kind: "skipped", reason: "no_supplier" };
@@ -161,6 +166,7 @@ export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId
       if ((await saveRefreshedSession(deps, supplierId, { sealed, state }, fresh)) === "none") await supplierSessions.markVerified(supplierId);
       await notifications.resolve("supplier_needs_reconnect", supplierId);
       await record("ok");
+      if (options.afterLogin && deps.rerun) await rerunAfterLogin(deps, deps.rerun, supplierId);
       return { kind: "ok" };
     case "unreachable":
       await suppliers.touchChecked(supplierId);
@@ -185,13 +191,49 @@ export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId
   }
 }
 
+/** A run only ever stops for a login with one of these. A failed automatic login maps to one of them. */
+const LOGIN_STOPS = new Set(["login_required", "captcha", "blocked"]);
+
+/**
+ * After a hand login that proved good: runs again a check the login problem stopped. With automatic checks on, the next
+ * check moves to now and the tick starts it (its window and the 2-at-once limit apply). With them off, the run starts here,
+ * the same way Check all stock starts one.
+ */
+async function rerunAfterLogin(deps: SupplierVerifyDeps, rerun: NonNullable<SupplierVerifyDeps["rerun"]>, supplierId: string): Promise<void> {
+  const last = (await rerun.checkRuns.recent(supplierId, 2)).find((r) => r.endedAt);
+  if (!last || last.outcome !== "stopped" || !LOGIN_STOPS.has(last.stopReason ?? "")) return;
+  const gated = await stockGate({ suppliers: deps.suppliers, supplierSessions: deps.supplierSessions, recipes: rerun.recipes }, supplierId);
+  if ("reason" in gated) return;
+  const { supplier } = gated;
+  const audit = (details: Record<string, unknown>) => deps.audit.record({ action: "supplier.rerun_queued", entityType: "supplier", entityId: supplierId, details });
+  if (supplier.scheduleIntervalMinutes) {
+    const now = new Date();
+    if (supplier.nextCheckAt && supplier.nextCheckAt <= now) return; // already due: the tick starts it
+    await deps.suppliers.recordRunEnd(supplierId, { nextCheckAt: now, failureCount: supplier.failureCount });
+    await audit({ how: "schedule" });
+    return;
+  }
+  const links = (await deps.mappings.forSupplier(supplierId)).filter((m) => m.enabled).length;
+  if (links === 0) return;
+  const run = await rerun.checkRuns.start(supplierId, "manual", links);
+  if (!run) return; // a run is already going
+  try {
+    await rerun.queue.enqueue("extraction.checks", { supplierId, runId: run.id }, { expireInSeconds: runExpirySeconds(links, supplier.checkPauseSeconds), retryLimit: 0 });
+  } catch {
+    await rerun.checkRuns.end(run.id, "failed", "not_queued");
+    deps.logger.warn({ supplierId }, "the run after a hand login could not be queued");
+    return;
+  }
+  await audit({ how: "started", runId: run.id });
+}
+
 /**
  * The `supplier.session.verify` job. The payload is the supplier's id, `early` for the check the scheduler queues before
  * a run, `login` for the owner's "Check login" button, and `keepAlive` for the visit that keeps an idle login from timing out.
  */
 export function createSupplierVerifyHandler(deps: SupplierVerifyDeps) {
-  return async function handleSupplierVerify(payload: { supplierId: string; early?: true; login?: true; keepAlive?: true }): Promise<void> {
-    const outcome = await verifySupplierSession(deps, payload.supplierId, { early: payload.early === true, login: payload.login === true, keepAlive: payload.keepAlive === true });
+  return async function handleSupplierVerify(payload: { supplierId: string; early?: true; login?: true; keepAlive?: true; afterLogin?: true }): Promise<void> {
+    const outcome = await verifySupplierSession(deps, payload.supplierId, { early: payload.early === true, login: payload.login === true, keepAlive: payload.keepAlive === true, afterLogin: payload.afterLogin === true });
     deps.logger.info({ supplierId: payload.supplierId, outcome: outcome.kind, ...(outcome.kind === "needs_attention" && { result: outcome.result }) }, "session check finished");
   };
 }
