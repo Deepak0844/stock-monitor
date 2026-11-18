@@ -21,12 +21,18 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 describe("opening a login window", () => {
+  it("passes the stealth wish on to the window", async () => {
+    const openWindow = vi.fn(async () => fakeWindow());
+    await createSessions({ openWindow }).open("https://a.example/", { stealth: true });
+    expect(openWindow).toHaveBeenCalledWith("https://a.example/", { stealth: true });
+  });
+
   it("opens a window at the address and hands back an id and when it will expire", async () => {
     const win = fakeWindow();
     const openWindow = vi.fn(async () => win);
     const sessions = createSessions({ openWindow, timeoutMs: 60_000 });
     const r = await sessions.open("https://shop.acme.example/login");
-    expect(openWindow).toHaveBeenCalledWith("https://shop.acme.example/login");
+    expect(openWindow).toHaveBeenCalledWith("https://shop.acme.example/login", {});
     expect(r).toEqual({ ok: true, id: expect.stringMatching(/^[0-9a-f-]{36}$/), expiresAt: new Date(Date.now() + 60_000).toISOString() });
   });
 

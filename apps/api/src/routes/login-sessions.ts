@@ -96,7 +96,7 @@ export function registerLoginSessionRoutes(app: App, deps: LoginSessionRoutesDep
     if (!created.ok) throw LOGIN_OPEN();
     const attempt = created.session;
 
-    const opened = await browser.openSession(supplier.loginUrl ?? supplier.websiteUrl);
+    const opened = await browser.openSession(supplier.loginUrl ?? supplier.websiteUrl, { stealth: supplier.stealth });
     if (!opened.ok) {
       const failure = START_FAILURES[opened.reason];
       await failAttempt(request, attempt, failure.reason);

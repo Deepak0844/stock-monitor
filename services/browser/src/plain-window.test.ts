@@ -34,6 +34,18 @@ describe("plainLaunchArgs", () => {
     expect(args).toContain("--proxy-bypass-list=<-loopback>");
   });
 
+  it("loads no extension and no software WebGL unless a disguise is asked for", () => {
+    expect(plainLaunchArgs(options).some((a) => a.includes("extension") || a.includes("swiftshader"))).toBe(false);
+  });
+
+  it("loads only the disguise extension when one is given", () => {
+    const args = plainLaunchArgs({ ...options, extension: "/tmp/d" });
+    expect(args).toContain("--load-extension=/tmp/d");
+    expect(args).toContain("--disable-extensions-except=/tmp/d");
+    expect(args).toContain("--enable-unsafe-swiftshader"); // there is no WebGL to disguise without it
+    expect(args.at(-1)).toBe("https://shop.acme.example/login");
+  });
+
   it("opens no debugging channel, because any open channel makes the browser tell every page it is automated", () => {
     const args = plainLaunchArgs(options).join(" ");
     expect(args).not.toContain("--remote-debugging");

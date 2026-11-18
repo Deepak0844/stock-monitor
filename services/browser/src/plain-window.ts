@@ -9,6 +9,7 @@ import type { SessionState } from "@stock-monitor/supplier-session";
 import { readCookies } from "./chromium-cookies.js";
 import { cookieHash, holdProfile, profileDirFor, releaseProfile } from "./profile-store.js";
 import type { GuardProxy } from "./proxy.js";
+import { chromeVersion, writeDisguise } from "./disguise.js";
 import type { LiveWindow } from "./sessions.js";
 
 /** The window, plus (only in tests) the page, so a test can type into it. */
@@ -25,6 +26,7 @@ export type PlainWindowOptions = {
   /** Test only: attach to the browser straight away so a test can type into it. A person's window is never attached early. */
   exposePage?: boolean;
   startupTimeoutMs?: number;
+  log?: (line: string) => void;
 };
 
 const SCREEN = { width: 1280, height: 800 }; // the virtual screen in the container
@@ -44,6 +46,8 @@ export function plainLaunchArgs(o: {
   debuggable?: boolean;
   /** A kept profile would grow without limit in memory, so its cache is capped. */
   smallCache?: boolean;
+  /** The disguise extension's folder, for a stealth supplier's window (see disguise.ts). */
+  extension?: string;
 }): string[] {
   return [
     `--user-data-dir=${o.profile}`,
@@ -55,6 +59,8 @@ export function plainLaunchArgs(o: {
     "--password-store=basic",
     "--disable-dev-shm-usage",
     ...(o.smallCache ? ["--disk-cache-size=33554432"] : []),
+    // Without SwiftShader this Chromium has no WebGL at all, which is a tell of its own. The disguise renames it.
+    ...(o.extension ? [`--load-extension=${o.extension}`, `--disable-extensions-except=${o.extension}`, "--enable-unsafe-swiftshader"] : []),
     "--window-position=0,0",
     `--window-size=${SCREEN.width},${SCREEN.height}`,
     ...(o.headless ? ["--headless=new"] : []),
@@ -159,8 +165,9 @@ export function createPlainWindowOpener({
   persistent,
   exposePage = false,
   startupTimeoutMs = 20_000,
-}: PlainWindowOptions): (url: string) => Promise<PlainOpenedWindow> {
-  return async (url) => {
+  log,
+}: PlainWindowOptions): (url: string, options?: { stealth?: boolean }) => Promise<PlainOpenedWindow> {
+  return async (url, { stealth = false } = {}) => {
     if (process.platform !== "linux") throw new Error("The plain login window needs Linux.");
     const id = randomUUID();
     const tracker = proxy.track(id);
@@ -183,6 +190,7 @@ export function createPlainWindowOpener({
     let requested = false;
     let onClosed: (() => void) | null = null;
     let early: Browser | null = null;
+    let extension: string | null = null;
 
     const cleanup = async () => {
       requested = true;
@@ -192,10 +200,20 @@ export function createPlainWindowOpener({
       await listener.close().catch(() => {});
       if (persistent) releaseProfile(profile); // the profile stays, with its history, for the next login or check
       else await rm(profile, { recursive: true, force: true }); // takes the profile and everything in it
+      if (extension) await rm(extension, { recursive: true, force: true });
     };
 
     try {
       await seedProfile(profile, language);
+      if (stealth) {
+        const version = await chromeVersion(chromium.executablePath());
+        if (version) {
+          extension = await mkdtemp(join(tmpdir(), "sm-disguise-"));
+          await writeDisguise(extension, version);
+        } else {
+          log?.("disguise skipped: unknown browser version");
+        }
+      }
       child = spawn(
         chromium.executablePath(),
         plainLaunchArgs({
@@ -206,6 +224,7 @@ export function createPlainWindowOpener({
           sandbox,
           smallCache: persistent !== undefined,
           debuggable: exposePage,
+          ...(extension ? { extension } : {}),
         }),
         { stdio: "ignore", detached: true },
       );

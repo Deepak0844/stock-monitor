@@ -223,7 +223,7 @@ export function AutoLoginCard({ api, supplier, onChange }: { api: Api; supplier:
         <div className="flex flex-col gap-1">
           <h3 className="text-sm font-semibold">Hide automation (stealth)</h3>
           <p id="stealth-hint" className="text-sm text-muted-foreground">
-            Only for suppliers that refuse the normal login. The browser hides the signs that a program is driving it, for the login and for every visit to this supplier. Some suppliers’ terms forbid automated access, so using this is your call.
+            Only for suppliers that refuse the normal login. The browser hides the signs that a program is driving it, for the login and for every visit to this supplier. It also gives the live login window an ordinary graphics card and Chrome name. Some suppliers’ terms forbid automated access, so using this is your call.
           </p>
           {!granted && <p className="text-sm font-medium">Needs “Allows automatic checks” to be Yes.</p>}
         </div>

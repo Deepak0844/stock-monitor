@@ -88,12 +88,13 @@ export async function startBrowserService(options: BrowserServiceOptions): Promi
   };
   const openWindow =
     options.loginWindowMode === "plain"
-      ? createPlainWindowOpener({ ...plainOptions, exposePage: options.exposePageForTests })
+      ? createPlainWindowOpener({ ...plainOptions, exposePage: options.exposePageForTests, log: options.log })
       : createWindowOpener(windowOptions);
   const sessions = createSessions({
     timeoutMs: options.sessionTimeoutMs,
-    openWindow: async (url) => {
-      const window = await openWindow(url);
+    openWindow: async (url, { stealth }) => {
+      if (stealth && options.loginWindowMode !== "plain") options.log?.("stealth ignored: the live window needs LOGIN_WINDOW_MODE=plain");
+      const window = await openWindow(url, { stealth });
       open = window;
       window.onClosed(() => void (open = open === window ? null : open));
       return window;

@@ -121,6 +121,13 @@ describe("starting a login", () => {
     expect(fake.requests[0]).toMatchObject({ method: "POST", path: "/sessions", auth: `Bearer ${FAKE_CONTROL_TOKEN}`, body: { url: "https://shop.acme.example/login" } });
   });
 
+  it("asks for a stealth window when the supplier has stealth on", async () => {
+    await supplierRepo().setPermission(acme, { status: "granted", note: null });
+    expect(await supplierRepo().setAutoLogin(acme, { stealth: true })).toMatchObject({ ok: true });
+    await start();
+    expect(fake.requests[0]?.body).toEqual({ url: "https://shop.acme.example/login", stealth: true });
+  });
+
   it("falls back to the website address when there is no login address", async () => {
     await start(globex);
     expect(fake.requests[0]?.body).toEqual({ url: "https://globex.example/" });
