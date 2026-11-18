@@ -54,6 +54,7 @@ const AFTER: Record<string, string | null> = {
   dropweird: null,
   dropalways: null,
   droppassalways: null,
+  dropaftercl: null,
   token: null,
   frame: null,
   banner: null,
@@ -184,6 +185,9 @@ function startSite(): Promise<Server> {
       // A box that always loses characters: nothing may be sent.
       case "dropalways":
         return html(page(userAndPasswordForm("dropalways") + drop("username", "(window.n=(window.n||0)+1)%3==0")));
+      // Keys typed within 0.8 s of the box being emptied are lost, as on a window still settling: the box needs a moment.
+      case "dropaftercl":
+        return html(page(userAndPasswordForm("dropaftercl") + `<script>const u=document.querySelector("[name=username]");let at=Date.now();u.addEventListener("input",()=>{if(u.value==="")at=Date.now()});u.addEventListener("keydown",(e)=>{if(Date.now()-at<800)e.preventDefault()},true)</script>`));
       case "droppassalways":
         return html(page(userAndPasswordForm("droppassalways") + drop("password", "(window.n=(window.n||0)+1)%3==0")));
       // The login posts to another site only: not the supplier's answer.
@@ -506,7 +510,7 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     expect((await checker((line) => lines.push(line)).login(ask("maxbox"))).result).toBe("unknown");
     expect(posts.maxbox.length).toBe(0);
     // Lengths and yes/no flags only: never the typed text nor the box's content.
-    expect(lines.some((l) => l.startsWith("login result: unknown (username_not_typed typed=18 box=5 samecase=false maxlength=5 "))).toBe(true);
+    expect(lines.some((l) => l.startsWith("login result: unknown (username_not_typed typed=18 box=5 firstdiff=5 samecase=false maxlength=5 "))).toBe(true);
     expect(lines.join("\n")).not.toContain(USER);
   });
   it("a page that never shows a box: form_not_found after the wait, nothing sent, and the log says why", async () => {
@@ -613,6 +617,11 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
     posts.dropuser = [];
     expect((await checker().login(ask("dropuser"))).result).toBe("ok");
     expect(posts.dropuser.map((b) => [b.get("username"), b.get("password")])).toEqual([[USER, PASSWORD]]);
+  });
+  it("a username box that loses keys typed just after it is cleared is given a moment, then typed again", async () => {
+    posts.dropaftercl = [];
+    expect((await checker().login(ask("dropaftercl"))).result).toBe("ok");
+    expect(posts.dropaftercl.map((b) => [b.get("username"), b.get("password")])).toEqual([[USER, PASSWORD]]);
   });
   it("a password box that loses its first keystrokes is typed again, never sent short", async () => {
     posts.droppass = [];
