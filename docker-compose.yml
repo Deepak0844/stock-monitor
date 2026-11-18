@@ -111,6 +111,8 @@ services:
       VERIFY_MODE: ${VERIFY_MODE:-headless}
       # SPIKE: `persistent` keeps one login-window profile per supplier site while the container runs (needs LOGIN_WINDOW_MODE=plain).
       LOGIN_PROFILE: ${LOGIN_PROFILE:-fresh}
+      # Kept profiles live on the browser-profiles volume, so suppliers see the same browser after a restart or a redeploy.
+      PROFILE_DIR: /data/profiles
       # Your real timezone and browser language (for example Asia/Kolkata and en-IN), so the login window does not report UTC from
       # an Indian address. Blank keeps UTC and the browser's own default.
       TZ: ${BROWSER_TIMEZONE:-UTC}
@@ -125,6 +127,9 @@ services:
     cap_drop: [ALL]
     cap_add: [SYS_CHROOT]
     read_only: true
+    # The only writable place on disk: the kept browser profiles. They hold each supplier's cookies.
+    volumes:
+      - browser-profiles:/data/profiles
     tmpfs:
       - /tmp:size=1g,mode=1777
       - /home/pwuser:size=256m,uid=1001,gid=1001
@@ -140,3 +145,4 @@ networks:
 
 volumes:
   pgdata:
+  browser-profiles:

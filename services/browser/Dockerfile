@@ -25,6 +25,8 @@ COPY --chmod=755 services/browser/entrypoint.sh services/browser/entrypoint.sh
 # profile blocks them. Run the container with Playwright's own profile, kept unchanged beside this file (from the
 # v1.65.0 tag, utils/docker/seccomp_profile.json):
 #   docker run --init --ipc=host --security-opt seccomp=services/browser/seccomp_profile.json ...
+# Where kept browser profiles live when PROFILE_DIR points here. A new named volume copies this owner, so the browser can write it.
+RUN mkdir -p /data/profiles && chown pwuser:pwuser /data/profiles
 USER pwuser
 ENV PORT=8080 HOST=0.0.0.0
 # Two ports are used inside the container: 8080 for the control API and 5900 for VNC. Neither is EXPOSEd or published,

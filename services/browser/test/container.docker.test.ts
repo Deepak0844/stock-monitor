@@ -233,3 +233,39 @@ describe("a plain login window", () => {
     await until(async () => (await plainProfiles()) === 0, 15_000, "the profile to be removed");
   });
 });
+
+describe("a kept profile on a volume", () => {
+  const VOLUME = `sm-browser-test-profiles-${SUFFIX}`;
+  const kept = ["-e", "LOGIN_WINDOW_MODE=plain", "-e", "LOGIN_PROFILE=persistent", "-e", "PROFILE_DIR=/data/profiles", "-v", `${VOLUME}:/data/profiles`];
+  beforeAll(async () => {
+    await docker("rm", "-f", NAME);
+    await docker("volume", "create", VOLUME);
+    await startContainer(kept);
+  }, 300_000);
+  afterAll(async () => {
+    await docker("rm", "-f", NAME).catch(() => {});
+    await docker("volume", "rm", VOLUME).catch(() => {});
+  }, 60_000);
+
+  it("outlives the container, and opens again in a new one even with a lock left by the old one", async () => {
+    const first = await control("POST", "/sessions", { url: loginUrl });
+    expect(first.status).toBe(201);
+    expect((await control("POST", `/sessions/${first.body.id}/finish`)).status).toBe(200);
+    const profile = await inside(NAME, "sh", "-c", "ls -d /data/profiles/*/");
+    expect(await inside(NAME, "sh", "-c", `test -f ${profile}seeded && echo yes`)).toBe("yes");
+    // What a container that was killed leaves behind: a lock naming its own hostname, which the next container does not have.
+    await inside(NAME, "ln", "-sf", "other-host-1", `${profile}SingletonLock`);
+
+    await docker("rm", "-f", NAME);
+    await startContainer(kept);
+    expect(await inside(NAME, "sh", "-c", `test -f ${profile}seeded && echo yes`)).toBe("yes");
+    const before = site.requests.filter((q) => q.path === "/login").length;
+    const again = await control("POST", "/sessions", { url: loginUrl });
+    expect(again.status).toBe(201);
+    try {
+      await until(async () => site.requests.filter((q) => q.path === "/login").length > before, 20_000, "the kept profile to load the page");
+    } finally {
+      await control("DELETE", `/sessions/${again.body.id}`);
+    }
+  });
+});
