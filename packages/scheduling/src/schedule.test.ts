@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { backoffMs, runExpirySeconds, insideWindow, intoWindow, isStale, needsSessionPrecheck, nextCheckAt, pickDue, SESSION_CHECK_LEAD_MINUTES } from "./schedule.js";
+import { backoffMs, runExpirySeconds, insideWindow, intoWindow, isStale, keepAliveDue, KEEP_ALIVE_CHOICES, needsSessionPrecheck, nextCheckAt, pickDue, SESSION_CHECK_LEAD_MINUTES } from "./schedule.js";
 
 const KOLKATA = "Asia/Kolkata"; // UTC+5:30, no daylight saving
 const day = { start: "07:00", end: "22:00" };
@@ -108,4 +108,32 @@ describe("needsSessionPrecheck", () => {
   it("yes when the last proof is older than the lead time", () => expect(needs({ lastVerifiedAt: new Date("2026-11-13T03:59:00Z") })).toBe(true));
   it("not twice for the same run", () => expect(needs({ precheckFor: new Date(run) })).toBe(false));
   it("yes for the next run after an earlier one was checked", () => expect(needs({ precheckFor: new Date("2026-11-12T06:00:00Z") })).toBe(true));
+});
+
+describe("keepAliveDue", () => {
+  const TZ = "Europe/London";
+  const now = new Date("2026-11-18T12:00:00Z"); // 12:00 in London
+  const base = { now, minutes: 30, nextAt: null, lastVerifiedAt: null, window: { start: "07:00", end: "22:00" }, timeZone: TZ, rand: () => 0.5 };
+  const plus = (m: number, from = now) => new Date(from.getTime() + m * 60_000);
+
+  it("is not due outside the check window", () => {
+    expect(keepAliveDue({ ...base, now: new Date("2026-11-18T23:00:00Z") }).due).toBe(false);
+  });
+  it("waits for a next visit time still to come", () => {
+    expect(keepAliveDue({ ...base, nextAt: plus(5) })).toEqual({ due: false, nextAt: plus(5) });
+  });
+  it("counts a recent good visit (any check) as the last one", () => {
+    const lastVerifiedAt = plus(-10);
+    expect(keepAliveDue({ ...base, lastVerifiedAt })).toEqual({ due: false, nextAt: plus(30, lastVerifiedAt) });
+  });
+  it("is due when the interval has passed, and sets the next visit one interval later", () => {
+    expect(keepAliveDue({ ...base, lastVerifiedAt: plus(-45), nextAt: plus(-1) })).toEqual({ due: true, nextAt: plus(30) });
+  });
+  it("spreads the next visit by up to 10% either way", () => {
+    expect(keepAliveDue({ ...base, rand: () => 1 }).nextAt).toEqual(plus(33));
+    expect(keepAliveDue({ ...base, rand: () => 0 }).nextAt).toEqual(plus(27));
+  });
+  it("offers 15, 30, 45, 60 and 120 minutes", () => {
+    expect(KEEP_ALIVE_CHOICES).toEqual([15, 30, 45, 60, 120]);
+  });
 });
