@@ -4,6 +4,7 @@ import type { BrowserClient } from "@stock-monitor/browser-client";
 import type {
   createMappingRepository, createNotificationRepository, createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository, NotificationReason,
 } from "@stock-monitor/db";
+import { whyNotChecked } from "@stock-monitor/mapping";
 import { unsealSessionState, type PageClass, type SessionState } from "@stock-monitor/supplier-session";
 import { ensureLoggedIn, loginCheckUrl } from "./auto-login.js";
 import { saveRefreshedSession } from "./session-refresh.js";
@@ -35,7 +36,8 @@ export type AttentionReason = Exclude<NotificationReason, "page_changed">;
 export type SessionReason = Exclude<AttentionReason, "code_required" | "wrong_password" | "account_locked" | "form_not_found">;
 
 export type CheckOutcome =
-  | { kind: "skipped"; reason: "no_supplier" | "no_session" }
+  /** not_checked: a keep-alive visit for a supplier paused or refused after it was queued. */
+  | { kind: "skipped"; reason: "no_supplier" | "no_session" | "not_checked" }
   | { kind: "ok" }
   | { kind: "needs_attention"; result: SessionReason }
   /** An early check found a page it could not read clearly. Nothing is marked: the run does not stop on one either. */
@@ -123,6 +125,7 @@ export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId
 
   const sealed = await supplierSessions.getSealed(supplierId);
   if (!sealed) return { kind: "skipped", reason: "no_session" };
+  if (options.keepAlive && whyNotChecked(supplier, true)) return { kind: "skipped", reason: "not_checked" };
   const needsAttention = async (result: SessionReason): Promise<CheckOutcome> => {
     await raiseNeedsAttention(deps, supplier, result);
     await record(result);

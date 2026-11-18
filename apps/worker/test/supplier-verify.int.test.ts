@@ -390,6 +390,10 @@ describe("a supplier with automatic login", () => {
 });
 
 describe("a keep-alive visit with hand login", () => {
+  beforeEach(async () => {
+    await suppliers().setPermission(acme, { status: "granted", note: null });
+  });
+
   it("keeps a working session: it is marked checked and the audit says keep-alive", async () => {
     expect(await verifySupplierSession(deps(), acme, { keepAlive: true })).toEqual({ kind: "ok" });
     expect(verifies()).toHaveLength(1);
@@ -409,6 +413,16 @@ describe("a keep-alive visit with hand login", () => {
     expect(await verifySupplierSession(deps(), acme, { keepAlive: true })).toEqual({ kind: "unclear" });
     expect(await supplier(acme)).toMatchObject({ sessionStatus: "connected", enabled: true });
     expect(await notes().listOpen()).toEqual([]);
+  });
+
+  it("does not visit a supplier paused or refused after the visit was queued", async () => {
+    await suppliers().setPermission(acme, { status: "granted", note: null });
+    await suppliers().pause(acme);
+    expect(await verifySupplierSession(deps(), acme, { keepAlive: true })).toEqual({ kind: "skipped", reason: "not_checked" });
+    await suppliers().resume(acme);
+    await suppliers().setPermission(acme, { status: "not_granted", note: null });
+    expect(await verifySupplierSession(deps(), acme, { keepAlive: true })).toEqual({ kind: "skipped", reason: "not_checked" });
+    expect(verifies()).toHaveLength(0);
   });
 
   it("the job passes the keep-alive flag through", async () => {

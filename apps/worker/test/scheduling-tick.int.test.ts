@@ -306,6 +306,25 @@ describe("keep login alive", () => {
     expect(visits()).toEqual([]);
   });
 
+  it("does not visit a supplier whose early login check was queued on this tick", async () => {
+    const id = await keeping("Acme");
+    await suppliers().setSchedule(id, { intervalMinutes: 1440, window: { start: "07:00", end: "22:00" }, nextCheckAt: new Date(now.getTime() + 90 * MIN) });
+    await runTick(deps());
+    expect(visits()).toEqual([{ name: "supplier.session.verify", payload: { supplierId: id, early: true }, options: { retryLimit: 0 } }]);
+  });
+
+  it("does not visit a supplier whose run is due within 5 minutes: the visit would still hold its browser profile", async () => {
+    const id = await keeping("Acme");
+    await createSupplierCredentialsRepository(t.appDb).save(id, sealCredentials({ username: "u", password: "p" }, key, "v1"));
+    if (!(await suppliers().setAutoLogin(id, { autoLogin: true })).ok) throw new Error("setup");
+    await suppliers().setSchedule(id, { intervalMinutes: 1440, window: { start: "07:00", end: "22:00" }, nextCheckAt: new Date(now.getTime() + 3 * MIN) });
+    await runTick(deps());
+    expect(visits()).toEqual([]);
+    await suppliers().setSchedule(id, { intervalMinutes: 1440, window: { start: "07:00", end: "22:00" }, nextCheckAt: new Date(now.getTime() + 10 * MIN) });
+    await runTick(deps());
+    expect(visits()).toHaveLength(1);
+  });
+
   it("does not visit a supplier whose run starts on this tick", async () => {
     const id = await keeping("Acme");
     await suppliers().setSchedule(id, { intervalMinutes: 1440, window: { start: "07:00", end: "22:00" }, nextCheckAt: new Date(now.getTime() - MIN) });
