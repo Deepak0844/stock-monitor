@@ -111,14 +111,16 @@ async function inputsOf(frame: Frame, overrides: LoginSelectors): Promise<Input[
           const accountWords = /account|customer\s*(?:number|no\b)/i.test(says) && type !== "email" && type !== "password" && !/username|email/.test(autocomplete);
           const account = o.account ? is(o.account) : accountWords && (type === "text" || type === "tel" || type === "number");
           const password = o.password ? is(o.password) : type === "password";
-          const code = !password && (autocomplete === "one-time-code" || (new RegExp(codeWords, "i").test(says) && !new RegExp(notCodeWords, "i").test(says)));
+          const codeLike = !password && (autocomplete === "one-time-code" || (new RegExp(codeWords, "i").test(says) && !new RegExp(notCodeWords, "i").test(says)));
+          // A code box that already holds text (a popup's coupon code) is not one the supplier is asking us to fill, nor a username box.
+          const code = codeLike && el.value === "";
           return {
             index,
             mark,
             visible,
             empty: el.value === "",
             password,
-            usernameLike: o.username ? is(o.username) : !code && (["email", "text", "tel"].includes(type) || autocomplete === "username"),
+            usernameLike: o.username ? is(o.username) : !codeLike && (["email", "text", "tel"].includes(type) || autocomplete === "username"),
             account,
             checkbox: type === "checkbox",
             code,
@@ -663,6 +665,13 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
       decided = decideAfterSubmit(seen);
     }
     if (decided === "unknown") return unclear(`unclear_after_submit page=${seen.pageClass}`);
+    if (decided === "code_required") {
+      // Which rule said so, from our own fixed word list only: a code-like box, or one of the second-check words on the page.
+      const texts = await Promise.all(page.frames().map((fr) => fr.evaluate(() => document.body?.innerText ?? "").catch(() => "")));
+      const word = SECOND_CHECK_WORDS.find((w) => texts.some((t) => within([w]).test(t))) ?? "none";
+      const inMain = texts[0] !== undefined && within(SECOND_CHECK_WORDS).test(texts[0]);
+      onWhy?.(`after_submit code_box=${seen.codeFieldVisible} word=${word} in=${word === "none" ? "none" : inMain ? "main" : "other_frame"} class=${seen.pageClass} loginpage=${seen.onLoginPage} password=${seen.passwordFieldVisible}`);
+    }
     if (decided !== "ok") return decided;
   }
 

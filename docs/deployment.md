@@ -150,6 +150,10 @@ Some suppliers turn the login away, or show a puzzle that fails even when you so
 - It uses the same sandbox as every other visit. If it ever fails to start, the browser log shows `login failed` or the check shows Cannot tell; switch it off and the supplier is checked as before.
 - The supplier's terms may forbid automated access whatever you switch on. Use it only where you accept that risk.
 
+### Seeing why a login failed
+
+When an automatic login does not work, the browser takes a picture of what the page showed and keeps the latest one (a login that works removes it). The browser log says `login screenshot saved: <path>`. Copy it out with `docker compose cp browser:<path> .` and open it. It can show your username (the password box shows dots), so keep it to yourself. The reason code is on the line before: `docker compose logs browser | grep "login"`.
+
 ### What happens when a check needs a login
 
 If the saved login has ended, the app logs in with your saved details, then carries on with the check. If the login is still good, it does nothing.
