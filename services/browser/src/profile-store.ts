@@ -1,10 +1,11 @@
 // SPIKE: where a supplier site's persistent browser profile lives, and who is using it. Chromium allows one browser per
 // profile folder, so the login window and the checks take turns.
 import { createHash } from "node:crypto";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-/** Memory-backed in the container: kept while it runs, gone when it restarts. */
+/** The default, memory-backed: kept while the container runs, gone when it restarts. PROFILE_DIR puts them on disk instead. */
 export const PROFILE_ROOT = join(tmpdir(), "sm-profiles");
 
 /** One folder per site (the host). The name is a hash, so no address can pick or climb out of a folder. */
@@ -28,3 +29,12 @@ export function holdProfile(dir: string): boolean {
   return true;
 }
 export const releaseProfile = (dir: string) => void held.delete(dir);
+
+/**
+ * Removes the lock files a Chromium leaves in its profile. A kept profile on disk outlives the container, and a new container
+ * has a new hostname, so Chromium would take the old lock for another machine's and refuse the profile. Only called by a
+ * holder of the profile, so no browser of ours is using it.
+ */
+export async function clearStaleLocks(dir: string): Promise<void> {
+  for (const name of ["SingletonLock", "SingletonSocket", "SingletonCookie"]) await rm(join(dir, name), { force: true });
+}

@@ -14,7 +14,7 @@ import { classifyPage, mergeSessionState, type PageClass, type SessionState } fr
 import { readCookies } from "./chromium-cookies.js";
 import { cookieStore, forgetOpenTabs, plainLaunchArgs, quitCleanly, seedProfile, waitForDebuggingPort } from "./plain-window.js";
 import { runLogin, type LoginOutcome, type LoginRequest, type LoginResult } from "./login.js";
-import { cookieHash, holdProfile, PROFILE_ROOT, profileDirFor, releaseProfile } from "./profile-store.js";
+import { clearStaleLocks, cookieHash, holdProfile, PROFILE_ROOT, profileDirFor, releaseProfile } from "./profile-store.js";
 import type { GuardProxy } from "./proxy.js";
 import { capturePageIn, type CaptureOutcome, type CaptureRequest } from "./capture.js";
 import { CHALLENGE_WIDGET, inspectPage, MAX_TEXT, withFreshState, type BlockTracker, type CheckPageOutcome, type CheckPageRequest, type VerifyOutcome, type VerifyRequest } from "./verify.js";
@@ -74,6 +74,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
     // A clean quit leaves the last port behind, and a new launch must not be mistaken for it.
     if (debuggable) await rm(join(profile, "DevToolsActivePort"), { force: true });
     await forgetOpenTabs(profile);
+    await clearStaleLocks(profile);
     const id = randomUUID();
     const tracker = proxy.track(id);
     const listener = await proxy.openListener(id);

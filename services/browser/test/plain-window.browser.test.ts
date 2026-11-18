@@ -278,3 +278,25 @@ describe.skipIf(!linux)("what the profile may hold", () => {
     expect(prefs.credentials_enable_service).toBe(false);
   });
 });
+
+describe.runIf(linux)("a kept profile that cannot be prepared", () => {
+  it("is let go when its folder cannot be made, so the next login is not told it is in use", async () => {
+    const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+    const { createGuard } = await import("../src/guard.js");
+    const { startGuardProxy } = await import("../src/proxy.js");
+    const { createPlainWindowOpener } = await import("../src/plain-window.js");
+    const { isHeld, profileDirFor } = await import("../src/profile-store.js");
+    const dir = await mkdtemp(join(tmpdir(), "kept-broken-"));
+    const notAFolder = join(dir, "file");
+    await writeFile(notAFolder, "x"); // a folder cannot be made inside a file
+    const proxy = await startGuardProxy(createGuard({ allowHosts: [`127.0.0.1:${site.port}`] }));
+    try {
+      const open = createPlainWindowOpener({ proxy, sandbox: !process.env.CI, headless: true, persistent: { baseDir: notAFolder } });
+      await expect(open(`${site.url}/login`)).rejects.toThrow();
+      expect(isHeld(profileDirFor(notAFolder, `${site.url}/login`))).toBe(false);
+    } finally {
+      await proxy.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});

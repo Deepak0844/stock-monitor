@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import type { SessionState } from "@stock-monitor/supplier-session";
 import { readCookies } from "./chromium-cookies.js";
-import { cookieHash, holdProfile, profileDirFor, releaseProfile } from "./profile-store.js";
+import { clearStaleLocks, cookieHash, holdProfile, profileDirFor, releaseProfile } from "./profile-store.js";
 import type { GuardProxy } from "./proxy.js";
 import { chromeVersion, writeDisguise } from "./disguise.js";
 import type { LiveWindow } from "./sessions.js";
@@ -180,9 +180,18 @@ export function createPlainWindowOpener({
         if (i >= 120) throw new Error("This supplier's profile is in use.");
         await new Promise((resolve) => setTimeout(resolve, 500));
       }
-      await mkdir(profile, { recursive: true });
-      await rm(join(profile, "DevToolsActivePort"), { force: true });
-      await forgetOpenTabs(profile);
+      try {
+        await mkdir(profile, { recursive: true });
+        await rm(join(profile, "DevToolsActivePort"), { force: true });
+        await clearStaleLocks(profile);
+        await forgetOpenTabs(profile);
+      } catch (error) {
+        // A profile that cannot be made ready is let go, or every later login and check would be told it is in use.
+        releaseProfile(profile);
+        tracker.stop();
+        await listener.close().catch(() => {});
+        throw error;
+      }
     } else {
       profile = await mkdtemp(join(tmpdir(), "sm-plain-"));
     }
