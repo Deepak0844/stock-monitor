@@ -31,6 +31,8 @@ export type SupplierRecord = {
   failureCount: number;
   autoLogin: boolean;
   stealth: boolean;
+  /** False: the product pages show stock without a login, so checks use no session, login or keep-alive. */
+  needsLogin: boolean;
   loginSelectors: LoginSelectors | null;
   /** Text that only shows when logged in. Set, a page without it counts as logged out. */
   loggedInMarker: string | null;
@@ -263,10 +265,13 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
       await set(id, { keepAliveNextAt: at });
     },
 
-    /** Suppliers with keep-alive turned on. */
+    /** Suppliers with keep-alive turned on. A supplier that needs no login has nothing to keep alive. */
     async keepingAlive(): Promise<SupplierRecord[]> {
-      return (await db.select().from(suppliers).where(sql`${suppliers.keepAliveMinutes} is not null`)) as SupplierRecord[];
+      return (await db.select().from(suppliers).where(sql`${suppliers.keepAliveMinutes} is not null and ${suppliers.needsLogin}`)) as SupplierRecord[];
     },
+
+    /** Whether the supplier's pages need a login. Turning it off keeps the saved session and login, so turning it on restores them. */
+    setNeedsLogin: (id: string, needsLogin: boolean) => set(id, { needsLogin }),
 
     /** The next check time and failure count, written when a run ends. */
     async recordRunEnd(id: string, input: { nextCheckAt: Date; failureCount: number }): Promise<void> {

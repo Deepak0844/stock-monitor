@@ -169,6 +169,8 @@ export const suppliers = pgTable(
     autoLogin: boolean("auto_login").notNull().default(false),
     /** Use the stealth browser for automatic logins. Needs `granted` permission. */
     stealth: boolean("stealth").notNull().default(false),
+    /** False when the supplier's product pages show stock without logging in: checks then run with no session at all. */
+    needsLogin: boolean("needs_login").notNull().default(true),
     loginSelectors: jsonb("login_selectors").$type<LoginSelectors>(),
     /** Text that only shows when logged in, like "Log out". Set, a page without it counts as logged out. */
     loggedInMarker: text("logged_in_marker"),
@@ -318,6 +320,8 @@ export const mappings = pgTable(
     note: text("note"),
     /** The region label to look for on this link's page. Left empty, the supplier's default region is used. */
     region: text("region"),
+    /** The supplier's own option name or SKU, for a page that lists several options with different stock. */
+    supplierOption: text("supplier_option"),
     enabled: boolean("enabled").notNull().default(true),
     linkStatus: text("link_status").notNull().default("not_checked"),
     lastLinkCheckAt: timestamp("last_link_check_at", { withTimezone: true }),
@@ -335,6 +339,7 @@ export const mappings = pgTable(
       sql`${t.linkStatus} in ('not_checked', 'works', 'never_worked', 'page_missing', 'moved', 'looks_different', 'needs_login', 'could_not_check')`,
     ),
     check("mappings_region", sql`${t.region} is null or char_length(${t.region}) between 1 and 200`),
+    check("mappings_supplier_option", sql`${t.supplierOption} is null or char_length(${t.supplierOption}) between 1 and 200`),
     uniqueIndex("mappings_variant_supplier_unique").on(t.variantId, t.supplierId),
     index("mappings_supplier_idx").on(t.supplierId),
   ],

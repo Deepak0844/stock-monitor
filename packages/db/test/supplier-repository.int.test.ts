@@ -313,3 +313,21 @@ describe("supplier repository: keep login alive", () => {
     await expect(repo().setSchedule(s.id, { intervalMinutes: null, window: null, nextCheckAt: null, keepAliveMinutes: 20 })).rejects.toThrow();
   });
 });
+
+describe("supplier repository: needs a login", () => {
+  it("a new supplier needs a login", async () => expect((await made()).needsLogin).toBe(true));
+
+  it("needs-login can be turned off and on again", async () => {
+    const s = await made();
+    expect((await repo().setNeedsLogin(s.id, false))?.needsLogin).toBe(false);
+    expect((await repo().get(s.id))?.needsLogin).toBe(false);
+    expect((await repo().setNeedsLogin(s.id, true))?.needsLogin).toBe(true);
+  });
+
+  it("keep-alive never lists a supplier that needs no login", async () => {
+    const s = await made();
+    await repo().setSchedule(s.id, { intervalMinutes: null, window: null, nextCheckAt: null, keepAliveMinutes: 30 });
+    await repo().setNeedsLogin(s.id, false);
+    expect(await repo().keepingAlive()).toEqual([]);
+  });
+});
