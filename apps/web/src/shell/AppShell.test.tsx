@@ -122,34 +122,8 @@ describe("AppShell", () => {
     expect(onSignOut).toHaveBeenCalledTimes(1);
   });
 
-  it("opens and closes the navigation from the Menu button on small screens", async () => {
-    const { user } = setup();
-    const menu = screen.getByRole("button", { name: "Menu" });
-    const nav = screen.getByRole("navigation", { name: "Main" });
-    expect(menu).toHaveAttribute("aria-expanded", "false");
-    expect(menu).toHaveAttribute("aria-controls", nav.id);
-    await user.click(menu);
-    expect(menu).toHaveAttribute("aria-expanded", "true");
-    await user.click(menu);
-    expect(menu).toHaveAttribute("aria-expanded", "false");
-  });
 
-  it("closes the menu once a link has taken the owner to another page", async () => {
-    const { user } = setup();
-    const menu = screen.getByRole("button", { name: "Menu" });
-    await user.click(menu);
-    expect(menu).toHaveAttribute("aria-expanded", "true");
-    await user.click(within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: "Settings" }));
-    expect(menu).toHaveAttribute("aria-expanded", "false");
-  });
 
-  it("closes the menu when Escape is pressed", async () => {
-    const { user } = setup();
-    const menu = screen.getByRole("button", { name: "Menu" });
-    await user.click(menu);
-    await user.keyboard("{Escape}");
-    expect(menu).toHaveAttribute("aria-expanded", "false");
-  });
 
   it("shows the page inside the main area", () => {
     setup();
@@ -176,24 +150,5 @@ describe("AppShell top bar", () => {
     expect(screen.getByRole("button", { name: "Dark theme" })).toHaveAttribute("aria-pressed", before === "true" ? "false" : "true");
     expect(document.documentElement.classList.contains("dark")).toBe(before !== "true");
     document.documentElement.classList.remove("dark", "light");
-  });
-});
-
-describe("AppShell phone menu focus", () => {
-  it("moves focus to the first link when the menu opens, and back to the Menu button when Escape closes it", async () => {
-    const { user } = setup();
-    const menu = screen.getByRole("button", { name: "Menu" });
-    await user.click(menu);
-    expect(within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: "Dashboard" })).toHaveFocus();
-    await user.keyboard("{Escape}");
-    expect(menu).toHaveAttribute("aria-expanded", "false");
-    expect(menu).toHaveFocus();
-  });
-
-  it("puts focus on the page content, not the Menu button, after a link is followed", async () => {
-    const { user } = setup();
-    await user.click(screen.getByRole("button", { name: "Menu" }));
-    await user.click(within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: "Suppliers" }));
-    expect(screen.getByRole("main")).toHaveFocus();
   });
 });

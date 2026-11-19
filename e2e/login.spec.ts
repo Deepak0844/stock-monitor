@@ -128,15 +128,17 @@ test("the pages also pass the accessibility scan in dark mode", async ({ page })
 
 test("the navigation links to every section, with no dead items", async ({ page }) => {
   await signIn(page);
-  const menu = page.getByRole("button", { name: "Menu" });
-  if (await menu.isVisible()) await menu.click(); // on a phone the navigation opens from the Menu button
   const nav = page.getByRole("navigation", { name: "Main" });
   await expect(nav.getByRole("link", { name: "Dashboard" })).toHaveAttribute("aria-current", "page");
   await expect(nav.getByRole("link", { name: "Proposals" })).toHaveAttribute("href", "/proposals");
   await expect(nav.getByText("History")).toHaveCount(0);
   await expect(nav.getByRole("link", { name: "Suppliers" })).toHaveAttribute("href", "/suppliers");
-  await expect(nav.getByRole("link", { name: "Products" })).toHaveAttribute("href", "/products");
-  await expect(nav.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings/shopify");
+  await expect(nav.getByRole("link", { name: "Links" })).toHaveAttribute("href", "/mappings");
+  // On a phone, Products and Settings sit under More in the tabs at the bottom.
+  const more = nav.getByRole("button", { name: "More" });
+  const rest = (await more.isVisible()) ? (await more.click(), page.getByRole("dialog", { name: "More" })) : nav;
+  await expect(rest.getByRole("link", { name: "Products" })).toHaveAttribute("href", "/products");
+  await expect(rest.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings/shopify");
 });
 
 test("Tab reaches the skip link first and it jumps to the main content", async ({ page, isMobile }) => {
