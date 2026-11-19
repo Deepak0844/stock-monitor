@@ -43,6 +43,8 @@ const PAGES: Record<string, string> = {
   "icon-link-opener": '<header><a href="/icon-link-opener/account"><svg width="16" height="16"><circle cx="8" cy="8" r="6"/></svg></a></header><p>Welcome to our shop.</p>',
   "popup-form": `<button onclick="const m=document.getElementById('m');m.style.display='block';setTimeout(()=>{m.style.opacity=1},700)">My account area</button><div id="m" style="display:none;opacity:0;transition:opacity 200ms">${loginForm("popup-form", '<button type="submit">Sign in</button>')}</div>`,
   "two-step-popup": `<button onclick="document.getElementById('m').style.display='block'">Customer login</button><div id="m" style="display:none"><form method="post" action="/two-step-popup/do"><label>Email <input type="email" name="username"></label><div id="pw" style="display:none"><label>Password <input type="password" name="password"></label></div><button type="button" onclick="document.getElementById('pw').style.display='block';this.style.display='none';document.getElementById('s').style.display='inline-block'">Continue</button><button id="s" type="submit" style="display:none">Sign in</button></form></div>`,
+  // Header icons with no words: one goes to Register, one to Log out. Neither may be taken for the opener.
+  "icon-links": '<header><a href="/icon-links/account/register"><svg width="16" height="16"><circle cx="8" cy="8" r="6"/></svg></a><a href="/icon-links/account/logout"><svg width="16" height="16"><rect width="12" height="12"/></svg></a></header><p>Welcome to our shop.</p>',
   "logout-only": '<header><a href="/logout-only/logout">Log out</a><a href="/logout-only/register">Register</a></header><p>Welcome to our shop.</p>',
 };
 /** Pages other than a login page, by path. */
@@ -135,6 +137,13 @@ describe("guessing the opener", () => {
   it("goes through a two-step form inside a popup", async () => {
     const r = await login("two-step-popup");
     expect(r.result, r.why).toBe("ok");
+  });
+  it("never takes an icon link to Register or Log out for an opener", async () => {
+    const r = await login("icon-links");
+    expect(r.result).toBe("form_not_found");
+    expect(r.why).toMatch(/^no_opener/);
+    expect(hits["/icon-links/account/register"]).toBeUndefined();
+    expect(hits["/icon-links/account/logout"]).toBeUndefined();
   });
   it("never takes Log out or Register for an opener", async () => {
     const r = await login("logout-only");
