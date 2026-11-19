@@ -56,7 +56,10 @@ What it does, all bounded:
 - GET the address with Node's `https`/`http`. For each hop the host goes through `guard.check(host, port)` first; the
   connection goes to the address the guard returned (TLS `servername` = the host). A refused or private address stops the
   read with `result: "unknown"` and `blocked: true`, as a capture does.
-- At most 5 redirects (each one guarded), 10 s in all, at most 3 MB of body (more: stop, `too_large`). `gzip`, `br` and
+- The same `Guard` instance the browser service already has (so tests reach a local server through `allowHosts`, as the
+  capture's do). The quick read leaves directly from the service; a later proxy project must route it as well as Chromium.
+- No page lock: a quick read is cheap and may run beside a capture.
+- At most 5 redirects (each one guarded), 10 s in all (a slower site falls back to the browser), at most 3 MB of body (more: stop, `too_large`). `gzip`, `br` and
   `deflate` accepted and decoded. Headers: `accept: text/html`, an honest `user-agent` (`stock-monitor/1.0`), the
   `BROWSER_LANGUAGE` as `accept-language` when set. No cookies are sent or kept.
 - Only `text/html` bodies are read.
@@ -72,8 +75,9 @@ type QuickReadOutcome =
 - `offers`: from every `<script type="application/ld+json">` (each at most 1,000,000 characters) and every
   `itemprop="availability"` attribute, through **the same offer reader the capture uses**. The reader moves out of
   `describePage` into `services/browser/src/offers.ts` as a pure function `offersFrom(jsonTexts, microdata, pageUrl)`;
-  `describePage` returns the raw script texts and microdata values (capped as today) and the capture calls `offersFrom` in
-  Node. Same caps: 100 offers, 200 characters a field, 2000 values per script.
+  `describePage` returns the raw script texts (each at most 1,000,000 characters, at most 2,000,000 in all) and microdata
+  values, and the capture calls `offersFrom` in Node with the page's final address. The quick read passes its final address
+  after redirects, so relative offer addresses resolve the same way. Same caps: 100 offers, 200 characters a field, 2000 values per script.
 - `title`: the `<title>` text with entities decoded and spaces collapsed. No heading (see 3).
 - `result` and `signal`: `explainPage` with `publicPage: true`, the HTML's visible-ish text (tags removed, scripts and styles
   dropped, capped like the capture's text), `hasPasswordField` from a visible `<input type=password>`, `hasChallengeWidget` from
@@ -81,8 +85,9 @@ type QuickReadOutcome =
 
 ### 2. Worker: try quick, fall back per page
 
-In `extraction-check.ts` `visit`, for a supplier with `needsLogin === false` and a rules version (or the built-in default)
-that can be answered from built-in data alone (built-in on, no page checks, no region rule):
+In `extraction-check.ts` `visit`, for a supplier with `needsLogin === false`, **stealth off** (a supplier the owner disguises
+the browser for gets no plain, honestly named request), and a rules version (or the built-in default) that can be answered
+from built-in data alone (built-in on, no page checks, no region rule):
 
 1. `browser.quickRead({ url: mapping.url })`.
 2. Use it when **all** hold: `ok`, `result === "ok"`, and `decide(page, recipe, region, link)` on a page with no sections and
@@ -94,14 +99,17 @@ whenever the built-in data does not answer. A version with page checks or a regi
 
 ### 3. Link status from a quick read
 
-`decideLinkStatus` gets an observation with `result`, `status`, `finalUrl`, `title`, `heading: null`, `softNotFound` from the
-title. With no heading, only the title is compared with the worked title, so a heading read differently by the two methods
-cannot make a link "looks different". The browser's `workedHeading` is kept as it was.
+`decideLinkStatus` gets an observation with `result`, `status`, `finalUrl`, `softNotFound` (from the HTML title, worked out in
+the browser service), and **`title: null`, `heading: null`**. A script can rewrite a page's title in the browser, so the two
+methods may read different titles; with neither given, a quick read never compares them, never makes a link "looks
+different" and never sets `workedTitle`/`workedHeading` (they stay as the browser set them, or are filled by the next browser
+visit). A missing page (404, a "not found" title) and a move to another site still count as today.
 
 ### 4. Storing how it was read
 
 - Migration `0023`: `stock_observations.read_by text null` with check `read_by in ('quick', 'browser')`. Old rows stay null.
-- Every new observation records `quick` or `browser`.
+- Every observation of a page that was opened records `quick` or `browser`; one written without opening the page (a failed
+  login before it, the browser service not answering) records null.
 - Link history adds "· Read quickly" or "· Read with the browser".
 - The worker log line `stock check finished` gains `readBy`, and a fallback logs its fixed reason code
   (`quick_read: fallback (<reason>)`, e.g. `blocked`, `no_offers`, `variant_unclear`, `not_ok`), never the page.
@@ -112,7 +120,12 @@ cannot make a link "looks different". The browser's `workedHeading` is kept as i
   `suppliers_schedule_interval` to match.
 - The Schedule card gains "Every 15 minutes" and "Every 30 minutes".
 - Everything else follows from the interval as today (quiet hours, the ±10% spread, back-off, the next check set when a run
-  ends, so runs never overlap). The early login check and keep-alive do not apply to no-login suppliers anyway.
+  ends, so runs never overlap; run expiry keeps its 15-minute floor). The early login check and keep-alive do not apply to
+  no-login suppliers anyway.
+- "Not checked recently" on Links is shown after `max(2 × interval, 2 hours)`, so a long run on a 15-minute schedule does not
+  flag every link.
+- **The pause between pages still applies after a quick read.** It is the owner's per-supplier politeness setting; a supplier
+  that allows it can be given a shorter pause on its page. Shorter schedules and the lighter server are what this project adds.
 
 ## Testing
 
@@ -136,4 +149,8 @@ cannot make a link "looks different". The browser's `workedHeading` is kept as i
   browser.
 - A page that falls back is downloaded twice (quick, then browser).
 - No quick read when the rules use page checks or a region rule.
-- No heading from quick reads, so link status compares titles only on those checks.
+- Quick reads give link status no title or heading, so they never make a link "looks different"; the browser still does.
+- No quick read for a supplier with stealth on.
+- The pause between pages applies after quick reads too.
+- Fallback after 10 s for a slow site (the owner asked what happens: the browser check then runs, with its own 20 s, and an
+  unreachable page is "cannot tell", never out of stock).
