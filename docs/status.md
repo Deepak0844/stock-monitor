@@ -23,8 +23,9 @@ What is left for the MVP:
 - README (PR #124), open for review.
 
 Login guessing (branch `feature/login-guess`, 2026-11-19): automatic login now guesses a login button or opener from what it
-says when the wording is not on the exact list, and never takes Register, Forgot password, a social login or Log out. Next:
-"Check login page", a list for the owner to pick a control when the guess is wrong.
+says when the wording is not on the exact list, and never takes Register, Forgot password, a social login or Log out.
+"Check login page" (branch `feature/login-check`) opens the supplier's login page without typing or sending anything and lists
+what a login would use, with a dropdown per part for the owner to correct. Next: a learned logged-in marker.
 
 Decided against (do not bring them up again unless something changes):
 

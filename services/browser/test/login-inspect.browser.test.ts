@@ -51,6 +51,8 @@ beforeAll(async () => {
       if (b.get("UserName") === USER && b.get("Password") === PASSWORD) return res.writeHead(302, { "set-cookie": "sid=ok; Path=/", location: "/account" }).end();
       return html(page("<p>Wrong.</p>"));
     }
+    // A page that takes far longer than the check will wait.
+    if (kase === "hang" && step === "login") return void setTimeout(() => html(page("late")), 5000);
     if (kase === "redirect" && step === "login") return res.writeHead(302, { location: "/account" }).end();
     if (step === "login" && PAGES[kase]) return html(page(PAGES[kase] as string));
     return html(page("not here"), 404);
@@ -134,6 +136,15 @@ describe("inspecting a login page", () => {
     const context = await browser.newContext();
     const result = await inspectLogin(await context.newPage(), { loginUrl: "http://127.0.0.1:1/login", checkUrl: `${base}/account`, stealth: false }, { formWaitMs: 500, stepWaitMs: 500 });
     expect(result.state).toBe("unreachable");
+    await context.close();
+  });
+
+  it("gives up at its own deadline, however long the page takes, and says unreachable", async () => {
+    const context = await browser.newContext();
+    const started = Date.now();
+    const result = await inspectLogin(await context.newPage(), { loginUrl: `${base}/hang/login`, checkUrl: `${base}/account`, stealth: false }, { deadlineMs: 600 });
+    expect(result.state).toBe("unreachable");
+    expect(Date.now() - started).toBeLessThan(3000);
     await context.close();
   });
 

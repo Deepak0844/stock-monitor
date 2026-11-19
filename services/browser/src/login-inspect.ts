@@ -17,6 +17,8 @@ export type LoginInspection = {
 };
 export type InspectRequest = { loginUrl: string; checkUrl: string; stealth: boolean; selectors?: LoginSelectors };
 
+/** The whole check, from the first load to the last list. */
+const DEADLINE_MS = 60_000;
 const MAX_LABEL = 60;
 const MAX_SELECTOR = 200;
 const MAX_LIST = 40;
@@ -133,12 +135,30 @@ const anyBox = (f: Awaited<ReturnType<typeof findFields>>) => !!(f.username || f
 /**
  * Loads the login page and reports what a login would use for each role (the same guessing the login does), plus every other
  * visible box and control. When no box is visible and an opener is found, clicks it once and looks again. Types nothing, sends nothing.
+ * Never takes longer than the deadline: a page that does not finish in time is `unreachable`.
  */
-export async function inspectLogin(page: Page, request: InspectRequest, { formWaitMs = 10_000, stepWaitMs = 10_000 }: { formWaitMs?: number; stepWaitMs?: number } = {}): Promise<LoginInspection> {
+export async function inspectLogin(page: Page, request: InspectRequest, { deadlineMs = DEADLINE_MS, ...waits }: InspectWaits = {}): Promise<LoginInspection> {
+  // The caller closes the browser once this answers, which ends whatever the late work was still doing.
+  const work = look(page, request, waits);
+  work.catch(() => {});
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<LoginInspection>((resolve) => (timer = setTimeout(() => resolve(empty("unreachable")), deadlineMs)));
+  try {
+    return await Promise.race([work, late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const empty = (state: LoginInspection["state"], rest: Partial<LoginInspection> = {}): LoginInspection => ({
+  state, opened: false, found: { open: null, account: null, username: null, password: null, submit: null }, fields: [], buttons: [], ...rest,
+});
+
+type InspectWaits = { formWaitMs?: number; stepWaitMs?: number; deadlineMs?: number };
+
+async function look(page: Page, request: InspectRequest, { formWaitMs = 10_000, stepWaitMs = 10_000 }: InspectWaits): Promise<LoginInspection> {
   const selectors = request.selectors ?? {};
-  const result = (state: LoginInspection["state"], rest: Partial<LoginInspection> = {}): LoginInspection => ({
-    state, opened: false, found: { open: null, account: null, username: null, password: null, submit: null }, fields: [], buttons: [], ...rest,
-  });
+  const result = empty;
   await page.addInitScript(NAME_SHIM).catch(() => {});
   let status: number | null = null;
   try {
