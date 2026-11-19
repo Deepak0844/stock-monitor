@@ -288,3 +288,43 @@ describe("no content", () => {
     }
   });
 });
+
+describe("by supplier", () => {
+  let bolt = "";
+  let boltMapping = "";
+  beforeEach(async () => {
+    const s = await createSupplierRepository(t.appDb).create({ name: "Bolt", websiteUrl: "https://bolt.example/", loginUrl: null, checkIntervalMinutes: 60 });
+    if (!s.ok) throw new Error("setup");
+    bolt = s.supplier.id;
+    await t.pool.query(
+      `insert into shopify_variants (variant_id, product_id, product_title, variant_title, options, sku, inventory_item_id, tracked, inventory_policy)
+       values ('v2', 'p2', 'Cap', 'One size', '[]', 'S2', 'inv-v2', true, 'DENY')`,
+    );
+    const m = await createMappingRepository(t.appDb).create({ variantId: "v2", supplierId: bolt, url: "https://bolt.example/a", note: null });
+    if (!m.ok) throw new Error("setup");
+    boltMapping = m.mapping.id;
+  });
+  const boltInput = () => input({ variantId: "v2", mappingId: boltMapping, supplierId: bolt });
+
+  it("pages open and past suggestions of one supplier only", async () => {
+    const a = (await repo().evaluateFor(input())).proposal!;
+    const b = (await repo().evaluateFor(boltInput())).proposal!;
+    expect((await repo().openPage(10, 0, bolt)).items.map((p) => p.id)).toEqual([b.id]);
+    expect((await repo().openPage(10, 0, bolt)).total).toBe(1);
+    expect((await repo().openPage(10, 0)).total).toBe(2);
+    await repo().reject(a.id, null, "owner", NOW);
+    expect((await repo().history(10, 0, supplier)).map((p) => p.id)).toEqual([a.id]);
+    expect(await repo().history(10, 0, bolt)).toEqual([]);
+    expect(await repo().historyTotal(supplier)).toBe(1);
+    expect(await repo().historyTotal(bolt)).toBe(0);
+  });
+
+  it("counts suggestions waiting for the owner per supplier, not approved ones", async () => {
+    expect(await repo().openCountBySupplier()).toEqual({});
+    const a = (await repo().evaluateFor(input())).proposal!;
+    await repo().evaluateFor(boltInput());
+    expect(await repo().openCountBySupplier()).toEqual({ [supplier]: 1, [bolt]: 1 });
+    await repo().markApproved(a.id, 0, "owner", NOW);
+    expect(await repo().openCountBySupplier()).toEqual({ [bolt]: 1 });
+  });
+});

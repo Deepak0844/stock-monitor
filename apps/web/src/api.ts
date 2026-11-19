@@ -470,9 +470,11 @@ export type ProposalsApi = {
   /** Suggestions waiting for the owner, and ones approved and waiting for Shopify. */
   open(): Promise<{ proposals: Proposal[]; writePermission: WritePermission }>;
   /** One page of the suggestions waiting for the owner, and ones approved and waiting for Shopify. */
-  openPage(query: { page: number; pageSize: number }): Promise<Page<Proposal> & { writePermission: WritePermission }>;
-  history(page: number, pageSize?: number): Promise<{ proposals: Proposal[]; hasMore: boolean; total: number; page: number; pageSize: number }>;
+  openPage(query: { page: number; pageSize: number; supplierId?: string }): Promise<Page<Proposal> & { writePermission: WritePermission }>;
+  history(page: number, pageSize?: number, supplierId?: string): Promise<{ proposals: Proposal[]; hasMore: boolean; total: number; page: number; pageSize: number }>;
   count(): Promise<number>;
+  /** How many suggestions wait for the owner, per supplier id. Suppliers with none are left out. */
+  waitingBySupplier(): Promise<Record<string, number>>;
   /** Approves one suggestion. Pass a number to change it first. */
   approve(id: string, quantity?: number): Promise<Proposal>;
   reject(id: string): Promise<Proposal>;
@@ -745,20 +747,26 @@ const notifications: NotificationsApi = {
 
 const proposals: ProposalsApi = {
   open: () => request("/api/proposals?tab=open", { method: "GET" }),
-  async openPage({ page, pageSize }) {
+  async openPage({ page, pageSize, supplierId }) {
+    const params = new URLSearchParams({ tab: "open", page: String(page), pageSize: String(pageSize) });
+    if (supplierId) params.set("supplierId", supplierId);
     const body = await request<{ proposals: Proposal[]; total: number; page: number; pageSize: number; writePermission: WritePermission }>(
-      `/api/proposals?${new URLSearchParams({ tab: "open", page: String(page), pageSize: String(pageSize) })}`,
+      `/api/proposals?${params}`,
       { method: "GET" },
     );
     return { items: body.proposals, total: body.total, page: body.page, pageSize: body.pageSize, writePermission: body.writePermission };
   },
-  history: (page, pageSize) => {
+  history: (page, pageSize, supplierId) => {
     const params = new URLSearchParams({ tab: "history", page: String(page) });
     if (pageSize !== undefined) params.set("pageSize", String(pageSize));
+    if (supplierId) params.set("supplierId", supplierId);
     return request(`/api/proposals?${params}`, { method: "GET" });
   },
   async count() {
     return (await request<{ open: number }>("/api/proposals/count", { method: "GET" })).open;
+  },
+  async waitingBySupplier() {
+    return (await request<{ bySupplier: Record<string, number> }>("/api/proposals/count", { method: "GET" })).bySupplier;
   },
   async approve(id, quantity) {
     return (await request<{ proposal: Proposal }>(`/api/proposals/${enc(id)}/approve`, { method: "POST", json: quantity === undefined ? {} : { quantity } })).proposal;
