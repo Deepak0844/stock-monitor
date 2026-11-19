@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { planShopifyLinks } from "./shopify-links.js";
+import { planShopifyLinks, supplierMatchName } from "./shopify-links.js";
 
 const suppliers = new Map([["acme foods", { id: "sup-1", host: "acme.test" }]]);
 const source = (over: Partial<{ variantId: string; productTitle: string; variantTitle: string; sku: string | null; supplierName: string; supplierUrl: string }> = {}) => ({
@@ -37,5 +37,13 @@ describe("planShopifyLinks", () => {
     const plan = planShopifyLinks([source({ variantId: "v2", sku: null, variantTitle: "Default Title", supplierName: "Nobody" }), source()], suppliers);
     expect(plan.rows.map((r) => r.variantId)).toEqual(["v1"]);
     expect(plan.problems).toEqual([{ product: "Tee", sku: null, message: 'Supplier "Nobody" is not in the app.' }]);
+  });
+});
+
+describe("supplierMatchName", () => {
+  it("is the name in Shopify when set, else the app name, trimmed and lower case", () => {
+    expect(supplierMatchName({ name: "Acme Supply", shopifyName: null })).toBe("acme supply");
+    expect(supplierMatchName({ name: "Acme Supply", shopifyName: "  Acme Trading Ltd " })).toBe("acme trading ltd");
+    expect(supplierMatchName({ name: " Acme ", shopifyName: "" })).toBe("acme");
   });
 });

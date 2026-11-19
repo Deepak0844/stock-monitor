@@ -47,7 +47,10 @@ Such a supplier needs no Stock rules to start: it is checked from its built-in s
 saved page, test, save and turn the version on.
 
 1. Open **Suppliers**, then **Add supplier**.
-   - **Name:** use exactly the name your Shopify export holds for this supplier (see Phase 4). Capitals do not matter.
+   - **Name:** how you want to see the supplier in the app.
+   - **Name in Shopify (optional):** the supplier name your Shopify products use (`custom.supplier_name`, and the supplier
+     column of a Shopify export). Leave it empty if it is the same as **Name**. Products are matched by this name when it is
+     filled in, else by **Name**. Capitals and spaces do not matter, and no two suppliers may share the name they match on.
    - **Website address:** the supplier's site, starting with `https://`.
    - **Login address:** only if the login page is somewhere else.
    - Save.

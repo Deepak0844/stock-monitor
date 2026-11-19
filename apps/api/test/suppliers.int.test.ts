@@ -54,6 +54,7 @@ beforeEach(async () => {
 
 type Supplier = {
   needsLogin: boolean;
+  shopifyName: string | null;
   id: string;
   name: string;
   websiteUrl: string;
@@ -580,5 +581,35 @@ describe("PATCH /api/suppliers/:id needsLogin", () => {
 
   it("says not found for an unknown supplier", async () => {
     expect((await call("PATCH", `/api/suppliers/${UNKNOWN}`, { needsLogin: false })).status).toBe(404);
+  });
+});
+
+describe("a supplier's name in Shopify", () => {
+  it("is saved on create, trimmed, changed and cleared", async () => {
+    const s = await create({ ...acme, shopifyName: "  Acme Trading Ltd " });
+    expect(s.shopifyName).toBe("Acme Trading Ltd");
+    expect((await call("PATCH", `/api/suppliers/${s.id}`, { shopifyName: "ACME" })).body.supplier.shopifyName).toBe("ACME");
+    expect((await call("PATCH", `/api/suppliers/${s.id}`, { shopifyName: "" })).body.supplier.shopifyName).toBeNull();
+    expect((await call("GET", `/api/suppliers/${s.id}`)).body.supplier.shopifyName).toBeNull();
+  });
+
+  it("is left out as none", async () => {
+    expect((await create()).shopifyName).toBeNull();
+  });
+
+  it("refuses a name that is too long or not text", async () => {
+    const tooLong = await call("POST", "/api/suppliers", { ...acme, shopifyName: "x".repeat(201) });
+    expect(tooLong.status).toBe(400);
+    expect(tooLong.body.error.code).toBe("invalid_shopify_name");
+    const s = await create();
+    expect((await call("PATCH", `/api/suppliers/${s.id}`, { shopifyName: 5 })).body.error.code).toBe("invalid_shopify_name");
+  });
+
+  it("refuses a name another supplier already matches on, and says so", async () => {
+    await create(); // "Acme Supply"
+    const other = await create({ name: "Globex", websiteUrl: "https://globex.example/" });
+    const r = await call("PATCH", `/api/suppliers/${other.id}`, { shopifyName: "acme supply" });
+    expect(r.status).toBe(409);
+    expect(r.body.error).toMatchObject({ code: "shopify_name_taken", message: "Another supplier already uses that name for Shopify matching." });
   });
 });

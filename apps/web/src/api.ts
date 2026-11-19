@@ -82,6 +82,8 @@ export type ShopifyApi = {
 export type Supplier = {
   id: string;
   name: string;
+  /** The supplier name Shopify uses, when it differs from `name`. null: products match on `name`. */
+  shopifyName: string | null;
   websiteUrl: string;
   loginUrl: string | null;
   checkIntervalMinutes: number;
@@ -173,7 +175,8 @@ export type ScheduleApi = {
 
 export type PermissionInput = { status: Supplier["automationPermission"]; note: string | null; pauseSeconds?: number };
 
-export type SupplierInput = { name: string; websiteUrl: string; loginUrl: string | null };
+/** `shopifyName`: the supplier name Shopify uses, when it differs from `name`. */
+export type SupplierInput = { name: string; websiteUrl: string; loginUrl: string | null; shopifyName?: string | null };
 
 export type SupplierStatusFilter = "connected" | "needs_reconnect" | "blocked" | "paused" | "not_connected" | "no_login";
 export type SuppliersApi = {

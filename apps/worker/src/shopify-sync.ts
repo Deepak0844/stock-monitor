@@ -1,6 +1,6 @@
 import type { Logger } from "pino";
 import type { LinkSummary, createMappingRepository, createShopifyRepository, createSupplierRepository } from "@stock-monitor/db";
-import { planShopifyLinks } from "@stock-monitor/mapping";
+import { planShopifyLinks, supplierMatchName } from "@stock-monitor/mapping";
 import {
   createShopifyClient,
   createTokenProvider,
@@ -50,7 +50,7 @@ export function createShopifySyncHandler(deps: ShopifySyncDeps) {
     if (!mappings || !suppliers) return undefined;
     try {
       const supplierList = await suppliers.list();
-      const byName = new Map(supplierList.map((s) => [s.name.trim().toLowerCase(), { id: s.id, host: new URL(s.websiteUrl).hostname }]));
+      const byName = new Map(supplierList.map((s) => [supplierMatchName(s), { id: s.id, host: new URL(s.websiteUrl).hostname }]));
       const plan = planShopifyLinks(await mappings.shopifyLinkSources(), byName);
       const saved = await mappings.upsertFromShopify(plan.rows);
       return { added: saved.created, updated: saved.updated, skipped: plan.problems.length, problems: plan.problems.slice(0, MAX_PROBLEMS) };

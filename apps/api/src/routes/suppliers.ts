@@ -29,10 +29,13 @@ const DEFAULT_INTERVAL = 60;
 const MIN_INTERVAL = 15;
 const MAX_INTERVAL = 1440;
 const MAX_NAME = 100;
-const FIELDS = ["name", "websiteUrl", "loginUrl", "checkIntervalMinutes"];
+const FIELDS = ["name", "websiteUrl", "loginUrl", "checkIntervalMinutes", "shopifyName"];
+const MAX_SHOPIFY_NAME = 200;
 
 const NOT_FOUND = () => new AppError(404, "supplier_not_found", "That supplier does not exist.");
 const NAME_TAKEN = () => new AppError(409, "name_taken", "You already have a supplier with that name.");
+const SHOPIFY_NAME_TAKEN = () => new AppError(409, "shopify_name_taken", "Another supplier already uses that name for Shopify matching.");
+const taken = (reason: "name_taken" | "shopify_name_taken" | "not_found") => (reason === "name_taken" ? NAME_TAKEN() : reason === "shopify_name_taken" ? SHOPIFY_NAME_TAKEN() : NOT_FOUND());
 
 /** Checks every field and returns the cleaned values. The hosts are looked up afterwards. */
 function readFields(body: unknown, partial: boolean): { values: SupplierPatch; hosts: { host: string; code: string }[] } {
@@ -68,6 +71,14 @@ function readFields(body: unknown, partial: boolean): { values: SupplierPatch; h
     values.loginUrl = blank ? null : address("loginUrl", "invalid_login_url", input.loginUrl);
   } else if (!partial) {
     values.loginUrl = null;
+  }
+
+  if ("shopifyName" in input) {
+    const value = input.shopifyName;
+    if (value !== null && (typeof value !== "string" || value.trim().length > MAX_SHOPIFY_NAME)) {
+      throw new AppError(400, "invalid_shopify_name", `The name in Shopify can be up to ${MAX_SHOPIFY_NAME} characters, or empty to use the supplier's name.`);
+    }
+    values.shopifyName = value === null ? null : value.trim() || null;
   }
 
   if ("checkIntervalMinutes" in input || !partial) {
@@ -125,7 +136,7 @@ export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit
   app.post("/api/suppliers", async (request, reply) => {
     const values = (await checked(request.body, false)) as SupplierInput;
     const result = await repo.create(values);
-    if (!result.ok) throw NAME_TAKEN();
+    if (!result.ok) throw taken(result.reason);
     await record(request, "supplier.created", result.supplier.id, { name: result.supplier.name });
     return reply.status(201).send({ supplier: await decorate(result.supplier) });
   });
@@ -205,7 +216,7 @@ export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit
     }
     if (!hasRest || Object.keys(values).length > 0) {
       const result = await repo.update(request.params.id, values);
-      if (!result.ok) throw result.reason === "name_taken" ? NAME_TAKEN() : NOT_FOUND();
+      if (!result.ok) throw taken(result.reason);
     }
     let latest = (await repo.get(request.params.id)) ?? null;
     if (Object.keys(auto).length > 0) {

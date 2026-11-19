@@ -6,6 +6,8 @@ import { notifications, supplierCredentials, suppliers } from "./schema.js";
 export type SupplierRecord = {
   id: string;
   name: string;
+  /** The supplier name Shopify uses, when it differs from `name`. null: products match on `name`. */
+  shopifyName: string | null;
   websiteUrl: string;
   loginUrl: string | null;
   checkIntervalMinutes: number;
@@ -46,9 +48,10 @@ export type SupplierRecord = {
   updatedAt: Date;
 };
 
-export type SupplierInput = { name: string; websiteUrl: string; loginUrl: string | null; checkIntervalMinutes: number };
+/** `shopifyName`: the supplier name Shopify uses, when it differs from `name`. Left out or null: products match on `name`. */
+export type SupplierInput = { name: string; websiteUrl: string; loginUrl: string | null; checkIntervalMinutes: number; shopifyName?: string | null };
 export type SupplierPatch = Partial<SupplierInput>;
-export type SupplierWrite = { ok: true; supplier: SupplierRecord } | { ok: false; reason: "name_taken" | "not_found" };
+export type SupplierWrite = { ok: true; supplier: SupplierRecord } | { ok: false; reason: "name_taken" | "shopify_name_taken" | "not_found" };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const UNIQUE_VIOLATION = "23505";
@@ -67,6 +70,11 @@ const showsAsPaused = sql`(not ${suppliers.enabled} and ${suppliers.pausedReason
 const isNameTaken = (error: unknown) => {
   const e = error as { code?: string; cause?: { code?: string } };
   return (e?.code ?? e?.cause?.code) === UNIQUE_VIOLATION;
+};
+/** Which name clashed: the match name (name in Shopify, else the app name) has its own index. */
+const takenReason = (error: unknown): "name_taken" | "shopify_name_taken" => {
+  const e = error as { constraint?: string; cause?: { constraint?: string } };
+  return (e?.constraint ?? e?.cause?.constraint) === "suppliers_match_name_unique" ? "shopify_name_taken" : "name_taken";
 };
 
 /**
@@ -126,7 +134,7 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
         const [row] = await db.insert(suppliers).values(input).returning();
         return { ok: true, supplier: row as SupplierRecord };
       } catch (error) {
-        if (isNameTaken(error)) return { ok: false, reason: "name_taken" };
+        if (isNameTaken(error)) return { ok: false, reason: takenReason(error) };
         throw error;
       }
     },
@@ -136,7 +144,7 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
         const row = await set(id, patch);
         return row ? { ok: true, supplier: row } : { ok: false, reason: "not_found" };
       } catch (error) {
-        if (isNameTaken(error)) return { ok: false, reason: "name_taken" };
+        if (isNameTaken(error)) return { ok: false, reason: takenReason(error) };
         throw error;
       }
     },
