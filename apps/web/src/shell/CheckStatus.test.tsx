@@ -15,6 +15,7 @@ const row = (over: Partial<ScheduleRow>): ScheduleRow => ({
   nextCheckAt: "2026-11-19T09:28:00",
   run: null,
   lastRun: null,
+  recent: { total: 0, finished: 0, failed: 0, stopped: 0, streak: null },
   ...over,
 });
 

@@ -394,7 +394,7 @@ describe("checking a connection", () => {
 
 describe("automatic checks", () => {
   const sid = acme.id;
-  const scheduleRow = (over: Partial<ScheduleRow> = {}): ScheduleRow => ({ supplierId: sid, status: { state: "off" }, intervalMinutes: null, window: null, nextCheckAt: null, run: null, lastRun: null, ...over });
+  const scheduleRow = (over: Partial<ScheduleRow> = {}): ScheduleRow => ({ supplierId: sid, status: { state: "off" }, intervalMinutes: null, window: null, nextCheckAt: null, run: null, lastRun: null, recent: { total: 0, finished: 0, failed: 0, stopped: 0, streak: null }, ...over });
   const cellOf = (name: string) => within(rowOf(name)).getByRole("cell", { name: /Automatic checks/ });
   const withSchedule = (rows: ScheduleRow[]) => setup([acme], { schedule: { overview: vi.fn().mockResolvedValue(rows) } });
 

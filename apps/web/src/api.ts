@@ -173,7 +173,11 @@ export type ScheduleRow = {
   nextCheckAt: string | null;
   run: CheckRun | null;
   lastRun: CheckRun | null;
+  /** How the newest 24 ended runs went. */
+  recent: RecentChecks;
 };
+/** How a supplier's recent automatic checks went: counts, and the unbroken run of failures at the newest end, if any. */
+export type RecentChecks = { total: number; finished: number; failed: number; stopped: number; streak: { count: number; since: string } | null };
 export type ScheduleApi = {
   overview(): Promise<ScheduleRow[]>;
   /** Turns automatic checks on (an interval from the list) or off (null), with the quiet-hours window or null for all day, and keep-alive (null = off). */

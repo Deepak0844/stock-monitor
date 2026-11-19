@@ -8,7 +8,7 @@ import { aRun, aSupplier, fakeApi } from "../test/fake-api.js";
 import { SchedulePanel } from "./SchedulePanel.js";
 
 afterEach(cleanup);
-const row = (over: Partial<ScheduleRow> = {}): ScheduleRow => ({ supplierId: aSupplier().id, status: { state: "off" }, intervalMinutes: null, window: null, nextCheckAt: null, run: null, lastRun: null, ...over });
+const row = (over: Partial<ScheduleRow> = {}): ScheduleRow => ({ supplierId: aSupplier().id, status: { state: "off" }, intervalMinutes: null, window: null, nextCheckAt: null, run: null, lastRun: null, recent: { total: 0, finished: 0, failed: 0, stopped: 0, streak: null }, ...over });
 const setup = (supplier = aSupplier(), over: Parameters<typeof fakeApi>[0] = {}, rows: ScheduleRow[] = [row()]) => {
   const api = fakeApi({ ...over, schedule: { overview: vi.fn().mockResolvedValue(rows), ...over.schedule } });
   render(<SchedulePanel api={api} supplier={supplier} />);

@@ -36,7 +36,7 @@ describe("DashboardPage", () => {
 
   it("shows how many suppliers have automatic checks on and when the next one is", async () => {
     const next = "2030-01-02T09:00:00.000Z";
-    const row = (supplierId: string, over = {}) => ({ supplierId, status: { state: "waiting" as const }, intervalMinutes: 1440, window: null, nextCheckAt: next, run: null, lastRun: null, ...over });
+    const row = (supplierId: string, over = {}) => ({ supplierId, status: { state: "waiting" as const }, intervalMinutes: 1440, window: null, nextCheckAt: next, run: null, lastRun: null, recent: { total: 0, finished: 0, failed: 0, stopped: 0, streak: null }, ...over });
     setup({ schedule: { overview: vi.fn().mockResolvedValue([row("a"), row("b", { nextCheckAt: "2030-01-03T09:00:00.000Z" }), row("c", { intervalMinutes: null, status: { state: "off" }, nextCheckAt: null })]) } });
     await screen.findByText("Nothing needs your attention.");
     const c = card("Stock checks");
@@ -45,7 +45,7 @@ describe("DashboardPage", () => {
   });
 
   it("says a check is running now", async () => {
-    setup({ schedule: { overview: vi.fn().mockResolvedValue([{ supplierId: "a", status: { state: "running" }, intervalMinutes: 60, window: null, nextCheckAt: null, run: null, lastRun: null }]) } });
+    setup({ schedule: { overview: vi.fn().mockResolvedValue([{ supplierId: "a", status: { state: "running" }, intervalMinutes: 60, window: null, nextCheckAt: null, run: null, lastRun: null, recent: { total: 0, finished: 0, failed: 0, stopped: 0, streak: null } }]) } });
     await screen.findByText("Nothing needs your attention.");
     expect(await within(card("Stock checks")).findByText(/checking now/i)).toBeInTheDocument();
   });
