@@ -145,6 +145,8 @@ function startSite(): Promise<Server> {
       if (kase === "storage") return res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ token: "tok-123" }));
       // A shop whose product page is public: any password lands on it, and only a real login shows "Log out".
       if (kase === "public") return res.writeHead(302, good(b) ? { ...loginCookie, location: "/public/product" } : { location: "/public/product" }).end();
+      // An in-between page after Sign in, too bare to read: the login worked (unclear) or did not (unclearno).
+      if (kase === "unclear" || kase === "unclearno") return res.writeHead(302, kase === "unclear" && good(b) ? { ...loginCookie, location: "/unclear/wait" } : { location: `/${kase}/wait` }).end();
       if (!good(b)) return html(page(form(`/${kase}/login`, userAndPassword) + "<p>Wrong password, try again.</p>"));
       if (kase === "busy") return html(page("<p>Too many requests.</p>"), 429);
       // A slow supplier: the right password, answered only after 2.5 s.
@@ -163,6 +165,7 @@ function startSite(): Promise<Server> {
     if (kase === "promo" && step === "home") return html(page(`<h1>Your account</h1><p>${FILLER}</p><label>Promo code <input type="text" name="promo_code"></label>`, "Account"));
     if (kase === "public" && step === "product") return html(page(`<h1>Blue widget</h1><p>${FILLER}</p>${loggedIn(req) ? '<a href="/logout">Log  out</a>' : ""}`, "Blue widget"));
     if (step === "track") return html(page("tracked"));
+    if (step === "wait") return html(page("<p>One moment</p>"));
     if (kase === "hcap" && step === "frame") return html(page("<p>Please verify you are human.</p><button>Verify</button>"));
     if (kase === "hidverify" && step === "frame") return html(page("<p>Verify your email for offers.</p>"));
     if (step !== "login" && step !== "inner" && step !== "form" && step !== "app") return html(page("not here"), 404);
@@ -174,7 +177,7 @@ function startSite(): Promise<Server> {
         return html(page(form("/flaky/login", userAndPassword)));
       case "slow":
         return html(page(form("/slow/login", userAndPassword, `onsubmit="event.preventDefault();document.getElementById('t').src='/slow/track';setTimeout(()=>this.submit(),200)"`) + '<iframe id="t" width="1" height="1"></iframe>'));
-      case "one": case "slower": case "push": case "locked": case "question": case "puzzle": case "code": case "stay": case "promo": case "busy": case "public": case "hcap": case "hidverify":
+      case "one": case "slower": case "push": case "locked": case "question": case "puzzle": case "code": case "stay": case "promo": case "busy": case "public": case "hcap": case "hidverify": case "unclear": case "unclearno":
         return html(page(form(`/${kase}/login`, userAndPassword)));
       case "codea": case "codesplit": return html(page(form(`/${kase}/login`, userAndPassword)));
       case "codeb": return html(page(form("/codeb/user", '<label>Email <input type="email" name="username"></label>').replace("Sign in", "Next")));
@@ -605,6 +608,18 @@ describe.skipIf(!linux)("automatic login in the persistent profile", () => {
   });
   it("a public product page: the logged-in marker confirms a real login", async () => {
     expect((await checker().login(ask("public", { checkUrl: `${base}/public/product`, loggedInMarker: "log out" }))).result).toBe("ok");
+  });
+  it("a bare in-between page after Sign in is no answer: the account page shows the login worked", async () => {
+    posts.unclear = [];
+    const lines: string[] = [];
+    const out = await checker((line) => lines.push(line)).login(ask("unclear"));
+    expect(out.result, `the log said: ${lines.join(" | ")}`).toBe("ok");
+    expect(posts.unclear.length).toBe(1);
+  });
+  it("a bare in-between page after Sign in and no login on the account page: unknown, and the log names the rule for each page", async () => {
+    const lines: string[] = [];
+    expect((await checker((line) => lines.push(line)).login(ask("unclearno"))).result).toBe("unknown");
+    expect(lines).toContain("login result: unknown (unclear_after_submit page=unknown/too_little_text confirm_not_ok page=login_required/password_field)");
   });
   it("wrong password", async () => {
     posts.wrong = [];

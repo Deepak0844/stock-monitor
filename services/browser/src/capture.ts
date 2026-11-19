@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { Browser, BrowserContextOptions } from "playwright";
 import { explainPage, looksLikeNotFound, type SessionState } from "@stock-monitor/supplier-session";
+import { hideConsentBanners } from "./consent.js";
 import { offersFrom, type PageOffer } from "./offers.js";
 import { NAME_SHIM } from "./page-shim.js";
 import type { GuardProxy } from "./proxy.js";
+import { waitUntilShown } from "./settle.js";
 import { CHALLENGE_WIDGET, MAX_TEXT, withFreshState, type BlockTracker, type CheckPageOutcome, type VerifyOptions } from "./verify.js";
 
 export type CaptureRequest = { url: string; loginUrl?: string; loggedInMarker?: string; state: SessionState; picture?: boolean; stealth?: boolean; publicPage?: boolean };
@@ -155,7 +157,8 @@ export async function takePicture(page: import("playwright").Page): Promise<stri
 
 /**
  * Loads one page with a saved session and describes it, for the owner to write stock rules from and for the rules to run on.
- * Everything goes through the guard proxy, which refuses private addresses. Nothing is clicked, typed or scrolled.
+ * Everything goes through the guard proxy, which refuses private addresses. Nothing is clicked, typed or scrolled: a cookie
+ * banner is only hidden for this visit, never answered.
  */
 export async function capturePage(browser: Browser, request: CaptureRequest, options: CaptureOptions): Promise<CaptureOutcome> {
   const id = randomUUID();
@@ -189,7 +192,10 @@ export async function capturePageIn(page: import("playwright").Page, request: Ca
     return { result: privateAddress ? "unknown" : "unreachable", status: null, blockedRequests: count, ...nothing };
   }
 
-  // The picture first: describing the page hides its input fields.
+  // A cookie banner would cover the picture and add its own words and buttons to every page.
+  await hideConsentBanners(page);
+  // The picture first: describing the page hides its input fields. A page that fades in is waited for, or the picture is blank.
+  if (request.picture) await waitUntilShown(page);
   const picture = request.picture ? await takePicture(page) : null;
   const seen = await readPage(page);
   const { result, signal } = explainPage({
