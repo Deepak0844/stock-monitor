@@ -81,11 +81,16 @@ const STATUS = {
 /** Marks the supplier as needing attention and tells the owner on the dashboard. Used by session checks and by stock runs that meet a login, puzzle or block. */
 export async function raiseNeedsAttention(
   deps: Pick<SupplierVerifyDeps, "suppliers" | "notifications">,
-  supplier: { id: string; name: string },
+  supplier: { id: string; name: string; needsLogin?: boolean },
   result: AttentionReason,
 ): Promise<void> {
   await deps.suppliers.markNeedsAttention(supplier.id, STATUS[result]);
-  await deps.notifications.raise({ kind: "supplier_needs_reconnect", supplierId: supplier.id, message: MESSAGES[result](supplier.name), reason: result });
+  // "Log in again" makes no sense for a supplier set to need no login: the setting may be wrong, so say that.
+  const message =
+    supplier.needsLogin === false && result === "login_required"
+      ? `${supplier.name} showed a login page, but it is set to need no login. Open one of its links to see why, or turn Needs a login back on.`
+      : MESSAGES[result](supplier.name);
+  await deps.notifications.raise({ kind: "supplier_needs_reconnect", supplierId: supplier.id, message, reason: result });
 }
 
 /**

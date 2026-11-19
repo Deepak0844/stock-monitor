@@ -151,6 +151,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
           requestedUrl: request.url,
           loginUrl: request.loginUrl,
           loggedInMarker: request.loggedInMarker,
+          publicPage: request.publicPage,
           page: { finalUrl: page.url(), status, ...seen, text: seen.text.slice(0, MAX_TEXT) },
         });
         return { result, status };

@@ -293,6 +293,12 @@ describe("POST /capture", () => {
     expect(capture).toHaveBeenCalledWith(expect.objectContaining({ url: body.url, loggedInMarker: "Log out" }));
   });
 
+  it("passes on that the page is public, and refuses a setting that is not yes or no", async () => {
+    expect((await call(TOKEN, { ...body, publicPage: true })).status).toBe(200);
+    expect(capture).toHaveBeenCalledWith(expect.objectContaining({ url: body.url, publicPage: true }));
+    expect((await call(TOKEN, { ...body, publicPage: "yes" })).status).toBe(400);
+  });
+
   it("refuses a picture setting that is not yes or no, and an address that is not a web address", async () => {
     expect((await call(TOKEN, { ...body, picture: "yes" })).status).toBe(400);
     expect((await call(TOKEN, { url: "ftp://x.test", state })).status).toBe(400);

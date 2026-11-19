@@ -136,6 +136,14 @@ describe("verify", () => {
     expect("loginUrl" in (fake.requests[1]?.body as Record<string, unknown>)).toBe(false);
   });
 
+  it("says the page is public on check-page and capture when asked, and leaves it out otherwise", async () => {
+    const url = "https://a.example/";
+    await client().checkPage({ url, state, publicPage: true });
+    await client().capture({ url, state, publicPage: true });
+    await client().capture({ url, state });
+    expect(fake.requests.map((r) => (r.body as Record<string, unknown>).publicPage)).toEqual([true, true, undefined]);
+  });
+
   it("sends the logged-in marker on verify, check-page and capture when there is one, and leaves it out when there is not", async () => {
     const url = "https://a.example/";
     await client().verify({ url, state, loggedInMarker: "Log out" });

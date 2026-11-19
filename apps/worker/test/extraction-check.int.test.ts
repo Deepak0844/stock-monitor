@@ -679,6 +679,7 @@ describe("a supplier that needs no login", () => {
     expect(body.state).toEqual({ cookies: [], origins: [] });
     expect(body.loginUrl).toBeUndefined();
     expect(body.loggedInMarker).toBeUndefined();
+    expect(body.publicPage).toBe(true);
     expect(requests("/login")).toHaveLength(0);
     expect(await createSupplierSessionRepository(t.appDb).getSealed(acme)).toBeNull();
   });
@@ -718,6 +719,16 @@ describe("a supplier that needs no login", () => {
     await noLogin();
     fake.behaviour.page = { ...normal, result: "login_required" };
     expect(await runAll()).toMatchObject({ kind: "done", stopped: "login_required", checked: 1 });
+  });
+
+  it("says plainly that a supplier set to need no login showed a login page", async () => {
+    await link("v1");
+    await turnOn();
+    await noLogin();
+    fake.behaviour.page = { ...normal, result: "login_required" };
+    await runAll();
+    const [note] = await notes().listOpen();
+    expect(note?.message).toBe("Acme showed a login page, but it is set to need no login. Open one of its links to see why, or turn Needs a login back on.");
   });
 });
 
