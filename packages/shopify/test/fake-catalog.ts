@@ -17,6 +17,8 @@ export type FakeVariant = {
   /** The product's supplier-name and supplier-page-address metafields. Missing or null means the product has none. */
   supplierName?: string | null;
   supplierUrl?: string | null;
+  /** The product's status. Missing means ACTIVE. */
+  status?: "ACTIVE" | "DRAFT" | "ARCHIVED" | "UNLISTED";
   /** location id to available quantity. A location that is missing means "not stocked there". */
   stock: Record<string, number>;
 };
@@ -61,6 +63,9 @@ export function createFakeCatalog(init: { locations: FakeLocation[]; variants: F
   const writes: { inventoryItemId: string; locationId: string; quantity: number; changeFromQuantity: number | null; key: string; referenceDocumentUri: string | null }[] = [];
   const replies = new Map<string, unknown>();
   let failAllReplies = false;
+  const subscriptions: { id: string; topic: string; uri: string }[] = [];
+  let subscriptionsDown = false;
+  let subscriptionsRefuse = false;
 
   const paged = <T>(items: T[], first: number, after: string | null) => {
     const start = after ? Number(after.replace("cursor-", "")) + 1 : 0;
@@ -89,7 +94,10 @@ export function createFakeCatalog(init: { locations: FakeLocation[]; variants: F
         return { body: { errors: [{ message: "internal", extensions: { code: "INTERNAL_SERVER_ERROR" } }] } };
       }
       const locationId = request.variables?.locationId as string;
-      const { slice, pageInfo } = paged(variants, first, after);
+      // Shopify's search syntax: product_status:active keeps only variants of active products.
+      const activeOnly = /product_status:active\b/.test(request.query);
+      const list = activeOnly ? variants.filter((v) => (v.status ?? "ACTIVE") === "ACTIVE") : variants;
+      const { slice, pageInfo } = paged(list, first, after);
       const nodes = slice.map((v) => ({
         id: v.id,
         title: v.title,
@@ -169,6 +177,22 @@ export function createFakeCatalog(init: { locations: FakeLocation[]; variants: F
       return failAllReplies ? { status: 500, body: { errors: "boom" } } : { body };
     }
 
+    // Change-message sign-ups (2026-10): webhookSubscriptions lists them, webhookSubscriptionCreate adds one.
+    if (/\bwebhookSubscriptionCreate\s*\(/.test(request.query)) {
+      const topic = request.variables?.topic as string;
+      const uri = (request.variables?.webhookSubscription as { uri?: string } | undefined)?.uri ?? "";
+      if (subscriptionsRefuse) {
+        return { body: { data: { webhookSubscriptionCreate: { webhookSubscription: null, userErrors: [{ field: ["webhookSubscription", "uri"], message: "Address is invalid" }] } }, extensions: { cost } } };
+      }
+      const created = { id: `gid://shopify/WebhookSubscription/${subscriptions.length + 1}`, topic, uri };
+      subscriptions.push(created);
+      return { body: { data: { webhookSubscriptionCreate: { webhookSubscription: { id: created.id }, userErrors: [] } }, extensions: { cost } } };
+    }
+    if (/\bwebhookSubscriptions\s*\(/.test(request.query)) {
+      if (subscriptionsDown) return { body: { errors: [{ message: "internal", extensions: { code: "INTERNAL_SERVER_ERROR" } }] } };
+      return { body: { data: { webhookSubscriptions: { nodes: subscriptions, pageInfo: { hasNextPage: false, endCursor: null } } }, extensions: { cost } } };
+    }
+
     return { body: { errors: [{ message: "unknown query", extensions: { code: "UNKNOWN" } }] } };
   };
 
@@ -210,5 +234,11 @@ export function createFakeCatalog(init: { locations: FakeLocation[]; variants: F
     pageSizes,
     variantVariables,
     queries,
+    /** The change-message sign-ups Shopify holds. Push to it to start with some. */
+    subscriptions,
+    /** Listing sign-ups answers with an error. */
+    setSubscriptionsDown: (down: boolean) => void (subscriptionsDown = down),
+    /** Creating a sign-up answers with a user error. */
+    setSubscriptionsRefuse: (refuse: boolean) => void (subscriptionsRefuse = refuse),
   };
 }

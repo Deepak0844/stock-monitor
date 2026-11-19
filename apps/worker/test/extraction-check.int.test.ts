@@ -328,6 +328,14 @@ describe("all of a supplier's links", () => {
     expect(await runAll()).toMatchObject({ checked: 1 });
   });
 
+  it("leaves out links whose product is no longer active in Shopify (draft, archived or deleted)", async () => {
+    await turnOn();
+    const gone = await link("v1");
+    await link("v2");
+    await t.pool.query("update shopify_variants set removed_at = now() where variant_id = (select variant_id from mappings where id = $1)", [gone]);
+    expect(await runAll()).toMatchObject({ checked: 1 });
+  });
+
   it("deletes old unlabelled captures when a run starts", async () => {
     await turnOn();
     const id = await link("v1");

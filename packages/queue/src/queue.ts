@@ -7,6 +7,11 @@ export type JobOptions = {
   retryLimit?: number;
   /** Do not start the job until this many seconds from now. */
   startAfter?: number;
+  /**
+   * Group repeated sends of this job into slots this many seconds long: the first send runs now, and every further
+   * send in the same slot folds into one job in the next slot. However many arrive, at most two wait.
+   */
+  groupSeconds?: number;
 };
 
 export type Queue = {
@@ -35,7 +40,9 @@ export function createQueue(opts: {
       await boss.stop({ graceful: true });
     },
     async enqueue(name, payload, options) {
-      await boss.send(name, parseJob(name, payload), options ?? {});
+      const { groupSeconds, ...rest } = options ?? {};
+      if (groupSeconds) await boss.sendDebounced(name, parseJob(name, payload), rest, groupSeconds, name);
+      else await boss.send(name, parseJob(name, payload), rest);
     },
     async schedule(name, cron) {
       await boss.schedule(name, cron, {});

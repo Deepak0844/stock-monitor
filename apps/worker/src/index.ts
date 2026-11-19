@@ -20,6 +20,7 @@ import { createQueue } from "@stock-monitor/queue";
 import { parseMetafieldName } from "@stock-monitor/shopify";
 import { createLogger, loadConfig } from "@stock-monitor/shared";
 import { registerHandlers } from "./worker.js";
+import { webhookUrlFor } from "./shopify-sync.js";
 import { createImapSource } from "./code-reader.js";
 import { createGmailSender } from "./alert-email.js";
 
@@ -39,6 +40,8 @@ const queue = createQueue({
   onError: (error) => logger.error({ err: error }, "queue error"),
 });
 
+const webhookUrl = webhookUrlFor(config.appOrigin);
+if (!webhookUrl) logger.info("automatic Shopify sync is off: set APP_ORIGIN to the app's https address to turn it on");
 const db = drizzle(pool);
 await queue.start();
 await registerHandlers(queue, logger, {
@@ -50,6 +53,8 @@ await registerHandlers(queue, logger, {
       supplierName: mustParseMetafield("SHOPIFY_SUPPLIER_NAME_METAFIELD", config.shopifySupplierNameMetafield),
       supplierUrl: mustParseMetafield("SHOPIFY_SPU_METAFIELD", config.shopifySpuMetafield),
     },
+    queue,
+    webhookUrl,
     // Test only. The config refuses to start in production with this set.
     baseUrl: config.shopifyBaseUrlOverride ? () => config.shopifyBaseUrlOverride as string : undefined,
   },

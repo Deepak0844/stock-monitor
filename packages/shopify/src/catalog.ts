@@ -59,7 +59,7 @@ const LOCATIONS_QUERY = `query Locations($first: Int!, $after: String) {
 }`;
 
 const VARIANTS_QUERY = `query Variants($first: Int!, $after: String, $locationId: ID!, $nameNamespace: String!, $nameKey: String!, $urlNamespace: String!, $urlKey: String!) {
-  productVariants(first: $first, after: $after) {
+  productVariants(first: $first, after: $after, query: "product_status:active") {
     nodes {
       id
       title

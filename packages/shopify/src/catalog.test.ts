@@ -71,6 +71,20 @@ describe("listLocations", () => {
 });
 
 describe("fetchVariantPages", () => {
+  it("reads only active products", async () => {
+    store = await startFakeStore({
+      locations,
+      variants: [
+        makeVariant(1),
+        makeVariant(2, { status: "DRAFT" }),
+        makeVariant(3, { status: "ARCHIVED" }),
+        makeVariant(4, { status: "UNLISTED" }),
+      ],
+    });
+    expect((await collect(store.client, LOC_A)).map((v) => v.variantId)).toEqual([makeVariant(1).id]);
+    expect(store.catalog.queries.join(" ")).toMatch(/product_status:active/);
+  });
+
   it("maps every field of a variant", async () => {
     store = await startFakeStore({
       locations,

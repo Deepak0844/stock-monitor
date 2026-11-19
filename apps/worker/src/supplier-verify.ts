@@ -6,6 +6,7 @@ import { runExpirySeconds } from "@stock-monitor/scheduling";
 import type {
   createCheckRunRepository, createRecipeRepository, createMappingRepository, createNotificationRepository, createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository, NotificationReason,
 } from "@stock-monitor/db";
+import { isCheckable } from "@stock-monitor/db";
 import { whyNotChecked } from "@stock-monitor/mapping";
 import { unsealSessionState, type PageClass, type SessionState } from "@stock-monitor/supplier-session";
 import { ensureLoggedIn, loginCheckUrl, type AutoLoginDeps } from "./auto-login.js";
@@ -222,7 +223,7 @@ async function rerunAfterLogin(deps: SupplierVerifyDeps, rerun: NonNullable<Supp
     await audit({ how: "schedule" });
     return;
   }
-  const links = (await deps.mappings.forSupplier(supplierId)).filter((m) => m.enabled).length;
+  const links = (await deps.mappings.forSupplier(supplierId)).filter(isCheckable).length;
   if (links === 0) return;
   const run = await rerun.checkRuns.start(supplierId, "manual", links);
   if (!run) return; // a run is already going
