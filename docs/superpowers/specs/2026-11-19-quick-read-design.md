@@ -1,6 +1,6 @@
 # Quick read: stock checks without the browser
 
-Date: 2026-11-19. Status: draft, waiting for the owner's approval. Builds on `2026-11-19-built-in-stock-data-design.md`.
+Date: 2026-11-19. Status: approved by the owner on 2026-11-19. Builds on `2026-11-19-built-in-stock-data-design.md`.
 
 ## Intent and the why
 
@@ -131,7 +131,14 @@ visit). A missing page (404, a "not found" title) and a move to another site sti
   timeouts), so a run with retries is never cut off as stale.
 - Link checks ("Check all links") are not changed.
 
-### 6. Every 15 or 30 minutes
+### 6. A 3-second pause for suppliers that need no login
+
+- Turning **Needs a login** off sets the supplier's pause between pages to **3 seconds** when it is still the app's default
+  of 10 (the owner never changed it). A pause the owner set is kept. Turning the login back on changes nothing.
+- Done in `suppliers.setNeedsLogin` (one update), so the API, the UI and every test see the same rule. The Edit page shows the
+  new value; the owner can change it as before (at least 1 second).
+
+### 7. Every 15 or 30 minutes
 
 - `INTERVALS` in `packages/scheduling` becomes `[15, 30, 60, 180, 360, 720, 1440]`; migration `0023` widens
   `suppliers_schedule_interval` to match.
@@ -153,6 +160,7 @@ visit). A missing page (404, a "not found" title) and a move to another site sti
 - Worker: quick answer used (one `/quick-read`, no `/capture`); fallback to `/capture` on not ok, blocked, no offers, unclear
   options, page checks present, region on; a supplier that needs a login never calls `/quick-read`; `read_by` stored.
 - Scheduling: 15 and 30 accepted end to end; refused values still refused; `runExpirySeconds` covers retries.
+- Pause: turning the login off moves 10 → 3, keeps any other value, and turning it on again keeps 3.
 - Retries: an unreachable page that loads on the 2nd or 3rd try gives its real answer, with waits 5 s and 15 s; three failures
   give "cannot tell"; login, puzzle, block and unknown are tried once; a quick read is never retried.
 - Web: history wording; the two new schedule choices.
@@ -172,5 +180,6 @@ visit). A missing page (404, a "not found" title) and a move to another site sti
 - No quick read for a supplier with stealth on.
 - The pause between pages applies after quick reads too.
 - Retries wait 5 s, then 15 s, and only for pages that could not be loaded; stock checks only, not link checks.
+- The 3-second pause replaces only the untouched default of 10 seconds.
 - Fallback after 10 s for a slow site (the owner asked what happens: the browser check then runs, with its own 20 s, and an
   unreachable page is "cannot tell", never out of stock).
