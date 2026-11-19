@@ -36,7 +36,8 @@ export function createObservationRepository<S extends Record<string, unknown>>(d
       const rows = (await db.execute(
         sql`select distinct on (mapping_id) id, mapping_id as "mappingId", observed_at as "observedAt", answer, reason, quantity, matched_text as "matchedText", quantity_mismatch as "quantityMismatch", recipe_version as "recipeVersion", check_result as "checkResult", capture_id as "captureId" from stock_observations order by mapping_id, id desc`,
       )) as unknown as { rows: ObservationRecord[] };
-      return new Map(rows.rows.map((r) => [r.mappingId, r]));
+      // A raw query gives the time as PostgreSQL's text, not a Date. Made a Date, it matches every other read of the same row.
+      return new Map(rows.rows.map((r) => [r.mappingId, { ...r, observedAt: new Date(r.observedAt) }]));
     },
   };
 }
