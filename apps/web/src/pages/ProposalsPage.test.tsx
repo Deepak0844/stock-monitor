@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { ApiError } from "../api.js";
-import { aProposal, fakeApi } from "../test/fake-api.js";
+import { aProposal, aSupplier, fakeApi } from "../test/fake-api.js";
 import { ProposalsPage } from "./ProposalsPage.js";
 
 beforeEach(() => window.history.replaceState(null, "", "/proposals"));
@@ -343,5 +343,51 @@ describe("refresh", () => {
     await user.click(await screen.findByRole("button", { name: "History" }));
     await user.click(await screen.findByRole("button", { name: "Refresh Green Hat, Large" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not start that.");
+  });
+});
+
+describe("by supplier", () => {
+  const acme = aSupplier({ id: "s1", name: "Acme" });
+  const bolt = aSupplier({ id: "s2", name: "Bolt" });
+  const withSuppliers = (over: Parameters<typeof fakeApi>[0] = {}) =>
+    fakeApi({ ...over, suppliers: { list: vi.fn().mockResolvedValue([acme, bolt]), ...over.suppliers }, proposals: { waitingBySupplier: vi.fn().mockResolvedValue({ s1: 2 }), ...over.proposals } });
+  const options = () => within(screen.getByRole("combobox", { name: "Supplier" })).getAllByRole("option").map((o) => o.textContent);
+
+  it("filters waiting suggestions by the chosen supplier, with counts", async () => {
+    const api = withSuppliers();
+    render(<ProposalsPage api={api} />);
+    await waitFor(() => expect(options()).toEqual(["All suppliers", "Acme (2)", "Bolt (0)"]));
+    await userEvent.setup().selectOptions(screen.getByRole("combobox", { name: "Supplier" }), "s2");
+    await waitFor(() => expect(api.proposals.openPage).toHaveBeenLastCalledWith({ page: 1, pageSize: 10, supplierId: "s2" }));
+    expect(await screen.findByText("Nothing is waiting for Bolt.")).toBeInTheDocument();
+  });
+
+  it("goes back to page 1 when the supplier changes", async () => {
+    window.history.replaceState(null, "", "/proposals?page=3");
+    const api = withSuppliers();
+    render(<ProposalsPage api={api} />);
+    await waitFor(() => expect(options()).toHaveLength(3));
+    expect(api.proposals.openPage).toHaveBeenCalledWith({ page: 3, pageSize: 10 });
+    await userEvent.setup().selectOptions(screen.getByRole("combobox", { name: "Supplier" }), "s1");
+    await waitFor(() => expect(api.proposals.openPage).toHaveBeenLastCalledWith({ page: 1, pageSize: 10, supplierId: "s1" }));
+  });
+
+  it("keeps the supplier when switching to History, with names only", async () => {
+    const api = withSuppliers();
+    render(<ProposalsPage api={api} />);
+    const user = userEvent.setup();
+    await waitFor(() => expect(options()).toHaveLength(3));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Supplier" }), "s1");
+    await user.click(screen.getByRole("button", { name: "History" }));
+    await waitFor(() => expect(api.proposals.history).toHaveBeenLastCalledWith(1, 10, "s1"));
+    expect(options()).toEqual(["All suppliers", "Acme", "Bolt"]);
+    expect(await screen.findByText("No past suggestions for Acme yet.")).toBeInTheDocument();
+  });
+
+  it("still lists everything when suppliers cannot be read", async () => {
+    const api = withSuppliers({ suppliers: { list: vi.fn().mockRejectedValue(new Error("down")) }, proposals: { openPage: vi.fn().mockResolvedValue({ items: [aProposal()], total: 1, page: 1, pageSize: 10, writePermission: ready }) } });
+    render(<ProposalsPage api={api} />);
+    expect(await screen.findByText("Blue Tee")).toBeInTheDocument();
+    expect(options()).toEqual(["All suppliers"]);
   });
 });

@@ -3,9 +3,9 @@ import { MAX_QUANTITY } from "@stock-monitor/proposals";
 import { Badge } from "@/components/ui/badge.js";
 import { Button } from "@/components/ui/button.js";
 import { Card } from "@/components/ui/card.js";
-import { Input } from "@/components/ui/input.js";
+import { Input, Select } from "@/components/ui/input.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
-import type { Api, Proposal, WritePermission } from "../api.js";
+import type { Api, Proposal, Supplier, WritePermission } from "../api.js";
 import { DataTable, type Column } from "../components/DataTable.js";
 import { EmptyState } from "../components/EmptyState.js";
 import { Field } from "../components/Field.js";
@@ -130,7 +130,7 @@ function OpenItem({ api, proposal, permission, onChanged }: { api: Api; proposal
 
 const REFRESHABLE = new Set(["conflict", "failed", "expired"]);
 
-function History({ api, params }: { api: Api; params: ListParams }) {
+function History({ api, params, supplierId, supplierName }: { api: Api; params: ListParams; supplierId: string; supplierName: string | undefined }) {
   const { page, pageSize, set } = params;
   const [data, setData] = useState<{ items: Proposal[]; total: number } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -144,8 +144,7 @@ function History({ api, params }: { api: Api; params: ListParams }) {
     const mine = ++latest.current;
     setLoading(true);
     setError(null);
-    api.proposals
-      .history(page, pageSize)
+    (supplierId ? api.proposals.history(page, pageSize, supplierId) : api.proposals.history(page, pageSize))
       .then((r) => {
         if (mine !== latest.current) return; // a newer page was asked for since
         setData({ items: r.proposals, total: r.total });
@@ -156,7 +155,7 @@ function History({ api, params }: { api: Api; params: ListParams }) {
         setError(message(e));
         setLoading(false);
       });
-  }, [api, page, pageSize]);
+  }, [api, page, pageSize, supplierId]);
   useEffect(load, [load]);
 
   const busy = useRef<Set<string>>(new Set());
@@ -228,7 +227,7 @@ function History({ api, params }: { api: Api; params: ListParams }) {
           error={error}
           onRetry={load}
           pageSize={pageSize}
-          empty={<EmptyState title="No past suggestions yet." />}
+          empty={<EmptyState title={supplierName ? `No past suggestions for ${supplierName} yet.` : "No past suggestions yet."} />}
         />
         {data !== null && data.total > 0 && <Pager page={page} pageSize={pageSize} total={data.total} onPage={(n) => set({ page: n })} onPageSize={(n) => set({ pageSize: n })} />}
       </Card>
@@ -242,6 +241,13 @@ export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => vo
   const params = useListParams({ pageSize: 10 });
   const { page, pageSize, set } = params;
   const tab = params.filters.tab === "history" ? "history" : "open";
+  const supplierId = params.filters.supplier ?? "";
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [waitingCounts, setWaitingCounts] = useState<Record<string, number>>({});
+  useEffect(() => {
+    api.suppliers.list().then(setSuppliers).catch(() => {});
+  }, [api]);
+  const supplierName = suppliers.find((s) => s.id === supplierId)?.name;
   const [open, setOpen] = useState<Open>({ kind: "loading" });
   const [finished, setFinished] = useState(false);
   const waitingIds = useRef<Set<string>>(new Set());
@@ -250,7 +256,7 @@ export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => vo
     (quiet = false) => {
       if (!quiet) setOpen({ kind: "loading" });
       api.proposals
-        .openPage({ page, pageSize })
+        .openPage(supplierId ? { page, pageSize, supplierId } : { page, pageSize })
         .then((r) => {
           // One that was waiting for Shopify and has gone has finished: its result is in History.
           if ([...waitingIds.current].some((id) => !r.items.some((p) => p.id === id))) setFinished(true);
@@ -261,8 +267,9 @@ export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => vo
         .catch((e: unknown) => {
           if (!quiet) setOpen({ kind: "error", message: message(e) });
         });
+      api.proposals.waitingBySupplier().then(setWaitingCounts).catch(() => {});
     },
-    [api, onChange, page, pageSize],
+    [api, onChange, page, pageSize, supplierId],
   );
   useEffect(() => {
     if (tab === "open") read();
@@ -297,7 +304,8 @@ export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => vo
     <>
       <PageHeader title="Proposals" description="Changes this app suggests to your Shopify stock. Nothing changes in Shopify until you press Approve." />
 
-      <div className="mb-4 inline-flex rounded-lg bg-muted p-1" role="group" aria-label="Show">
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="inline-flex rounded-lg bg-muted p-1" role="group" aria-label="Show">
         {(["open", "history"] as const).map((t) => (
           <button
             key={t}
@@ -309,9 +317,20 @@ export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => vo
             {t === "open" ? "Waiting" : "History"}
           </button>
         ))}
+        </div>
+        <div className="w-full sm:w-64">
+          <Select aria-label="Supplier" value={supplierId} onChange={(e) => set({ supplier: e.target.value || undefined })}>
+            <option value="">All suppliers</option>
+            {suppliers.map((s) => (
+              <option key={s.id} value={s.id}>
+                {tab === "open" ? `${s.name} (${waitingCounts[s.id] ?? 0})` : s.name}
+              </option>
+            ))}
+          </Select>
+        </div>
       </div>
 
-      {tab === "history" && <History api={api} params={params} />}
+      {tab === "history" && <History api={api} params={params} supplierId={supplierId} supplierName={supplierName} />}
 
       {tab === "open" && (
         <>
@@ -346,7 +365,7 @@ export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => vo
           )}
           {open.kind === "ready" && items.length === 0 && open.total === 0 && (
             <Card>
-              <EmptyState title="Nothing is waiting for you." description="New suggestions appear here after a supplier check finds a difference." />
+              <EmptyState title={supplierName ? `Nothing is waiting for ${supplierName}.` : "Nothing is waiting for you."} description="New suggestions appear here after a supplier check finds a difference." />
             </Card>
           )}
           {open.kind === "ready" && items.length > 0 && (
