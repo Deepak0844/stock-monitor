@@ -255,7 +255,8 @@ export type StockReason =
   | "variant_unclear"
   | "built_in_unclear";
 export type LatestStock = { answer: StockAnswer; reason: StockReason | null; quantity: number | null; matchedText: string | null; observedAt: string };
-export type Observation = LatestStock & { id: number; quantityMismatch: boolean; recipeVersion: number | null; checkResult: string };
+/** `readBy`: how the page was read (`quick`: its HTML, no browser), or null for an answer from before it was recorded. */
+export type Observation = LatestStock & { id: number; quantityMismatch: boolean; recipeVersion: number | null; checkResult: string; readBy?: "quick" | "browser" | null };
 
 /** One saved page, without its text or picture. */
 export type Capture = {
