@@ -231,7 +231,7 @@ test("the Proposals screens pass the accessibility scan in light and dark and do
     await history(page);
     await scan(page, `history ${scheme}`);
     expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), "history scrolls sideways").toBe(false);
-    await page.goto("/settings/shopify");
+    await page.goto("/settings/suggestions");
     await expect(page.getByLabel("Quantity for back-in-stock suggestions")).toBeVisible();
     await scan(page, `settings ${scheme}`);
   }
