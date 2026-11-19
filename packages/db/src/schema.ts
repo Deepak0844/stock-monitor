@@ -201,7 +201,7 @@ export const suppliers = pgTable(
     check("suppliers_automation_permission", sql`${t.automationPermission} in ('unknown', 'granted', 'not_granted')`),
     check("suppliers_check_pause", sql`${t.checkPauseSeconds} >= 1`),
     check("suppliers_default_region", sql`${t.defaultRegion} is null or char_length(${t.defaultRegion}) between 1 and 200`),
-    check("suppliers_schedule_interval", sql`${t.scheduleIntervalMinutes} is null or ${t.scheduleIntervalMinutes} in (60, 180, 360, 720, 1440)`),
+    check("suppliers_schedule_interval", sql`${t.scheduleIntervalMinutes} is null or ${t.scheduleIntervalMinutes} in (15, 30, 60, 180, 360, 720, 1440)`),
     check("suppliers_keep_alive", sql`${t.keepAliveMinutes} is null or ${t.keepAliveMinutes} in (15, 30, 45, 60, 120)`),
     check("suppliers_schedule_window", sql`(${t.scheduleWindowStart} is null) = (${t.scheduleWindowEnd} is null)`),
     check("suppliers_check_interval", sql`${t.checkIntervalMinutes} between 15 and 1440`),
@@ -425,9 +425,12 @@ export const stockObservations = pgTable(
     recipeVersion: integer("recipe_version"),
     checkResult: text("check_result").notNull(),
     captureId: uuid("capture_id").references(() => pageCaptures.id, { onDelete: "set null" }),
+    /** How the page was read: `quick` (its HTML, no browser) or `browser`. null when it was never opened. */
+    readBy: text("read_by"),
   },
   (t) => [
     check("stock_observations_answer", sql`${t.answer} in ('in_stock', 'out_of_stock', 'cannot_tell')`),
+    check("stock_observations_read_by", sql`${t.readBy} is null or ${t.readBy} in ('quick', 'browser')`),
     index("stock_observations_mapping_idx").on(t.mappingId, t.observedAt),
   ],
 );
