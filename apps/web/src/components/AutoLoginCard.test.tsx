@@ -42,9 +42,9 @@ describe("Automatic login card", () => {
     expect(screen.getAllByText("Needs “Allows automatic checks” to be Yes.").length).toBeGreaterThan(0);
   });
 
-  it("says a login that did not finish without claiming one was tried", () => {
+  it("says an unconfirmed login points to the live window, without claiming one was tried", () => {
     setup({ ...granted, lastAutoLoginAt: "2026-11-17T06:58:00.000Z", lastAutoLoginResult: "unknown" });
-    expect(screen.getByText(/login did not finish \(nothing was sent if a box would not take the text\)/)).toBeInTheDocument();
+    expect(screen.getByText(/login not confirmed \(the live window shows whether you are logged in\)/)).toBeInTheDocument();
     expect(screen.queryByText(/not sure it worked/)).not.toBeInTheDocument();
   });
 

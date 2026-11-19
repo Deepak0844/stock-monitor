@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 
-const WATCH_MS = 3000;
+export const WATCH_MS = 3000;
 
 /**
  * Follows one check by asking a small status every few seconds. Resolves true once `done` says the check has finished, or false

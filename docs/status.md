@@ -22,6 +22,9 @@ What is left for the MVP:
 - Release: merge `develop` into `master` (PR #122).
 - README (PR #124), open for review.
 
+Rule suggestions (branch `feature/rule-suggestions`, 2026-11-19): a "Suggest rules" button on the Stock rules page proposes
+page checks, in-stock and out-of-stock rules from the labelled saved pages, with the evidence for each.
+
 Login guessing (branch `feature/login-guess`, 2026-11-19): automatic login now guesses a login button or opener from what it
 says when the wording is not on the exact list, and never takes Register, Forgot password, a social login or Log out.
 "Check login page" (branch `feature/login-check`) opens the supplier's login page without typing or sending anything and lists

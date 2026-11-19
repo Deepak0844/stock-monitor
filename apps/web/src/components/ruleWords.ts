@@ -3,7 +3,8 @@ import type { Recipe, StockRule, Waiting } from "../api.js";
 /** How pre-order and back-order count, in the words the editor shows. */
 export const WAITING_WORDS: Record<Waiting, string> = { out_of_stock: "Out of stock", in_stock: "In stock", cannot_tell: "Cannot tell" };
 
-const rule = (r: StockRule): string => {
+/** One rule in plain words. */
+export const ruleInWords = (r: StockRule): string => {
   const under = r.under ? ` under “${r.under}”` : "";
   if (r.type === "text") return `Text: “${r.text}”${under}`;
   const state = r.enabled === undefined ? "" : r.enabled ? " (must be enabled)" : " (must be disabled)";
@@ -14,9 +15,9 @@ const rule = (r: StockRule): string => {
 export function ruleLines(recipe: Recipe): Record<string, string[]> {
   const out: Record<string, string[]> = {};
   if (recipe.builtIn) out["Built-in data"] = [`On. Pre-order and back-order count as ${WAITING_WORDS[recipe.builtIn.waiting]}.`];
-  if (recipe.pageChecks.length) out["Page checks"] = recipe.pageChecks.map(rule);
-  if (recipe.inStock.length) out["In stock when"] = recipe.inStock.map(rule);
-  if (recipe.outOfStock.length) out["Out of stock when"] = recipe.outOfStock.map(rule);
+  if (recipe.pageChecks.length) out["Page checks"] = recipe.pageChecks.map(ruleInWords);
+  if (recipe.inStock.length) out["In stock when"] = recipe.inStock.map(ruleInWords);
+  if (recipe.outOfStock.length) out["Out of stock when"] = recipe.outOfStock.map(ruleInWords);
   if (recipe.quantity) out.Quantity = [`Number after “${recipe.quantity.label}”${recipe.quantity.under ? ` under “${recipe.quantity.under}”` : ""}`];
   if (recipe.region) out.Region = [`Regions listed under “${recipe.region.under}”`];
   return out;
