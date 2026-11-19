@@ -5,6 +5,7 @@ import type { Api, AutoLoginResult, LoginSelectors, Supplier } from "../api.js";
 import { formatDay, formatWhen } from "../format.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
 import { Field } from "./Field.js";
+import { LoginCheck } from "./LoginCheck.js";
 import { Notice } from "./Notice.js";
 
 const RESULT_WORDS: Record<AutoLoginResult, string> = {
@@ -265,6 +266,16 @@ export function AutoLoginCard({ api, supplier, onChange }: { api: Api; supplier:
           </p>
         )}
       </div>
+
+      <LoginCheck
+        api={api}
+        supplier={supplier}
+        onSaved={(saved) => {
+          // The typed boxes follow what was just saved, so pressing their own Save later cannot bring back the old picks.
+          setSelectors({ open: saved?.open ?? "", account: saved?.account ?? "", username: saved?.username ?? "", password: saved?.password ?? "", submit: saved?.submit ?? "" });
+          onChange();
+        }}
+      />
 
       <details className="rounded-lg border border-border px-4 py-3">
         <summary className="cursor-pointer text-sm font-semibold">Login page fields (advanced)</summary>
