@@ -23,3 +23,13 @@ export const settle = (page: Page) =>
         .map((a) => a.finished.catch(() => undefined)),
     ),
   );
+
+/** Chooses a supplier in the Links filters. On a phone the filters are behind one Filters button, on a full screen. */
+export async function pickLinksSupplier(page: Page, name: RegExp) {
+  const filters = page.getByRole("button", { name: /^Filters/ });
+  const phone = await filters.isVisible();
+  if (phone) await filters.click();
+  await page.getByRole("button", { name: /^Supplier:/ }).click();
+  await page.getByRole("option", { name }).click();
+  if (phone) await page.getByRole("button", { name: "Done" }).click();
+}

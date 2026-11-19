@@ -6,7 +6,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { OWNER_EMAIL, OWNER_PASSWORD } from "./constants.js";
 import { control } from "./control.js";
-import { expectSignedIn, rowMenu, settle } from "./ui.js";
+import { expectSignedIn, rowMenu, settle, pickLinksSupplier } from "./ui.js";
 
 test.describe.configure({ mode: "serial" });
 
@@ -82,6 +82,7 @@ test("the owner turns on daily checks, a due check runs by itself, and the list 
 
   // The run is in the history on the supplier's page.
   await rowMenu(page, "Acme Supply", "Edit");
+  await page.getByText(/^Recent checks/).click();
   await expect(page.getByRole("table", { name: "Recent checks" })).toContainText("Scheduled");
   await expect(page.getByRole("table", { name: "Recent checks" })).toContainText(/Checked 6 links/);
 });
@@ -90,8 +91,7 @@ test("a run shows its progress and cannot be started twice, then works again onc
   await signIn(page);
   await control.browser({ delayMs: 700 });
   await page.goto("/mappings");
-  await page.getByRole("button", { name: /^Supplier:/ }).click();
-  await page.getByRole("option", { name: /Acme Supply/ }).click();
+  await pickLinksSupplier(page, /Acme Supply/);
   await page.getByRole("button", { name: "Check all stock for Acme Supply" }).click();
   await expect(page.getByText(/Checking stock for 6 links/)).toBeVisible();
   await expect(page.getByRole("progressbar", { name: "Stock check for Acme Supply" })).toBeVisible();
@@ -103,8 +103,7 @@ test("a run shows its progress and cannot be started twice, then works again onc
   await control.browser({ delayMs: 0 });
   await waitForRunEnd(page);
   await page.goto("/mappings");
-  await page.getByRole("button", { name: /^Supplier:/ }).click();
-  await page.getByRole("option", { name: /Acme Supply/ }).click();
+  await pickLinksSupplier(page, /Acme Supply/);
   await page.getByRole("button", { name: "Check all stock for Acme Supply" }).click();
   await expect(page.getByText(/Checking stock for 6 links/)).toBeVisible();
 });
@@ -167,6 +166,7 @@ test("the automatic check screens pass the accessibility scan in light and dark,
     await scan(page, `suppliers ${scheme}`);
     await noSideScroll(page, `suppliers ${scheme}`);
     await rowMenu(page, "Acme Supply", "Edit");
+    await page.getByText(/^Recent checks/).click();
     await expect(page.getByRole("table", { name: "Recent checks" })).toBeVisible();
     await scan(page, `schedule panel ${scheme}`);
     await noSideScroll(page, `schedule panel ${scheme}`);

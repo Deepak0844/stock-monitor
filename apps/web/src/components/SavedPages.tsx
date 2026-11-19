@@ -7,7 +7,15 @@ import { Input, Select } from "@/components/ui/input.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
 import { cn } from "@/lib/utils.js";
 import { toast } from "@/lib/toast.js";
-import type { Api, Capture, CaptureDetail, ExampleResult, Mapping, Offer, StockAnswer } from "../api.js";
+import type {
+  Api,
+  Capture,
+  CaptureDetail,
+  ExampleResult,
+  Mapping,
+  Offer,
+  StockAnswer,
+} from "../api.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
 import { Field } from "./Field.js";
 import { Notice } from "./Notice.js";
@@ -133,7 +141,11 @@ export function SavedPages({
         expected: expected === "" ? null : expected,
       });
       toast("Label saved.");
-      setLoaded({ ...detail, name: name.trim(), expectedAnswer: expected === "" ? null : expected });
+      setLoaded({
+        ...detail,
+        name: name.trim(),
+        expectedAnswer: expected === "" ? null : expected,
+      });
       onChanged();
       await reload();
     } catch (e) {
@@ -186,7 +198,12 @@ export function SavedPages({
   const resultFor = (id: string) => results.find((r) => r.id === id);
 
   return (
-    <div className="grid h-[40rem] min-h-0 md:h-[42rem] md:grid-cols-[minmax(0,21rem)_minmax(0,1fr)]">
+    <div
+      className={cn(
+        "grid min-h-0 md:grid-cols-[minmax(0,21rem)_minmax(0,1fr)]",
+        captures.length === 0 ? "h-auto" : "h-[40rem] md:h-[42rem]",
+      )}
+    >
       <div
         className={cn(
           "flex min-h-0 min-w-0 flex-col border-border md:border-r",
@@ -503,7 +520,11 @@ function BuiltInData({ offers }: { offers: Offer[] | undefined }) {
     return (
       <div className="text-sm">
         <p className="font-semibold">No built-in data</p>
-        {!offers && <p className="text-muted-foreground">Capture this page again to read its built-in data.</p>}
+        {!offers && (
+          <p className="text-muted-foreground">
+            Capture this page again to read its built-in data.
+          </p>
+        )}
       </div>
     );
   }
@@ -512,7 +533,10 @@ function BuiltInData({ offers }: { offers: Offer[] | undefined }) {
   return (
     <div className="text-sm">
       <p className="font-semibold">Built-in data: the options differ</p>
-      <ul className="mt-1 flex flex-col gap-0.5 text-muted-foreground" aria-label="Options on the page">
+      <ul
+        className="mt-1 flex flex-col gap-0.5 text-muted-foreground"
+        aria-label="Options on the page"
+      >
         {offers.map((o, i) => (
           <li key={i}>{offerLine(o)}</li>
         ))}

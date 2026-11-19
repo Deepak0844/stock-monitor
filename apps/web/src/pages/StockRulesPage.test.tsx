@@ -7,7 +7,9 @@ import { ApiError, type Capture } from "../api.js";
 import { aCapture, aMapping, aRecipeVersion, aSupplier, fakeApi } from "../test/fake-api.js";
 import { StockRulesPage } from "./StockRulesPage.js";
 
-beforeEach(() => window.history.replaceState(null, "", "/suppliers/11111111-1111-4111-8111-111111111111/rules"));
+beforeEach(() =>
+  window.history.replaceState(null, "", "/suppliers/11111111-1111-4111-8111-111111111111/rules"),
+);
 afterEach(cleanup);
 
 const acme = aSupplier();
@@ -16,7 +18,13 @@ const description = {
   title: "Blue Tee",
   status: 200,
   pageClass: "ok",
-  sections: [{ heading: "Blue Tee", level: 1, lines: ["Soft cotton.", "<script>alert('x')</script><b>bold</b>"] }],
+  sections: [
+    {
+      heading: "Blue Tee",
+      level: 1,
+      lines: ["Soft cotton.", "<script>alert('x')</script><b>bold</b>"],
+    },
+  ],
   buttons: [{ label: "Add to cart", enabled: true, section: "Blue Tee" }],
 };
 
@@ -49,10 +57,20 @@ describe("saved pages", () => {
   });
 
   it("asks which link first, and shows the server's plain refusal", async () => {
-    const request = vi.fn().mockRejectedValue(new ApiError("You have not recorded permission to check this supplier automatically. Open the supplier to record it.", 409, "no_permission"));
+    const request = vi
+      .fn()
+      .mockRejectedValue(
+        new ApiError(
+          "You have not recorded permission to check this supplier automatically. Open the supplier to record it.",
+          409,
+          "no_permission",
+        ),
+      );
     const { user } = setup({ captures: { request } });
     await user.click(await screen.findByRole("button", { name: "Capture" }));
-    expect(await screen.findByText("Choose the link whose page you want to capture.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Choose the link whose page you want to capture."),
+    ).toBeInTheDocument();
     expect(request).not.toHaveBeenCalled();
     await screen.findByRole("option", { name: /Blue Tee/ });
     await user.selectOptions(screen.getByLabelText("Link to capture"), aMapping().id);
@@ -64,11 +82,19 @@ describe("saved pages", () => {
   const rowOf = (name: string) => screen.getByRole("button", { name: new RegExp(name) });
 
   it("shows each capture's state in words in the list: capturing, saved, or why it failed", async () => {
-    setup(list(
-      aCapture({ id: "a", name: "Pending one", status: "pending", hasPicture: false }),
-      aCapture({ id: "b", name: "Ready one" }),
-      aCapture({ id: "c", name: "Failed one", status: "failed", failureReason: "captcha", hasPicture: false }),
-    ));
+    setup(
+      list(
+        aCapture({ id: "a", name: "Pending one", status: "pending", hasPicture: false }),
+        aCapture({ id: "b", name: "Ready one" }),
+        aCapture({
+          id: "c",
+          name: "Failed one",
+          status: "failed",
+          failureReason: "captcha",
+          hasPicture: false,
+        }),
+      ),
+    );
     const rows = within(await screen.findByRole("list", { name: "Saved pages" }));
     expect(rows.getAllByText("Capturing…").length).toBeGreaterThan(0);
     expect(rows.getByText(/The supplier showed a puzzle/)).toBeInTheDocument();
@@ -81,12 +107,33 @@ describe("saved pages", () => {
   });
 
   it("opens the first saved page at once, with its picture, and chooses another when it is clicked", async () => {
-    const get = vi.fn().mockImplementation(async (id: string) => ({ ...aCapture({ id, name: id === "b" ? "Second" : "First" }), description }));
-    const { user } = setup({ captures: { list: vi.fn().mockResolvedValue([aCapture({ id: "a", name: "First" }), aCapture({ id: "b", name: "Second" })]), get } });
-    expect(await screen.findByRole("img", { name: "Picture of the saved page" })).toHaveAttribute("src", "/api/captures/a/picture");
+    const get = vi
+      .fn()
+      .mockImplementation(async (id: string) => ({
+        ...aCapture({ id, name: id === "b" ? "Second" : "First" }),
+        description,
+      }));
+    const { user } = setup({
+      captures: {
+        list: vi
+          .fn()
+          .mockResolvedValue([
+            aCapture({ id: "a", name: "First" }),
+            aCapture({ id: "b", name: "Second" }),
+          ]),
+        get,
+      },
+    });
+    expect(await screen.findByRole("img", { name: "Picture of the saved page" })).toHaveAttribute(
+      "src",
+      "/api/captures/a/picture",
+    );
     expect(rowOf("First")).toHaveAttribute("aria-current", "true");
     await user.click(rowOf("Second"));
-    expect(await screen.findByRole("img", { name: "Picture of the saved page" })).toHaveAttribute("src", "/api/captures/b/picture");
+    expect(await screen.findByRole("img", { name: "Picture of the saved page" })).toHaveAttribute(
+      "src",
+      "/api/captures/b/picture",
+    );
     expect(rowOf("Second")).toHaveAttribute("aria-current", "true");
   });
 
@@ -111,15 +158,22 @@ describe("saved pages", () => {
     const get = vi.fn().mockResolvedValue({ ...aCapture(), description });
     const { user } = setup({ captures: { list: vi.fn().mockResolvedValue([aCapture()]), get } });
     await user.click(await screen.findByRole("button", { name: "Open full size" }));
-    expect(within(screen.getByRole("dialog")).getByRole("img", { name: "Saved page at full size" })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("dialog")).getByRole("img", { name: "Saved page at full size" }),
+    ).toBeInTheDocument();
   });
 
   it("labels a capture with a name and the answer the owner expects", async () => {
     const get = vi.fn().mockResolvedValue({ ...aCapture(), description });
-    const { api, user } = setup({ captures: { list: vi.fn().mockResolvedValue([aCapture()]), get } });
+    const { api, user } = setup({
+      captures: { list: vi.fn().mockResolvedValue([aCapture()]), get },
+    });
     await user.selectOptions(await screen.findByLabelText("Answer you expect"), "in_stock");
     await user.click(screen.getByRole("button", { name: "Save label" }));
-    expect(api.captures.label).toHaveBeenCalledWith(aCapture().id, { name: aCapture().name, expected: "in_stock" });
+    expect(api.captures.label).toHaveBeenCalledWith(aCapture().id, {
+      name: aCapture().name,
+      expected: "in_stock",
+    });
     expect(await screen.findByText("Label saved.")).toBeInTheDocument();
   });
 
@@ -133,8 +187,24 @@ describe("saved pages", () => {
 
   it("never shows the page just left in the form of the page just chosen", async () => {
     let finish!: (d: unknown) => void;
-    const get = vi.fn().mockImplementation((id: string) => (id === "b" ? new Promise((r) => (finish = r)) : Promise.resolve({ ...aCapture({ id: "a", name: "First" }), description })));
-    const { user } = setup({ captures: { list: vi.fn().mockResolvedValue([aCapture({ id: "a", name: "First" }), aCapture({ id: "b", name: "Second" })]), get } });
+    const get = vi
+      .fn()
+      .mockImplementation((id: string) =>
+        id === "b"
+          ? new Promise((r) => (finish = r))
+          : Promise.resolve({ ...aCapture({ id: "a", name: "First" }), description }),
+      );
+    const { user } = setup({
+      captures: {
+        list: vi
+          .fn()
+          .mockResolvedValue([
+            aCapture({ id: "a", name: "First" }),
+            aCapture({ id: "b", name: "Second" }),
+          ]),
+        get,
+      },
+    });
     expect(await screen.findByLabelText("Name")).toHaveValue("First");
     await user.click(screen.getByRole("button", { name: /Second/ }));
     expect(screen.queryByLabelText("Name")).toBeNull();
@@ -148,29 +218,79 @@ describe("saved pages", () => {
     expect(screen.queryByText(/Contains a picture of the page/)).toBeNull();
     await user.selectOptions(await screen.findByLabelText("Answer you expect"), "in_stock");
     await user.click(screen.getByRole("button", { name: "Save label" }));
-    expect(await screen.findByText(/Contains a picture of the page\. Delete it/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Contains a picture of the page\. Delete it/),
+    ).toBeInTheDocument();
   });
 
   it("warns that a labelled example holds a picture of the page", async () => {
-    const get = vi.fn().mockResolvedValue({ ...aCapture({ expectedAnswer: "in_stock" }), description });
-    setup({ captures: { list: vi.fn().mockResolvedValue([aCapture({ expectedAnswer: "in_stock" })]), get } });
-    expect(await screen.findByText(/Contains a picture of the page\. Delete it when you no longer need it\./)).toBeInTheDocument();
+    const get = vi
+      .fn()
+      .mockResolvedValue({ ...aCapture({ expectedAnswer: "in_stock" }), description });
+    setup({
+      captures: {
+        list: vi.fn().mockResolvedValue([aCapture({ expectedAnswer: "in_stock" })]),
+        get,
+      },
+    });
+    expect(
+      await screen.findByText(
+        /Contains a picture of the page\. Delete it when you no longer need it\./,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("shows which saved pages pass or fail the last test, in the list and with the reason on the page", async () => {
-    const get = vi.fn().mockResolvedValue({ ...aCapture({ expectedAnswer: "in_stock" }), description });
-    const test = vi.fn().mockResolvedValue({ passed: false, results: [{ id: aCapture().id, name: "Blue Tee in stock", expected: "in_stock", passed: false, got: { answer: "cannot_tell", reason: "page_changed", quantity: null, matchedText: null } }] });
-    const { user } = setup({ recipes: { test }, captures: { list: vi.fn().mockResolvedValue([aCapture({ expectedAnswer: "in_stock" })]), get } });
+    const get = vi
+      .fn()
+      .mockResolvedValue({ ...aCapture({ expectedAnswer: "in_stock" }), description });
+    const test = vi
+      .fn()
+      .mockResolvedValue({
+        passed: false,
+        results: [
+          {
+            id: aCapture().id,
+            name: "Blue Tee in stock",
+            expected: "in_stock",
+            passed: false,
+            got: {
+              answer: "cannot_tell",
+              reason: "page_changed",
+              quantity: null,
+              matchedText: null,
+            },
+          },
+        ],
+      });
+    const { user } = setup({
+      recipes: { test },
+      captures: {
+        list: vi.fn().mockResolvedValue([aCapture({ expectedAnswer: "in_stock" })]),
+        get,
+      },
+    });
     await user.click(await screen.findByRole("button", { name: "Test all examples" }));
-    expect(await within(screen.getByRole("list", { name: "Saved pages" })).findByText("Test fails")).toBeInTheDocument();
-    expect(screen.getAllByText(/You expected In stock, the rules said Cannot tell\./).length).toBeGreaterThan(0);
+    expect(
+      await within(screen.getByRole("list", { name: "Saved pages" })).findByText("Test fails"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByText(/You expected In stock, the rules said Cannot tell\./).length,
+    ).toBeGreaterThan(0);
   });
 
   it("asks before deleting, then removes the saved page", async () => {
     const get = vi.fn().mockResolvedValue({ ...aCapture(), description });
-    const { api, user } = setup({ captures: { list: vi.fn().mockResolvedValue([aCapture(), aCapture({ id: "other", name: "Other" })]), get } });
+    const { api, user } = setup({
+      captures: {
+        list: vi.fn().mockResolvedValue([aCapture(), aCapture({ id: "other", name: "Other" })]),
+        get,
+      },
+    });
     await user.click(await screen.findByRole("button", { name: "Delete page" }));
-    expect(screen.getByRole("dialog", { name: "Delete Blue Tee in stock?" })).toHaveTextContent("cannot be recovered");
+    expect(screen.getByRole("dialog", { name: "Delete Blue Tee in stock?" })).toHaveTextContent(
+      "cannot be recovered",
+    );
     expect(api.captures.remove).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Delete saved page" }));
     expect(api.captures.remove).toHaveBeenCalledWith(aCapture().id);
@@ -188,7 +308,10 @@ describe("the rules", () => {
     await user.selectOptions(screen.getByLabelText("In stock when rule 1 button must be"), "true");
     await user.click(screen.getByRole("button", { name: "Add a rule to Out of stock when" }));
     await user.type(screen.getByLabelText("Out of stock when rule 1 words"), "Sold out");
-    await user.type(screen.getByLabelText("Out of stock when rule 1 only under this heading (optional)"), "Blue Tee");
+    await user.type(
+      screen.getByLabelText("Out of stock when rule 1 only under this heading (optional)"),
+      "Blue Tee",
+    );
     await user.click(screen.getByRole("button", { name: "Save version" }));
     expect(api.recipes.save).toHaveBeenCalledWith(acme.id, {
       pageChecks: [{ type: "text", text: "Blue Tee" }],
@@ -205,7 +328,10 @@ describe("the rules", () => {
     await user.click(screen.getByLabelText("Read a quantity"));
     await user.type(screen.getByLabelText("Quantity label"), "Units left");
     await user.click(screen.getByLabelText("This supplier lists stock by region"));
-    await user.type(screen.getByLabelText("Region table heading"), "Click and collect availability");
+    await user.type(
+      screen.getByLabelText("Region table heading"),
+      "Click and collect availability",
+    );
     await user.click(screen.getByRole("button", { name: "Add a rule to Page checks" }));
     await user.click(screen.getByRole("button", { name: "Remove Page checks rule 2" }));
     await user.click(screen.getByRole("button", { name: "Save version" }));
@@ -220,33 +346,64 @@ describe("the rules", () => {
   });
 
   it("shows the server's plain message when the rules are not valid", async () => {
-    const save = vi.fn().mockRejectedValue(new ApiError("Add at least one page check, so the app can tell when the page changes.", 400, "invalid_recipe"));
+    const save = vi
+      .fn()
+      .mockRejectedValue(
+        new ApiError(
+          "Add at least one page check, so the app can tell when the page changes.",
+          400,
+          "invalid_recipe",
+        ),
+      );
     const { user } = setup({ recipes: { save } });
     await user.click(await screen.findByRole("button", { name: "Save version" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Add at least one page check");
   });
 
   it("starts from the turned-on version's rules", async () => {
-    setup({ recipes: { list: vi.fn().mockResolvedValue([aRecipeVersion({ active: true, version: 2 })]) } });
-    await waitFor(() => expect(screen.getByLabelText("Page checks rule 1 words")).toHaveValue("Blue Tee"));
+    setup({
+      recipes: { list: vi.fn().mockResolvedValue([aRecipeVersion({ active: true, version: 2 })]) },
+    });
+    await waitFor(() =>
+      expect(screen.getByLabelText("Page checks rule 1 words")).toHaveValue("Blue Tee"),
+    );
     expect(screen.getByLabelText("In stock when rule 1 words")).toHaveValue("Add to cart");
   });
 });
 
 describe("testing and turning on", () => {
-  const versions = vi.fn().mockResolvedValue([aRecipeVersion({ version: 3, id: "v3" }), aRecipeVersion({ version: 2, id: "v2", active: true })]);
+  const versions = vi
+    .fn()
+    .mockResolvedValue([
+      aRecipeVersion({ version: 3, id: "v3" }),
+      aRecipeVersion({ version: 2, id: "v2", active: true }),
+    ]);
 
   it("tests all the examples and says which pass and which do not", async () => {
     const test = vi.fn().mockResolvedValue({
       passed: false,
       results: [
-        { id: "a", name: "In stock page", expected: "in_stock", passed: true, got: { answer: "in_stock", reason: null, quantity: null, matchedText: "Add to cart" } },
-        { id: "b", name: "Sold out page", expected: "out_of_stock", passed: false, got: { answer: "cannot_tell", reason: "page_changed", quantity: null, matchedText: null } },
+        {
+          id: "a",
+          name: "In stock page",
+          expected: "in_stock",
+          passed: true,
+          got: { answer: "in_stock", reason: null, quantity: null, matchedText: "Add to cart" },
+        },
+        {
+          id: "b",
+          name: "Sold out page",
+          expected: "out_of_stock",
+          passed: false,
+          got: { answer: "cannot_tell", reason: "page_changed", quantity: null, matchedText: null },
+        },
       ],
     });
     const { user } = setup({ recipes: { test } });
     await user.click(await screen.findByRole("button", { name: "Test all examples" }));
-    expect(await screen.findByText("1 example does not give the answer you expect.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("1 example does not give the answer you expect."),
+    ).toBeInTheDocument();
     expect(screen.getByText(/In stock page/).closest("li")).toHaveTextContent("Passed");
     const failed = screen.getByText(/Sold out page/).closest("li")!;
     expect(failed).toHaveTextContent("Failed");
@@ -255,7 +412,20 @@ describe("testing and turning on", () => {
   });
 
   it("says when every example passes", async () => {
-    const test = vi.fn().mockResolvedValue({ passed: true, results: [{ id: "a", name: "A", expected: "in_stock", passed: true, got: { answer: "in_stock", reason: null, quantity: null, matchedText: null } }] });
+    const test = vi
+      .fn()
+      .mockResolvedValue({
+        passed: true,
+        results: [
+          {
+            id: "a",
+            name: "A",
+            expected: "in_stock",
+            passed: true,
+            got: { answer: "in_stock", reason: null, quantity: null, matchedText: null },
+          },
+        ],
+      });
     const { user } = setup({ recipes: { test } });
     await user.click(await screen.findByRole("button", { name: "Test all examples" }));
     expect(await screen.findByText("All examples give the answer you expect.")).toBeInTheDocument();
@@ -269,15 +439,36 @@ describe("testing and turning on", () => {
   });
 
   it("will not turn a version on until a saved page is labelled, and says why", async () => {
-    setup({ recipes: { list: versions }, captures: { list: vi.fn().mockResolvedValue([aCapture()]) } });
+    setup({
+      recipes: { list: versions },
+      captures: { list: vi.fn().mockResolvedValue([aCapture()]) },
+    });
     const button = await screen.findByRole("button", { name: "Turn on version 3" });
     expect(button).toBeDisabled();
-    expect(screen.getByText("Label at least one saved page with the answer you expect.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Label at least one saved page with the answer you expect."),
+    ).toBeInTheDocument();
   });
 
   it("turns a version on once pages are labelled and the examples pass", async () => {
-    const test = vi.fn().mockResolvedValue({ passed: true, results: [{ id: "a", name: "A", expected: "in_stock", passed: true, got: { answer: "in_stock", reason: null, quantity: null, matchedText: null } }] });
-    const { api, user } = setup({ recipes: { list: versions, test }, captures: { list: vi.fn().mockResolvedValue([aCapture({ expectedAnswer: "in_stock" })]) } });
+    const test = vi
+      .fn()
+      .mockResolvedValue({
+        passed: true,
+        results: [
+          {
+            id: "a",
+            name: "A",
+            expected: "in_stock",
+            passed: true,
+            got: { answer: "in_stock", reason: null, quantity: null, matchedText: null },
+          },
+        ],
+      });
+    const { api, user } = setup({
+      recipes: { list: versions, test },
+      captures: { list: vi.fn().mockResolvedValue([aCapture({ expectedAnswer: "in_stock" })]) },
+    });
     await user.click(await screen.findByRole("button", { name: "Test all examples" }));
     await screen.findByText("All examples give the answer you expect.");
     await user.click(screen.getByRole("button", { name: "Turn on version 3" }));
@@ -286,27 +477,83 @@ describe("testing and turning on", () => {
   });
 
   it("blocks Turn on while the last test had a failing example", async () => {
-    const test = vi.fn().mockResolvedValue({ passed: false, results: [{ id: "a", name: "A", expected: "in_stock", passed: false, got: { answer: "cannot_tell", reason: "neither_matched", quantity: null, matchedText: null } }] });
-    const { user } = setup({ recipes: { list: versions, test }, captures: { list: vi.fn().mockResolvedValue([aCapture({ expectedAnswer: "in_stock" })]) } });
+    const test = vi
+      .fn()
+      .mockResolvedValue({
+        passed: false,
+        results: [
+          {
+            id: "a",
+            name: "A",
+            expected: "in_stock",
+            passed: false,
+            got: {
+              answer: "cannot_tell",
+              reason: "neither_matched",
+              quantity: null,
+              matchedText: null,
+            },
+          },
+        ],
+      });
+    const { user } = setup({
+      recipes: { list: versions, test },
+      captures: { list: vi.fn().mockResolvedValue([aCapture({ expectedAnswer: "in_stock" })]) },
+    });
     await user.click(await screen.findByRole("button", { name: "Test all examples" }));
     await screen.findByText("1 example does not give the answer you expect.");
     expect(screen.getByRole("button", { name: "Turn on version 3" })).toBeDisabled();
-    expect(screen.getByText("Some examples do not give the answer you expect. Fix the rules and test again.")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Some examples do not give the answer you expect. Fix the rules and test again.",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("shows the server's plain refusal when turning on fails", async () => {
-    const activate = vi.fn().mockRejectedValue(new ApiError("These saved pages do not give the answer you expect: A. Fix the rules and test again.", 409, "examples_failed"));
-    const { user } = setup({ recipes: { list: versions, activate }, captures: { list: vi.fn().mockResolvedValue([aCapture({ expectedAnswer: "in_stock" })]) } });
+    const activate = vi
+      .fn()
+      .mockRejectedValue(
+        new ApiError(
+          "These saved pages do not give the answer you expect: A. Fix the rules and test again.",
+          409,
+          "examples_failed",
+        ),
+      );
+    const { user } = setup({
+      recipes: { list: versions, activate },
+      captures: { list: vi.fn().mockResolvedValue([aCapture({ expectedAnswer: "in_stock" })]) },
+    });
     await user.click(await screen.findByRole("button", { name: "Turn on version 3" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("do not give the answer you expect: A");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "do not give the answer you expect: A",
+    );
   });
 });
 
 describe("versions", () => {
   const two = aRecipeVersion({ version: 2, id: "v2", active: true });
-  const three = aRecipeVersion({ version: 3, id: "v3", rules: { pageChecks: [{ type: "text", text: "Blue Tee" }], inStock: [{ type: "button", label: "Add to cart", enabled: true }], outOfStock: [{ type: "text", text: "Sold out", under: "Availability" }] } });
-  const one = aRecipeVersion({ version: 1, id: "v1", rules: { pageChecks: [{ type: "text", text: "Blue Tee" }], inStock: [], outOfStock: [{ type: "text", text: "Out of stock" }] } });
-  const withVersions = (...v: ReturnType<typeof aRecipeVersion>[]) => ({ recipes: { list: vi.fn().mockResolvedValue(v) } });
+  const three = aRecipeVersion({
+    version: 3,
+    id: "v3",
+    rules: {
+      pageChecks: [{ type: "text", text: "Blue Tee" }],
+      inStock: [{ type: "button", label: "Add to cart", enabled: true }],
+      outOfStock: [{ type: "text", text: "Sold out", under: "Availability" }],
+    },
+  });
+  const one = aRecipeVersion({
+    version: 1,
+    id: "v1",
+    rules: {
+      pageChecks: [{ type: "text", text: "Blue Tee" }],
+      inStock: [],
+      outOfStock: [{ type: "text", text: "Out of stock" }],
+    },
+  });
+  const withVersions = (...v: ReturnType<typeof aRecipeVersion>[]) => ({
+    recipes: { list: vi.fn().mockResolvedValue(v) },
+  });
 
   it("opens the newest version at once and shows what is in it, in words", async () => {
     setup(withVersions(three, two, one));
@@ -321,24 +568,39 @@ describe("versions", () => {
     expect(diff).toHaveTextContent("+ Out of stock when: Text: “Sold out” under “Availability”");
     expect(diff).toHaveTextContent("− Out of stock when: Text: “Sold out”");
     await user.selectOptions(screen.getByLabelText("Compare with"), "v1");
-    expect(await screen.findByLabelText("Differences from version 1")).toHaveTextContent("+ In stock when: Button: “Add to cart” (must be enabled)");
+    expect(await screen.findByLabelText("Differences from version 1")).toHaveTextContent(
+      "+ In stock when: Button: “Add to cart” (must be enabled)",
+    );
   });
 
   it("loads a version into the rules editor as the start of a new one, and says which", async () => {
     const { api, user } = setup(withVersions(three, two, one));
     await user.click(await screen.findByRole("button", { name: "Edit as new version" }));
-    expect(screen.getByLabelText("Out of stock when rule 1 only under this heading (optional)")).toHaveValue("Availability");
-    expect(screen.getByText(/Starting from version 3\. Saving makes a new version/)).toBeInTheDocument();
-    expect(await screen.findByText("Version 3 is loaded into the rules editor.")).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Out of stock when rule 1 only under this heading (optional)"),
+    ).toHaveValue("Availability");
+    expect(
+      screen.getByText(/Starting from version 3\. Saving makes a new version/),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText("Version 3 is loaded into the rules editor."),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Save version" }));
-    expect(api.recipes.save).toHaveBeenCalledWith(acme.id, expect.objectContaining({ outOfStock: [{ type: "text", text: "Sold out", under: "Availability" }] }));
+    expect(api.recipes.save).toHaveBeenCalledWith(
+      acme.id,
+      expect.objectContaining({
+        outOfStock: [{ type: "text", text: "Sold out", under: "Availability" }],
+      }),
+    );
   });
 
   it("deletes a version after asking, and the turned-on version has no Delete", async () => {
     const list = vi.fn().mockResolvedValueOnce([three, two]).mockResolvedValue([two]);
     const { api, user } = setup({ recipes: { list } });
     await user.click(await screen.findByRole("button", { name: "Delete version 3" }));
-    expect(screen.getByRole("dialog", { name: "Delete version 3?" })).toHaveTextContent("You cannot undo this");
+    expect(screen.getByRole("dialog", { name: "Delete version 3?" })).toHaveTextContent(
+      "You cannot undo this",
+    );
     await user.click(screen.getByRole("button", { name: "Delete version" }));
     expect(api.recipes.remove).toHaveBeenCalledWith("v3");
     expect(await screen.findByText("Deleted version 3.")).toBeInTheDocument();
@@ -348,24 +610,52 @@ describe("versions", () => {
   });
 
   it("shows the server's plain reason inside the dialog when a delete is refused", async () => {
-    const remove = vi.fn().mockRejectedValue(new ApiError("Turn another version on first.", 409, "recipe_active"));
+    const remove = vi
+      .fn()
+      .mockRejectedValue(new ApiError("Turn another version on first.", 409, "recipe_active"));
     const { user } = setup({ recipes: { list: vi.fn().mockResolvedValue([three, two]), remove } });
     await user.click(await screen.findByRole("button", { name: "Delete version 3" }));
     await user.click(screen.getByRole("button", { name: "Delete version" }));
-    expect(await within(screen.getByRole("dialog")).findByRole("alert")).toHaveTextContent("Turn another version on first.");
+    expect(await within(screen.getByRole("dialog")).findByRole("alert")).toHaveTextContent(
+      "Turn another version on first.",
+    );
   });
 });
 
 describe("loading problems", () => {
   it("says plainly when the supplier cannot be loaded", async () => {
-    setup({ suppliers: { get: vi.fn().mockRejectedValue(new ApiError("That supplier does not exist.", 404, "supplier_not_found")) } });
+    setup({
+      suppliers: {
+        get: vi
+          .fn()
+          .mockRejectedValue(
+            new ApiError("That supplier does not exist.", 404, "supplier_not_found"),
+          ),
+      },
+    });
     expect(await screen.findByRole("alert")).toHaveTextContent("That supplier does not exist.");
   });
 });
 
 describe("built-in data", () => {
-  const offer = (availability: string, name: string | null = null, sku: string | null = null) => ({ availability, url: null, sku, name });
-  const withOffers = (offers: unknown[] | undefined) => setup({ captures: { list: vi.fn().mockResolvedValue([aCapture({ id: "a", name: "First" })]), get: vi.fn().mockResolvedValue({ ...aCapture({ id: "a", name: "First" }), description: { ...description, ...(offers ? { offers } : {}) } }) } });
+  const offer = (availability: string, name: string | null = null, sku: string | null = null) => ({
+    availability,
+    url: null,
+    sku,
+    name,
+  });
+  const withOffers = (offers: unknown[] | undefined) =>
+    setup({
+      captures: {
+        list: vi.fn().mockResolvedValue([aCapture({ id: "a", name: "First" })]),
+        get: vi
+          .fn()
+          .mockResolvedValue({
+            ...aCapture({ id: "a", name: "First" }),
+            description: { ...description, ...(offers ? { offers } : {}) },
+          }),
+      },
+    });
 
   it("says what the built-in data on a saved page means", async () => {
     withOffers([offer("InStock")]);
@@ -375,7 +665,9 @@ describe("built-in data", () => {
   it("says when an old saved page has no built-in data, and how to get it", async () => {
     withOffers(undefined);
     expect(await screen.findByText("No built-in data")).toBeInTheDocument();
-    expect(screen.getByText("Capture this page again to read its built-in data.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Capture this page again to read its built-in data."),
+    ).toBeInTheDocument();
   });
 
   it("lists the options of a page whose options differ, so one can be copied into the link", async () => {
@@ -388,32 +680,82 @@ describe("built-in data", () => {
     const test = vi.fn().mockResolvedValue({
       passed: true,
       results: [
-        { id: "a", name: "Built-in page", expected: "in_stock", passed: true, got: { answer: "in_stock", reason: null, quantity: null, matchedText: "Built-in data: InStock", decidedBy: "built_in" } },
-        { id: "b", name: "Words page", expected: "out_of_stock", passed: true, got: { answer: "out_of_stock", reason: null, quantity: null, matchedText: "Sold out", decidedBy: "rules" } },
+        {
+          id: "a",
+          name: "Built-in page",
+          expected: "in_stock",
+          passed: true,
+          got: {
+            answer: "in_stock",
+            reason: null,
+            quantity: null,
+            matchedText: "Built-in data: InStock",
+            decidedBy: "built_in",
+          },
+        },
+        {
+          id: "b",
+          name: "Words page",
+          expected: "out_of_stock",
+          passed: true,
+          got: {
+            answer: "out_of_stock",
+            reason: null,
+            quantity: null,
+            matchedText: "Sold out",
+            decidedBy: "rules",
+          },
+        },
       ],
     });
     const { user } = setup({ recipes: { test } });
     await user.click(await screen.findByRole("button", { name: "Test all examples" }));
-    expect((await screen.findByText(/Built-in page/)).closest("li")).toHaveTextContent("Decided by built-in data.");
-    expect(screen.getByText(/Words page/).closest("li")).toHaveTextContent("Decided by your rules.");
+    expect((await screen.findByText(/Built-in page/)).closest("li")).toHaveTextContent(
+      "Decided by built-in data.",
+    );
+    expect(screen.getByText(/Words page/).closest("li")).toHaveTextContent(
+      "Decided by your rules.",
+    );
   });
 
   it("will not turn on a built-in version until an in-stock and an out-of-stock page are labelled", async () => {
-    const list = vi.fn().mockResolvedValue([aRecipeVersion({ version: 2, id: "v2", rules: { pageChecks: [], inStock: [], outOfStock: [], builtIn: { waiting: "out_of_stock" } } })]);
-    setup({ recipes: { list }, captures: { list: vi.fn().mockResolvedValue([aCapture({ expectedAnswer: "in_stock" })]) } });
+    const list = vi
+      .fn()
+      .mockResolvedValue([
+        aRecipeVersion({
+          version: 2,
+          id: "v2",
+          rules: {
+            pageChecks: [],
+            inStock: [],
+            outOfStock: [],
+            builtIn: { waiting: "out_of_stock" },
+          },
+        }),
+      ]);
+    setup({
+      recipes: { list },
+      captures: { list: vi.fn().mockResolvedValue([aCapture({ expectedAnswer: "in_stock" })]) },
+    });
     expect(await screen.findByRole("button", { name: "Turn on version 2" })).toBeDisabled();
-    expect(screen.getByText("Label at least one in-stock and one out-of-stock saved page.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Label at least one in-stock and one out-of-stock saved page."),
+    ).toBeInTheDocument();
   });
 });
 
 describe("a supplier that needs no login", () => {
-  const NOTICE = /already checked from its built-in stock data, with no stock rules needed\. Its answers make suggestions on Proposals like any other supplier\./;
+  const NOTICE =
+    /already checked from its built-in stock data, with no stock rules needed\. Its answers make suggestions on Proposals like any other supplier\./;
   it("says it is already checked from built-in data while no version is turned on", async () => {
     setup({ suppliers: { get: vi.fn().mockResolvedValue(aSupplier({ needsLogin: false })) } });
     expect(await screen.findByText(NOTICE)).toBeInTheDocument();
   });
   it("says nothing of it once a version is turned on, or for a supplier that needs a login", async () => {
-    setup({ suppliers: { get: vi.fn().mockResolvedValue(aSupplier({ needsLogin: false })) }, recipes: { list: vi.fn().mockResolvedValue([aRecipeVersion({ active: true })]) } });
+    setup({
+      suppliers: { get: vi.fn().mockResolvedValue(aSupplier({ needsLogin: false })) },
+      recipes: { list: vi.fn().mockResolvedValue([aRecipeVersion({ active: true })]) },
+    });
     await screen.findByRole("list", { name: "Versions" });
     expect(screen.queryByText(NOTICE)).toBeNull();
     cleanup();
@@ -424,8 +766,19 @@ describe("a supplier that needs no login", () => {
 });
 
 describe("suggesting rules", () => {
-  const soldOut = { kind: "outOfStock", rule: { type: "text", text: "Sold out" }, seenOn: 1, ofTotal: 1, seenOnOther: 0, otherTotal: 1, starter: true, checked: true } as const;
-  const suggest = (result: unknown) => ({ recipes: { suggest: vi.fn().mockResolvedValue(result) } });
+  const soldOut = {
+    kind: "outOfStock",
+    rule: { type: "text", text: "Sold out" },
+    seenOn: 1,
+    ofTotal: 1,
+    seenOnOther: 0,
+    otherTotal: 1,
+    starter: true,
+    checked: true,
+  } as const;
+  const suggest = (result: unknown) => ({
+    recipes: { suggest: vi.fn().mockResolvedValue(result) },
+  });
 
   it("asks for suggestions, shows them, and adds the ticked ones to the editor", async () => {
     const { api, user } = setup(suggest({ ok: true, passes: true, suggestions: [soldOut] }));
@@ -439,12 +792,52 @@ describe("suggesting rules", () => {
   it("tells the owner what to label when a side is missing", async () => {
     const { user } = setup(suggest({ ok: false, reason: "need_both_answers" }));
     await user.click(await screen.findByRole("button", { name: "Suggest rules" }));
-    expect(await screen.findByText(/Label one saved page in stock and one out of stock/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Label one saved page in stock and one out of stock/),
+    ).toBeInTheDocument();
   });
 
   it("shows the server's plain refusal", async () => {
-    const { user } = setup({ recipes: { suggest: vi.fn().mockRejectedValue(new ApiError("That supplier does not exist.", 404, "supplier_not_found")) } });
+    const { user } = setup({
+      recipes: {
+        suggest: vi
+          .fn()
+          .mockRejectedValue(
+            new ApiError("That supplier does not exist.", 404, "supplier_not_found"),
+          ),
+      },
+    });
     await user.click(await screen.findByRole("button", { name: "Suggest rules" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("That supplier does not exist.");
+  });
+});
+
+describe("the steps across the top", () => {
+  it("says where the owner stands: pages saved and labelled, rules written, a version on", async () => {
+    setup({
+      captures: {
+        list: vi
+          .fn()
+          .mockResolvedValue([
+            aCapture({ id: "c1", expectedAnswer: "in_stock" }),
+            aCapture({ id: "c2", expectedAnswer: null }),
+          ]),
+      },
+      recipes: { list: vi.fn().mockResolvedValue([aRecipeVersion({ active: false })]) },
+    });
+    const steps = await screen.findByRole("list", { name: "Steps" });
+    await waitFor(() =>
+      expect(within(steps).getAllByRole("listitem")[0]).toHaveTextContent("2 saved · 1 labelled"),
+    );
+    const items = within(steps).getAllByRole("listitem");
+    expect(items.map((i) => i.querySelector("[data-step-title]")?.textContent)).toEqual([
+      "Save example pages",
+      "Write the rules",
+      "Test and turn on",
+    ]);
+    expect(items[0]).toHaveAttribute("data-state", "done");
+    expect(items[1]).toHaveAttribute("data-state", "done");
+    expect(items[2]).toHaveAttribute("data-state", "now");
+    expect(items[2]).toHaveTextContent("No version is on yet");
   });
 });
