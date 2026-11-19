@@ -86,7 +86,12 @@ export async function guessOpener(page: Page): Promise<Locator | null> {
           const ranked = [...document.querySelectorAll("a, button, [role=button]")]
             .filter(usable)
             .map((c) => ({ c, text: textOf(c) }))
-            .filter(({ c, text }) => (text ? opener.test(text) && !avoidWords.test(text) : c.tagName === "A" && /login|sign-?in|account/i.test(c.getAttribute("href") ?? "")))
+            .filter(({ c, text }) => {
+              if (text) return opener.test(text) && !avoidWords.test(text);
+              // No words: the address has to say login, and not Register, Log out or anything else on the avoid list.
+              const href = c.getAttribute("href") ?? "";
+              return c.tagName === "A" && /login|sign-?in|account/i.test(href) && !avoidWords.test(href.replace(/[-_/.]+/g, " "));
+            })
             .sort((a, b) => (a.text ? a.text.length : 1e6) - (b.text ? b.text.length : 1e6));
           const first = ranked[0];
           if (!first) return false;
