@@ -20,7 +20,7 @@ import { ANSWER_TONE, ANSWER_WORDS, reasonWords, stockSentence } from "../compon
 import { badgeVariant } from "../components/tone.js";
 import { formatDay, formatWhen } from "../format.js";
 import { useListParams } from "../lib/useListParams.js";
-import { useWatch } from "../lib/useWatch.js";
+import { useWatch, WATCH_MS } from "../lib/useWatch.js";
 import { Link } from "../router.js";
 import { useTitle } from "../useTitle.js";
 import { toast } from "../lib/toast.js";
@@ -28,10 +28,11 @@ import { toast } from "../lib/toast.js";
 const SHOW_UNMAPPED = 50;
 const SEARCH_DELAY_MS = 300;
 // A check finishes some moments after it is asked for (a login can take a minute), so that one link is read again for up to 2 minutes.
+const CHECK_READS = 40;
 /** Checks of single rows still going are kept for this tab, so leaving the page and coming back keeps their spinners. */
 type Pending = { key: string; id: string; kind: "link" | "stock"; baseline: string | null; at: number };
 const PENDING_KEY = "pending-row-checks";
-const PENDING_MAX_MS = 40 * 3000;
+const PENDING_MAX_MS = CHECK_READS * WATCH_MS;
 function readPending(): Pending[] {
   try {
     const all = JSON.parse(sessionStorage.getItem(PENDING_KEY) ?? "[]") as Pending[];
@@ -48,8 +49,8 @@ function writePending(list: Pending[]) {
   }
 }
 const forgetPending = (key: string) => writePending(readPending().filter((p) => p.key !== key));
-
-const CHECK_READS = 40;
+/** Saves one row's check, once per row and kind. */
+const remember = (p: Pending) => writePending([...readPending().filter((x) => x.key !== p.key), p]);
 const STOCK_OPTIONS: { value: StockFilter; words: string }[] = [
   { value: "in_stock", words: ANSWER_WORDS.in_stock },
   { value: "out_of_stock", words: ANSWER_WORDS.out_of_stock },
@@ -141,9 +142,9 @@ export function MappingsPage({ api }: { api: Api }) {
   // only its row changes.
   const watch = useWatch();
   const replaceRow = (m: Mapping) => setData((d) => d && { ...d, items: d.items.map((x) => (x.id === m.id ? m : x)) });
-  const follow = async (key: string, m: { id: string }, finished: (s: { linkCheckedAt: string | null; stockCheckedAt: string | null }) => boolean) => {
+  const follow = async (key: string, m: { id: string }, finished: (s: { linkCheckedAt: string | null; stockCheckedAt: string | null }) => boolean, reads = CHECK_READS) => {
     try {
-      if (await watch(key, CHECK_READS, () => api.mappings.status(m.id), finished)) replaceRow(await api.mappings.get(m.id));
+      if (await watch(key, reads, () => api.mappings.status(m.id), finished)) replaceRow(await api.mappings.get(m.id));
     } catch {
       // The row keeps what it showed; the next page load brings the answer.
     } finally {
@@ -164,7 +165,7 @@ export function MappingsPage({ api }: { api: Api }) {
             replaceRow(await api.mappings.get(p.id));
           } else {
             setWaiting((w) => new Set(w).add(p.key));
-            void follow(p.key, { id: p.id }, finished);
+            void follow(p.key, { id: p.id }, finished, Math.max(1, Math.ceil((PENDING_MAX_MS - (Date.now() - p.at)) / WATCH_MS))); // only the reads it had left
           }
         })
         .catch(() => forgetPending(p.key));
@@ -181,7 +182,7 @@ export function MappingsPage({ api }: { api: Api }) {
     if (ids.length === 0) return;
     let live = true;
     Promise.all(ids.map((id) => api.schedule.currentRun(id).catch(() => null))).then((runs) => {
-      const found = runs.find((r) => r?.outcome === "running") ?? runs.find((r) => r) ?? null;
+      const found = runs.find(Boolean) ?? null; // the server only answers with runs still going
       if (live && found) setWholeRun((cur) => cur ?? found);
     });
     return () => void (live = false);
@@ -228,7 +229,7 @@ export function MappingsPage({ api }: { api: Api }) {
         stopWaiting(`link:${m.id}`);
         throw e;
       }
-      writePending([...readPending(), { key: `link:${m.id}`, id: m.id, kind: "link", baseline: m.lastLinkCheckAt, at: Date.now() }]);
+      remember({ key: `link:${m.id}`, id: m.id, kind: "link", baseline: m.lastLinkCheckAt, at: Date.now() });
       void follow(`link:${m.id}`, m, (s) => s.linkCheckedAt !== m.lastLinkCheckAt);
       toast(`A check of ${m.productTitle} (${m.variantTitle}) has started. Its status will update in a moment.`);
     });
@@ -241,11 +242,12 @@ export function MappingsPage({ api }: { api: Api }) {
         stopWaiting(`stock:${m.id}`);
         throw e;
       }
-      writePending([...readPending(), { key: `stock:${m.id}`, id: m.id, kind: "stock", baseline: m.latestStock?.observedAt ?? null, at: Date.now() }]);
+      remember({ key: `stock:${m.id}`, id: m.id, kind: "stock", baseline: m.latestStock?.observedAt ?? null, at: Date.now() });
       void follow(`stock:${m.id}`, m, (s) => s.stockCheckedAt !== (m.latestStock?.observedAt ?? null));
       toast(`A stock check of ${m.productTitle} (${m.variantTitle}) has started. The answer will appear here in a moment.`);
     });
   const supplier = suppliers.find((s) => s.id === supplierId);
+  const runSupplier = wholeRun && suppliers.find((s) => s.id === wholeRun.supplierId);
   /** Starts a whole supplier run and follows it in the progress bar. */
   const startRun = (key: string, s: Supplier, start: () => Promise<StartedRun>, words: (links: string) => string) =>
     run(key, async () => {
@@ -454,7 +456,7 @@ export function MappingsPage({ api }: { api: Api }) {
             )}
           </div>
         )}
-        {wholeRun && <RunProgress run={wholeRun} supplierName={suppliers.find((x) => x.id === wholeRun.supplierId)?.name ?? "this supplier"} />}
+        {wholeRun && runSupplier && <RunProgress run={wholeRun} supplierName={runSupplier.name} />}
         <DataTable
           label="Links"
           columns={columns}

@@ -237,6 +237,15 @@ describe("checking links", () => {
     expect(await screen.findByText("Checking…")).toBeInTheDocument();
   });
 
+  it("saves a row's check once, even when Check now is clicked twice", async () => {
+    const { user } = setup([blue]);
+    const button = await screen.findByRole("button", { name: /^Check now Blue Tee/ });
+    await user.click(button);
+    await waitFor(() => expect(button).toBeEnabled());
+    await user.click(button);
+    await waitFor(() => expect(JSON.parse(sessionStorage.getItem("pending-row-checks") ?? "[]")).toHaveLength(1));
+  });
+
   it("drops a saved row check that already finished, without a spinner", async () => {
     sessionStorage.setItem("pending-row-checks", JSON.stringify([{ key: `link:${blue.id}`, id: blue.id, kind: "link", baseline: null, at: Date.now() }]));
     const { api } = setup([blue]);
