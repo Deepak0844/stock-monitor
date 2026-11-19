@@ -90,19 +90,21 @@ test("a run shows its progress and cannot be started twice, then works again onc
   await signIn(page);
   await control.browser({ delayMs: 700 });
   await page.goto("/mappings");
-  await page.getByLabel("Supplier", { exact: true }).selectOption({ label: "Acme Supply" });
+  await page.getByRole("button", { name: /^Supplier:/ }).click();
+  await page.getByRole("option", { name: /Acme Supply/ }).click();
   await page.getByRole("button", { name: "Check all stock for Acme Supply" }).click();
   await expect(page.getByText(/Checking stock for 6 links/)).toBeVisible();
   await expect(page.getByRole("progressbar", { name: "Stock check for Acme Supply" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Check all stock for Acme Supply" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Check all links for Acme Supply" })).toBeDisabled();
   // The server refuses a second run too, in plain words.
-  const id = await page.getByLabel("Supplier", { exact: true }).inputValue();
+  const id = new URL(page.url()).searchParams.get("supplier");
   expect((await (await page.request.post(`/api/suppliers/${id}/check-stock`)).json()).error.message).toContain("already running");
   await control.browser({ delayMs: 0 });
   await waitForRunEnd(page);
   await page.goto("/mappings");
-  await page.getByLabel("Supplier", { exact: true }).selectOption({ label: "Acme Supply" });
+  await page.getByRole("button", { name: /^Supplier:/ }).click();
+  await page.getByRole("option", { name: /Acme Supply/ }).click();
   await page.getByRole("button", { name: "Check all stock for Acme Supply" }).click();
   await expect(page.getByText(/Checking stock for 6 links/)).toBeVisible();
 });
