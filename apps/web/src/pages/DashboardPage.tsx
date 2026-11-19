@@ -1,34 +1,47 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
-import { Card } from "@/components/ui/card.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
-import type { Api, AppNotification, ScheduleRow, Supplier } from "../api.js";
+import type { Api, AppNotification, Proposal, ScheduleRow, Supplier } from "../api.js";
+import { recentChecksSentence } from "../components/recentChecks.js";
+import { toast } from "../lib/toast.js";
 import { PageHeader } from "../components/PageHeader.js";
-import { whenWords } from "../components/scheduleWords.js";
-import { IconApprovals, IconLink, IconRefresh } from "../components/icons.js";
 import { Notice } from "../components/Notice.js";
 import { Link } from "../router.js";
 import { useTitle } from "../useTitle.js";
 
 /** One number and what it means, with the link to the list behind it. A shimmer while loading, a retry if it failed. */
-function SummaryCard(props: { icon: ReactNode; title: string; state: "loading" | "error" | "ok"; value: string; note: string; action?: ReactNode; onRetry?: () => void }) {
+function SummaryCard(props: {
+  title: string;
+  state: "loading" | "error" | "ok";
+  value: string;
+  note: string;
+  action?: ReactNode;
+  onRetry?: () => void;
+  children?: ReactNode;
+}) {
   const id = `card-${props.title.replace(/\s+/g, "-").toLowerCase()}`;
   return (
-    <section className="flex flex-col gap-1 rounded-xl border border-border bg-card p-4 shadow-sm" aria-labelledby={id} aria-busy={props.state === "loading"}>
-      <div className="mb-2 grid size-9 place-items-center rounded-lg bg-muted text-foreground">{props.icon}</div>
-      <h2 id={id} className="text-sm font-semibold text-muted-foreground">
+    <section
+      className="flex flex-col gap-0.5 bg-background px-4 py-3"
+      aria-labelledby={id}
+      aria-busy={props.state === "loading"}
+    >
+      <h2 id={id} className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
         {props.title}
       </h2>
       {props.state === "loading" ? (
         <>
-          <Skeleton className="mt-1 h-8 w-24" />
-          <Skeleton className="mt-2 h-4 w-40" />
+          <Skeleton className="mt-1 h-6 w-20" />
+          <Skeleton className="mt-1 h-3 w-32" />
         </>
       ) : (
         <>
-          <p className="text-3xl font-bold tabular-nums leading-tight">{props.value}</p>
-          <p className="text-sm text-muted-foreground">{props.note}</p>
+          <p className="font-mono text-2xl leading-tight font-medium tracking-tight">
+            {props.value}
+          </p>
+          <p className="text-[0.8125rem] text-muted-foreground">{props.note}</p>
+          {props.children}
         </>
       )}
       {props.state === "error" && props.onRetry && (
@@ -38,13 +51,36 @@ function SummaryCard(props: { icon: ReactNode; title: string; state: "loading" |
           </Button>
         </div>
       )}
-      {props.action && <div className="mt-3">{props.action}</div>}
+      {props.action && <div className="mt-2">{props.action}</div>}
     </section>
   );
 }
 
+/** A thin bar split into parts by size, for numbers already said in words. Decoration only, so hidden from screen readers.
+ * Drawn in SVG so the sizes are attributes, not inline styles. */
+function Split({ parts, className }: { parts: [string, number][]; className?: string }) {
+  const total = parts.reduce((sum, [, n]) => sum + n, 0) || 1;
+  let x = 0;
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox={`0 0 ${total} 1`}
+      preserveAspectRatio="none"
+      className={`block h-1.5 w-full ${className ?? ""}`}
+    >
+      {parts.map(([fill, n]) => {
+        const at = x;
+        x += n;
+        return (
+          <rect key={fill} x={at} width={n} height={1} className={fill.replace("bg-", "fill-")} />
+        );
+      })}
+    </svg>
+  );
+}
+
 const seeLink = (to: string, label: string) => (
-  <Button variant="outline" size="sm" asChild>
+  <Button variant="link" size="sm" className="px-0" asChild>
     <Link to={to}>{label}</Link>
   </Button>
 );
@@ -59,7 +95,11 @@ const STEPS = [
   ["Update Shopify", "Only approved changes are sent to your store, and the result is recorded."],
 ] as const;
 
-const messageOf = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong. Please try again.");
+const clock = (iso: string) =>
+  new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+
+const messageOf = (e: unknown) =>
+  e instanceof Error ? e.message : "Something went wrong. Please try again.";
 
 export function DashboardPage({ api }: { api: Api }) {
   useTitle("Dashboard");
@@ -67,7 +107,16 @@ export function DashboardPage({ api }: { api: Api }) {
   const [notesError, setNotesError] = useState<string | null>(null);
   const [suppliers, setSuppliers] = useState<Supplier[] | "error" | null>(null);
   const [waiting, setWaiting] = useState(0);
-  const [links, setLinks] = useState<{ unmapped: number; total: number; attention: number; answers: { in: number; out: number; unsure: number } } | "error" | null>(null);
+  const [links, setLinks] = useState<
+    | {
+        unmapped: number;
+        total: number;
+        attention: number;
+        answers: { in: number; out: number; unsure: number };
+      }
+    | "error"
+    | null
+  >(null);
   const [schedule, setSchedule] = useState<ScheduleRow[] | "error" | null>(null);
 
   const loadNotes = useCallback(() => {
@@ -79,11 +128,17 @@ export function DashboardPage({ api }: { api: Api }) {
   }, [api]);
   const loadSuppliers = useCallback(() => {
     setSuppliers(null);
-    api.suppliers.list().then(setSuppliers).catch(() => setSuppliers("error"));
+    api.suppliers
+      .list()
+      .then(setSuppliers)
+      .catch(() => setSuppliers("error"));
   }, [api]);
   const loadSchedule = useCallback(() => {
     setSchedule(null);
-    api.schedule.overview().then(setSchedule).catch(() => setSchedule("error"));
+    api.schedule
+      .overview()
+      .then(setSchedule)
+      .catch(() => setSchedule("error"));
   }, [api]);
   const loadLinks = useCallback(() => {
     setLinks(null);
@@ -106,13 +161,40 @@ export function DashboardPage({ api }: { api: Api }) {
   useEffect(loadSuppliers, [loadSuppliers]);
   useEffect(loadSchedule, [loadSchedule]);
   useEffect(loadLinks, [loadLinks]);
-  useEffect(() => {
-    api.proposals.count().then(setWaiting).catch(() => {});
+  // The newest suggestions, so the owner can approve from here.
+  const [newest, setNewest] = useState<Proposal[] | null>(null);
+  const loadWaiting = useCallback(() => {
+    api.proposals
+      .count()
+      .then(setWaiting)
+      .catch(() => {});
+    api.proposals
+      .openPage({ page: 1, pageSize: 5 })
+      .then((p) => setNewest(p.items.filter((x) => x.state === "open")))
+      .catch(() => setNewest([]));
   }, [api]);
+  useEffect(loadWaiting, [loadWaiting]);
+  const [approving, setApproving] = useState<string | null>(null);
+  const approve = (p: Proposal) => {
+    setApproving(p.id);
+    api.proposals
+      .approve(p.id)
+      .then(() => {
+        toast(`Approved. ${p.productTitle} will be updated in Shopify.`);
+        loadWaiting();
+      })
+      .catch((e: unknown) => toast(messageOf(e), { kind: "error" }))
+      .finally(() => setApproving(null));
+  };
 
-  const stateOf = (v: unknown) => (v === null ? "loading" : v === "error" ? "error" : "ok") as "loading" | "error" | "ok";
-  const connected = Array.isArray(suppliers) ? suppliers.filter((s) => s.sessionStatus === "connected").length : 0;
-  const needReconnect = Array.isArray(suppliers) ? suppliers.filter((s) => s.sessionStatus === "needs_reconnect").length : 0;
+  const stateOf = (v: unknown) =>
+    (v === null ? "loading" : v === "error" ? "error" : "ok") as "loading" | "error" | "ok";
+  const connected = Array.isArray(suppliers)
+    ? suppliers.filter((s) => s.sessionStatus === "connected").length
+    : 0;
+  const needReconnect = Array.isArray(suppliers)
+    ? suppliers.filter((s) => s.sessionStatus === "needs_reconnect").length
+    : 0;
   const total = Array.isArray(suppliers) ? suppliers.length : 0;
   const supplierCard =
     suppliers === "error"
@@ -126,18 +208,31 @@ export function DashboardPage({ api }: { api: Api }) {
       ? { value: "–", note: "Could not load links." }
       : links.total === 0
         ? { value: "0", note: "No variants from Shopify yet." }
-        : { value: `${links.unmapped} of ${links.total}`, note: `variants not mapped. ${links.attention} ${links.attention === 1 ? "link needs" : "links need"} attention.` };
+        : {
+            value: `${links.unmapped} of ${links.total}`,
+            note: `variants not mapped. ${links.attention} ${links.attention === 1 ? "link needs" : "links need"} attention.`,
+          };
 
-  const answered = links !== null && links !== "error" ? links.answers.in + links.answers.out + links.answers.unsure : 0;
+  const answered =
+    links !== null && links !== "error"
+      ? links.answers.in + links.answers.out + links.answers.unsure
+      : 0;
   const stockCard =
     links === "error" || links === null
       ? { value: "–", note: "Could not load stock answers." }
       : answered === 0
         ? { value: "None", note: "No stock checks yet." }
-        : { value: `${links.answers.in} in stock`, note: `${links.answers.out} out of stock, ${links.answers.unsure} cannot tell.` };
+        : {
+            value: `${links.answers.in} in stock`,
+            note: `${links.answers.out} out of stock, ${links.answers.unsure} cannot tell.`,
+          };
 
   const on = Array.isArray(schedule) ? schedule.filter((r) => r.intervalMinutes !== null) : [];
-  const nextAt = on.map((r) => r.nextCheckAt).filter((t): t is string => t !== null).sort()[0] ?? null;
+  const nextAt =
+    on
+      .map((r) => r.nextCheckAt)
+      .filter((t): t is string => t !== null)
+      .sort()[0] ?? null;
   const checksCard =
     schedule === "error" || schedule === null
       ? { value: "–", note: "Could not load the schedule." }
@@ -145,15 +240,60 @@ export function DashboardPage({ api }: { api: Api }) {
         ? { value: "None", note: "No checks scheduled." }
         : {
             value: `${on.length} ${on.length === 1 ? "supplier" : "suppliers"}`,
-            note: on.some((r) => r.status.state === "running") ? "Checking now." : nextAt ? `Next check: ${whenWords(nextAt)}.` : "Automatic checks are on.",
+            note: on.some((r) => r.status.state === "running")
+              ? "Checking now."
+              : nextAt
+                ? `Next check: ${clock(nextAt)}.`
+                : "Automatic checks are on.",
           };
+
+  const lastEnded = Array.isArray(schedule)
+    ? (schedule
+        .map((r) => r.lastRun?.endedAt)
+        .filter((t): t is string => !!t)
+        .sort()
+        .at(-1) ?? null)
+    : null;
+  const statusLine = !Array.isArray(schedule)
+    ? null
+    : on.length === 0
+      ? "Automatic checks off"
+      : `Checks on${nextAt ? ` · next at ${clock(nextAt)}` : ""}${lastEnded ? ` · last at ${clock(lastEnded)}` : ""}`;
+  const noSuppliers = Array.isArray(suppliers) && suppliers.length === 0;
+  const now = new Date();
+  const linked = links !== null && links !== "error" ? links.total - links.unmapped : 0;
 
   return (
     <>
-      <PageHeader title="Dashboard" description="A quick view of your suppliers and what needs your approval." />
+      <PageHeader
+        title="Dashboard"
+        description="A quick view of your suppliers and what needs your approval."
+        actions={
+          statusLine && (
+            <p className="flex items-center gap-2 text-[0.8125rem] text-muted-foreground">
+              <span
+                aria-hidden="true"
+                className={
+                  on.length > 0
+                    ? "size-[7px] rounded-full bg-good"
+                    : "size-[7px] rounded-full bg-neutral"
+                }
+              />
+              {statusLine}
+            </p>
+          )
+        }
+      />
 
-      <section className="mb-6 rounded-xl border border-border bg-card p-4 shadow-sm" aria-labelledby="attention-heading" aria-busy={notes === null && notesError === null}>
-        <h2 id="attention-heading" className="mb-3 text-base font-semibold">
+      <section
+        className="mb-6"
+        aria-labelledby="attention-heading"
+        aria-busy={notes === null && notesError === null}
+      >
+        <h2
+          id="attention-heading"
+          className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase"
+        >
           Needs attention
         </h2>
         {notes === null && notesError === null && (
@@ -161,8 +301,8 @@ export function DashboardPage({ api }: { api: Api }) {
             <p role="status" className="sr-only">
               Loading…
             </p>
-            <Skeleton className="h-12 w-full" />
-            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-9 w-full" />
           </div>
         )}
         {notesError !== null && (
@@ -174,29 +314,41 @@ export function DashboardPage({ api }: { api: Api }) {
           </div>
         )}
         {notes !== null && notes.length === 0 && (
-          <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <CheckCircle2 className="size-4 text-success" aria-hidden="true" />
+          <p className="flex items-center gap-2 border-y border-rule-soft py-2.5 text-sm text-muted-foreground">
+            <CheckCircle2 className="size-4 text-good" aria-hidden="true" />
             Nothing needs your attention.
           </p>
         )}
         {notes !== null && notes.length > 0 && (
-          <ul className="flex flex-col gap-2">
+          <ul className="flex flex-col border-t border-rule-soft">
             {notes.map((n) => (
-              <li key={n.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning/30 bg-warning-soft px-4 py-3 text-sm font-medium text-warning">
-                <span className="min-w-0">{n.message}</span>
+              <li
+                key={n.id}
+                className="flex flex-wrap items-center justify-between gap-3 border-b border-rule-soft py-2.5 text-sm"
+              >
+                <span className="flex min-w-0 items-center gap-2.5 font-medium">
+                  <span aria-hidden="true" className="size-[7px] shrink-0 rounded-full bg-bad" />
+                  {n.message}
+                </span>
                 {n.kind === "proposal_needs_attention" ? (
-                  <Button size="sm" asChild>
+                  <Button size="sm" variant="outline" asChild>
                     <Link to="/proposals">See proposals</Link>
                   </Button>
                 ) : n.kind === "recipe_needs_review" ? (
-                  <Button size="sm" asChild>
-                    <Link to={`/suppliers/${n.supplierId}/rules`} aria-label={`Review stock rules ${n.supplierName}`}>
+                  <Button size="sm" variant="outline" asChild>
+                    <Link
+                      to={`/suppliers/${n.supplierId}/rules`}
+                      aria-label={`Review stock rules ${n.supplierName}`}
+                    >
                       Review stock rules
                     </Link>
                   </Button>
                 ) : (
                   <Button size="sm" asChild>
-                    <Link to={`/suppliers/${n.supplierId}/connect`} aria-label={`Reconnect supplier ${n.supplierName}`}>
+                    <Link
+                      to={`/suppliers/${n.supplierId}/connect`}
+                      aria-label={`Reconnect supplier ${n.supplierName}`}
+                    >
                       Reconnect supplier
                     </Link>
                   </Button>
@@ -207,9 +359,8 @@ export function DashboardPage({ api }: { api: Api }) {
         )}
       </section>
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="mb-8 grid grid-cols-2 gap-px border-y border-border bg-border lg:grid-cols-5">
         <SummaryCard
-          icon={<IconLink />}
           title="Supplier connections"
           state={stateOf(suppliers)}
           value={supplierCard.value}
@@ -218,50 +369,216 @@ export function DashboardPage({ api }: { api: Api }) {
           action={
             Array.isArray(suppliers) && total > 0
               ? needReconnect > 0
-                ? seeLink("/suppliers?status=needs_reconnect", "See suppliers that need reconnecting")
+                ? seeLink(
+                    "/suppliers?status=needs_reconnect",
+                    "See suppliers that need reconnecting",
+                  )
                 : seeLink("/suppliers", "See suppliers")
               : undefined
           }
         />
         <SummaryCard
-          icon={<IconLink />}
           title="Supplier links"
           state={stateOf(links)}
           value={linkCard.value}
           note={linkCard.note}
           onRetry={loadLinks}
-          action={links !== null && links !== "error" && links.total > 0 ? seeLink("/mappings", "See links") : undefined}
+          action={
+            links !== null && links !== "error" && links.total > 0
+              ? seeLink("/mappings", "See links")
+              : undefined
+          }
         />
-        <SummaryCard icon={<IconRefresh />} title="Stock answers" state={stateOf(links)} value={stockCard.value} note={stockCard.note} onRetry={loadLinks} />
-        <SummaryCard icon={<IconRefresh />} title="Stock checks" state={stateOf(schedule)} value={checksCard.value} note={checksCard.note} onRetry={loadSchedule} action={on.length > 0 ? seeLink("/suppliers", "See automatic checks") : undefined} />
         <SummaryCard
-          icon={<IconApprovals />}
+          title="Stock answers"
+          state={stateOf(links)}
+          value={stockCard.value}
+          note={stockCard.note}
+          onRetry={loadLinks}
+        >
+          {links !== null && links !== "error" && answered > 0 && (
+            <Split
+              className="mt-1.5"
+              parts={[
+                ["bg-good", links.answers.in],
+                ["bg-bad", links.answers.out],
+                ["bg-neutral", links.answers.unsure],
+              ]}
+            />
+          )}
+        </SummaryCard>
+        <SummaryCard
+          title="Stock checks"
+          state={stateOf(schedule)}
+          value={checksCard.value}
+          note={checksCard.note}
+          onRetry={loadSchedule}
+          action={on.length > 0 ? seeLink("/suppliers", "See automatic checks") : undefined}
+        />
+        <SummaryCard
           title="Waiting for your approval"
           state="ok"
           value={String(waiting)}
-          note={waiting > 0 ? "Suggested changes to your Shopify stock are waiting for you." : "Nothing to review. Proposed Shopify changes will appear here."}
+          note={
+            waiting > 0
+              ? "Suggested changes to your Shopify stock are waiting for you."
+              : "Nothing to review. Proposed Shopify changes will appear here."
+          }
           action={waiting > 0 ? seeLink("/proposals", "Review suggestions") : undefined}
         />
       </div>
 
-      <Card className="p-4" aria-labelledby="how-heading" role="region">
-        <h2 id="how-heading" className="mb-3 text-base font-semibold">
-          How it works
-        </h2>
-        <ol className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-labelledby="how-heading">
-          {STEPS.map(([title, text], i) => (
-            <li key={title} className="flex gap-3">
-              <span aria-hidden="true" className="grid size-7 shrink-0 place-items-center rounded-full bg-accent text-sm font-bold text-accent-foreground">
-                {i + 1}
-              </span>
-              <span className="flex flex-col">
-                <strong className="text-sm">{title}</strong>
-                <span className="text-sm text-muted-foreground">{text}</span>
-              </span>
-            </li>
-          ))}
-        </ol>
-      </Card>
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+        <div className="flex min-w-0 flex-col gap-8">
+          {Array.isArray(suppliers) && suppliers.length > 0 && (
+            <section role="region" aria-labelledby="recent-heading">
+              <h2
+                id="recent-heading"
+                className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase"
+              >
+                Suppliers · recent checks
+              </h2>
+              <ul className="border-t border-foreground">
+                {suppliers.map((s) => {
+                  const row = Array.isArray(schedule)
+                    ? schedule.find((r) => r.supplierId === s.id)
+                    : undefined;
+                  const said = row ? recentChecksSentence(row, now) : null;
+                  return (
+                    <li
+                      key={s.id}
+                      className="grid grid-cols-[minmax(0,1fr)] gap-x-4 gap-y-0.5 border-b border-rule-soft py-2.5 text-sm sm:grid-cols-[12rem_minmax(0,1fr)_auto]"
+                    >
+                      <span className="font-medium">{s.name}</span>
+                      {said ? (
+                        <span
+                          data-tone={said.tone}
+                          className={
+                            said.tone === "bad" ? "font-semibold text-bad" : "text-ink-soft"
+                          }
+                        >
+                          {said.text}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">
+                          {schedule === null ? "Loading…" : "No checks yet"}
+                        </span>
+                      )}
+                      <span className="font-mono text-muted-foreground">
+                        {row?.lastRun?.endedAt ? clock(row.lastRun.endedAt) : ""}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
+
+          {newest !== null && newest.length > 0 && (
+            <section role="region" aria-labelledby="newest-heading">
+              <div className="mb-1 flex items-baseline justify-between gap-3">
+                <h2
+                  id="newest-heading"
+                  className="text-xs font-semibold tracking-wide text-muted-foreground uppercase"
+                >
+                  Waiting for approval
+                </h2>
+                <Link to="/proposals" className="text-[0.8125rem] underline underline-offset-3">
+                  All {waiting} proposals
+                </Link>
+              </div>
+              <ul className="border-t border-foreground">
+                {newest.map((p) => (
+                  <li
+                    key={p.id}
+                    className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-rule-soft py-2.5 text-sm"
+                  >
+                    <span className="min-w-0">
+                      <span className="font-medium">{p.productTitle}</span>
+                      <span className="cell-sub">
+                        {p.variantTitle} · {p.supplierName}
+                      </span>
+                    </span>
+                    <span className="flex items-center gap-3">
+                      <span className="font-mono text-xs text-muted-foreground">
+                        <s>{p.shopifyQuantitySeen}</s> → {p.proposedQuantity}
+                      </span>
+                      <Button
+                        size="sm"
+                        aria-label={`Approve ${p.productTitle}`}
+                        loading={approving === p.id}
+                        onClick={() => approve(p)}
+                      >
+                        Approve
+                      </Button>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </div>
+
+        {links !== null && links !== "error" && links.total > 0 && (
+          <section aria-labelledby="links-heading" className="min-w-0">
+            <h2
+              id="links-heading"
+              className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase"
+            >
+              Links
+            </h2>
+            <div className="border-y border-rule-soft py-3">
+              <p className="text-sm">
+                <span className="font-mono text-xl font-medium">
+                  {linked.toLocaleString("en-GB")}
+                </span>{" "}
+                <span className="text-muted-foreground">
+                  of {links.total.toLocaleString("en-GB")} variants linked to a supplier page
+                </span>
+              </p>
+              <Split
+                className="mt-2"
+                parts={[
+                  ["bg-foreground", linked],
+                  ["bg-hover", links.unmapped],
+                ]}
+              />
+              {links.unmapped > 0 && (
+                <div className="mt-2 flex items-center justify-between gap-3 text-[0.8125rem] text-muted-foreground">
+                  {links.unmapped.toLocaleString("en-GB")} still to link
+                  <Button variant="outline" size="sm" asChild>
+                    <Link to="/mappings">Link variants</Link>
+                  </Button>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+      </div>
+
+      {noSuppliers && (
+        <section aria-labelledby="how-heading" className="mt-8 border-t border-border pt-4">
+          <h2 id="how-heading" className="mb-3 text-base font-semibold">
+            How it works
+          </h2>
+          <ol className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-labelledby="how-heading">
+            {STEPS.map(([title, text], i) => (
+              <li key={title} className="flex gap-3">
+                <span
+                  aria-hidden="true"
+                  className="grid size-6 shrink-0 place-items-center rounded-full border border-foreground font-mono text-xs font-semibold"
+                >
+                  {i + 1}
+                </span>
+                <span className="flex flex-col">
+                  <strong className="text-sm">{title}</strong>
+                  <span className="text-sm text-muted-foreground">{text}</span>
+                </span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
     </>
   );
 }

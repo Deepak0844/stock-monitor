@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { ApiError } from "../api.js";
-import { aMapping, aNotification, aSupplier, fakeApi } from "../test/fake-api.js";
+import { aMapping, aNotification, aProposal, aSupplier, fakeApi } from "../test/fake-api.js";
 import { DashboardPage } from "./DashboardPage.js";
 
 afterEach(cleanup);
@@ -225,5 +225,57 @@ describe("stock rules on the dashboard", () => {
     setup();
     const c = within(await screen.findByRole("heading", { level: 2, name: "Stock answers" }).then((h) => h.closest("section")!));
     expect(await c.findByText("No stock checks yet.")).toBeInTheDocument();
+  });
+});
+
+describe("direction D dashboard", () => {
+  const none = { total: 0, finished: 0, failed: 0, stopped: 0, streak: null };
+  const harbour = aSupplier({ id: "22222222-2222-4222-8222-222222222222", name: "Harbour Goods" });
+  const northline = aSupplier({ id: "33333333-3333-4333-8333-333333333333", name: "Northline Wholesale" });
+  const row = (supplierId: string, over = {}) => ({ supplierId, status: { state: "waiting" as const }, intervalMinutes: 30, window: null, nextCheckAt: new Date(Date.now() + 14 * 60_000).toISOString(), run: null, lastRun: null, recent: none, ...over });
+
+  it("says in the top bar whether checks are on and when the next one is", async () => {
+    setup({ schedule: { overview: vi.fn().mockResolvedValue([row(northline.id)]) } });
+    expect(await screen.findByText(/^Checks on · next/)).toBeInTheDocument();
+  });
+
+  it("lists each supplier with its recent checks in words, and marks a failure streak", async () => {
+    const streak = { total: 24, finished: 21, failed: 3, stopped: 0, streak: { count: 3, since: new Date().toISOString() } };
+    setup({
+      suppliers: { list: vi.fn().mockResolvedValue([northline, harbour]) },
+      schedule: {
+        overview: vi.fn().mockResolvedValue([
+          row(northline.id, { recent: { total: 24, finished: 24, failed: 0, stopped: 0, streak: null } }),
+          row(harbour.id, { recent: streak, status: { state: "not_checked", reason: "needs_reconnect", message: "Reconnect" } }),
+        ]),
+      },
+    });
+    const list = await screen.findByRole("region", { name: "Suppliers · recent checks" });
+    expect(await within(list).findByText("Last 24 checks fine")).toBeInTheDocument();
+    expect(within(list).getByText(/3 failed from .*, then checks stopped/)).toHaveAttribute("data-tone", "bad");
+    expect(within(list).getByText("Harbour Goods")).toBeInTheDocument();
+  });
+
+  it("lists up to five waiting proposals, each with Approve, and links to all of them", async () => {
+    const items = Array.from({ length: 5 }, (_, i) => aProposal({ id: `p${i}`, productTitle: `Product ${i}` }));
+    const { api, user } = setup({
+      proposals: {
+        count: vi.fn().mockResolvedValue(12),
+        openPage: vi.fn().mockResolvedValue({ items, total: 12, page: 1, pageSize: 5, writePermission: { state: "ready", message: "ok" } }),
+      },
+    });
+    const waiting = await screen.findByRole("region", { name: "Waiting for approval" });
+    expect(await within(waiting).findAllByRole("button", { name: /^Approve/ })).toHaveLength(5);
+    expect(within(waiting).getByRole("link", { name: "All 12 proposals" })).toHaveAttribute("href", "/proposals");
+    expect(api.proposals.openPage).toHaveBeenCalledWith({ page: 1, pageSize: 5 });
+    await user.click(within(waiting).getByRole("button", { name: "Approve Product 0" }));
+    expect(api.proposals.approve).toHaveBeenCalledWith("p0");
+  });
+
+  it("shows How it works only while no supplier has been added", async () => {
+    setup({ suppliers: { list: vi.fn().mockResolvedValue([northline]) } });
+    await screen.findByText("Nothing needs your attention.");
+    await screen.findByRole("region", { name: "Suppliers · recent checks" });
+    expect(screen.queryByRole("list", { name: "How it works" })).not.toBeInTheDocument();
   });
 });
