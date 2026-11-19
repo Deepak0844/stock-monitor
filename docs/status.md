@@ -23,8 +23,11 @@ What is left for the MVP:
 - README (PR #124), open for review.
 
 Rule suggestions (branch `feature/rule-suggestions`, 2026-11-19): a "Suggest rules" button on the Stock rules page proposes
-page checks, in-stock and out-of-stock rules from the labelled saved pages, with the evidence for each. Next: login field
-detect-and-confirm, because detection fails on many suppliers.
+page checks, in-stock and out-of-stock rules from the labelled saved pages, with the evidence for each.
+
+Login guessing (branch `feature/login-guess`, 2026-11-19): automatic login now guesses a login button or opener from what it
+says when the wording is not on the exact list, and never takes Register, Forgot password, a social login or Log out. Next:
+"Check login page", a list for the owner to pick a control when the guess is wrong.
 
 Decided against (do not bring them up again unless something changes):
 

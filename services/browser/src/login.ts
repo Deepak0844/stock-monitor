@@ -2,6 +2,7 @@
 // Runs on a page of the supplier's persistent profile. The username and password are typed into the page and nowhere else.
 import type { Frame, Locator, Page } from "playwright";
 import { explainPage, type LoginSelectors, type PageClass, type SessionState } from "@stock-monitor/supplier-session";
+import { guessOpener, guessSubmit } from "./login-guess.js";
 import { NAME_SHIM } from "./page-shim.js";
 import { CHALLENGE_WIDGET, MAX_TEXT } from "./verify.js";
 
@@ -232,6 +233,12 @@ async function findPopupCloseIcon(page: Page): Promise<Locator | null> {
     }
   }
   return null;
+}
+
+/** The owner's opener, else one that says exactly Sign in, Log in, Login or My account, else one guessed from what it says. */
+export async function findOpener(page: Page, override?: string): Promise<Locator | null> {
+  if (override) return firstVisible(page, override);
+  return (await findButton(page, whole(OPEN_WORDS))) ?? guessOpener(page);
 }
 
 async function firstVisible(page: Page, selector: string): Promise<Locator | null> {
@@ -545,7 +552,7 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
       if (f.username || f.password || f.account || f.code) return;
       if ((await challengeVisible(page)) || (await findButton(page, whole(USE_PASSWORD_WORDS)))) return;
       // The opener of a login that stays hidden until clicked is on screen: nothing more to wait for, the step opens it.
-      if (!opened && (selectors.open ? await firstVisible(page, selectors.open) : await findButton(page, whole(OPEN_WORDS)))) return;
+      if (!opened && (await findOpener(page, selectors.open))) return;
       if (Date.now() >= end) return;
       await page.waitForTimeout(Math.min(250, Math.max(1, end - Date.now())));
     }
@@ -663,7 +670,7 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
           return notFound(`opener_clicked_no_boxes ${await sawCounts(page, selectors, request.loginUrl)}`);
         }
         opened = true;
-        const opener = selectors.open ? await firstVisible(page, selectors.open) : await findButton(page, whole(OPEN_WORDS));
+        const opener = await findOpener(page, selectors.open);
         if (!opener) return notFound(`no_opener ${await sawCounts(page, selectors, request.loginUrl)}`);
         if (!(await afterAction(() => click(opener), stepWaitMs))) return notFound("opener_no_change");
         continue;
@@ -858,5 +865,6 @@ async function nextButton(page: Page, frame: Frame, field: Locator, override: st
     const el = await visible(frame.getByRole(role, { name: named }));
     if (el) return el;
   }
-  return findButton(page, named);
+  // Wording that is not on the list: the control is guessed from what it says, never one that talks about something else.
+  return (await findButton(page, named)) ?? guessSubmit(frame, field);
 }
