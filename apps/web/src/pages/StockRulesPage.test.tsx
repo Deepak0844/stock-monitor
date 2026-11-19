@@ -407,7 +407,7 @@ describe("built-in data", () => {
 });
 
 describe("a supplier that needs no login", () => {
-  const NOTICE = /already checked from its built-in stock data\. Answers show on the Links page but are not sent to Shopify until you label one in-stock and one out-of-stock saved page and turn on a version\./;
+  const NOTICE = /already checked from its built-in stock data, with no stock rules needed\. Its answers make suggestions on Proposals like any other supplier\./;
   it("says it is already checked from built-in data while no version is turned on", async () => {
     setup({ suppliers: { get: vi.fn().mockResolvedValue(aSupplier({ needsLogin: false })) } });
     expect(await screen.findByText(NOTICE)).toBeInTheDocument();
