@@ -22,14 +22,18 @@ function variantName(v: VariantItem) {
 }
 
 const columns: Column<VariantItem>[] = [
-  { header: "Product", sortKey: "product", cell: (v) => <span className="font-semibold">{v.productTitle}</span> },
+  {
+    header: "Product",
+    sortKey: "product",
+    cell: (v) => <span className="font-semibold">{v.productTitle}</span>,
+  },
   { header: "Variant", cell: (v) => variantName(v) },
   {
     header: "SKU",
     cell: (v) =>
       v.sku ? (
         <span className="inline-flex items-center gap-1">
-          <span className="font-mono">{v.sku}</span>
+          <span className="font-mono whitespace-nowrap">{v.sku}</span>
           <CopyButton value={v.sku} label="SKU" />
         </span>
       ) : (
@@ -63,7 +67,10 @@ const columns: Column<VariantItem>[] = [
       v.available === null ? (
         <span className="font-sans text-muted-foreground">Not stocked here</span>
       ) : (
-        <span data-tone={v.available === 0 ? "bad" : undefined} className={v.available === 0 ? "font-semibold text-bad" : undefined}>
+        <span
+          data-tone={v.available === 0 ? "bad" : undefined}
+          className={v.available === 0 ? "font-semibold text-bad" : undefined}
+        >
           {v.available}
         </span>
       ),
@@ -107,7 +114,10 @@ export function ProductsPage({ api }: { api: Api }) {
   const latest = useRef(0);
 
   useEffect(() => {
-    api.shopify.getConnection().then(setConnection).catch(() => setConnection(null));
+    api.shopify
+      .getConnection()
+      .then(setConnection)
+      .catch(() => setConnection(null));
   }, [api]);
 
   const load = useCallback(() => {
@@ -115,7 +125,13 @@ export function ProductsPage({ api }: { api: Api }) {
     setLoading(true);
     setError(null);
     api.shopify
-      .variants({ page, pageSize, search: search || undefined, warningsOnly: attention, ...(sort ? { sort, dir } : {}) })
+      .variants({
+        page,
+        pageSize,
+        search: search || undefined,
+        warningsOnly: attention,
+        ...(sort ? { sort, dir } : {}),
+      })
       .then((result) => {
         if (id !== latest.current) return; // a newer request has taken over
         setData(result);
@@ -137,7 +153,8 @@ export function ProductsPage({ api }: { api: Api }) {
   }, [q, search, set]);
   useEffect(() => setQ(search), [search]);
 
-  const nothingImported = data !== null && connection !== undefined && data.total === 0 && !filtering;
+  const nothingImported =
+    data !== null && connection !== undefined && data.total === 0 && !filtering;
   // A page past the end is read again from the last page, so show it as loading.
   const rows = data === null || (data.items.length === 0 && data.total > 0) ? null : data.items;
 
@@ -145,7 +162,11 @@ export function ProductsPage({ api }: { api: Api }) {
     <>
       <PageHeader
         title="Products"
-        description={connection?.locationName ? `Stock shown is available at ${connection.locationName}.` : "The variants imported from your Shopify store."}
+        description={
+          connection?.locationName
+            ? `Stock shown is available at ${connection.locationName}.`
+            : "The variants imported from your Shopify store."
+        }
       />
 
       {((data === null && error === null) || (connection === undefined && error === null)) && (
@@ -157,7 +178,11 @@ export function ProductsPage({ api }: { api: Api }) {
       {nothingImported ? (
         <div>
           <EmptyState
-            title={connection ? "No products have been imported yet. Sync from Shopify in Settings." : "No products yet. Connect Shopify in Settings."}
+            title={
+              connection
+                ? "No products have been imported yet. Sync from Shopify in Settings."
+                : "No products yet. Connect Shopify in Settings."
+            }
             action={
               <Button asChild>
                 <Link to="/settings/shopify">Go to Shopify settings</Link>
@@ -179,7 +204,12 @@ export function ProductsPage({ api }: { api: Api }) {
               onChange={(e) => setQ(e.target.value)}
             />
             <label className="flex items-center gap-2 text-sm font-medium">
-              <input type="checkbox" className="size-4 accent-primary" checked={attention} onChange={(e) => set({ attention: e.target.checked ? "1" : undefined })} />
+              <input
+                type="checkbox"
+                className="size-4 accent-primary"
+                checked={attention}
+                onChange={(e) => set({ attention: e.target.checked ? "1" : undefined })}
+              />
               Show only items that need attention
             </label>
             <span className="ml-auto">
@@ -188,8 +218,26 @@ export function ProductsPage({ api }: { api: Api }) {
           </div>
           <FilterChips
             chips={[
-              ...(search ? [{ key: "search", label: "Search", value: `"${search}"`, onRemove: () => set({ search: undefined }) }] : []),
-              ...(attention ? [{ key: "attention", label: "Show", value: "Needs attention", onRemove: () => set({ attention: undefined }) }] : []),
+              ...(search
+                ? [
+                    {
+                      key: "search",
+                      label: "Search",
+                      value: `"${search}"`,
+                      onRemove: () => set({ search: undefined }),
+                    },
+                  ]
+                : []),
+              ...(attention
+                ? [
+                    {
+                      key: "attention",
+                      label: "Show",
+                      value: "Needs attention",
+                      onRemove: () => set({ attention: undefined }),
+                    },
+                  ]
+                : []),
             ]}
             onClearAll={() => set({ search: undefined, attention: undefined })}
           />
@@ -197,7 +245,9 @@ export function ProductsPage({ api }: { api: Api }) {
             label="Products from Shopify"
             columns={columns}
             sort={sort ? { key: sort, dir } : null}
-            onSort={(key) => set({ sort: key, dir: sort === key && dir === "asc" ? "desc" : "asc" })}
+            onSort={(key) =>
+              set({ sort: key, dir: sort === key && dir === "asc" ? "desc" : "asc" })
+            }
             rows={rows}
             rowKey={(v) => v.variantId}
             loading={loading}
@@ -217,7 +267,15 @@ export function ProductsPage({ api }: { api: Api }) {
               />
             }
           />
-          {data !== null && data.total > 0 && !error && <Pager page={page} pageSize={pageSize} total={data.total} onPage={(n) => set({ page: n })} onPageSize={(n) => set({ pageSize: n })} />}
+          {data !== null && data.total > 0 && !error && (
+            <Pager
+              page={page}
+              pageSize={pageSize}
+              total={data.total}
+              onPage={(n) => set({ page: n })}
+              onPageSize={(n) => set({ pageSize: n })}
+            />
+          )}
         </div>
       )}
     </>

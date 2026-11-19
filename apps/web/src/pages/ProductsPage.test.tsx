@@ -10,12 +10,18 @@ import { ProductsPage } from "./ProductsPage.js";
 beforeEach(() => window.history.replaceState(null, "", "/products"));
 afterEach(cleanup);
 
-const NOT_TRACKED = "Shopify is not tracking stock for this item, so quantity changes will have no effect.";
+const NOT_TRACKED =
+  "Shopify is not tracking stock for this item, so quantity changes will have no effect.";
 const KEEPS_SELLING = "This item keeps selling at 0.";
 
-const setup = (variants: (q: VariantQuery) => Promise<VariantPage>, connection = aConnection({ locationId: "gid://shopify/Location/1", locationName: "Shop floor" })) => {
+const setup = (
+  variants: (q: VariantQuery) => Promise<VariantPage>,
+  connection = aConnection({ locationId: "gid://shopify/Location/1", locationName: "Shop floor" }),
+) => {
   const variantsSpy = vi.fn(variants);
-  const api = fakeApi({ shopify: { variants: variantsSpy, getConnection: vi.fn().mockResolvedValue(connection) } });
+  const api = fakeApi({
+    shopify: { variants: variantsSpy, getConnection: vi.fn().mockResolvedValue(connection) },
+  });
   render(<ProductsPage api={api} />);
   return { variantsSpy, api, user: userEvent.setup() };
 };
@@ -30,7 +36,12 @@ describe("loading and failing", () => {
   });
 
   it("explains a failure plainly and offers to try again", async () => {
-    const variants = vi.fn().mockRejectedValueOnce(new ApiError("Can't reach the server. Check your connection and try again.", 0)).mockResolvedValue(aPage(some(1)));
+    const variants = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new ApiError("Can't reach the server. Check your connection and try again.", 0),
+      )
+      .mockResolvedValue(aPage(some(1)));
     const { user } = setup(variants);
     expect(await screen.findByRole("alert")).toHaveTextContent("Can't reach the server");
     await user.click(screen.getByRole("button", { name: "Try again" }));
@@ -41,15 +52,22 @@ describe("loading and failing", () => {
 describe("when there is nothing to show", () => {
   it("points to Settings when Shopify is not connected", async () => {
     const { api } = setup(async () => aPage([]), null as never);
-    expect(await screen.findByText("No products yet. Connect Shopify in Settings.")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Go to Shopify settings" })).toHaveAttribute("href", "/settings/shopify");
+    expect(
+      await screen.findByText("No products yet. Connect Shopify in Settings."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Go to Shopify settings" })).toHaveAttribute(
+      "href",
+      "/settings/shopify",
+    );
     expect(screen.queryByRole("search")).not.toBeInTheDocument();
     expect(api.shopify.variants).toHaveBeenCalled();
   });
 
   it("asks for a sync when Shopify is connected but nothing has been imported", async () => {
     setup(async () => aPage([]));
-    expect(await screen.findByText("No products have been imported yet. Sync from Shopify in Settings.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("No products have been imported yet. Sync from Shopify in Settings."),
+    ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Go to Shopify settings" })).toBeInTheDocument();
   });
 });
@@ -66,11 +84,27 @@ describe("the list", () => {
   });
 
   it("shows each variant's product, variant, SKU and stock", async () => {
-    setup(async () => aPage([aVariant(1, { productTitle: "Garden Gloves", variantTitle: "Large", sku: "GLV-L", available: 7 })]));
+    setup(async () =>
+      aPage([
+        aVariant(1, {
+          productTitle: "Garden Gloves",
+          variantTitle: "Large",
+          sku: "GLV-L",
+          available: 7,
+        }),
+      ]),
+    );
     const row = (await screen.findByText("Garden Gloves")).closest("tr")!;
     expect(within(row).getByText("Large")).toBeInTheDocument();
     expect(within(row).getByText("GLV-L")).toBeInTheDocument();
     expect(within(row).getByText("7")).toBeInTheDocument();
+  });
+
+  it("keeps a SKU on one line, so a squeezed table never splits a code across lines", async () => {
+    setup(async () =>
+      aPage([aVariant(1, { productTitle: "Garden Gloves", sku: "GLV-LARGE-OLIVE-2026" })]),
+    );
+    expect(await screen.findByText("GLV-LARGE-OLIVE-2026")).toHaveClass("whitespace-nowrap");
   });
 
   it("says 'No SKU' when there is none, and 'Only variant' for a product with a single default variant", async () => {
@@ -81,7 +115,12 @@ describe("the list", () => {
   });
 
   it("tells stock that is not held at the location from a real zero", async () => {
-    setup(async () => aPage([aVariant(1, { available: null, productTitle: "Unheld" }), aVariant(2, { available: 0, productTitle: "Empty" })]));
+    setup(async () =>
+      aPage([
+        aVariant(1, { available: null, productTitle: "Unheld" }),
+        aVariant(2, { available: 0, productTitle: "Empty" }),
+      ]),
+    );
     const unheld = (await screen.findByText("Unheld")).closest("tr")!;
     const empty = screen.getByText("Empty").closest("tr")!;
     expect(within(unheld).getByText("Not stocked here")).toBeInTheDocument();
@@ -92,8 +131,16 @@ describe("the list", () => {
   it("writes every warning in words, so nothing depends on colour", async () => {
     setup(async () =>
       aPage([
-        aVariant(1, { productTitle: "Loose", tracked: false, warnings: [{ code: "not_tracked", message: NOT_TRACKED }] }),
-        aVariant(2, { productTitle: "Endless", inventoryPolicy: "CONTINUE", warnings: [{ code: "continue_selling", message: KEEPS_SELLING }] }),
+        aVariant(1, {
+          productTitle: "Loose",
+          tracked: false,
+          warnings: [{ code: "not_tracked", message: NOT_TRACKED }],
+        }),
+        aVariant(2, {
+          productTitle: "Endless",
+          inventoryPolicy: "CONTINUE",
+          warnings: [{ code: "continue_selling", message: KEEPS_SELLING }],
+        }),
         aVariant(3, { productTitle: "Fine" }),
       ]),
     );
@@ -120,7 +167,14 @@ describe("searching", () => {
     await screen.findByText("Product 1");
     await user.type(screen.getByRole("searchbox", { name: "Search products" }), "glove");
     expect(variantsSpy).toHaveBeenCalledTimes(1); // typing alone sends nothing yet
-    await waitFor(() => expect(variantsSpy).toHaveBeenLastCalledWith({ page: 1, pageSize: 25, search: "glove", warningsOnly: false }));
+    await waitFor(() =>
+      expect(variantsSpy).toHaveBeenLastCalledWith({
+        page: 1,
+        pageSize: 25,
+        search: "glove",
+        warningsOnly: false,
+      }),
+    );
     expect(window.location.search).toBe("?search=glove");
   });
 
@@ -132,7 +186,12 @@ describe("searching", () => {
     expect(await screen.findByText("No products match your search.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Clear search" }));
     expect(await screen.findByText("Product 1")).toBeInTheDocument();
-    expect(variantsSpy).toHaveBeenLastCalledWith({ page: 1, pageSize: 25, search: undefined, warningsOnly: false });
+    expect(variantsSpy).toHaveBeenLastCalledWith({
+      page: 1,
+      pageSize: 25,
+      search: undefined,
+      warningsOnly: false,
+    });
     expect(screen.getByRole("searchbox", { name: "Search products" })).toHaveValue("");
   });
 });
@@ -142,12 +201,19 @@ describe("the attention filter", () => {
     const { variantsSpy, user } = setup(async () => aPage(some(2)));
     await screen.findByText("Product 1");
     await user.click(screen.getByRole("checkbox", { name: "Show only items that need attention" }));
-    expect(variantsSpy).toHaveBeenLastCalledWith({ page: 1, pageSize: 25, search: undefined, warningsOnly: true });
+    expect(variantsSpy).toHaveBeenLastCalledWith({
+      page: 1,
+      pageSize: 25,
+      search: undefined,
+      warningsOnly: true,
+    });
     expect(window.location.search).toBe("?attention=1");
   });
 
   it("explains an empty result for the filter", async () => {
-    const variants = vi.fn(async (q: VariantQuery) => (q.warningsOnly ? aPage([]) : aPage(some(2))));
+    const variants = vi.fn(async (q: VariantQuery) =>
+      q.warningsOnly ? aPage([]) : aPage(some(2)),
+    );
     const { user } = setup(variants);
     await screen.findByText("Product 1");
     await user.click(screen.getByRole("checkbox", { name: "Show only items that need attention" }));
@@ -159,15 +225,31 @@ describe("the attention filter", () => {
     await screen.findByText("Product 1");
     await user.type(screen.getByRole("searchbox", { name: "Search products" }), "glove");
     await user.click(screen.getByRole("checkbox", { name: "Show only items that need attention" }));
-    await waitFor(() => expect(variantsSpy).toHaveBeenLastCalledWith({ page: 1, pageSize: 25, search: "glove", warningsOnly: true }));
+    await waitFor(() =>
+      expect(variantsSpy).toHaveBeenLastCalledWith({
+        page: 1,
+        pageSize: 25,
+        search: "glove",
+        warningsOnly: true,
+      }),
+    );
   });
 
   it("opens with the search, filter and page from the address", async () => {
     window.history.replaceState(null, "", "/products?search=hose&attention=1&page=2");
     const { variantsSpy } = setup(async () => aPage(some(2), { total: 60, page: 2 }));
-    await waitFor(() => expect(variantsSpy).toHaveBeenCalledWith({ page: 2, pageSize: 25, search: "hose", warningsOnly: true }));
+    await waitFor(() =>
+      expect(variantsSpy).toHaveBeenCalledWith({
+        page: 2,
+        pageSize: 25,
+        search: "hose",
+        warningsOnly: true,
+      }),
+    );
     expect(screen.getByRole("searchbox", { name: "Search products" })).toHaveValue("hose");
-    expect(screen.getByRole("checkbox", { name: "Show only items that need attention" })).toBeChecked();
+    expect(
+      screen.getByRole("checkbox", { name: "Show only items that need attention" }),
+    ).toBeChecked();
   });
 });
 
@@ -176,7 +258,10 @@ describe("paging", () => {
   const big = async (q: VariantQuery) => {
     const first = (q.page - 1) * 25;
     const count = Math.min(25, 60 - first);
-    return aPage(Array.from({ length: count }, (_, i) => aVariant(first + i + 1)), { total: 60, page: q.page });
+    return aPage(
+      Array.from({ length: count }, (_, i) => aVariant(first + i + 1)),
+      { total: 60, page: q.page },
+    );
   };
 
   it("shows where the owner is and moves forward and back, keeping the page in the address", async () => {
@@ -203,7 +288,11 @@ describe("paging", () => {
     const { variantsSpy, user } = setup(big);
     await screen.findByText("Showing 1–25 of 60");
     await user.selectOptions(screen.getByLabelText("Rows per page"), "50");
-    await waitFor(() => expect(variantsSpy).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, pageSize: 50 })));
+    await waitFor(() =>
+      expect(variantsSpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ page: 1, pageSize: 50 }),
+      ),
+    );
   });
 
   it("has nothing to page through when everything fits on one page", async () => {
@@ -215,29 +304,40 @@ describe("paging", () => {
 
   it("keeps showing the current page, dimmed and marked busy, while the next one loads", async () => {
     let release!: (p: VariantPage) => void;
-    const variants = vi.fn((q: VariantQuery) => (q.page === 2 ? new Promise<VariantPage>((r) => (release = r)) : big(q)));
+    const variants = vi.fn((q: VariantQuery) =>
+      q.page === 2 ? new Promise<VariantPage>((r) => (release = r)) : big(q),
+    );
     const { user } = setup(variants);
     await screen.findByText("Showing 1–25 of 60");
     await user.click(screen.getByRole("button", { name: "Next page" }));
-    expect(screen.getByRole("table", { name: "Products from Shopify" })).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByRole("table", { name: "Products from Shopify" })).toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
     expect(screen.getByText("Product 1")).toBeInTheDocument();
     expect(screen.getByRole("searchbox", { name: "Search products" })).toBeInTheDocument();
     release(await big({ page: 2, pageSize: 25 }));
     expect(await screen.findByText("Showing 26–50 of 60")).toBeInTheDocument();
-    expect(screen.getByRole("table", { name: "Products from Shopify" })).toHaveAttribute("aria-busy", "false");
+    expect(screen.getByRole("table", { name: "Products from Shopify" })).toHaveAttribute(
+      "aria-busy",
+      "false",
+    );
   });
 
   it("ignores an answer that arrives after a newer request", async () => {
     let releaseSlow!: (p: VariantPage) => void;
     const variants = vi.fn((q: VariantQuery) => {
       if (q.search === "slow") return new Promise<VariantPage>((r) => (releaseSlow = r));
-      if (q.search === "fast") return Promise.resolve(aPage([aVariant(2, { productTitle: "Fast result" })]));
+      if (q.search === "fast")
+        return Promise.resolve(aPage([aVariant(2, { productTitle: "Fast result" })]));
       return Promise.resolve(aPage(some(1)));
     });
     const { variantsSpy, user } = setup(variants);
     const box = await screen.findByRole("searchbox", { name: "Search products" });
     await user.type(box, "slow");
-    await waitFor(() => expect(variantsSpy).toHaveBeenLastCalledWith(expect.objectContaining({ search: "slow" })));
+    await waitFor(() =>
+      expect(variantsSpy).toHaveBeenLastCalledWith(expect.objectContaining({ search: "slow" })),
+    );
     await user.clear(box);
     await user.type(box, "fast");
     expect(await screen.findByText("Fast result")).toBeInTheDocument();
@@ -250,7 +350,15 @@ describe("paging", () => {
 
 describe("supplier fields from Shopify", () => {
   it("shows each product's supplier name and every page address, and a note when it has none", async () => {
-    setup(async () => aPage([aVariant(1, { supplierName: "Acme Foods", supplierUrls: ["https://acme.example/p/1", "https://bolt.example/p/2"] }), aVariant(2)]));
+    setup(async () =>
+      aPage([
+        aVariant(1, {
+          supplierName: "Acme Foods",
+          supplierUrls: ["https://acme.example/p/1", "https://bolt.example/p/2"],
+        }),
+        aVariant(2),
+      ]),
+    );
     await screen.findByText("Acme Foods");
     const rows = screen.getAllByRole("row");
     expect(within(rows[1]!).getByText("Acme Foods")).toBeInTheDocument();
@@ -277,9 +385,17 @@ describe("direction D products", () => {
     const { variantsSpy, user } = setup(async () => aPage(some(2)));
     await screen.findByText("Product 1");
     await user.click(screen.getByRole("button", { name: /^Product/ }));
-    await waitFor(() => expect(variantsSpy).toHaveBeenLastCalledWith(expect.objectContaining({ sort: "product", dir: "asc" })));
+    await waitFor(() =>
+      expect(variantsSpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ sort: "product", dir: "asc" }),
+      ),
+    );
     await user.click(screen.getByRole("button", { name: /^Product/ }));
-    await waitFor(() => expect(variantsSpy).toHaveBeenLastCalledWith(expect.objectContaining({ sort: "product", dir: "desc" })));
+    await waitFor(() =>
+      expect(variantsSpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ sort: "product", dir: "desc" }),
+      ),
+    );
     expect(new URLSearchParams(window.location.search).get("dir")).toBe("desc");
   });
 

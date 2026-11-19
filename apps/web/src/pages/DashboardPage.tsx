@@ -189,19 +189,23 @@ export function DashboardPage({ api }: { api: Api }) {
 
   const stateOf = (v: unknown) =>
     (v === null ? "loading" : v === "error" ? "error" : "ok") as "loading" | "error" | "ok";
-  const connected = Array.isArray(suppliers)
-    ? suppliers.filter((s) => s.sessionStatus === "connected").length
-    : 0;
-  const needReconnect = Array.isArray(suppliers)
-    ? suppliers.filter((s) => s.sessionStatus === "needs_reconnect").length
-    : 0;
-  const total = Array.isArray(suppliers) ? suppliers.length : 0;
+  // A supplier is ready when its pages need no login, or its login is connected.
+  const list = Array.isArray(suppliers) ? suppliers : [];
+  const ready = list.filter((s) => !s.needsLogin || s.sessionStatus === "connected").length;
+  const total = list.length;
+  const needLogin = total - ready;
   const supplierCard =
     suppliers === "error"
       ? { value: "–", note: "Could not load suppliers." }
       : total === 0
         ? { value: "0", note: "No suppliers yet." }
-        : { value: `${connected} of ${total}`, note: "suppliers connected." };
+        : {
+            value: `${ready} of ${total}`,
+            note:
+              needLogin === 0
+                ? "ready to check."
+                : `ready to check. ${needLogin} ${needLogin === 1 ? "supplier needs" : "suppliers need"} you to log in.`,
+          };
 
   const linkCard =
     links === "error" || links === null
@@ -341,7 +345,7 @@ export function DashboardPage({ api }: { api: Api }) {
           onRetry={loadSuppliers}
           action={
             Array.isArray(suppliers) && total > 0
-              ? needReconnect > 0
+              ? list.some((s) => s.needsLogin && s.sessionStatus === "needs_reconnect")
                 ? seeLink(
                     "/suppliers?status=needs_reconnect",
                     "See suppliers that need reconnecting",
