@@ -87,7 +87,7 @@ beforeEach(async () => {
   sleeps.length = 0;
   onSleep = () => {};
   now = T0;
-  Object.assign(fake.behaviour, { capture: "ok", page: normal, pageFor: undefined, description: inStock, descriptionFor: undefined, refreshed: undefined, delayMs: 0 });
+  Object.assign(fake.behaviour, { capture: "ok", page: normal, pageFor: undefined, description: inStock, descriptionFor: undefined, refreshed: undefined, delayMs: 0, quickRead: "missing", quickPage: undefined, quickOffers: [] });
   const a = await suppliers().create({ name: "Acme", websiteUrl: "https://shop.acme.example/", loginUrl: "https://shop.acme.example/login", checkIntervalMinutes: 60 });
   if (!a.ok) throw new Error("setup");
   acme = a.supplier.id;
@@ -763,5 +763,125 @@ describe("a supplier that needs no login and has no rules turned on", () => {
 
   it("a supplier that needs a login still needs rules turned on", async () => {
     expect(await checkStock(deps(), await link("v1"))).toEqual({ kind: "skipped", reason: "no_recipe" });
+  });
+});
+
+describe("quick reads and three tries", () => {
+  const offer = (availability: string, name: string | null = null) => ({ availability: `https://schema.org/${availability}`, url: null, sku: null, name });
+  const noLogin = async () => {
+    await createSupplierSessionRepository(t.appDb).remove(acme);
+    await suppliers().markNotConnected(acme);
+    await suppliers().setNeedsLogin(acme, false);
+  };
+  const quick = (offers: unknown[], page: Partial<{ result: string; status: number | null; finalUrl: string | null; softNotFound: boolean; blocked: boolean }> = {}) =>
+    Object.assign(fake.behaviour, { quickRead: "ok", quickOffers: offers, quickPage: { result: "ok", status: 200, finalUrl: null, softNotFound: false, ...page } });
+  const unreachable = { result: "unreachable", status: null, title: null, heading: null, softNotFound: false };
+
+  it("answers from a quick read when the built-in data is clear, and never opens the browser", async () => {
+    const id = await link("v1");
+    await noLogin();
+    quick([offer("OutOfStock")]);
+    expect(await checkStock(deps(), id)).toEqual({ kind: "checked", answer: "out_of_stock", reason: null });
+    expect(requests("/quick-read")).toHaveLength(1);
+    expect(requests("/capture")).toHaveLength(0);
+    expect(await latest(id)).toMatchObject({ answer: "out_of_stock", readBy: "quick", matchedText: "Built-in data: OutOfStock" });
+    expect(await mapping(id)).toMatchObject({ lastLinkCheckAt: T0, workedTitle: null });
+    expect(logLines.join("")).not.toContain("shop.acme.example");
+  });
+
+  it.each([
+    ["no offers", () => quick([])],
+    ["a login page", () => quick([offer("InStock")], { result: "login_required" })],
+    ["a puzzle", () => quick([offer("InStock")], { result: "captcha" })],
+    ["a blocked address", () => quick([offer("InStock")], { blocked: true, result: "unknown" })],
+    ["options that differ, with no option set", () => quick([offer("InStock", "Red"), offer("OutOfStock", "Blue")])],
+    ["a service without quick reads", () => Object.assign(fake.behaviour, { quickRead: "missing" })],
+    ["a failed quick read", () => Object.assign(fake.behaviour, { quickRead: "fail" })],
+  ])("falls back to the browser for %s", async (_what, arrange) => {
+    const id = await link("v1");
+    await noLogin();
+    arrange();
+    fake.behaviour.description = { ...inStock, offers: [offer("InStock")] };
+    expect(await checkStock(deps(), id)).toEqual({ kind: "checked", answer: "in_stock", reason: null });
+    expect(requests("/capture")).toHaveLength(1);
+    expect(await latest(id)).toMatchObject({ readBy: "browser" });
+  });
+
+  it("logs why it fell back, never the address", async () => {
+    const id = await link("v1");
+    await noLogin();
+    quick([]);
+    await checkStock(deps(), id);
+    expect(logLines.join("")).toContain("quick_read: fallback (no_offers)");
+    expect(logLines.join("")).not.toContain("shop.acme.example");
+  });
+
+  it("never reads quickly for a supplier that needs a login, has stealth on, or rules with page checks or a region", async () => {
+    const id = await link("v1");
+    quick([offer("InStock")]);
+    await turnOn({ pageChecks: [], inStock: [], outOfStock: [], builtIn: { waiting: "out_of_stock" } });
+    await checkStock(deps(), id); // needs a login
+    await noLogin();
+    await suppliers().setAutoLogin(acme, { stealth: true });
+    await checkStock(deps(), id); // stealth
+    await suppliers().setAutoLogin(acme, { stealth: false });
+    await turnOn({ pageChecks: [{ type: "text", text: "Blue Tee" }], inStock: [], outOfStock: [], builtIn: { waiting: "out_of_stock" } });
+    await checkStock(deps(), id); // page checks
+    await turnOn({ pageChecks: [], inStock: [], outOfStock: [], region: { under: "Stores" }, builtIn: { waiting: "out_of_stock" } });
+    await checkStock(deps(), id); // region
+    expect(requests("/quick-read")).toHaveLength(0);
+    expect(requests("/capture")).toHaveLength(4);
+  });
+
+  it("tries a page that could not be loaded three times, waiting 5 s then 15 s, and uses the answer when it loads", async () => {
+    const id = await link("v1");
+    let calls = 0;
+    fake.behaviour.pageFor = () => (++calls <= 2 ? unreachable : normal);
+    await turnOn();
+    expect(await checkStock(deps(), id)).toEqual({ kind: "checked", answer: "in_stock", reason: null });
+    expect(requests("/capture")).toHaveLength(3);
+    expect(sleeps).toEqual([5000, 15000]);
+    expect(await latest(id)).toMatchObject({ answer: "in_stock", readBy: "browser" });
+    expect(logLines.join("")).toContain("stock check: retry 1 (unreachable)");
+  });
+
+  it("gives cannot tell after three failed tries, and three such pages in a row still end the run", async () => {
+    await link("v1");
+    await link("v2");
+    await link("v3");
+    await link("v4");
+    fake.behaviour.page = unreachable;
+    await turnOn();
+    expect(await runAll()).toMatchObject({ kind: "done", stopped: "unreachable", checked: 3 });
+    expect(requests("/capture")).toHaveLength(9);
+  });
+
+  it("retries when the browser service does not answer, but never more than three times a page", async () => {
+    const id = await link("v1");
+    fake.behaviour.capture = "fail";
+    await turnOn();
+    expect(await checkStock(deps(), id)).toMatchObject({ kind: "checked", answer: "cannot_tell", reason: "check_failed" });
+    expect(requests("/capture")).toHaveLength(3);
+    expect(await latest(id)).toMatchObject({ readBy: null });
+  });
+
+  it.each(["login_required", "captcha", "blocked", "unknown"])("never retries a %s page", async (result) => {
+    const id = await link("v1");
+    fake.behaviour.page = { ...normal, result };
+    await turnOn();
+    await checkStock(deps(), id);
+    expect(requests("/capture")).toHaveLength(1);
+  });
+
+  it("records no read method for a page it never opened", async () => {
+    const id = await link("v1");
+    await turnOn();
+    await createSupplierSessionRepository(t.appDb).remove(acme);
+    await t.pool.query("update suppliers set session_status = 'connected' where id = $1", [acme]);
+    // A session that cannot be read: the page is never opened.
+    await createSupplierSessionRepository(t.appDb).save(acme, { ...sealSessionState(state, key, "v1"), tag: "AAAA" } as never, state);
+    await checkStock(deps(), id);
+    const row = await latest(id);
+    expect(row?.readBy ?? null).toBeNull();
   });
 });
