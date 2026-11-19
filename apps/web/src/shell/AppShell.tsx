@@ -70,8 +70,14 @@ export function AppShell({
 
       {wide && (
         <aside className="sticky top-0 flex h-screen flex-col border-r border-border bg-sidebar text-sidebar-foreground">
-          <div className="px-4 py-5 text-foreground">
-            <Logo />
+          <div className="px-4 py-5">
+            <Link
+              to="/"
+              aria-label="Stock Monitor, go to Dashboard"
+              className="rounded-sm text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            >
+              <Logo />
+            </Link>
           </div>
           <nav id="main-nav" aria-label="Main" className="flex-1 overflow-y-auto">
             <ul className="flex flex-col">
@@ -120,7 +126,15 @@ export function AppShell({
       <Toaster />
       <div className="min-w-0">
         <header className="sticky top-0 z-20 flex items-center gap-2 border-b border-border bg-background px-4 py-2 sm:px-6">
-          {!wide && <Logo className="text-foreground [&>span:last-child]:sr-only" />}
+          {!wide && (
+            <Link
+              to="/"
+              aria-label="Stock Monitor, go to Dashboard"
+              className="grid min-h-11 min-w-11 place-items-center rounded-sm text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+            >
+              <Logo className="[&>span:last-child]:sr-only" />
+            </Link>
+          )}
           <div className="min-w-0 flex-1">
             <Breadcrumbs items={crumbs ?? crumbsForPath(path)} />
           </div>

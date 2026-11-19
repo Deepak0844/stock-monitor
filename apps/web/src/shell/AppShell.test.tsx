@@ -191,6 +191,15 @@ describe("AppShell", () => {
     document.documentElement.classList.remove("dark", "light");
   });
 
+  it("goes to the Dashboard when the app name is pressed", async () => {
+    window.history.replaceState(null, "", "/suppliers");
+    const { user } = setup();
+    const home = screen.getByRole("link", { name: "Stock Monitor, go to Dashboard" });
+    expect(home).toHaveAttribute("href", "/");
+    await user.click(home);
+    expect(window.location.pathname).toBe("/");
+  });
+
   it("opens Account settings from the menu", async () => {
     const { user } = setup();
     await user.click(screen.getByRole("button", { name: "Account" }));
