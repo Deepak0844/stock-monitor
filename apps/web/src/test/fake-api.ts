@@ -260,6 +260,7 @@ export function fakeApi(
       setAutoLogin: vi.fn().mockImplementation(async (_id, patch) => aSupplier({ ...patch })),
       testAutoLogin: vi.fn().mockResolvedValue(undefined),
       resumeAutoLogin: vi.fn().mockResolvedValue(undefined),
+      inspectLogin: vi.fn().mockResolvedValue({ state: "none", opened: false, found: { open: null, account: null, username: null, password: null, submit: null }, fields: [], buttons: [] }),
       ...suppliers,
     },
     schedule: {
@@ -299,6 +300,7 @@ export function fakeApi(
       list: vi.fn().mockResolvedValue([]),
       save: vi.fn().mockResolvedValue({ id: "88888888-8888-4888-8888-888888888888", version: 1 }),
       test: vi.fn().mockResolvedValue({ results: [], passed: false }),
+      suggest: vi.fn().mockResolvedValue({ ok: false, reason: "need_both_answers" }),
       activate: vi.fn().mockImplementation(async () => aRecipeVersion({ active: true })),
       remove: vi.fn().mockResolvedValue(undefined),
       ...recipes,

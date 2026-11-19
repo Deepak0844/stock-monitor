@@ -128,6 +128,16 @@ export type Supplier = {
 };
 
 export type LoginSelectors = { open?: string; account?: string; username?: string; password?: string; submit?: string };
+/** One box or button on a supplier's login page: its own short words, and a selector that finds only it. */
+export type InspectControl = { label: string; selector: string };
+/** What "Check login page" found. Nothing was typed or sent. `found` is what a login would use. */
+export type LoginInspection = {
+  state: "form" | "opener" | "none" | "captcha" | "unreachable";
+  opened: boolean;
+  found: Record<"open" | "account" | "username" | "password" | "submit", InspectControl | null>;
+  fields: InspectControl[];
+  buttons: InspectControl[];
+};
 export type AutoLoginResult = "ok" | "captcha" | "code_required" | "wrong_password" | "account_locked" | "blocked" | "form_not_found" | "unreachable" | "unknown";
 export type CredentialsInput = { username: string; password: string; account?: string };
 
@@ -209,6 +219,8 @@ export type SuppliersApi = {
   testAutoLogin(id: string): Promise<void>;
   /** Clears the pause after a failed automatic login. */
   resumeAutoLogin(id: string): Promise<void>;
+  /** Looks at the supplier's login page and says what a login would use there. Types and sends nothing. */
+  inspectLogin(id: string): Promise<LoginInspection>;
 };
 
 export type LinkStatus = "not_checked" | "works" | "never_worked" | "page_missing" | "moved" | "looks_different" | "needs_login" | "could_not_check";
@@ -305,6 +317,10 @@ export type Recipe = {
 export type RecipeVersion = { id: string; supplierId: string; version: number; rules: Recipe; active: boolean; createdAt: string; activatedAt: string | null };
 export type ExampleResult = { id: string; name: string; expected: StockAnswer; passed: boolean; got: { answer: StockAnswer; reason: StockReason | null; quantity: number | null; matchedText: string | null; decidedBy?: "built_in" | "rules" | null } };
 export type RecipeTest = { results: ExampleResult[]; passed: boolean };
+export type SuggestionKind = "pageCheck" | "inStock" | "outOfStock";
+/** One proposed rule with its evidence: how many labelled pages of each answer contain it. */
+export type Suggestion = { kind: SuggestionKind; rule: StockRule; seenOn: number; ofTotal: number; seenOnOther: number; otherTotal: number; starter: boolean; checked: boolean };
+export type SuggestResult = { ok: false; reason: "need_both_answers" } | { ok: true; suggestions: Suggestion[]; passes: boolean };
 
 export type CapturesApi = {
   list(supplierId: string): Promise<Capture[]>;
@@ -322,6 +338,8 @@ export type RecipesApi = {
   save(supplierId: string, recipe: Recipe): Promise<{ id: string; version: number }>;
   /** Runs a draft on the labelled saved pages and saves nothing. */
   test(supplierId: string, recipe: Recipe): Promise<RecipeTest>;
+  /** Proposes rules from the labelled saved pages and saves nothing. */
+  suggest(supplierId: string): Promise<SuggestResult>;
   activate(id: string): Promise<RecipeVersion>;
   /** Hides a version that is not turned on. */
   remove(id: string): Promise<void>;
@@ -600,6 +618,9 @@ const suppliers: SuppliersApi = {
   setAutoLogin: (id, patch) => supplier(`/api/suppliers/${encodeURIComponent(id)}`, { method: "PATCH", json: patch }),
   testAutoLogin: (id) => done(`/api/suppliers/${encodeURIComponent(id)}/auto-login/test`, { method: "POST" }),
   resumeAutoLogin: (id) => done(`/api/suppliers/${encodeURIComponent(id)}/auto-login/resume`, { method: "POST" }),
+  async inspectLogin(id) {
+    return (await request<{ inspection: LoginInspection }>(`/api/suppliers/${encodeURIComponent(id)}/auto-login/inspect`, { method: "POST", json: {} })).inspection;
+  },
 };
 
 const enc = encodeURIComponent;
@@ -644,6 +665,7 @@ const recipes: RecipesApi = {
     return (await request<{ recipe: { id: string; version: number } }>(`/api/suppliers/${enc(supplierId)}/recipes`, { method: "POST", json: { recipe } })).recipe;
   },
   test: (supplierId, recipe) => request(`/api/suppliers/${enc(supplierId)}/recipes/test`, { method: "POST", json: { recipe } }),
+  suggest: (supplierId) => request(`/api/suppliers/${enc(supplierId)}/recipes/suggest`, { method: "POST", json: {} }),
   async activate(id) {
     return (await request<{ recipe: RecipeVersion }>(`/api/recipes/${enc(id)}/activate`, { method: "POST" })).recipe;
   },

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.js";
-import type { Api, Capture, ExampleResult, Mapping, RecipeTest, RecipeVersion, Supplier } from "../api.js";
+import type { Api, Capture, ExampleResult, Mapping, RecipeTest, RecipeVersion, SuggestResult, Supplier } from "../api.js";
 import { Notice } from "../components/Notice.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { Panel } from "../components/Panel.js";
 import { emptyDraft, RuleEditor, toDraft, toRecipe, type Draft } from "../components/RuleEditor.js";
+import { RuleSuggestions } from "../components/RuleSuggestions.js";
 import { SavedPages } from "../components/SavedPages.js";
+import { addSuggested } from "../components/suggestedRules.js";
 import { VersionList } from "../components/VersionList.js";
 import { ANSWER_WORDS, reasonWords } from "../components/stockWords.js";
 import { toast } from "../lib/toast.js";
@@ -28,8 +30,9 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
   const [startedFrom, setStartedFrom] = useState<number | null>(null);
   const [started, setStarted] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"test" | "save" | "on" | null>(null);
+  const [busy, setBusy] = useState<"test" | "save" | "on" | "suggest" | null>(null);
   const [test, setTest] = useState<RecipeTest | null>(null);
+  const [suggestions, setSuggestions] = useState<SuggestResult | null>(null);
   const polls = useRef(0);
   const rulesRef = useRef<HTMLDivElement>(null);
 
@@ -62,7 +65,7 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
     return () => clearTimeout(timer);
   }, [captures, loadCaptures]);
 
-  async function run(kind: "test" | "save" | "on", work: () => Promise<void>) {
+  async function run(kind: "test" | "save" | "on" | "suggest", work: () => Promise<void>) {
     setBusy(kind);
     setError(null);
     try {
@@ -78,6 +81,16 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
     run("test", async () => {
       setTest(await api.recipes.test(supplierId, toRecipe(draft)));
     });
+  const suggest = () =>
+    run("suggest", async () => {
+      setSuggestions(await api.recipes.suggest(supplierId));
+    });
+  const addPicked = (picked: Parameters<typeof addSuggested>[1]) => {
+    setDraft(addSuggested(draft, picked));
+    setTest(null);
+    setSuggestions(null);
+    toast(`Added ${picked.length} ${plural(picked.length, "rule", "rules")}. Test them before you save.`);
+  };
   const save = () =>
     run("save", async () => {
       const saved = await api.recipes.save(supplierId, toRecipe(draft));
@@ -184,6 +197,7 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
 
         <div ref={rulesRef}>
           <Panel id="rules-heading" title="Rules" description={startedFrom !== null ? `Starting from version ${startedFrom}. Saving makes a new version. No version is ever changed.` : "Saving makes version 1."}>
+            {suggestions && <RuleSuggestions result={suggestions} onAdd={addPicked} onClose={() => setSuggestions(null)} />}
             <RuleEditor
               draft={draft}
               onChange={(d) => {
@@ -192,6 +206,9 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
               }}
             />
             <div className="flex flex-wrap gap-2">
+              <Button variant="outline" disabled={busy !== null} loading={busy === "suggest"} onClick={() => void suggest()}>
+                Suggest rules
+              </Button>
               <Button variant="outline" disabled={busy !== null} loading={busy === "test"} onClick={() => void runTest()}>
                 Test all examples
               </Button>

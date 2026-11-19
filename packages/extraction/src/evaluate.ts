@@ -28,7 +28,7 @@ function scope(page: PageDescription, under?: string, main = false): PageDescrip
   return out;
 }
 // A heading is text on the page too, so it counts as the first line of its own section.
-const scopeLines = (page: PageDescription, under?: string, main = false) => scope(page, under, main).flatMap((s) => (s.heading === null ? s.lines : [s.heading, ...s.lines]));
+export const scopeLines = (page: PageDescription, under?: string, main = false) => scope(page, under, main).flatMap((s) => (s.heading === null ? s.lines : [s.heading, ...s.lines]));
 
 /** The line that contains the rule's words, or null. */
 export function textMatches(page: PageDescription, rule: TextRule, main = false): string | null {

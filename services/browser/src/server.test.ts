@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import { createControlServer, type CaptureFn, type CheckPageFn, type LoginFn, type QuickReadFn, type SessionsApi, type VerifyFn } from "./server.js";
+import { createControlServer, type CaptureFn, type CheckPageFn, type InspectLoginFn, type LoginFn, type QuickReadFn, type SessionsApi, type VerifyFn } from "./server.js";
 
 const TOKEN = "t".repeat(40);
 const MARKER = "SESSION-COOKIE-MARKER-4c1e";
@@ -497,5 +497,63 @@ describe("POST /quick-read", () => {
     quickRead.mockRejectedValueOnce(new TypeError("boom https://shop.acme.example/p"));
     expect((await call({ url: "https://shop.acme.example/p", publicPage: true })).status).toBe(500);
     expect(logs).toContain("quick-read failed: TypeError");
+  });
+});
+
+describe("POST /login/inspect", () => {
+  const good = { loginUrl: "https://shop.acme.example/login", checkUrl: "https://shop.acme.example/", stealth: false };
+  const inspection = {
+    state: "form" as const, opened: false,
+    found: { open: null, account: null, username: { label: "Email", selector: "#UserName" }, password: { label: "Password", selector: "#Password" }, submit: null },
+    fields: [], buttons: [],
+  };
+  let inspectLogin: ReturnType<typeof vi.fn<InspectLoginFn>>;
+  let iserver: Server;
+  let ibase: string;
+  beforeEach(async () => {
+    inspectLogin = vi.fn<InspectLoginFn>().mockResolvedValue(inspection);
+    iserver = createControlServer({ token: TOKEN, verify, inspectLogin, log: (line) => logs.push(line), maxBodyBytes: 100_000 });
+    await new Promise<void>((resolve) => iserver.listen(0, "127.0.0.1", resolve));
+    ibase = `http://127.0.0.1:${(iserver.address() as AddressInfo).port}`;
+  });
+  afterEach(async () => {
+    iserver.closeAllConnections();
+    await new Promise<void>((resolve) => iserver.close(() => resolve()));
+  });
+  const send = (payload: unknown, token: string | null = TOKEN) =>
+    fetch(`${ibase}/login/inspect`, { method: "POST", headers: token === null ? {} : { authorization: `Bearer ${token}` }, body: JSON.stringify(payload) });
+
+  it("refuses a call without the token", async () => {
+    expect((await send(good, null)).status).toBe(401);
+    expect(inspectLogin).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["no login address", { checkUrl: good.checkUrl, stealth: false }],
+    ["no check address", { loginUrl: good.loginUrl, stealth: false }],
+    ["a stealth flag that is not true or false", { ...good, stealth: "yes" }],
+    ["an ftp address", { ...good, loginUrl: "ftp://shop.acme.example/login" }],
+    ["selectors that are not selectors", { ...good, selectors: { username: "" } }],
+    ["a key it does not know", { ...good, username: "buyer" }],
+  ])("refuses %s", async (_name, payload) => {
+    expect((await send(payload)).status).toBe(400);
+    expect(inspectLogin).not.toHaveBeenCalled();
+  });
+  it("passes the request on and returns the inspection, logging only the state", async () => {
+    const res = await send({ ...good, selectors: { submit: "#go" } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(inspection);
+    expect(inspectLogin).toHaveBeenCalledWith({ ...good, selectors: { submit: "#go" } });
+    expect(logs).toEqual(["login inspect: form"]);
+  });
+  it("answers 500 inspect_failed and logs only the error name when it throws", async () => {
+    inspectLogin.mockRejectedValue(new TypeError("bad https://shop.acme.example/login"));
+    const res = await send(good);
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "inspect_failed" });
+    expect(logs).toEqual(["login inspect failed: TypeError"]);
+  });
+  it("has no route when the service cannot inspect", async () => {
+    const res = await fetch(`${base}/login/inspect`, { method: "POST", headers: { authorization: `Bearer ${TOKEN}` }, body: JSON.stringify(good) });
+    expect(res.status).toBe(404);
   });
 });

@@ -42,9 +42,9 @@ describe("Automatic login card", () => {
     expect(screen.getAllByText("Needs “Allows automatic checks” to be Yes.").length).toBeGreaterThan(0);
   });
 
-  it("says a login that did not finish without claiming one was tried", () => {
+  it("says an unconfirmed login points to the live window, without claiming one was tried", () => {
     setup({ ...granted, lastAutoLoginAt: "2026-11-17T06:58:00.000Z", lastAutoLoginResult: "unknown" });
-    expect(screen.getByText(/login did not finish \(nothing was sent if a box would not take the text\)/)).toBeInTheDocument();
+    expect(screen.getByText(/login not confirmed \(the live window shows whether you are logged in\)/)).toBeInTheDocument();
     expect(screen.queryByText(/not sure it worked/)).not.toBeInTheDocument();
   });
 
@@ -73,7 +73,7 @@ describe("Automatic login card", () => {
   it("disables stealth without permission, and it needs no saved login", () => {
     setup({ automationPermission: "unknown" });
     expect(screen.getByRole("switch", { name: "Hide automation (stealth)" })).toBeDisabled();
-    expect(screen.getAllByText("Needs “Allows automatic checks” to be Yes.")).toHaveLength(2); // one under each switch
+    expect(screen.getAllByText("Needs “Allows automatic checks” to be Yes.")).toHaveLength(3); // one under each switch, and one by Check login page
     cleanup();
     setup(granted);
     expect(screen.getByRole("switch", { name: "Hide automation (stealth)" })).toBeEnabled();
@@ -264,5 +264,27 @@ describe("Automatic login card: waiting for a test result", () => {
     view.unmount();
     await vi.advanceTimersByTimeAsync(60_000);
     expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("Check login page in the card", () => {
+  it("shows Check login page, and a save from it fills the typed boxes so a later save cannot undo it", async () => {
+    const inspectLogin = vi.fn().mockResolvedValue({
+      state: "form", opened: false,
+      found: { open: null, account: null, username: { label: "Email", selector: "#UserName" }, password: { label: "Password", selector: "#Password" }, submit: null },
+      fields: [{ label: "Email", selector: "#UserName" }, { label: "Search", selector: 'input[name="q"]' }], buttons: [],
+    });
+    const { api, onChange, user } = setup(granted, { suppliers: { inspectLogin } });
+    await user.click(screen.getByRole("button", { name: "Check login page" }));
+    await user.selectOptions(await screen.findByLabelText("Username box"), "Search");
+    await user.click(screen.getByRole("button", { name: "Save choices" }));
+    expect(api.suppliers.setAutoLogin).toHaveBeenCalledWith(aSupplier().id, { loginSelectors: { username: 'input[name="q"]' } });
+    expect(onChange).toHaveBeenCalled();
+    expect(screen.getByLabelText("Username field")).toHaveValue('input[name="q"]');
+  });
+
+  it("disables Check login page with the reason when automatic checks are not allowed", () => {
+    setup({ automationPermission: "unknown" });
+    expect(screen.getByRole("button", { name: "Check login page" })).toBeDisabled();
   });
 });

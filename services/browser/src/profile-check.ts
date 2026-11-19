@@ -13,6 +13,7 @@ import { shimPage } from "./page-shim.js";
 import { classifyPage, mergeSessionState, type PageClass, type SessionState } from "@stock-monitor/supplier-session";
 import { readCookies } from "./chromium-cookies.js";
 import { cookieStore, forgetOpenTabs, plainLaunchArgs, quitCleanly, seedProfile, waitForDebuggingPort } from "./plain-window.js";
+import { inspectLogin, type InspectRequest, type LoginInspection } from "./login-inspect.js";
 import { runLogin, type LoginOutcome, type LoginRequest, type LoginResult, type StepOptions } from "./login.js";
 import { clearStaleLocks, cookieHash, holdProfile, PROFILE_ROOT, profileDirFor, releaseProfile } from "./profile-store.js";
 import type { GuardProxy } from "./proxy.js";
@@ -321,6 +322,38 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
     }
   }
 
+  /**
+   * Looks at the supplier's login page in its profile and says what a login would use there. Types nothing and sends nothing.
+   * A profile that is busy, or a stealth login this machine cannot do, is "unreachable". Any other trouble is thrown, for the route to answer.
+   */
+  async function inspect(request: InspectRequest): Promise<LoginInspection> {
+    const unreachable: LoginInspection = { state: "unreachable", opened: false, found: { open: null, account: null, username: null, password: null, submit: null }, fields: [], buttons: [] };
+    if (stealthRefused(request.stealth)) return unreachable;
+    const profile = profileDirFor(baseDir, request.checkUrl);
+    if (!holdProfile(profile)) return unreachable;
+    try {
+      if (!existsSync(join(profile, "Default", "Preferences"))) await seedProfile(profile, language);
+      const b = await launch(profile, "about:blank", true);
+      try {
+        const port = await waitForDebuggingPort(profile, b.child, 20_000);
+        const cdp = await (await driverFor(request.stealth)).connectOverCDP(`http://127.0.0.1:${port}`);
+        try {
+          const context = cdp.contexts()[0];
+          const page = context?.pages()[0] ?? (await context?.newPage());
+          if (!page) return unreachable;
+          shimPage(page);
+          return await inspectLogin(page, request, { ...(loginFormWaitMs ? { formWaitMs: loginFormWaitMs } : {}), stepWaitMs: loginStepMs });
+        } finally {
+          await cdp.close().catch(() => {});
+        }
+      } finally {
+        await b.stop();
+      }
+    } finally {
+      releaseProfile(profile);
+    }
+  }
+
   const noPage = { result: "unreachable" as const, status: null, blockedRequests: 0, finalUrl: null, title: null, heading: null, softNotFound: false };
 
   // One at a time: a profile allows one browser, and each browser takes about 900 MB.
@@ -334,6 +367,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
   const verify = (request: VerifyRequest): Promise<VerifyOutcome> => inTurn(() => check(request));
   return Object.assign(verify, {
     login: (request: LoginRequest, codes?: Pick<StepOptions, "awaitCode">): Promise<LoginOutcome> => inTurn(() => login(request, codes)),
+    inspect: (request: InspectRequest): Promise<LoginInspection> => inTurn(() => inspect(request)),
     checkPage: (request: CheckPageRequest, timeoutMs = 20_000): Promise<CheckPageOutcome> =>
       inTurn(() => inProfile(request, noPage as CheckPageOutcome, (page, tracker) => inspectPage(page, request, tracker, timeoutMs))),
     capture: (request: CaptureRequest, timeoutMs = 20_000): Promise<CaptureOutcome> =>
