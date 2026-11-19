@@ -32,6 +32,7 @@ const listQuery = z.object({
   tab: z.enum(["open", "history"]).default("open"),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
+  supplierId: z.string().uuid().optional(),
 });
 
 /** What the screen may see of a suggestion. Never the idempotency key, who decided, or the attempt count. */
@@ -93,7 +94,7 @@ export function registerProposalRoutes(app: App, deps: ProposalRoutesDeps, audit
   app.get("/api/proposals", async (request) => {
     const query = listQuery.safeParse(request.query);
     if (!query.success) throw new AppError(400, "bad_request", "The request was not valid.");
-    const { tab, page, pageSize } = query.data;
+    const { tab, page, pageSize, supplierId } = query.data;
     const permission = await writePermission();
     if (tab === "open") {
       // With no `page` this lists every open suggestion, as before.
@@ -101,14 +102,14 @@ export function registerProposalRoutes(app: App, deps: ProposalRoutesDeps, audit
         const all = (await proposals.open()).map(present);
         return { proposals: all, total: all.length, writePermission: permission };
       }
-      const { items, total } = await proposals.openPage(pageSize, (page - 1) * pageSize);
+      const { items, total } = await proposals.openPage(pageSize, (page - 1) * pageSize, supplierId);
       return { proposals: items.map(present), total, page, pageSize, writePermission: permission };
     }
-    const rows = await proposals.history(pageSize + 1, (page - 1) * pageSize);
-    return { proposals: rows.slice(0, pageSize).map(present), hasMore: rows.length > pageSize, total: await proposals.historyTotal(), page, pageSize, writePermission: permission };
+    const rows = await proposals.history(pageSize + 1, (page - 1) * pageSize, supplierId);
+    return { proposals: rows.slice(0, pageSize).map(present), hasMore: rows.length > pageSize, total: await proposals.historyTotal(supplierId), page, pageSize, writePermission: permission };
   });
 
-  app.get("/api/proposals/count", async () => ({ open: (await proposals.open()).filter((p) => p.state === "open").length }));
+  app.get("/api/proposals/count", async () => ({ open: (await proposals.open()).filter((p) => p.state === "open").length, bySupplier: await proposals.openCountBySupplier() }));
 
   app.post<{ Params: { id: string } }>("/api/proposals/:id/approve", async (request) => {
     const body = approveBody.safeParse(request.body ?? {});

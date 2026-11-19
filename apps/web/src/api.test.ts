@@ -340,6 +340,17 @@ describe("paged lists and notification actions", () => {
     expect(sent(history)).toBe("/api/proposals?tab=history&page=3&pageSize=10");
   });
 
+  it("asks for one supplier's suggestions and the waiting count of each supplier", async () => {
+    const open = reply({ proposals: [], total: 0, page: 1, pageSize: 10, writePermission: { state: "ready", message: "ok" } });
+    await api.proposals.openPage({ page: 1, pageSize: 10, supplierId: "s1" });
+    expect(sent(open)).toBe("/api/proposals?tab=open&page=1&pageSize=10&supplierId=s1");
+    const history = reply({ proposals: [], hasMore: false, total: 0, page: 1, pageSize: 10 });
+    await api.proposals.history(1, 10, "s1");
+    expect(sent(history)).toBe("/api/proposals?tab=history&page=1&pageSize=10&supplierId=s1");
+    reply({ open: 2, bySupplier: { s1: 2 } });
+    expect(await api.proposals.waitingBySupplier()).toEqual({ s1: 2 });
+  });
+
   it("deletes a version with DELETE", async () => {
     const fetchMock = reply({ ok: true });
     await api.recipes.remove("r 1");

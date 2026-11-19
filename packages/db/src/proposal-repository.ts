@@ -67,6 +67,8 @@ export function createProposalRepository<S extends Record<string, unknown>>(db: 
       .leftJoin(stockObservations, eq(stockObservations.id, proposals.observationId));
   type ViewRow = Awaited<ReturnType<ReturnType<typeof viewQuery>["limit"]>>[number];
   const toView = ({ proposal, ...rest }: ViewRow): ProposalView => ({ ...proposal, ...rest });
+  const PAST = sql`${proposals.state} not in ('open', 'approved')`;
+  const ofSupplier = (supplierId?: string) => (supplierId ? eq(proposals.supplierId, supplierId) : undefined);
 
   async function liveFor(variantId: string): Promise<Proposal | null> {
     const [row] = await db.select().from(proposals).where(and(eq(proposals.variantId, variantId), inArray(proposals.state, ["open", "approved"]))).limit(1);
@@ -150,22 +152,28 @@ export function createProposalRepository<S extends Record<string, unknown>>(db: 
     },
 
     /** One page of the open and approved suggestions, newest first, with how many there are in all. */
-    async openPage(limit: number, offset: number): Promise<{ items: ProposalView[]; total: number }> {
-      const where = inArray(proposals.state, ["open", "approved"]);
+    async openPage(limit: number, offset: number, supplierId?: string): Promise<{ items: ProposalView[]; total: number }> {
+      const where = and(inArray(proposals.state, ["open", "approved"]), ofSupplier(supplierId));
       const rows = await viewQuery().where(where).orderBy(desc(proposals.createdAt), desc(proposals.id)).limit(limit).offset(offset);
       const [row] = await db.select({ n: count() }).from(proposals).where(where);
       return { items: rows.map(toView), total: Number(row?.n ?? 0) };
     },
 
     /** How many decided, expired or replaced suggestions there are. */
-    async historyTotal(): Promise<number> {
-      const [row] = await db.select({ n: count() }).from(proposals).where(sql`${proposals.state} not in ('open', 'approved')`);
+    async historyTotal(supplierId?: string): Promise<number> {
+      const [row] = await db.select({ n: count() }).from(proposals).where(and(PAST, ofSupplier(supplierId)));
       return Number(row?.n ?? 0);
     },
 
-    async history(limit: number, offset: number): Promise<ProposalView[]> {
+    /** How many suggestions wait for the owner, per supplier id. Suppliers with none are left out. */
+    async openCountBySupplier(): Promise<Record<string, number>> {
+      const rows = await db.select({ supplierId: proposals.supplierId, n: count() }).from(proposals).where(eq(proposals.state, "open")).groupBy(proposals.supplierId);
+      return Object.fromEntries(rows.map((r) => [r.supplierId, Number(r.n)]));
+    },
+
+    async history(limit: number, offset: number, supplierId?: string): Promise<ProposalView[]> {
       const rows = await viewQuery()
-        .where(sql`${proposals.state} not in ('open', 'approved')`)
+        .where(and(PAST, ofSupplier(supplierId)))
         .orderBy(desc(proposals.createdAt), desc(proposals.id))
         .limit(limit)
         .offset(offset);
