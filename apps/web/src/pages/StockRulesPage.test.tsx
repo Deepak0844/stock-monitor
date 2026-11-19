@@ -405,3 +405,20 @@ describe("built-in data", () => {
     expect(screen.getByText("Label at least one in-stock and one out-of-stock saved page.")).toBeInTheDocument();
   });
 });
+
+describe("a supplier that needs no login", () => {
+  const NOTICE = /already checked from its built-in stock data\. Answers show on the Links page but are not sent to Shopify until you label one in-stock and one out-of-stock saved page and turn on a version\./;
+  it("says it is already checked from built-in data while no version is turned on", async () => {
+    setup({ suppliers: { get: vi.fn().mockResolvedValue(aSupplier({ needsLogin: false })) } });
+    expect(await screen.findByText(NOTICE)).toBeInTheDocument();
+  });
+  it("says nothing of it once a version is turned on, or for a supplier that needs a login", async () => {
+    setup({ suppliers: { get: vi.fn().mockResolvedValue(aSupplier({ needsLogin: false })) }, recipes: { list: vi.fn().mockResolvedValue([aRecipeVersion({ active: true })]) } });
+    await screen.findByRole("list", { name: "Versions" });
+    expect(screen.queryByText(NOTICE)).toBeNull();
+    cleanup();
+    setup();
+    await screen.findByText(/No saved pages yet/);
+    expect(screen.queryByText(NOTICE)).toBeNull();
+  });
+});

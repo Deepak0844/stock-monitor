@@ -42,6 +42,10 @@ open its **Edit** page and turn **Needs a login** off. Skip steps 2 to 6 below. 
 no automatic login and no keep-alive, and the supplier list shows **No login needed**. Keep it on if the supplier hides stock
 until you log in. Turning it off also lifts a pause the app made because the login needed attention.
 
+Such a supplier needs no Stock rules to start: it is checked from its built-in stock data at once. Those answers show on
+**Links** but are **not sent to Shopify** until you confirm them: on **Stock rules**, label one in-stock and one out-of-stock
+saved page, test, save and turn the version on.
+
 1. Open **Suppliers**, then **Add supplier**.
    - **Name:** use exactly the name your Shopify export holds for this supplier (see Phase 4). Capitals do not matter.
    - **Website address:** the supplier's site, starting with `https://`.

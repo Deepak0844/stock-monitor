@@ -720,3 +720,37 @@ describe("a supplier that needs no login", () => {
     expect(await runAll()).toMatchObject({ kind: "done", stopped: "login_required", checked: 1 });
   });
 });
+
+describe("a supplier that needs no login and has no rules turned on", () => {
+  const noLogin = async () => {
+    await createSupplierSessionRepository(t.appDb).remove(acme);
+    await suppliers().markNotConnected(acme);
+    await suppliers().setNeedsLogin(acme, false);
+  };
+
+  it("is checked with the built-in default, recorded as rules version 0", async () => {
+    const id = await link("v1");
+    await noLogin();
+    fake.behaviour.description = { ...inStock, offers: [{ availability: "https://schema.org/OutOfStock", url: null, sku: null, name: null }] };
+    expect(await checkStock(deps(), id)).toEqual({ kind: "checked", answer: "out_of_stock", reason: null });
+    expect(await latest(id)).toMatchObject({ answer: "out_of_stock", recipeVersion: 0, matchedText: "Built-in data: OutOfStock" });
+  });
+
+  it("is cannot tell, never out of stock, when the page has no built-in data", async () => {
+    const id = await link("v1");
+    await noLogin();
+    expect(await checkStock(deps(), id)).toEqual({ kind: "checked", answer: "cannot_tell", reason: "page_changed" });
+  });
+
+  it("uses its own rules once a version is turned on", async () => {
+    const id = await link("v1");
+    await noLogin();
+    const version = await turnOn();
+    await checkStock(deps(), id);
+    expect(await latest(id)).toMatchObject({ answer: "in_stock", recipeVersion: version });
+  });
+
+  it("a supplier that needs a login still needs rules turned on", async () => {
+    expect(await checkStock(deps(), await link("v1"))).toEqual({ kind: "skipped", reason: "no_recipe" });
+  });
+});

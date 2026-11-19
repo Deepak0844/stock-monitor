@@ -1,4 +1,4 @@
-import type { Answer } from "./types.js";
+import type { Answer, Recipe } from "./types.js";
 import { normaliseWords } from "./validate.js";
 
 /** One offer from the page's built-in product data (schema.org). Only these four facts are ever kept. */
@@ -7,6 +7,11 @@ export type Offer = { availability: string; url: string | null; sku: string | nu
 export type LinkRef = { url: string | null; option: string | null };
 /** How pre-order and back-order count. */
 export type Waiting = "in_stock" | "out_of_stock" | "cannot_tell";
+
+/** The rules a supplier that needs no login is checked with until the owner turns on a version: built-in data only. */
+export const BUILT_IN_DEFAULT: Recipe = { pageChecks: [], inStock: [], outOfStock: [], builtIn: { waiting: "out_of_stock" } };
+/** The rules version answers from the built-in default are recorded under. They are never sent to Shopify. */
+export const BUILT_IN_DEFAULT_VERSION = 0;
 
 type Kind = "in" | "out" | "waiting";
 // schema.org ItemAvailability. Anything not listed (InStoreOnly, Reserved, a made-up value) is not clear.

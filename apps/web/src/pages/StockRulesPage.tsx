@@ -155,6 +155,11 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
             {error}
           </Notice>
         )}
+        {supplier && !supplier.needsLogin && versions !== null && !versions.some((v) => v.active) && (
+          <Notice kind="info">
+            This supplier needs no login, so it is already checked from its built-in stock data. Answers show on the Links page but are not sent to Shopify until you label one in-stock and one out-of-stock saved page and turn on a version.
+          </Notice>
+        )}
 
         <section aria-labelledby="pages-heading" className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           <div className="border-b border-border p-6 pb-4">

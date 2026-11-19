@@ -5,7 +5,7 @@ import type {
   createCaptureRepository, createCheckRunRepository, createMappingRepository, createNotificationRepository, createObservationRepository, createRecipeRepository,
   createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository, MappingRow, SupplierRecord,
 } from "@stock-monitor/db";
-import { decide, isSupplierWideChange, validateRecipe, type Answer, type Decision, type PageDescription, type Reason, type Recipe } from "@stock-monitor/extraction";
+import { BUILT_IN_DEFAULT, BUILT_IN_DEFAULT_VERSION, decide, isSupplierWideChange, validateRecipe, type Answer, type Decision, type PageDescription, type Reason, type Recipe } from "@stock-monitor/extraction";
 import { decideLinkStatus, isSupplierWide, whyNotChecked, type CheckGateReason, type LinkStatus, type Observation } from "@stock-monitor/mapping";
 import { unsealSessionState } from "@stock-monitor/supplier-session";
 import { EMPTY_STATE, loginFields } from "./supplier-visit.js";
@@ -72,6 +72,8 @@ export async function stockGate(
   const refused = whyNotChecked(supplier, (await deps.supplierSessions.getSealed(supplierId)) !== null);
   if (refused) return { reason: refused.reason };
   const row = await deps.recipes.active(supplierId);
+  // A supplier that needs no login is checked from its built-in data until the owner turns on rules (answers held from Shopify).
+  if (!row && !supplier.needsLogin) return { supplier, active: { recipe: BUILT_IN_DEFAULT, version: BUILT_IN_DEFAULT_VERSION } };
   const checked = row ? validateRecipe(row.rules) : null;
   if (!row || !checked?.ok) return { reason: "no_recipe" };
   return { supplier, active: { recipe: checked.recipe, version: row.version } };

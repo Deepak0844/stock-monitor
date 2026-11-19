@@ -211,3 +211,14 @@ describe("run history", () => {
     expect((await call("GET", "/api/check-runs/00000000-0000-4000-8000-000000000000")).status).toBe(404);
   });
 });
+
+describe("a supplier that needs no login, with no rules turned on", () => {
+  it("is waiting for its next run, not refused for missing rules", async () => {
+    await makeReady();
+    await call("PUT", `/api/suppliers/${acme}/schedule`, { intervalMinutes: 1440, window: null });
+    await t.pool.query("update stock_recipes set active = false");
+    await suppliers().setNeedsLogin(acme, false);
+    const [row] = (await call("GET", "/api/schedule")).body.schedule;
+    expect(row.status).toEqual({ state: "waiting" });
+  });
+});

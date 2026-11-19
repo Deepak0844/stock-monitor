@@ -234,3 +234,12 @@ describe("reading the answers", () => {
     expect((await call("GET", "/api/mappings?stock=maybe")).status).toBe(400);
   });
 });
+
+describe("a supplier that needs no login, with no rules turned on", () => {
+  it("can be checked: it uses the built-in default", async () => {
+    await t.pool.query("update stock_recipes set active = false");
+    await suppliers().setNeedsLogin(acme, false);
+    expect((await call("POST", `/api/mappings/${linkId}/check-stock`)).status).toBe(202);
+    expect((await call("POST", `/api/suppliers/${acme}/check-stock`)).status).toBe(202);
+  });
+});

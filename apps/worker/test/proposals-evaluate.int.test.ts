@@ -242,3 +242,21 @@ describe("evaluate: scope and safety", () => {
     expect(JSON.stringify(rows)).not.toContain("Sold out");
   });
 });
+
+describe("evaluate: answers from the built-in default", () => {
+  it("never suggests a Shopify change from an answer the owner has not confirmed", async () => {
+    const { mappingId } = await link({ available: 4 });
+    await observations().append({ mappingId, answer: "out_of_stock", reason: null, quantity: null, matchedText: "Built-in data: OutOfStock", quantityMismatch: false, recipeVersion: 0, checkResult: "ok", captureId: null });
+    await run();
+    expect(await open()).toEqual([]);
+  });
+
+  it("closes an open suggestion when the latest answer is from the built-in default", async () => {
+    const { mappingId } = await link({ available: 4, answer: "out_of_stock" });
+    await run();
+    expect(await open()).toHaveLength(1);
+    await observations().append({ mappingId, answer: "out_of_stock", reason: null, quantity: null, matchedText: "Built-in data: OutOfStock", quantityMismatch: false, recipeVersion: 0, checkResult: "ok", captureId: null });
+    await run();
+    expect(await open()).toEqual([]);
+  });
+});
