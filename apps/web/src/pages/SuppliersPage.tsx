@@ -58,7 +58,7 @@ const message = (e: unknown) =>
  * The one word shown for a supplier. Paused wins when the owner paused it. When the app paused it because its login
  * needs attention, the reason is what the owner has to act on, so that is shown instead.
  */
-function statusOf(s: Supplier): { words: string; tone: "success" | "warning" | "neutral" } {
+export function statusOf(s: Supplier): { words: string; tone: "success" | "warning" | "neutral" } {
   if (!s.enabled && s.pausedReason !== "session") return { words: "Paused", tone: "neutral" };
   if (!s.needsLogin) return { words: "No login needed", tone: "success" };
   switch (s.sessionStatus) {
