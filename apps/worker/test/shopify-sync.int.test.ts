@@ -305,6 +305,18 @@ describe("links set from Shopify's supplier fields", () => {
     expect(run!.links).toEqual({ added: 1, updated: 0, skipped: 1, problems: [{ product: "Product 1 (Size 2)", sku: "SKU-2", message: 'Supplier "Nobody" is not in the app.' }] });
   });
 
+  it("matches a product by the supplier's name in Shopify when it has one, and no longer by its app name", async () => {
+    const acme = await setup();
+    await createSupplierRepository(t.appDb).update(acme, { shopifyName: "Acme Wholesale Ltd" });
+    withLinks([
+      makeVariant(1, { supplierName: "ACME WHOLESALE LTD", supplierUrl: "https://acme.example/p/1" }),
+      makeVariant(2, { supplierName: "Acme Foods", supplierUrl: "https://acme.example/p/2" }),
+    ]);
+    await handler(linkDeps())({});
+    expect(await links()).toEqual([{ sku: "SKU-1", supplierId: acme, url: "https://acme.example/p/1" }]);
+    expect((await repo().lastSyncRun())!.links!.problems).toEqual([expect.objectContaining({ sku: "SKU-2", message: 'Supplier "Acme Foods" is not in the app.' })]);
+  });
+
   it("changes nothing on a second run, and replaces the link when Shopify's address changes (Shopify is the one source)", async () => {
     const acme = await setup();
     withLinks([makeVariant(1, { supplierName: "Acme Foods", supplierUrl: "https://acme.example/p/1" })]);

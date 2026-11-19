@@ -2,9 +2,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createHash, randomBytes } from "node:crypto";
 import { Writable } from "node:stream";
 import { startTestDb, type TestDb } from "@stock-monitor/db/test-harness";
-import { createSupplierCredentialsRepository, createSupplierRepository } from "@stock-monitor/db";
+import { createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
 import { createLogger } from "@stock-monitor/shared";
-import type { HostLookup } from "@stock-monitor/supplier-session";
+import { sealSessionState, type HostLookup } from "@stock-monitor/supplier-session";
 import { buildApp } from "../src/app.js";
 
 let t: TestDb;
@@ -53,6 +53,8 @@ beforeEach(async () => {
 });
 
 type Supplier = {
+  needsLogin: boolean;
+  shopifyName: string | null;
   id: string;
   name: string;
   websiteUrl: string;
@@ -326,6 +328,8 @@ describe("GET /api/suppliers with a page", () => {
     expect(found.items.map((s) => s.name)).toEqual(["Supplier 02"]);
     const none = (await call("GET", "/api/suppliers?page=1&pageSize=10&status=paused")).body as unknown as Paged;
     expect(none.total).toBe(0);
+    const noLogin = (await call("GET", "/api/suppliers?page=1&pageSize=10&status=no_login")).body as unknown as Paged;
+    expect(noLogin.total).toBe(0);
   });
 
   it.each(["page=0", "page=abc", "page=1&pageSize=0", "page=1&pageSize=101", "page=1&pageSize=-5", "page=1&status=nonsense"])(
@@ -538,5 +542,74 @@ describe("automatic login", () => {
     expect(lines.length).toBeGreaterThan(0);
     expect(lines.join("")).not.toContain(SECRET);
     expect(lines.join("")).not.toContain(creds.username);
+  });
+});
+
+describe("PATCH /api/suppliers/:id needsLogin", () => {
+  it("a new supplier needs a login, and it can be turned off and on", async () => {
+    const s = await create();
+    expect(s.needsLogin).toBe(true);
+    const off = await call("PATCH", `/api/suppliers/${s.id}`, { needsLogin: false });
+    expect(off.status).toBe(200);
+    expect(off.body.supplier.needsLogin).toBe(false);
+    expect((await call("GET", `/api/suppliers/${s.id}`)).body.supplier.needsLogin).toBe(false);
+    expect((await call("PATCH", `/api/suppliers/${s.id}`, { needsLogin: true })).body.supplier.needsLogin).toBe(true);
+    const [event] = await events("supplier.updated");
+    expect(event?.details).toEqual({ changed: ["needsLogin"] });
+  });
+
+  it("changes needsLogin together with other fields", async () => {
+    const s = await create();
+    const r = await call("PATCH", `/api/suppliers/${s.id}`, { needsLogin: false, name: "Acme Ltd" });
+    expect(r.body.supplier).toMatchObject({ needsLogin: false, name: "Acme Ltd" });
+  });
+
+  it("refuses a needsLogin that is not yes or no, and changes nothing", async () => {
+    const s = await create();
+    expect((await call("PATCH", `/api/suppliers/${s.id}`, { needsLogin: "no" })).status).toBe(400);
+    expect((await call("GET", `/api/suppliers/${s.id}`)).body.supplier.needsLogin).toBe(true);
+  });
+
+  it("keeps the saved login when turned off", async () => {
+    const s = await create();
+    const sessions = createSupplierSessionRepository(t.appDb);
+    const state = { cookies: [], origins: [] };
+    await sessions.save(s.id, sealSessionState(state, key.key, key.keyId), state);
+    await call("PATCH", `/api/suppliers/${s.id}`, { needsLogin: false });
+    expect(await sessions.getSealed(s.id)).not.toBeNull();
+  });
+
+  it("says not found for an unknown supplier", async () => {
+    expect((await call("PATCH", `/api/suppliers/${UNKNOWN}`, { needsLogin: false })).status).toBe(404);
+  });
+});
+
+describe("a supplier's name in Shopify", () => {
+  it("is saved on create, trimmed, changed and cleared", async () => {
+    const s = await create({ ...acme, shopifyName: "  Acme Trading Ltd " });
+    expect(s.shopifyName).toBe("Acme Trading Ltd");
+    expect((await call("PATCH", `/api/suppliers/${s.id}`, { shopifyName: "ACME" })).body.supplier.shopifyName).toBe("ACME");
+    expect((await call("PATCH", `/api/suppliers/${s.id}`, { shopifyName: "" })).body.supplier.shopifyName).toBeNull();
+    expect((await call("GET", `/api/suppliers/${s.id}`)).body.supplier.shopifyName).toBeNull();
+  });
+
+  it("is left out as none", async () => {
+    expect((await create()).shopifyName).toBeNull();
+  });
+
+  it("refuses a name that is too long or not text", async () => {
+    const tooLong = await call("POST", "/api/suppliers", { ...acme, shopifyName: "x".repeat(201) });
+    expect(tooLong.status).toBe(400);
+    expect(tooLong.body.error.code).toBe("invalid_shopify_name");
+    const s = await create();
+    expect((await call("PATCH", `/api/suppliers/${s.id}`, { shopifyName: 5 })).body.error.code).toBe("invalid_shopify_name");
+  });
+
+  it("refuses a name another supplier already matches on, and says so", async () => {
+    await create(); // "Acme Supply"
+    const other = await create({ name: "Globex", websiteUrl: "https://globex.example/" });
+    const r = await call("PATCH", `/api/suppliers/${other.id}`, { shopifyName: "acme supply" });
+    expect(r.status).toBe(409);
+    expect(r.body.error).toMatchObject({ code: "shopify_name_taken", message: "Another supplier already uses that name for Shopify matching." });
   });
 });

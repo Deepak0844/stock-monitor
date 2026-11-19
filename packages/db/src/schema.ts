@@ -136,6 +136,8 @@ export const suppliers = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     name: text("name").notNull(),
+    /** The supplier name Shopify uses for this supplier, when it differs from `name`. Matching uses it first. */
+    shopifyName: text("shopify_name"),
     websiteUrl: text("website_url").notNull(),
     loginUrl: text("login_url"),
     checkIntervalMinutes: integer("check_interval_minutes").notNull().default(60),
@@ -169,6 +171,8 @@ export const suppliers = pgTable(
     autoLogin: boolean("auto_login").notNull().default(false),
     /** Use the stealth browser for automatic logins. Needs `granted` permission. */
     stealth: boolean("stealth").notNull().default(false),
+    /** False when the supplier's product pages show stock without logging in: checks then run with no session at all. */
+    needsLogin: boolean("needs_login").notNull().default(true),
     loginSelectors: jsonb("login_selectors").$type<LoginSelectors>(),
     /** Text that only shows when logged in, like "Log out". Set, a page without it counts as logged out. */
     loggedInMarker: text("logged_in_marker"),
@@ -199,7 +203,7 @@ export const suppliers = pgTable(
     check("suppliers_automation_permission", sql`${t.automationPermission} in ('unknown', 'granted', 'not_granted')`),
     check("suppliers_check_pause", sql`${t.checkPauseSeconds} >= 1`),
     check("suppliers_default_region", sql`${t.defaultRegion} is null or char_length(${t.defaultRegion}) between 1 and 200`),
-    check("suppliers_schedule_interval", sql`${t.scheduleIntervalMinutes} is null or ${t.scheduleIntervalMinutes} in (60, 180, 360, 720, 1440)`),
+    check("suppliers_schedule_interval", sql`${t.scheduleIntervalMinutes} is null or ${t.scheduleIntervalMinutes} in (15, 30, 60, 180, 360, 720, 1440)`),
     check("suppliers_keep_alive", sql`${t.keepAliveMinutes} is null or ${t.keepAliveMinutes} in (15, 30, 45, 60, 120)`),
     check("suppliers_schedule_window", sql`(${t.scheduleWindowStart} is null) = (${t.scheduleWindowEnd} is null)`),
     check("suppliers_check_interval", sql`${t.checkIntervalMinutes} between 15 and 1440`),
@@ -208,6 +212,9 @@ export const suppliers = pgTable(
       sql`(${t.enabled} and ${t.pausedReason} is null) or (not ${t.enabled} and ${t.pausedReason} is not null and ${t.pausedReason} in ('owner', 'session'))`,
     ),
     uniqueIndex("suppliers_name_unique").on(sql`lower(${t.name})`),
+    // Two suppliers can never share the name products are matched by (the name in Shopify, else the app name).
+    uniqueIndex("suppliers_match_name_unique").on(sql`lower(coalesce(${t.shopifyName}, ${t.name}))`),
+    check("suppliers_shopify_name", sql`${t.shopifyName} is null or char_length(${t.shopifyName}) between 1 and 200`),
   ],
 );
 
@@ -318,6 +325,8 @@ export const mappings = pgTable(
     note: text("note"),
     /** The region label to look for on this link's page. Left empty, the supplier's default region is used. */
     region: text("region"),
+    /** The supplier's own option name or SKU, for a page that lists several options with different stock. */
+    supplierOption: text("supplier_option"),
     enabled: boolean("enabled").notNull().default(true),
     linkStatus: text("link_status").notNull().default("not_checked"),
     lastLinkCheckAt: timestamp("last_link_check_at", { withTimezone: true }),
@@ -335,6 +344,7 @@ export const mappings = pgTable(
       sql`${t.linkStatus} in ('not_checked', 'works', 'never_worked', 'page_missing', 'moved', 'looks_different', 'needs_login', 'could_not_check')`,
     ),
     check("mappings_region", sql`${t.region} is null or char_length(${t.region}) between 1 and 200`),
+    check("mappings_supplier_option", sql`${t.supplierOption} is null or char_length(${t.supplierOption}) between 1 and 200`),
     uniqueIndex("mappings_variant_supplier_unique").on(t.variantId, t.supplierId),
     index("mappings_supplier_idx").on(t.supplierId),
   ],
@@ -420,9 +430,12 @@ export const stockObservations = pgTable(
     recipeVersion: integer("recipe_version"),
     checkResult: text("check_result").notNull(),
     captureId: uuid("capture_id").references(() => pageCaptures.id, { onDelete: "set null" }),
+    /** How the page was read: `quick` (its HTML, no browser) or `browser`. null when it was never opened. */
+    readBy: text("read_by"),
   },
   (t) => [
     check("stock_observations_answer", sql`${t.answer} in ('in_stock', 'out_of_stock', 'cannot_tell')`),
+    check("stock_observations_read_by", sql`${t.readBy} is null or ${t.readBy} in ('quick', 'browser')`),
     index("stock_observations_mapping_idx").on(t.mappingId, t.observedAt),
   ],
 );

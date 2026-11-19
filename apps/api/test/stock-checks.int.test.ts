@@ -202,6 +202,10 @@ describe("reading the answers", () => {
     expect(Object.keys(body)).toEqual(["linkCheckedAt", "stockCheckedAt"]);
     expect(body.linkCheckedAt).toBe("2026-11-11T08:00:00.000Z");
     expect(body.stockCheckedAt).toBe((await call("GET", `/api/mappings/${linkId}`)).body.mapping.latestStock.observedAt);
+    // The Links page compares the status with the row the list gave it, so both must write the times alike.
+    const listed = (await call("GET", "/api/mappings")).body.mappings.find((m: { id: string }) => m.id === linkId);
+    expect(listed.latestStock.observedAt).toBe(body.stockCheckedAt);
+    expect(listed.lastLinkCheckAt).toBe(body.linkCheckedAt);
     expect((await call("GET", "/api/mappings/00000000-0000-4000-8000-000000000000/status")).status).toBe(404);
   });
 
@@ -232,5 +236,14 @@ describe("reading the answers", () => {
     expect(await ids("cannot_tell")).toEqual({ ids: [second.mapping.id], total: 1 });
     expect((await ids("none")).total).toBe(1);
     expect((await call("GET", "/api/mappings?stock=maybe")).status).toBe(400);
+  });
+});
+
+describe("a supplier that needs no login, with no rules turned on", () => {
+  it("can be checked: it uses the built-in default", async () => {
+    await t.pool.query("update stock_recipes set active = false");
+    await suppliers().setNeedsLogin(acme, false);
+    expect((await call("POST", `/api/mappings/${linkId}/check-stock`)).status).toBe(202);
+    expect((await call("POST", `/api/suppliers/${acme}/check-stock`)).status).toBe(202);
   });
 });

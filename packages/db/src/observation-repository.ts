@@ -15,6 +15,8 @@ export type ObservationInput = {
   /** What the visit found: ok, needs_login, blocked, unreachable... */
   checkResult: string;
   captureId: string | null;
+  /** How the page was read: `quick` (its HTML, no browser) or `browser`. Left out or null: the page was never opened. */
+  readBy?: "quick" | "browser" | null;
 };
 export type ObservationRecord = ObservationInput & { id: number; observedAt: Date };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -34,9 +36,10 @@ export function createObservationRepository<S extends Record<string, unknown>>(d
     /** The newest observation of every link that has one. */
     async latestByMapping(): Promise<Map<string, ObservationRecord>> {
       const rows = (await db.execute(
-        sql`select distinct on (mapping_id) id, mapping_id as "mappingId", observed_at as "observedAt", answer, reason, quantity, matched_text as "matchedText", quantity_mismatch as "quantityMismatch", recipe_version as "recipeVersion", check_result as "checkResult", capture_id as "captureId" from stock_observations order by mapping_id, id desc`,
+        sql`select distinct on (mapping_id) id, mapping_id as "mappingId", observed_at as "observedAt", answer, reason, quantity, matched_text as "matchedText", quantity_mismatch as "quantityMismatch", recipe_version as "recipeVersion", check_result as "checkResult", capture_id as "captureId", read_by as "readBy" from stock_observations order by mapping_id, id desc`,
       )) as unknown as { rows: ObservationRecord[] };
-      return new Map(rows.rows.map((r) => [r.mappingId, r]));
+      // A raw query gives the time as PostgreSQL's text, not a Date. Made a Date, it matches every other read of the same row.
+      return new Map(rows.rows.map((r) => [r.mappingId, { ...r, observedAt: new Date(r.observedAt) }]));
     },
   };
 }

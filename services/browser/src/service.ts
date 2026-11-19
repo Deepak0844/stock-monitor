@@ -2,6 +2,7 @@ import { chromium, type Browser } from "playwright";
 import type { AddressInfo } from "node:net";
 import { createControlServer } from "./server.js";
 import { createGuard, type GuardOptions } from "./guard.js";
+import { quickRead } from "./quick-read.js";
 import { startGuardProxy } from "./proxy.js";
 import { createSessions } from "./sessions.js";
 import { createPlainWindowOpener } from "./plain-window.js";
@@ -57,7 +58,9 @@ export async function startBrowserService(options: BrowserServiceOptions): Promi
   if (options.token.length < MIN_TOKEN)
     throw new Error(`The control token must be at least ${MIN_TOKEN} characters.`);
 
-  const proxy = await startGuardProxy(createGuard(options.guard));
+  // One guard for everything that reaches a supplier: Chromium's proxy and the quick read.
+  const guard = createGuard(options.guard);
+  const proxy = await startGuardProxy(guard);
 
   // One Chromium is shared. Every check still gets its own throw-away context. A crashed browser is replaced on the next check.
   let launching: Promise<Browser> | null = null;
@@ -123,6 +126,8 @@ export async function startBrowserService(options: BrowserServiceOptions): Promi
       headlessNote(request.stealth);
       return checkPage(await getBrowser(), request, { navigationTimeoutMs: options.navigationTimeoutMs, proxy });
     },
+    // No browser and no session: only ever for a supplier whose pages need no login.
+    quickRead: (request) => quickRead(request.url, { guard, ...(options.language ? { language: options.language } : {}) }),
     capture: async (request) => {
       if (checkInProfile) return checkInProfile.capture(request, options.navigationTimeoutMs);
       headlessNote(request.stealth);

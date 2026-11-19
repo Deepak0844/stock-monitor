@@ -4,6 +4,7 @@ import type { createCaptureRepository, createMappingRepository, createSupplierRe
 import type { PageDescription } from "@stock-monitor/extraction";
 import { whyNotChecked } from "@stock-monitor/mapping";
 import { unsealSessionState } from "@stock-monitor/supplier-session";
+import { EMPTY_STATE, loginFields } from "./supplier-visit.js";
 
 export type CaptureDeps = {
   captures: ReturnType<typeof createCaptureRepository>;
@@ -37,7 +38,8 @@ export async function handleCapture(deps: CaptureDeps, captureId: string): Promi
 
   const supplier = await suppliers.get(capture.supplierId);
   if (!supplier) return { kind: "skipped" };
-  const sealed = await supplierSessions.getSealed(supplier.id);
+  // A supplier that needs no login is captured with no session at all.
+  const sealed = supplier.needsLogin ? await supplierSessions.getSealed(supplier.id) : null;
   const refused = whyNotChecked(supplier, sealed !== null);
   if (refused) return fail(refused.reason);
   const mapping = capture.mappingId ? await mappings.get(capture.mappingId) : null;
@@ -45,11 +47,11 @@ export async function handleCapture(deps: CaptureDeps, captureId: string): Promi
 
   let state;
   try {
-    state = unsealSessionState(sealed as NonNullable<typeof sealed>, deps.key);
+    state = supplier.needsLogin ? unsealSessionState(sealed as NonNullable<typeof sealed>, deps.key) : EMPTY_STATE;
   } catch {
     return fail("session_unreadable");
   }
-  const outcome = await browser.capture({ url: mapping.url, loginUrl: supplier.loginUrl ?? undefined, ...(supplier.loggedInMarker ? { loggedInMarker: supplier.loggedInMarker } : {}), state, picture: true, ...(supplier.stealth ? { stealth: true } : {}) });
+  const outcome = await browser.capture({ url: mapping.url, ...loginFields(supplier), state, picture: true, ...(supplier.stealth ? { stealth: true } : {}) });
   if (!outcome.ok) return fail("browser_unavailable");
   if (NOT_A_PAGE.has(outcome.result)) return fail(outcome.result);
 
@@ -60,6 +62,9 @@ export async function handleCapture(deps: CaptureDeps, captureId: string): Promi
     pageClass: outcome.result,
     sections: outcome.description.sections,
     buttons: outcome.description.buttons,
+    offers: outcome.description.offers,
+    // Kept on the saved page, so it can still be tested for this link's option after the link is deleted.
+    link: { url: mapping.url, option: mapping.supplierOption },
   };
   await captures.fill(captureId, { status: "ready", pageClass: outcome.result, description, picture: outcome.picture });
   logger.info({ captureId, outcome: "ready" }, "capture finished");

@@ -1,20 +1,22 @@
 import { randomUUID } from "node:crypto";
 import type { Browser, BrowserContextOptions } from "playwright";
 import { explainPage, looksLikeNotFound, type SessionState } from "@stock-monitor/supplier-session";
+import { offersFrom, type PageOffer } from "./offers.js";
 import { NAME_SHIM } from "./page-shim.js";
 import type { GuardProxy } from "./proxy.js";
 import { CHALLENGE_WIDGET, MAX_TEXT, withFreshState, type BlockTracker, type CheckPageOutcome, type VerifyOptions } from "./verify.js";
 
-export type CaptureRequest = { url: string; loginUrl?: string; loggedInMarker?: string; state: SessionState; picture?: boolean; stealth?: boolean };
+export type CaptureRequest = { url: string; loginUrl?: string; loggedInMarker?: string; state: SessionState; picture?: boolean; stealth?: boolean; publicPage?: boolean };
 /** What the browser was showing, as words: headings with the lines under them, and the buttons. Never raw HTML. */
 export type PageSections = { heading: string | null; level: number; lines: string[] }[];
 export type PageButtons = { label: string; enabled: boolean; section: string | null }[];
-export type CaptureOutcome = CheckPageOutcome & { description: { sections: PageSections; buttons: PageButtons }; picture: string | null };
+export type { PageOffer } from "./offers.js";
+export type CaptureOutcome = CheckPageOutcome & { description: { sections: PageSections; buttons: PageButtons; offers: PageOffer[] }; picture: string | null };
 export type CaptureOptions = VerifyOptions & { proxy: GuardProxy };
 
 const DEFAULT_TIMEOUT_MS = 20_000;
 const MAX_FIELD = 200;
-const LIMITS = { maxLines: 5000, maxLine: 2000, maxButtons: 500, maxBytes: 200_000 };
+const LIMITS = { maxLines: 5000, maxLine: 2000, maxButtons: 500, maxBytes: 200_000, maxOffers: 100, maxOfferField: 200, maxScript: 1_000_000, maxScripts: 2_000_000 };
 const MAX_PICTURE_BYTES = 1_000_000;
 const short = (text: string | null | undefined) => (text ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_FIELD) || null;
 const withoutQuery = (address: string): string | null => {
@@ -29,7 +31,9 @@ const withoutQuery = (address: string): string | null => {
 /**
  * Runs inside the page. Reads only what the page is showing: the visible text (the browser leaves out hidden text, scripts and
  * styles, and writes a table row on one line with tabs between the cells), the headings, and the buttons. It never reads a field's
- * value, a cookie or a script. Inputs that could hold typed text are hidden before the text is read, so nothing typed can appear.
+ * value, a cookie or a script, except the availability facts of the page's built-in product data (schema.org JSON-LD and
+ * microdata): for each offer only its availability, address, SKU and name. Inputs that could hold typed text are hidden before
+ * the text is read, so nothing typed can appear.
  * Everything is capped, so a huge or hostile page cannot make the answer huge.
  */
 const describePage = (arg: { limits: typeof LIMITS; challenge: string }) => {
@@ -70,6 +74,23 @@ const describePage = (arg: { limits: typeof LIMITS; challenge: string }) => {
         const style = getComputedStyle(el);
         return el.getAttribute("data-size") !== "invisible" && box.width >= 50 && box.height >= 30 && style.visibility !== "hidden" && style.display !== "none" && Number(style.opacity) > 0.1 && box.bottom > 0 && box.right > 0;
       });
+  // The page's built-in product data, as raw text: the offers are read from it outside the page (`offersFrom`), the same way
+  // a quick read reads them. Bounded: a script over maxScript characters is left out, and no more than maxScripts in all.
+  const ldScripts: string[] = [];
+  let scriptChars = 0;
+  for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
+    const text = script.textContent ?? "";
+    if (text.length > limits.maxScript || scriptChars + text.length > limits.maxScripts) continue;
+    ldScripts.push(text);
+    scriptChars += text.length;
+  }
+  const microdata: string[] = [];
+  for (const el of document.querySelectorAll("[itemprop=availability]")) {
+    if (microdata.length >= limits.maxOffers) break;
+    const value = (el.getAttribute("href") ?? el.getAttribute("content") ?? "").slice(0, limits.maxOfferField);
+    if (value) microdata.push(value);
+  }
+
   for (const el of document.querySelectorAll("textarea,select,input:not([type=submit]):not([type=button])")) (el as HTMLElement).style.display = "none";
 
   const sections: { heading: string | null; level: number; lines: string[] }[] = [{ heading: null, level: 0, lines: [] }];
@@ -99,6 +120,8 @@ const describePage = (arg: { limits: typeof LIMITS; challenge: string }) => {
     text: all.join("\n").slice(0, 20_000),
     sections,
     buttons,
+    ldScripts,
+    microdata,
     hasPasswordField,
     hasChallengeWidget,
   };
@@ -155,7 +178,7 @@ export async function capturePage(browser: Browser, request: CaptureRequest, opt
 
 /** Loads and describes the page in an already prepared page. Used with a throw-away context and with the persistent profile. */
 export async function capturePageIn(page: import("playwright").Page, request: CaptureRequest, tracker: BlockTracker, timeoutMs: number): Promise<CaptureOutcome> {
-  const nothing = { finalUrl: null, title: null, heading: null, softNotFound: false, description: { sections: [], buttons: [] }, picture: null };
+  const nothing = { finalUrl: null, title: null, heading: null, softNotFound: false, description: { sections: [], buttons: [], offers: [] }, picture: null };
   let status: number | null;
   try {
     const response = await page.goto(request.url, { timeout: timeoutMs, waitUntil: "load" });
@@ -173,6 +196,7 @@ export async function capturePageIn(page: import("playwright").Page, request: Ca
     requestedUrl: request.url,
     loginUrl: request.loginUrl,
     loggedInMarker: request.loggedInMarker,
+    publicPage: request.publicPage,
     page: { finalUrl: page.url(), status, title: seen.title, text: seen.text.slice(0, MAX_TEXT), hasPasswordField: seen.hasPasswordField, hasChallengeWidget: seen.hasChallengeWidget },
   });
   const title = short(seen.title);
@@ -186,7 +210,7 @@ export async function capturePageIn(page: import("playwright").Page, request: Ca
     heading,
     softNotFound: looksLikeNotFound({ title, heading }),
     signal,
-    description: { sections: seen.sections, buttons: seen.buttons },
+    description: { sections: seen.sections, buttons: seen.buttons, offers: offersFrom(seen.ldScripts, seen.microdata, page.url()) },
     picture,
   };
 }

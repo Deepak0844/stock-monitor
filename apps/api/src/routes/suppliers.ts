@@ -29,10 +29,13 @@ const DEFAULT_INTERVAL = 60;
 const MIN_INTERVAL = 15;
 const MAX_INTERVAL = 1440;
 const MAX_NAME = 100;
-const FIELDS = ["name", "websiteUrl", "loginUrl", "checkIntervalMinutes"];
+const FIELDS = ["name", "websiteUrl", "loginUrl", "checkIntervalMinutes", "shopifyName"];
+const MAX_SHOPIFY_NAME = 200;
 
 const NOT_FOUND = () => new AppError(404, "supplier_not_found", "That supplier does not exist.");
 const NAME_TAKEN = () => new AppError(409, "name_taken", "You already have a supplier with that name.");
+const SHOPIFY_NAME_TAKEN = () => new AppError(409, "shopify_name_taken", "Another supplier already uses that name for Shopify matching.");
+const taken = (reason: "name_taken" | "shopify_name_taken" | "not_found") => (reason === "name_taken" ? NAME_TAKEN() : reason === "shopify_name_taken" ? SHOPIFY_NAME_TAKEN() : NOT_FOUND());
 
 /** Checks every field and returns the cleaned values. The hosts are looked up afterwards. */
 function readFields(body: unknown, partial: boolean): { values: SupplierPatch; hosts: { host: string; code: string }[] } {
@@ -68,6 +71,14 @@ function readFields(body: unknown, partial: boolean): { values: SupplierPatch; h
     values.loginUrl = blank ? null : address("loginUrl", "invalid_login_url", input.loginUrl);
   } else if (!partial) {
     values.loginUrl = null;
+  }
+
+  if ("shopifyName" in input) {
+    const value = input.shopifyName;
+    if (value !== null && (typeof value !== "string" || value.trim().length > MAX_SHOPIFY_NAME)) {
+      throw new AppError(400, "invalid_shopify_name", `The name in Shopify can be up to ${MAX_SHOPIFY_NAME} characters, or empty to use the supplier's name.`);
+    }
+    values.shopifyName = value === null ? null : value.trim() || null;
   }
 
   if ("checkIntervalMinutes" in input || !partial) {
@@ -110,7 +121,7 @@ export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit
     page: z.coerce.number().int().min(1),
     pageSize: z.coerce.number().int().min(1).max(100).default(10),
     search: z.string().trim().max(100).optional(),
-    status: z.enum(["connected", "needs_reconnect", "blocked", "paused", "not_connected"]).optional(),
+    status: z.enum(["connected", "needs_reconnect", "blocked", "paused", "not_connected", "no_login"]).optional(),
   });
 
   // With no `page` this lists every supplier, which the dropdowns and the dashboard rely on.
@@ -125,7 +136,7 @@ export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit
   app.post("/api/suppliers", async (request, reply) => {
     const values = (await checked(request.body, false)) as SupplierInput;
     const result = await repo.create(values);
-    if (!result.ok) throw NAME_TAKEN();
+    if (!result.ok) throw taken(result.reason);
     await record(request, "supplier.created", result.supplier.id, { name: result.supplier.name });
     return reply.status(201).send({ supplier: await decorate(result.supplier) });
   });
@@ -144,9 +155,25 @@ export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit
   });
 
   app.patch<{ Params: { id: string } }>("/api/suppliers/:id", async (request) => {
-    const input = typeof request.body === "object" && request.body !== null && !Array.isArray(request.body) ? (request.body as Record<string, unknown>) : null;
+    const body = typeof request.body === "object" && request.body !== null && !Array.isArray(request.body) ? (request.body as Record<string, unknown>) : null;
+    // Whether the supplier's pages need a login: set on its own after the other fields, so a refused field changes nothing.
+    let needsLogin: boolean | undefined;
+    let sent: unknown = request.body;
+    if (body && "needsLogin" in body) {
+      if (typeof body.needsLogin !== "boolean") throw new AppError(400, "invalid_input", "Check the supplier details and try again.");
+      needsLogin = body.needsLogin;
+      const others = Object.fromEntries(Object.entries(body).filter(([k]) => k !== "needsLogin"));
+      if (Object.keys(others).length === 0) {
+        const updated = await repo.setNeedsLogin(request.params.id, needsLogin);
+        if (!updated) throw NOT_FOUND();
+        await record(request, "supplier.updated", updated.id, { changed: ["needsLogin"] });
+        return { supplier: await decorate(updated) };
+      }
+      sent = others;
+    }
+    const input = body && sent !== request.body ? (sent as Record<string, unknown>) : body;
     const auto: Parameters<Repository["setAutoLogin"]>[1] = {};
-    let rest: unknown = request.body;
+    let rest: unknown = sent;
     if (input && AUTO_LOGIN_BODY.some((k) => k in input)) {
       const invalid = () => new AppError(400, "invalid_input", "Check the supplier details and try again.");
       if ("autoLogin" in input) {
@@ -189,7 +216,7 @@ export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit
     }
     if (!hasRest || Object.keys(values).length > 0) {
       const result = await repo.update(request.params.id, values);
-      if (!result.ok) throw result.reason === "name_taken" ? NAME_TAKEN() : NOT_FOUND();
+      if (!result.ok) throw taken(result.reason);
     }
     let latest = (await repo.get(request.params.id)) ?? null;
     if (Object.keys(auto).length > 0) {
@@ -203,8 +230,9 @@ export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit
       }
       latest = result.supplier;
     }
+    if (latest && needsLogin !== undefined) latest = await repo.setNeedsLogin(latest.id, needsLogin);
     if (!latest) throw NOT_FOUND();
-    await record(request, "supplier.updated", latest.id, { changed: [...Object.keys(values), ...Object.keys(auto)] });
+    await record(request, "supplier.updated", latest.id, { changed: [...Object.keys(values), ...Object.keys(auto), ...(needsLogin === undefined ? [] : ["needsLogin"])] });
     return { supplier: await decorate(latest) };
   });
 

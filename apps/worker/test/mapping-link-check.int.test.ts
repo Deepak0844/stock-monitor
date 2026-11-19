@@ -376,3 +376,17 @@ describe("automatic login in a link run", () => {
     expect((await createNotificationRepository(t.appDb).listOpen()).map((n) => n.reason)).toEqual(["captcha"]);
   });
 });
+
+describe("a supplier that needs no login", () => {
+  it("checks its links with no session and no login address", async () => {
+    await createSupplierSessionRepository(t.appDb).remove(acme);
+    await suppliers().markNotConnected(acme);
+    await suppliers().setNeedsLogin(acme, false);
+    const id = await link("v1");
+    expect(await checkLink(deps(), id)).toEqual({ kind: "checked", status: "works" });
+    const body = checks()[0]?.body as Record<string, unknown>;
+    expect(body.state).toEqual({ cookies: [], origins: [] });
+    expect(body.loginUrl).toBeUndefined();
+    expect(await createSupplierSessionRepository(t.appDb).getSealed(acme)).toBeNull();
+  });
+});

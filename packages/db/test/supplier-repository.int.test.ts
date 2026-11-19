@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { startTestDb, type TestDb } from "./harness.js";
 import { createSupplierRepository, type SupplierInput } from "../src/supplier-repository.js";
+import { createNotificationRepository } from "../src/notification-repository.js";
 import { createSupplierCredentialsRepository } from "../src/supplier-credentials-repository.js";
 
 let t: TestDb;
@@ -311,5 +312,98 @@ describe("supplier repository: keep login alive", () => {
   it("refuses an interval that is not one of the choices", async () => {
     const s = await made();
     await expect(repo().setSchedule(s.id, { intervalMinutes: null, window: null, nextCheckAt: null, keepAliveMinutes: 20 })).rejects.toThrow();
+  });
+});
+
+describe("supplier repository: needs a login", () => {
+  it("a new supplier needs a login", async () => expect((await made()).needsLogin).toBe(true));
+
+  it("needs-login can be turned off and on again", async () => {
+    const s = await made();
+    expect((await repo().setNeedsLogin(s.id, false))?.needsLogin).toBe(false);
+    expect((await repo().get(s.id))?.needsLogin).toBe(false);
+    expect((await repo().setNeedsLogin(s.id, true))?.needsLogin).toBe(true);
+  });
+
+  it("keep-alive never lists a supplier that needs no login", async () => {
+    const s = await made();
+    await repo().setSchedule(s.id, { intervalMinutes: null, window: null, nextCheckAt: null, keepAliveMinutes: 30 });
+    await repo().setNeedsLogin(s.id, false);
+    expect(await repo().keepingAlive()).toEqual([]);
+  });
+});
+
+describe("supplier repository: turning the login off", () => {
+  const notes = () => createNotificationRepository(t.appDb);
+  it("lifts a pause the app made for the login, and resolves its notice", async () => {
+    const s = await made();
+    await repo().markNeedsAttention(s.id, "needs_reconnect");
+    await notes().raise({ kind: "supplier_needs_reconnect", supplierId: s.id, message: "Log in again.", reason: "login_required" });
+    expect(await repo().setNeedsLogin(s.id, false)).toMatchObject({ needsLogin: false, enabled: true, pausedReason: null });
+    expect((await notes().listOpen()).filter((n) => n.supplierId === s.id)).toEqual([]);
+  });
+
+  it("keeps a pause the owner made", async () => {
+    const s = await made();
+    await repo().pause(s.id);
+    expect(await repo().setNeedsLogin(s.id, false)).toMatchObject({ enabled: false, pausedReason: "owner" });
+  });
+
+  it("turning the login on again changes no pause", async () => {
+    const s = await made();
+    await repo().setNeedsLogin(s.id, false);
+    await repo().pause(s.id);
+    expect(await repo().setNeedsLogin(s.id, true)).toMatchObject({ needsLogin: true, enabled: false, pausedReason: "owner" });
+  });
+
+  it("filters suppliers that need no login apart from the not connected ones", async () => {
+    const a = await made();
+    const g = await made(globex);
+    await repo().setNeedsLogin(g.id, false);
+    expect((await repo().page({ page: 1, pageSize: 10, status: "not_connected" })).items.map((s) => s.id)).toEqual([a.id]);
+    expect((await repo().page({ page: 1, pageSize: 10, status: "no_login" })).items.map((s) => s.id)).toEqual([g.id]);
+    await repo().pause(g.id);
+    expect((await repo().page({ page: 1, pageSize: 10, status: "no_login" })).items).toEqual([]);
+    expect((await repo().page({ page: 1, pageSize: 10, status: "paused" })).items.map((s) => s.id)).toEqual([g.id]);
+  });
+});
+
+describe("supplier repository: quick checks", () => {
+  it("accepts checks every 15 or 30 minutes, and still refuses other intervals", async () => {
+    const s = await made();
+    expect(await repo().setSchedule(s.id, { intervalMinutes: 15, window: null, nextCheckAt: null })).toMatchObject({ scheduleIntervalMinutes: 15 });
+    expect(await repo().setSchedule(s.id, { intervalMinutes: 30, window: null, nextCheckAt: null })).toMatchObject({ scheduleIntervalMinutes: 30 });
+    await expect(repo().setSchedule(s.id, { intervalMinutes: 20, window: null, nextCheckAt: null })).rejects.toThrow();
+  });
+
+  it("turning the login off starts the pause at 3 seconds, but keeps a pause the owner set", async () => {
+    const s = await made();
+    expect((await repo().setNeedsLogin(s.id, false))?.checkPauseSeconds).toBe(3);
+    expect((await repo().setNeedsLogin(s.id, true))?.checkPauseSeconds).toBe(3);
+    const g = await made(globex);
+    await t.pool.query("update suppliers set check_pause_seconds = 7 where id = $1", [g.id]);
+    expect((await repo().setNeedsLogin(g.id, false))?.checkPauseSeconds).toBe(7);
+  });
+});
+
+describe("supplier repository: name in Shopify", () => {
+  it("keeps an optional name in Shopify, and clears it", async () => {
+    const s = await made();
+    expect(s.shopifyName).toBeNull();
+    const set = await repo().update(s.id, { shopifyName: "Acme Trading Ltd" });
+    expect(set.ok && set.supplier.shopifyName).toBe("Acme Trading Ltd");
+    const cleared = await repo().update(s.id, { shopifyName: null });
+    expect(cleared.ok && cleared.supplier.shopifyName).toBeNull();
+    const created = await repo().create({ ...globex, shopifyName: "Globex Trading" });
+    expect(created.ok && created.supplier.shopifyName).toBe("Globex Trading");
+  });
+
+  it("refuses two suppliers with the same name for matching, whichever field it comes from", async () => {
+    const a = await made(); // "Acme Supply"
+    const g = await made(globex);
+    expect(await repo().update(g.id, { shopifyName: "acme supply" })).toEqual({ ok: false, reason: "shopify_name_taken" });
+    await repo().update(a.id, { shopifyName: "Acme Wholesale" });
+    expect((await repo().update(g.id, { shopifyName: "ACME WHOLESALE" })).ok).toBe(false);
+    expect((await repo().update(g.id, { shopifyName: "Acme Supply" })).ok).toBe(true); // Acme's match name is now "Acme Wholesale"
   });
 });

@@ -4,4 +4,5 @@ export * from "./numbers.js";
 export * from "./evaluate.js";
 export * from "./decide.js";
 export * from "./testing.js";
+export * from "./built-in.js";
 export * from "./suggest.js";

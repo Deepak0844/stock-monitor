@@ -30,6 +30,7 @@ const STATUSES: { value: SupplierStatusFilter; label: string }[] = [
   { value: "blocked", label: "Blocked" },
   { value: "paused", label: "Paused" },
   { value: "not_connected", label: "Not connected" },
+  { value: "no_login", label: "No login needed" },
 ];
 // While a run is going, its progress is read again this often.
 const PROGRESS_REFRESH_MS = 5000;
@@ -42,6 +43,7 @@ const message = (e: unknown) => (e instanceof Error ? e.message : "Something wen
  */
 function statusOf(s: Supplier): { words: string; tone: "success" | "warning" | "neutral" } {
   if (!s.enabled && s.pausedReason !== "session") return { words: "Paused", tone: "neutral" };
+  if (!s.needsLogin) return { words: "No login needed", tone: "success" };
   switch (s.sessionStatus) {
     case "connected":
       return { words: "Connected", tone: "success" };
@@ -55,7 +57,7 @@ function statusOf(s: Supplier): { words: string; tone: "success" | "warning" | "
 }
 
 /** The one status key the filter and the tiles use: paused wins, as `statusOf` does. */
-const keyOf = (s: Supplier): SupplierStatusFilter => (!s.enabled && s.pausedReason !== "session" ? "paused" : s.sessionStatus);
+const keyOf = (s: Supplier): SupplierStatusFilter => (!s.enabled && s.pausedReason !== "session" ? "paused" : !s.needsLogin ? "no_login" : s.sessionStatus);
 
 /** What the schedule is doing for one supplier, in a few plain lines. */
 function ScheduleCell({ row }: { row: ScheduleRow | undefined }) {
@@ -223,7 +225,7 @@ export function SuppliersPage({ api }: { api: Api }) {
       className: "text-right",
       cell: (s) => (
         <div className="flex items-center justify-end gap-2">
-          {s.sessionStatus === "connected" ? (
+          {!s.needsLogin ? null : s.sessionStatus === "connected" ? (
             <Button variant="outline" size="sm" loading={checkingId === s.id} aria-label={`Check connection ${s.name}`} onClick={() => void check(s)}>
               Check connection
             </Button>

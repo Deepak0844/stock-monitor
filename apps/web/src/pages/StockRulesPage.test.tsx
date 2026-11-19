@@ -194,6 +194,7 @@ describe("the rules", () => {
       pageChecks: [{ type: "text", text: "Blue Tee" }],
       inStock: [{ type: "button", label: "Add to cart", enabled: true }],
       outOfStock: [{ type: "text", text: "Sold out", under: "Blue Tee" }],
+      builtIn: { waiting: "out_of_stock" },
     });
     expect(await screen.findByText(/Saved as version 1/)).toBeInTheDocument();
   });
@@ -214,6 +215,7 @@ describe("the rules", () => {
       outOfStock: [],
       quantity: { label: "Units left" },
       region: { under: "Click and collect availability" },
+      builtIn: { waiting: "out_of_stock" },
     });
   });
 
@@ -360,6 +362,64 @@ describe("loading problems", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("That supplier does not exist.");
   });
 });
+
+describe("built-in data", () => {
+  const offer = (availability: string, name: string | null = null, sku: string | null = null) => ({ availability, url: null, sku, name });
+  const withOffers = (offers: unknown[] | undefined) => setup({ captures: { list: vi.fn().mockResolvedValue([aCapture({ id: "a", name: "First" })]), get: vi.fn().mockResolvedValue({ ...aCapture({ id: "a", name: "First" }), description: { ...description, ...(offers ? { offers } : {}) } }) } });
+
+  it("says what the built-in data on a saved page means", async () => {
+    withOffers([offer("InStock")]);
+    expect(await screen.findByText("Built-in data: In stock")).toBeInTheDocument();
+  });
+
+  it("says when an old saved page has no built-in data, and how to get it", async () => {
+    withOffers(undefined);
+    expect(await screen.findByText("No built-in data")).toBeInTheDocument();
+    expect(screen.getByText("Capture this page again to read its built-in data.")).toBeInTheDocument();
+  });
+
+  it("lists the options of a page whose options differ, so one can be copied into the link", async () => {
+    withOffers([offer("InStock", "500 ml", "A-1"), offer("OutOfStock", "1 L", "A-2")]);
+    expect(await screen.findByText("500 ml · A-1 · In stock")).toBeInTheDocument();
+    expect(screen.getByText("1 L · A-2 · Out of stock")).toBeInTheDocument();
+  });
+
+  it("says which part of the rules decided each example", async () => {
+    const test = vi.fn().mockResolvedValue({
+      passed: true,
+      results: [
+        { id: "a", name: "Built-in page", expected: "in_stock", passed: true, got: { answer: "in_stock", reason: null, quantity: null, matchedText: "Built-in data: InStock", decidedBy: "built_in" } },
+        { id: "b", name: "Words page", expected: "out_of_stock", passed: true, got: { answer: "out_of_stock", reason: null, quantity: null, matchedText: "Sold out", decidedBy: "rules" } },
+      ],
+    });
+    const { user } = setup({ recipes: { test } });
+    await user.click(await screen.findByRole("button", { name: "Test all examples" }));
+    expect((await screen.findByText(/Built-in page/)).closest("li")).toHaveTextContent("Decided by built-in data.");
+    expect(screen.getByText(/Words page/).closest("li")).toHaveTextContent("Decided by your rules.");
+  });
+
+  it("will not turn on a built-in version until an in-stock and an out-of-stock page are labelled", async () => {
+    const list = vi.fn().mockResolvedValue([aRecipeVersion({ version: 2, id: "v2", rules: { pageChecks: [], inStock: [], outOfStock: [], builtIn: { waiting: "out_of_stock" } } })]);
+    setup({ recipes: { list }, captures: { list: vi.fn().mockResolvedValue([aCapture({ expectedAnswer: "in_stock" })]) } });
+    expect(await screen.findByRole("button", { name: "Turn on version 2" })).toBeDisabled();
+    expect(screen.getByText("Label at least one in-stock and one out-of-stock saved page.")).toBeInTheDocument();
+  });
+});
+
+describe("a supplier that needs no login", () => {
+  const NOTICE = /already checked from its built-in stock data\. Answers show on the Links page but are not sent to Shopify until you label one in-stock and one out-of-stock saved page and turn on a version\./;
+  it("says it is already checked from built-in data while no version is turned on", async () => {
+    setup({ suppliers: { get: vi.fn().mockResolvedValue(aSupplier({ needsLogin: false })) } });
+    expect(await screen.findByText(NOTICE)).toBeInTheDocument();
+  });
+  it("says nothing of it once a version is turned on, or for a supplier that needs a login", async () => {
+    setup({ suppliers: { get: vi.fn().mockResolvedValue(aSupplier({ needsLogin: false })) }, recipes: { list: vi.fn().mockResolvedValue([aRecipeVersion({ active: true })]) } });
+    await screen.findByRole("list", { name: "Versions" });
+    expect(screen.queryByText(NOTICE)).toBeNull();
+    cleanup();
+    setup();
+    await screen.findByText(/No saved pages yet/);
+    expect(screen.queryByText(NOTICE)).toBeNull();
 
 describe("suggesting rules", () => {
   const soldOut = { kind: "outOfStock", rule: { type: "text", text: "Sold out" }, seenOn: 1, ofTotal: 1, seenOnOther: 0, otherTotal: 1, starter: true, checked: true } as const;

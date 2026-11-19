@@ -1,4 +1,7 @@
-import type { Recipe, StockRule } from "../api.js";
+import type { Recipe, StockRule, Waiting } from "../api.js";
+
+/** How pre-order and back-order count, in the words the editor shows. */
+export const WAITING_WORDS: Record<Waiting, string> = { out_of_stock: "Out of stock", in_stock: "In stock", cannot_tell: "Cannot tell" };
 
 /** One rule in plain words. */
 export const ruleInWords = (r: StockRule): string => {
@@ -11,6 +14,7 @@ export const ruleInWords = (r: StockRule): string => {
 /** A version's rules in plain words, by group. A group with nothing in it is left out. */
 export function ruleLines(recipe: Recipe): Record<string, string[]> {
   const out: Record<string, string[]> = {};
+  if (recipe.builtIn) out["Built-in data"] = [`On. Pre-order and back-order count as ${WAITING_WORDS[recipe.builtIn.waiting]}.`];
   if (recipe.pageChecks.length) out["Page checks"] = recipe.pageChecks.map(ruleInWords);
   if (recipe.inStock.length) out["In stock when"] = recipe.inStock.map(ruleInWords);
   if (recipe.outOfStock.length) out["Out of stock when"] = recipe.outOfStock.map(ruleInWords);

@@ -34,7 +34,8 @@ export function registerStockCheckRoutes(app: App, deps: StockCheckRoutesDeps, a
     if (!supplier) throw new AppError(404, "supplier_not_found", "That supplier does not exist.");
     const refused = whyNotChecked(supplier, (await supplierSessions.getSealed(supplierId)) !== null);
     if (refused) throw new AppError(409, refused.reason, refused.message);
-    if (!(await recipes.active(supplierId))) throw new AppError(409, "no_recipe", "Turn on stock rules for this supplier first.");
+    // A supplier that needs no login is checked from its built-in data until rules are turned on.
+    if (supplier.needsLogin && !(await recipes.active(supplierId))) throw new AppError(409, "no_recipe", "Turn on stock rules for this supplier first.");
     return supplier;
   }
 

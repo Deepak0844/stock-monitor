@@ -78,6 +78,26 @@ describe("classifyPage details", () => {
   });
 });
 
+describe("classifyPage for a supplier whose pages need no login", () => {
+  const at = (over: Partial<NonNullable<PageFacts["page"]>>, extra: Partial<PageFacts> = {}): PageFacts => ({
+    requestedUrl: "https://shop.acme.example/p/tee",
+    page: { finalUrl: "https://shop.acme.example/p/tee", status: 200, title: "Blue Tee", text: `Blue Tee. Please log in to see prices. ${"Soft cotton. ".repeat(30)}`, hasPasswordField: false, hasChallengeWidget: false, ...over },
+    ...extra,
+  });
+
+  it("does not take login wording on a public page as a login wall", () => {
+    expect(classifyPage(at({}))).toBe("login_required");
+    expect(classifyPage(at({}, { publicPage: true }))).toBe("ok");
+  });
+
+  it("still knows a real login page: a password box, a login address, a login title, or 401", () => {
+    expect(classifyPage(at({ hasPasswordField: true }, { publicPage: true }))).toBe("login_required");
+    expect(classifyPage(at({ finalUrl: "https://shop.acme.example/account/login" }, { publicPage: true }))).toBe("login_required");
+    expect(classifyPage(at({ title: "Please log in" }, { publicPage: true }))).toBe("login_required");
+    expect(classifyPage(at({ status: 401 }, { publicPage: true }))).toBe("login_required");
+  });
+});
+
 describe("classifyPage with a logged-in marker", () => {
   const at = (over: Partial<NonNullable<PageFacts["page"]>>, extra: Partial<PageFacts> = {}): PageFacts => ({
     requestedUrl: "https://shop.acme.example/a",

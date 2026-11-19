@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { btn, page } from "./fixtures.js";
-import { allPass, isSupplierWideChange, runExamples } from "./testing.js";
-import type { Recipe } from "./types.js";
+import { allPass, hasBothAnswers, isSupplierWideChange, runExamples } from "./testing.js";
+import type { Decision, Recipe } from "./types.js";
 
 const recipe: Recipe = {
   pageChecks: [{ type: "text", text: "Blue Tee" }],
@@ -31,11 +31,11 @@ describe("runExamples", () => {
 
 describe("allPass", () => {
   it("is true only when every example passed", () => {
-    expect(allPass(runExamples([example("a", "in_stock"), example("b", "out_of_stock", soldOutPage)], recipe))).toBe(true);
-    expect(allPass(runExamples([example("a", "in_stock"), example("b", "in_stock", soldOutPage)], recipe))).toBe(false);
+    expect(allPass(runExamples([example("a", "in_stock"), example("b", "out_of_stock", soldOutPage)], recipe), recipe)).toBe(true);
+    expect(allPass(runExamples([example("a", "in_stock"), example("b", "in_stock", soldOutPage)], recipe), recipe)).toBe(false);
   });
   it("is false when there are no examples, so a recipe cannot be turned on untested", () => {
-    expect(allPass([])).toBe(false);
+    expect(allPass([], recipe)).toBe(false);
   });
 });
 
@@ -49,5 +49,28 @@ describe("isSupplierWideChange", () => {
   });
   it("counts only page changed, not other reasons", () => {
     expect(isSupplierWideChange(Array(6).fill("check_failed"))).toBe(false);
+  });
+});
+
+describe("built-in data in the example test", () => {
+  const builtInRecipe: Recipe = { pageChecks: [], inStock: [], outOfStock: [], builtIn: { waiting: "out_of_stock" } };
+  const result = (expected: "in_stock" | "out_of_stock") => ({ id: expected, name: expected, expected, got: { answer: expected } as Decision, passed: true });
+  it("built-in versions need an in-stock and an out-of-stock example", () => {
+    expect(allPass([result("in_stock")], builtInRecipe)).toBe(false);
+    expect(allPass([result("in_stock"), result("out_of_stock")], builtInRecipe)).toBe(true);
+    expect(allPass([result("in_stock")], recipe)).toBe(true);
+  });
+  it("hasBothAnswers looks at the expected answers", () => {
+    expect(hasBothAnswers([result("in_stock"), result("out_of_stock")])).toBe(true);
+    expect(hasBothAnswers([result("out_of_stock")])).toBe(false);
+  });
+  it("passes each example's link to decide", () => {
+    const offers = [
+      { availability: "InStock", url: "/p/blue-tee?variant=1", sku: null, name: null },
+      { availability: "OutOfStock", url: "/p/blue-tee?variant=2", sku: null, name: null },
+    ];
+    const p = { ...page([["Blue Tee", 1, []]]), offers };
+    const [r] = runExamples([{ id: "v", name: "Variant 2", expected: "out_of_stock", page: p, region: null, link: { url: "https://shop.example/p/blue-tee?variant=2", option: null } }], builtInRecipe);
+    expect(r).toMatchObject({ passed: true, got: { decidedBy: "built_in" } });
   });
 });

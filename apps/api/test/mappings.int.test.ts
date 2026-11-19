@@ -263,3 +263,21 @@ describe("GET /api/mappings with a page", () => {
     expect(r.body.error.code).toBe("invalid_input");
   });
 });
+
+describe("a link's supplier option", () => {
+  it("is saved on create, trimmed, changed and cleared", async () => {
+    const m = await create({ supplierOption: " 1 L " });
+    expect(m.supplierOption).toBe("1 L");
+    const changed = await call("PATCH", `/api/mappings/${m.id}`, { supplierOption: "500 ml" });
+    expect(changed.body.mapping.supplierOption).toBe("500 ml");
+    expect((await call("PATCH", `/api/mappings/${m.id}`, { supplierOption: "" })).body.mapping.supplierOption).toBeNull();
+  });
+
+  it("refuses an option that is too long or not text", async () => {
+    const tooLong = await call("POST", "/api/mappings", { supplierId: acme, ...good, supplierOption: "x".repeat(201) });
+    expect(tooLong.status).toBe(400);
+    expect(tooLong.body.error).toMatchObject({ code: "invalid_supplier_option", message: "A supplier option can be up to 200 characters of text, or empty to clear it." });
+    const m = await create();
+    expect((await call("PATCH", `/api/mappings/${m.id}`, { supplierOption: 5 })).body.error.code).toBe("invalid_supplier_option");
+  });
+});

@@ -41,7 +41,7 @@ const FAILED: Record<Exclude<LoginResult, "ok" | "unreachable">, { outcome: Outc
  * One attempt, never retried here. The credentials go to the browser service only; nothing logged or audited holds them.
  */
 export async function ensureLoggedIn(deps: AutoLoginDeps, supplier: SupplierRecord, opts: { force: boolean; checkUrl: string; onLoggedIn?: () => void }): Promise<"ready" | "skipped" | StopReason> {
-  if (!supplier.autoLogin || supplier.autoLoginPausedReason) return "skipped";
+  if (!supplier.needsLogin || !supplier.autoLogin || supplier.autoLoginPausedReason) return "skipped";
   const { suppliers, supplierSessions, logger } = deps;
   const id = supplier.id;
   const now = deps.now ?? (() => new Date());

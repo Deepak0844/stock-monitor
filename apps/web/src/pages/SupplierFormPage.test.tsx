@@ -68,8 +68,8 @@ describe("adding a supplier", () => {
   });
 
   it.each([
-    ["invalid_name", "Name"],
-    ["name_taken", "Name"],
+    ["invalid_name", "^Name$"],
+    ["name_taken", "^Name$"],
     ["invalid_website", "Website address"],
     ["invalid_login_url", "Login address"],
   ])("shows the server's %s message beside the %s field", async (code, label) => {
@@ -262,5 +262,66 @@ describe("permission and automatic login on the same page", () => {
     await user.selectOptions(screen.getByLabelText("Permission"), "granted");
     await user.click(screen.getByRole("button", { name: "Save permission" }));
     await waitFor(() => expect(screen.getByRole("switch", { name: "Automatic login" })).toBeEnabled());
+  });
+});
+
+describe("a supplier that needs no login", () => {
+  const setupEdit = (supplier = aSupplier()) => {
+    const api = fakeApi({ suppliers: { get: vi.fn().mockResolvedValue(supplier) } });
+    render(<SupplierFormPage api={api} id={supplier.id} />);
+    return { api, user: userEvent.setup() };
+  };
+
+  it("shows the Needs a login switch above the login settings", async () => {
+    setupEdit();
+    expect(await screen.findByRole("switch", { name: "Needs a login" })).toBeChecked();
+    expect(screen.getByRole("switch", { name: "Automatic login" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Keep login alive")).toBeInTheDocument();
+  });
+
+  it("hides automatic login and keep-alive when no login is needed", async () => {
+    setupEdit(aSupplier({ needsLogin: false }));
+    expect(await screen.findByRole("switch", { name: "Needs a login" })).not.toBeChecked();
+    expect(screen.queryByRole("switch", { name: "Automatic login" })).toBeNull();
+    expect(screen.queryByLabelText("Keep login alive")).toBeNull();
+    expect(screen.getByText("Checked without logging in")).toBeInTheDocument();
+  });
+});
+
+describe("name in Shopify", () => {
+  it("sends the name in Shopify with a new supplier, with its hint", async () => {
+    const api = fakeApi();
+    render(<SupplierFormPage api={api} />);
+    const user = userEvent.setup();
+    await fillNew(user);
+    expect(screen.getByText("The supplier name your Shopify products use (the custom.supplier_name field). Leave it empty if it is the same as the name above.")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Name in Shopify (optional)"), " Acme Trading ");
+    await user.click(screen.getByRole("button", { name: /^(Add|Save)/ }));
+    await waitFor(() => expect(api.suppliers.create).toHaveBeenCalledWith(expect.objectContaining({ name: "Acme Supply", shopifyName: "Acme Trading" })));
+  });
+
+  it("shows a supplier's name in Shopify, and clears it", async () => {
+    const existing = aSupplier({ shopifyName: "Acme Trading" });
+    window.history.replaceState(null, "", `/suppliers/${existing.id}/edit`);
+    const api = fakeApi({ suppliers: { get: vi.fn().mockResolvedValue(existing) } });
+    render(<SupplierFormPage api={api} id={existing.id} />);
+    const user = userEvent.setup();
+    const field = await screen.findByLabelText("Name in Shopify (optional)");
+    expect(field).toHaveValue("Acme Trading");
+    await user.clear(field);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(api.suppliers.update).toHaveBeenCalledWith(existing.id, { shopifyName: null }));
+  });
+
+  it("puts a clash with another supplier under the field and focuses it", async () => {
+    const create = vi.fn().mockRejectedValue(new ApiError("Another supplier already uses that name for Shopify matching.", 409, "shopify_name_taken"));
+    const api = fakeApi({ suppliers: { create } });
+    render(<SupplierFormPage api={api} />);
+    const user = userEvent.setup();
+    await fillNew(user);
+    await user.type(screen.getByLabelText("Name in Shopify (optional)"), "Acme");
+    await user.click(screen.getByRole("button", { name: /^(Add|Save)/ }));
+    await waitFor(() => expect(screen.getByLabelText("Name in Shopify (optional)")).toHaveFocus());
+    expect(screen.getByLabelText("Name in Shopify (optional)")).toHaveAccessibleDescription(/Another supplier already uses that name/);
   });
 });

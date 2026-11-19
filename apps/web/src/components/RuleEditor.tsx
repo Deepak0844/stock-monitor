@@ -1,7 +1,8 @@
 import { Button } from "@/components/ui/button.js";
 import { Input, Select } from "@/components/ui/input.js";
-import type { Recipe, StockRule } from "../api.js";
+import type { Recipe, StockRule, Waiting } from "../api.js";
 import { Field } from "./Field.js";
+import { WAITING_WORDS } from "./ruleWords.js";
 
 export type RuleDraft = { type: "text" | "button"; words: string; enabled: "" | "true" | "false"; under: string };
 export type Draft = {
@@ -10,11 +11,21 @@ export type Draft = {
   outOfStock: RuleDraft[];
   quantity: { on: boolean; label: string; under: string };
   region: { on: boolean; under: string };
+  /** The page's built-in stock data answers first; the word rules only when it is missing or unclear. */
+  builtIn: { on: boolean; waiting: Waiting };
 };
 type ListKey = "pageChecks" | "inStock" | "outOfStock";
 
 export const emptyRule = (): RuleDraft => ({ type: "text", words: "", enabled: "", under: "" });
-export const emptyDraft = (): Draft => ({ pageChecks: [emptyRule()], inStock: [], outOfStock: [], quantity: { on: false, label: "", under: "" }, region: { on: false, under: "" } });
+/** A new supplier's first rules use built-in data: most suppliers' pages have it. */
+export const emptyDraft = (): Draft => ({
+  pageChecks: [emptyRule()],
+  inStock: [],
+  outOfStock: [],
+  quantity: { on: false, label: "", under: "" },
+  region: { on: false, under: "" },
+  builtIn: { on: true, waiting: "out_of_stock" },
+});
 
 export const fromRule = (r: StockRule): RuleDraft =>
   r.type === "text"
@@ -28,6 +39,8 @@ export function toDraft(recipe: Recipe): Draft {
     outOfStock: recipe.outOfStock.map(fromRule),
     quantity: { on: !!recipe.quantity, label: recipe.quantity?.label ?? "", under: recipe.quantity?.under ?? "" },
     region: { on: !!recipe.region, under: recipe.region?.under ?? "" },
+    // A version saved without built-in data opens with it off, as it was saved.
+    builtIn: { on: !!recipe.builtIn, waiting: recipe.builtIn?.waiting ?? "out_of_stock" },
   };
 }
 
@@ -52,6 +65,7 @@ export function toRecipe(draft: Draft): Recipe {
     outOfStock: list(draft.outOfStock),
     ...(draft.quantity.on && quantityLabel ? { quantity: { label: quantityLabel, ...(quantityUnder ? { under: quantityUnder } : {}) } } : {}),
     ...(draft.region.on && regionUnder ? { region: { under: regionUnder } } : {}),
+    ...(draft.builtIn.on ? { builtIn: { waiting: draft.builtIn.waiting } } : {}),
   };
 }
 
@@ -69,12 +83,46 @@ export function RuleEditor({ draft, onChange }: { draft: Draft; onChange: (draft
   const remove = (key: ListKey, index: number) => onChange({ ...draft, [key]: draft[key].filter((_, i) => i !== index) });
   const add = (key: ListKey) => onChange({ ...draft, [key]: [...draft[key], emptyRule()] });
 
+  const builtIn = draft.builtIn.on;
   return (
     <div className="flex flex-col gap-6">
+      <fieldset className="flex flex-col gap-3">
+        <legend className={legend}>Built-in stock data</legend>
+        <p id="built-in-hint" className="text-sm text-muted-foreground">
+          Most shops put stock in data built into their pages, for search engines. In stock and limited stock count as in stock; out of stock, sold out and discontinued count as out of stock.
+        </p>
+        <label className={`${checkbox} min-h-11`}>
+          <input
+            type="checkbox"
+            role="switch"
+            aria-describedby="built-in-hint"
+            className="size-5 accent-primary"
+            checked={builtIn}
+            onChange={(e) => onChange({ ...draft, builtIn: { ...draft.builtIn, on: e.target.checked } })}
+          />
+          Use the stock data built into the supplier's pages
+        </label>
+        {builtIn && (
+          <Field id="built-in-waiting" label="Pre-order and back-order count as">
+            <Select id="built-in-waiting" className="w-full sm:w-64" value={draft.builtIn.waiting} onChange={(e) => onChange({ ...draft, builtIn: { ...draft.builtIn, waiting: e.target.value as Waiting } })}>
+              {(Object.keys(WAITING_WORDS) as Waiting[]).map((w) => (
+                <option key={w} value={w}>
+                  {WAITING_WORDS[w]}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
+      </fieldset>
+
+      {builtIn && <h3 className="-mb-3 text-base font-semibold text-muted-foreground">If the built-in data is missing or unclear</h3>}
       {GROUPS.map(({ key, title, hint }) => (
         <fieldset key={key} className="flex flex-col gap-3">
           <legend className={legend}>{title}</legend>
-          <p className="text-sm text-muted-foreground">{hint}</p>
+          <p className="text-sm text-muted-foreground">
+            {hint}
+            {builtIn && key === "pageChecks" ? " Page checks are optional while built-in data is on." : ""}
+          </p>
           {draft[key].map((rule, i) => {
             const label = `${title} rule ${i + 1}`;
             return (

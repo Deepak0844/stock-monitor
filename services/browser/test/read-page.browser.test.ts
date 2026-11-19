@@ -21,5 +21,6 @@ describe("readPage under tsx", () => {
     expect(seen.buttons).toEqual([
       { label: "Add to cart", enabled: false, section: "Blue widget" },
     ]);
+    expect(seen.offers).toEqual([{ availability: "OutOfStock", url: null, sku: null, name: null }]);
   }, 90_000);
 });

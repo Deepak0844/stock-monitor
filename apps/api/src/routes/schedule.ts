@@ -63,7 +63,7 @@ export function registerScheduleRoutes(app: App, deps: ScheduleRoutesDeps, audit
     if (running) return { state: "running" };
     const refused = whyNotChecked(s, (await supplierSessions.getSealed(s.id)) !== null);
     if (refused) return { state: "not_checked", reason: refused.reason, message: refused.message };
-    if (!(await recipes.active(s.id))) return { state: "not_checked", reason: "no_recipe", message: NO_RECIPE };
+    if (s.needsLogin && !(await recipes.active(s.id))) return { state: "not_checked", reason: "no_recipe", message: NO_RECIPE };
     return { state: "waiting" };
   }
 

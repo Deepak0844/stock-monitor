@@ -4,6 +4,8 @@ export type SupplierGate = {
   pausedReason: "owner" | "session" | null;
   sessionStatus: string;
   automationPermission: string;
+  /** False: the supplier's pages need no login, so no saved session is needed. Left out: a login is needed. */
+  needsLogin?: boolean;
 };
 
 const MESSAGES: Record<CheckGateReason, string> = {
@@ -20,7 +22,7 @@ const MESSAGES: Record<CheckGateReason, string> = {
 export function whyNotChecked(supplier: SupplierGate, hasSession: boolean): { reason: CheckGateReason; message: string } | null {
   const refuse = (reason: CheckGateReason) => ({ reason, message: MESSAGES[reason] });
   if (supplier.automationPermission !== "granted") return refuse("no_permission");
-  if (!hasSession || supplier.sessionStatus === "not_connected") return refuse("not_connected");
+  if (supplier.needsLogin !== false && (!hasSession || supplier.sessionStatus === "not_connected")) return refuse("not_connected");
   if (!supplier.enabled) return refuse(supplier.pausedReason === "session" ? "needs_attention" : "paused");
   return null;
 }

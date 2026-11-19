@@ -113,3 +113,16 @@ describe("Automatic checks panel", () => {
     expect(await screen.findByText("No checks have run yet.")).toBeInTheDocument();
   });
 });
+
+describe("checks every 15 or 30 minutes", () => {
+  it("offers both, and saves 15 minutes", async () => {
+    const api = fakeApi();
+    render(<SchedulePanel api={api} supplier={aSupplier()} />);
+    const often = await screen.findByLabelText("How often");
+    expect([...(often as HTMLSelectElement).options].map((o) => o.text)).toEqual(expect.arrayContaining(["Every 15 minutes", "Every 30 minutes"]));
+    const user = userEvent.setup();
+    await user.selectOptions(often, "15");
+    await user.click(screen.getByRole("button", { name: "Save automatic checks" }));
+    expect(api.schedule.set).toHaveBeenCalledWith(aSupplier().id, expect.objectContaining({ intervalMinutes: 15 }));
+  });
+});

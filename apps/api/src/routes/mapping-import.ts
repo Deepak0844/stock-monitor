@@ -2,7 +2,7 @@ import type { FastifyInstance, RawReplyDefaultExpression, RawRequestDefaultExpre
 import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
 import type { createImportPreviewRepository, createMappingRepository, createSupplierRepository } from "@stock-monitor/db";
-import { buildPreview, parseCsv, readExport, suggestColumns, type Columns, type GoodRow } from "@stock-monitor/mapping";
+import { buildPreview, parseCsv, readExport, suggestColumns, supplierMatchName, type Columns, type GoodRow } from "@stock-monitor/mapping";
 import { AppError } from "../errors.js";
 
 type App = FastifyInstance<RawServerDefault, RawRequestDefaultExpression, RawReplyDefaultExpression, Logger>;
@@ -48,7 +48,7 @@ export function registerMappingImportRoutes(app: App, deps: Deps, audit: Audit):
     const cols: Columns = { handle: column("handle"), sku: column("sku"), supplier: column("supplier"), address: column("address") };
 
     const [supplierList, skus, links, fromShopify] = await Promise.all([deps.suppliers.list(), deps.mappings.liveVariantSkus(), deps.mappings.linksByVariant(), deps.mappings.shopifyLinkSources()]);
-    const suppliers = new Map(supplierList.map((s) => [s.name.toLowerCase(), { id: s.id, host: new URL(s.websiteUrl).hostname }]));
+    const suppliers = new Map(supplierList.map((s) => [supplierMatchName(s), { id: s.id, host: new URL(s.websiteUrl).hostname }]));
     const variantsBySku = new Map<string, string[]>();
     for (const v of skus) variantsBySku.set(v.sku.trim(), [...(variantsBySku.get(v.sku.trim()) ?? []), v.variantId]);
     const existing = new Map(links.map((l) => [l.variantId, { supplierId: l.supplierId, url: l.url }]));
