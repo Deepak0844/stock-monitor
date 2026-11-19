@@ -255,6 +255,60 @@ describe("shopify sync handler", () => {
   });
 });
 
+describe("automatic sync", () => {
+  const URI = "https://shop-app.example/api/shopify/webhooks";
+
+  it("a sync that finds one running queues a grouped follow-up, so a change that landed mid-sync is read", async () => {
+    await fresh();
+    withCatalog(1);
+    await connect();
+    const queued: unknown[][] = [];
+    await repo().startSyncRun(); // another sync is running
+    await handler({ queue: { enqueue: async (...args: unknown[]) => void queued.push(args) } })({});
+    expect(queued).toEqual([["shopify.sync", {}, { groupSeconds: 60 }]]);
+  });
+
+  it("a successful sync signs up for Shopify's change messages", async () => {
+    await fresh();
+    const catalog = withCatalog(1);
+    await connect();
+    await handler({ webhookUrl: URI })({});
+    expect((await repo().lastSyncRun())?.status).toBe("succeeded");
+    expect(catalog.subscriptions.map((x) => x.topic).sort()).toEqual(["INVENTORY_LEVELS_UPDATE", "PRODUCTS_CREATE", "PRODUCTS_DELETE", "PRODUCTS_UPDATE"]);
+    expect(catalog.subscriptions.every((x) => x.uri === URI)).toBe(true);
+  });
+
+  it("does not sign up without an https address", async () => {
+    await fresh();
+    const catalog = withCatalog(1);
+    await connect();
+    await handler()({});
+    expect((await repo().lastSyncRun())?.status).toBe("succeeded");
+    expect(catalog.subscriptions).toEqual([]);
+  });
+
+  it("a pasted access-token connection does not sign up: there is no secret to check the messages with", async () => {
+    await fresh();
+    const catalog = withCatalog(1);
+    await connect();
+    await handler()({}); // issues fake-access-token-1, which the static connection below then uses
+    await repo().saveConnection({ shop: SHOP, credentials: { type: "static_token", accessToken: "fake-access-token-1" }, scopes: ["read_products", "read_inventory"], location: { id: LOC_A, name: "Shop floor" } });
+    await handler({ webhookUrl: URI })({});
+    expect((await repo().lastSyncRun())?.status).toBe("succeeded");
+    expect(catalog.subscriptions).toEqual([]);
+  });
+
+  it("a failed sign-up still finishes the sync as succeeded, and says so in the log", async () => {
+    await fresh();
+    const catalog = withCatalog(1);
+    catalog.setSubscriptionsDown(true);
+    await connect();
+    await handler({ webhookUrl: URI })({});
+    expect((await repo().lastSyncRun())?.status).toBe("succeeded");
+    expect(logLines.some((l) => l.includes('"level":40') && /change messages/.test(l))).toBe(true);
+  });
+});
+
 describe("through the real queue", () => {
   it("processes a shopify.sync job with an empty payload", async () => {
     await fresh();
@@ -269,6 +323,15 @@ describe("through the real queue", () => {
     const job = await t.pool.query("select data from pgboss.job where name = 'shopify.sync'");
     expect(job.rows.every((r) => JSON.stringify(r.data) === "{}")).toBe(true);
   }, 60_000);
+
+  it("grouped sends never leave more than two syncs waiting", async () => {
+    await fresh();
+    queue = createQueue({ connectionString: t.appUrl });
+    await queue.start();
+    for (let i = 0; i < 5; i++) await queue.enqueue("shopify.sync", {}, { groupSeconds: 60 });
+    const waiting = await t.pool.query("select count(*)::int as n from pgboss.job where name = 'shopify.sync' and state = 'created'");
+    expect(waiting.rows[0].n).toBe(2);
+  });
 
   it("refuses to queue a shopify.sync job that carries data", async () => {
     await fresh();

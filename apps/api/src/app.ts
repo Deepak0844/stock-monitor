@@ -10,6 +10,7 @@ import { z } from "zod";
 import { users } from "@stock-monitor/db";
 import { createAuditWriter } from "@stock-monitor/audit";
 import { registerShopifyRoutes, type ShopifyRoutesDeps } from "./routes/shopify.js";
+import { registerShopifyWebhookRoutes, SHOPIFY_WEBHOOK_PATH } from "./routes/shopify-webhooks.js";
 import { registerNotificationRoutes, type NotificationRoutesDeps } from "./routes/notifications.js";
 import { createScreenRegistry, registerLoginScreen, type LoginScreenDeps } from "./routes/login-screen.js";
 import { registerLoginSessionRoutes, type LoginSessionRoutesDeps } from "./routes/login-sessions.js";
@@ -38,7 +39,8 @@ declare module "fastify" {
 }
 
 // Routes that work without a login. Everything else needs a valid session.
-const PUBLIC_ROUTES = new Set(["/health", "/api/login"]);
+// Shopify's change messages carry no login: the route checks Shopify's signature instead.
+const PUBLIC_ROUTES = new Set(["/health", "/api/login", SHOPIFY_WEBHOOK_PATH]);
 
 export type AppDeps = {
   db: NodePgDatabase<Record<string, unknown>>;
@@ -220,7 +222,10 @@ export function buildApp({ db, logger, secureCookies = false, webRoot, trustProx
     return { ok: true };
   });
 
-  if (shopify) registerShopifyRoutes(app, shopify, audit);
+  if (shopify) {
+    registerShopifyRoutes(app, shopify, audit);
+    registerShopifyWebhookRoutes(app, shopify);
+  }
   if (notifications) registerNotificationRoutes(app, notifications);
   if (mappings) registerMappingRoutes(app, mappings, audit);
   if (captures) registerCaptureRoutes(app, captures, audit);

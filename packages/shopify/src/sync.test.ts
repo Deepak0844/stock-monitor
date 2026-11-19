@@ -190,4 +190,16 @@ describe("syncCatalog", () => {
     expect(result).toEqual({ added: 0, updated: 1, unchanged: 1, removed: 0, total: 2 });
     expect(fakeStore.catalog.variantVariables.at(-1)).toMatchObject({ nameNamespace: "ops", urlKey: "vendor_url" });
   });
+
+  it("a product moved to draft is marked removed, and comes back when active again", async () => {
+    fakeStore = await startFakeStore({ locations, variants: [makeVariant(1)] });
+    const { store, rows } = memoryStore();
+    const sync = () => syncCatalog({ client: fakeStore!.client, locationId: LOC_A, store });
+    expect((await sync()).removed).toBe(0);
+    fakeStore.catalog.setVariants([makeVariant(1, { status: "DRAFT" })]);
+    expect((await sync()).removed).toBe(1);
+    fakeStore.catalog.setVariants([makeVariant(1, { status: "ACTIVE" })]);
+    expect((await sync()).updated).toBe(1);
+    expect(rows.get(makeVariant(1).id)?.removed).toBe(false);
+  });
 });

@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { Writable } from "node:stream";
 import { startTestDb, type TestDb } from "@stock-monitor/db/test-harness";
 import { createShopifyRepository } from "@stock-monitor/db";
@@ -30,7 +30,7 @@ let t: TestDb;
 let fake: FakeShopify;
 let sid: string;
 const key = { key: randomBytes(32), keyId: "v1" };
-const queued: { name: string; payload: unknown }[] = [];
+const queued: { name: string; payload: unknown; options?: unknown }[] = [];
 const logLines: string[] = [];
 const bodies: string[] = [];
 
@@ -46,7 +46,7 @@ function app() {
     logger,
     shopify: {
       repo: repo(),
-      queue: { enqueue: async (name, payload) => void queued.push({ name, payload }) },
+      queue: { enqueue: async (name, payload, options) => void queued.push({ name, payload, ...(options && { options }) }) },
       baseUrl: () => fake.url,
       clientOptions: { sleep: async () => {} },
     },
@@ -493,3 +493,79 @@ describe("nothing secret escapes", () => {
     }
   });
 });
+
+describe("Shopify's change messages start an automatic sync", () => {
+  const sign = (body: string, secret = SECRET) => createHmac("sha256", secret).update(body, "utf8").digest("base64");
+  const body = JSON.stringify({ id: 1, title: "Product 1", status: "active" });
+  const send = (a: ReturnType<typeof app>, opts: { payload?: string; hmac?: string | null; shop?: string } = {}) => {
+    const payload = opts.payload ?? body;
+    const headers: Record<string, string> = { "content-type": "application/json", "x-shopify-topic": "products/update", "x-shopify-shop-domain": opts.shop ?? SHOP };
+    const hmac = opts.hmac === undefined ? sign(payload) : opts.hmac;
+    if (hmac !== null) headers["x-shopify-hmac-sha256"] = hmac;
+    return a.inject({ method: "POST", url: "/api/shopify/webhooks", payload, headers });
+  };
+  const connected = async () => {
+    await fresh();
+    const a = app();
+    expect((await call(a, "POST", "/api/shopify/connection", connectBody)).status).toBe(200);
+    queued.length = 0;
+    return { a };
+  };
+
+  it("a signed change message queues one grouped sync, with no login", async () => {
+    const { a } = await connected();
+    const res = await send(a);
+    expect(res.statusCode).toBe(200);
+    expect(queued).toEqual([{ name: "shopify.sync", payload: {}, options: { groupSeconds: 60 } }]);
+  });
+
+  it("a wrong signature is refused and queues nothing", async () => {
+    const { a } = await connected();
+    expect((await send(a, { hmac: sign(body, "not-the-secret") })).statusCode).toBe(401);
+    expect(queued).toEqual([]);
+  });
+
+  it.each([["missing", null], ["empty", ""], ["too short", "abc"]])("a %s signature is refused, never a server error", async (_label, hmac) => {
+    const { a } = await connected();
+    expect((await send(a, { hmac })).statusCode).toBe(401);
+    expect(queued).toEqual([]);
+  });
+
+  it("a message signed for a changed body is refused", async () => {
+    const { a } = await connected();
+    expect((await send(a, { payload: body.replace("1", "2"), hmac: sign(body) })).statusCode).toBe(401);
+  });
+
+  it("another shop's message is refused", async () => {
+    const { a } = await connected();
+    expect((await send(a, { shop: "other-store.myshopify.com" })).statusCode).toBe(401);
+    expect(queued).toEqual([]);
+  });
+
+  it("is refused when Shopify is not connected", async () => {
+    await fresh();
+    expect((await send(app())).statusCode).toBe(401);
+    expect(queued).toEqual([]);
+  });
+
+  it("is refused for a pasted access-token connection: there is no secret to check it with", async () => {
+    await fresh();
+    const a = app();
+    expect((await call(a, "POST", "/api/shopify/connection", { shop: SHOP, accessToken: STATIC_TOKEN })).status).toBe(200);
+    queued.length = 0;
+    expect((await send(a, { hmac: sign(body, STATIC_TOKEN) })).statusCode).toBe(401);
+    expect(queued).toEqual([]);
+  });
+
+  it("accepts a large message, as for a product with many variants", async () => {
+    const { a } = await connected();
+    const big = JSON.stringify({ id: 1, variants: "x".repeat(2 * 1024 * 1024) });
+    expect((await send(a, { payload: big })).statusCode).toBe(200);
+  });
+
+  it("other API routes still read JSON bodies", async () => {
+    const { a } = await connected();
+    expect((await call(a, "POST", "/api/shopify/test", connectBody)).status).toBe(200);
+  });
+});
+

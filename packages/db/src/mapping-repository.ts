@@ -27,6 +27,9 @@ export type MappingRecord = {
 };
 /** `shopifyManaged`: the variant's product has a supplier name and page address in Shopify, so the next sync sets this link from them. */
 export type MappingRow = MappingRecord & { productTitle: string; variantTitle: string; sku: string | null; supplierName: string; variantRemoved: boolean; shopifyManaged: boolean };
+
+/** A link worth checking: switched on, and its product still active in Shopify (not draft, archived or deleted). */
+export const isCheckable = (m: Pick<MappingRow, "enabled" | "variantRemoved">): boolean => m.enabled && !m.variantRemoved;
 export type MappingInput = { variantId: string; supplierId: string; url: string; note: string | null; region?: string | null; supplierOption?: string | null };
 export type MappingWrite = { ok: true; mapping: MappingRecord } | { ok: false; reason: "duplicate" | "unknown_variant" | "unknown_supplier" };
 /** What a link check decided. Matches the link-status rules in the mapping package. */

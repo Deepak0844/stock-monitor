@@ -93,7 +93,7 @@ function warningsFor(v: VariantRecord) {
   return warnings;
 }
 
-type App = FastifyInstance<RawServerDefault, RawRequestDefaultExpression, RawReplyDefaultExpression, Logger>;
+export type App = FastifyInstance<RawServerDefault, RawRequestDefaultExpression, RawReplyDefaultExpression, Logger>;
 
 export function registerShopifyRoutes(app: App, deps: ShopifyRoutesDeps, audit: Audit): void {
   const { repo } = deps;
