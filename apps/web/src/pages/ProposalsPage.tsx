@@ -241,23 +241,36 @@ export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => vo
   const params = useListParams({ pageSize: 10 });
   const { page, pageSize, set } = params;
   const tab = params.filters.tab === "history" ? "history" : "open";
-  const supplierId = params.filters.supplier ?? "";
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [suppliersRead, setSuppliersRead] = useState(false);
   const [waitingCounts, setWaitingCounts] = useState<Record<string, number>>({});
   useEffect(() => {
-    api.suppliers.list().then(setSuppliers).catch(() => {});
+    api.suppliers
+      .list()
+      .then((list) => {
+        setSuppliers(list);
+        setSuppliersRead(true);
+      })
+      .catch(() => {});
   }, [api]);
+  // A supplier in the address that is not in the list (deleted, or mistyped) shows everything.
+  const wanted = params.filters.supplier ?? "";
+  const supplierId = suppliersRead && !suppliers.some((s) => s.id === wanted) ? "" : wanted;
+  const readCounts = useCallback(() => void api.proposals.waitingBySupplier().then(setWaitingCounts).catch(() => {}), [api]);
   const supplierName = suppliers.find((s) => s.id === supplierId)?.name;
   const [open, setOpen] = useState<Open>({ kind: "loading" });
   const [finished, setFinished] = useState(false);
   const waitingIds = useRef<Set<string>>(new Set());
+  const latest = useRef(0);
 
   const read = useCallback(
     (quiet = false) => {
+      const mine = ++latest.current;
       if (!quiet) setOpen({ kind: "loading" });
       api.proposals
         .openPage(supplierId ? { page, pageSize, supplierId } : { page, pageSize })
         .then((r) => {
+          if (mine !== latest.current) return; // a newer read was asked for since
           // One that was waiting for Shopify and has gone has finished: its result is in History.
           if ([...waitingIds.current].some((id) => !r.items.some((p) => p.id === id))) setFinished(true);
           waitingIds.current = new Set(r.items.filter((p) => p.state === "approved").map((p) => p.id));
@@ -265,11 +278,11 @@ export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => vo
           onChange?.();
         })
         .catch((e: unknown) => {
-          if (!quiet) setOpen({ kind: "error", message: message(e) });
+          if (mine === latest.current && !quiet) setOpen({ kind: "error", message: message(e) });
         });
-      api.proposals.waitingBySupplier().then(setWaitingCounts).catch(() => {});
+      readCounts();
     },
-    [api, onChange, page, pageSize, supplierId],
+    [api, onChange, page, pageSize, supplierId, readCounts],
   );
   useEffect(() => {
     if (tab === "open") read();
@@ -296,6 +309,7 @@ export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => vo
       return { ...current, proposals, total };
     });
     onChange?.();
+    readCounts();
     if (reload) queueMicrotask(() => read(true));
   }
 
