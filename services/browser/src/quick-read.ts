@@ -1,6 +1,7 @@
 import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { isIP, type LookupFunction } from "node:net";
+import { pipeline } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import { explainPage, looksLikeNotFound, type PageClass } from "@stock-monitor/supplier-session";
 import type { Guard } from "./guard.js";
@@ -34,28 +35,66 @@ const decode = (s: string) =>
   });
 const oneLine = (s: string) => s.replace(/\s+/g, " ").trim();
 
-/** What the classifier needs from the HTML, read with bounded patterns. Never kept or returned. */
+const MAX_TAG = 4000;
+const RAW_TEXT = new Set(["script", "style", "noscript", "template"]);
+
+/**
+ * What the classifier needs from the HTML, in ONE pass from left to right: every step moves forward, so the work is linear
+ * in the size of the page whatever it holds (no pattern ever scans the rest of the page from each "<"). Patterns run only on
+ * one tag at a time, cut to 4000 characters. Never kept or returned.
+ */
 function factsOf(htmlText: string) {
-  const title = oneLine(decode(/<title\b[^>]*>([\s\S]{0,2000}?)<\/title>/i.exec(htmlText)?.[1] ?? ""));
-  const text = oneLine(decode(htmlText.replace(/<(script|style|noscript|template)\b[\s\S]*?<\/\1>/gi, " ").replace(/<[^>]*>/g, " "))).slice(0, MAX_TEXT);
-  const inputs = htmlText.match(/<input\b[^>]*>/gi) ?? [];
-  const hasPasswordField = inputs.some((tag) => /\btype\s*=\s*["']?password\b/i.test(tag) && !/\bhidden\b/i.test(tag.replace(/\btype\s*=\s*["']?password["']?/i, "")));
-  const hasChallengeWidget = /class\s*=\s*["'][^"']*\b(h-captcha|g-recaptcha|cf-turnstile)\b|<iframe\b[^>]*\b(hcaptcha\.com|google\.com\/recaptcha|challenges\.cloudflare\.com)/i.test(htmlText);
+  const lower = htmlText.toLowerCase();
+  const textParts: string[] = [];
+  let textLength = 0;
+  let title = "";
+  let hasPasswordField = false;
+  let hasChallengeWidget = false;
   const ldScripts: string[] = [];
-  let chars = 0;
-  for (const m of htmlText.matchAll(/<script\b[^>]*\btype\s*=\s*["']?application\/ld\+json["']?[^>]*>([\s\S]*?)<\/script>/gi)) {
-    const body = m[1] ?? "";
-    if (body.length > MAX_SCRIPT || chars + body.length > MAX_SCRIPTS) continue;
-    ldScripts.push(body);
-    chars += body.length;
-  }
+  let scriptChars = 0;
   const microdata: string[] = [];
-  for (const tag of htmlText.match(/<[a-z]+\b[^>]*\bitemprop\s*=\s*["']?availability\b[^>]*>/gi) ?? []) {
-    if (microdata.length >= MAX_MICRODATA) break;
-    const value = /\b(?:href|content)\s*=\s*["']([^"']{1,200})["']/i.exec(tag)?.[1];
-    if (value) microdata.push(value);
+  const addText = (from: number, to: number) => {
+    if (to > from && textLength < MAX_TEXT) {
+      const part = htmlText.slice(from, Math.min(to, from + MAX_TEXT));
+      textParts.push(part);
+      textLength += part.length;
+    }
+  };
+
+  let pos = 0;
+  while (pos < htmlText.length) {
+    const open = htmlText.indexOf("<", pos);
+    if (open === -1) {
+      addText(pos, htmlText.length);
+      break;
+    }
+    addText(pos, open);
+    const close = htmlText.indexOf(">", open + 1);
+    if (close === -1) break; // an unclosed tag runs to the end: nothing more to read
+    const tag = htmlText.slice(open, Math.min(close + 1, open + MAX_TAG));
+    const name = /^<\/?\s*([a-z][a-z0-9-]*)/i.exec(tag)?.[1]?.toLowerCase() ?? "";
+    pos = close + 1;
+    if (name === "input" && /\btype\s*=\s*["']?password\b/i.test(tag) && !/\bhidden\b/i.test(tag.replace(/\btype\s*=\s*["']?password["']?/i, ""))) hasPasswordField = true;
+    if (/class\s*=\s*["'][^"']*\b(?:h-captcha|g-recaptcha|cf-turnstile)\b/i.test(tag) || (name === "iframe" && /hcaptcha\.com|google\.com\/recaptcha|challenges\.cloudflare\.com/i.test(tag))) hasChallengeWidget = true;
+    if (/\bitemprop\s*=\s*["']?availability\b/i.test(tag) && microdata.length < MAX_MICRODATA) {
+      const value = /\b(?:href|content)\s*=\s*["']([^"']{1,200})["']/i.exec(tag)?.[1];
+      if (value) microdata.push(value);
+    }
+    if (tag.startsWith("</") || (!RAW_TEXT.has(name) && name !== "title")) continue;
+    // A tag whose content is raw text: jump straight to its closing tag.
+    const end = lower.indexOf(`</${name}`, pos);
+    if (end === -1) break;
+    const body = htmlText.slice(pos, end);
+    if (name === "title" && !title) title = body.slice(0, 2000);
+    if (name === "script" && /\btype\s*=\s*["']?application\/ld\+json/i.test(tag) && body.length <= MAX_SCRIPT && scriptChars + body.length <= MAX_SCRIPTS) {
+      ldScripts.push(body);
+      scriptChars += body.length;
+    }
+    if (name === "title") addText(pos, end);
+    pos = end;
   }
-  return { title, text, hasPasswordField, hasChallengeWidget, ldScripts, microdata };
+  const text = oneLine(decode(textParts.join(" "))).slice(0, MAX_TEXT);
+  return { title: oneLine(decode(title)), text, hasPasswordField, hasChallengeWidget, ldScripts, microdata };
 }
 
 type Hop = { status: number; location: string | null; contentType: string; body: string | null; tooLarge: boolean };
@@ -83,25 +122,48 @@ function fetchOnce(url: URL, address: string, options: { language?: string; maxB
         const status = res.statusCode ?? 0;
         const location = status >= 300 && status < 400 ? (res.headers.location ?? null) : null;
         const contentType = String(res.headers["content-type"] ?? "");
+        let settled = false;
+        const settle = (hop: Hop) => {
+          if (settled) return;
+          settled = true;
+          resolve(hop);
+        };
+        const fail = (error: Error) => {
+          if (settled) return;
+          settled = true;
+          reject(error);
+        };
         if (location || !/text\/html|application\/xhtml/i.test(contentType)) {
-          res.resume();
-          return resolve({ status, location, contentType, body: null, tooLarge: false });
+          // The body is not wanted: stop the download now, not when the time runs out.
+          settle({ status, location, contentType, body: null, tooLarge: false });
+          req.destroy();
+          return;
         }
         const encoding = String(res.headers["content-encoding"] ?? "").toLowerCase();
-        const stream = encoding === "gzip" ? res.pipe(createGunzip()) : encoding === "br" ? res.pipe(createBrotliDecompress()) : encoding === "deflate" ? res.pipe(createInflate()) : res;
+        const decoder = encoding === "gzip" ? createGunzip() : encoding === "br" ? createBrotliDecompress() : encoding === "deflate" ? createInflate() : null;
         const chunks: Buffer[] = [];
         let size = 0;
-        stream.on("data", (chunk: Buffer) => {
-          size += chunk.length;
+        const onData = (chunk: Buffer) => {
+          size += chunk.length; // counted after decompressing, so a small bomb cannot grow past the limit
           if (size > options.maxBytes) {
+            settle({ status, location: null, contentType, body: null, tooLarge: true });
             req.destroy();
-            resolve({ status, location: null, contentType, body: null, tooLarge: true });
+            decoder?.destroy();
             return;
           }
           chunks.push(chunk);
-        });
-        stream.on("end", () => resolve({ status, location: null, contentType, body: Buffer.concat(chunks).toString("utf8"), tooLarge: false }));
-        stream.on("error", reject);
+        };
+        const onEnd = () => settle({ status, location: null, contentType, body: Buffer.concat(chunks).toString("utf8"), tooLarge: false });
+        if (decoder) {
+          // pipeline passes a stalled, cut or broken response on to the decoder, so the read always ends.
+          decoder.on("data", onData);
+          pipeline(res, decoder, (error) => (error ? fail(error) : onEnd()));
+        } else {
+          res.on("data", onData);
+          res.on("end", onEnd);
+          res.on("error", fail);
+          res.on("close", () => (res.complete ? onEnd() : fail(new Error("response cut"))));
+        }
       },
     );
     req.on("error", reject);

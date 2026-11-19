@@ -133,3 +133,48 @@ describe("quickRead", () => {
     expect((await read()).offers).toEqual([{ availability: "OutOfStock", url: null, sku: null, name: null }]);
   });
 });
+
+describe("quickRead on hostile pages", () => {
+  it.each([
+    ["3 MB of unclosed tags", "<".repeat(2_900_000)],
+    ["unclosed scripts", '<script type="application/ld+json">{'.repeat(70_000)],
+    ["unclosed inputs", "<input type=password ".repeat(130_000)],
+    ["unclosed styles", "<style>".repeat(400_000)],
+  ])("reads %s in well under a second, without freezing the service", async (_what, body) => {
+    handler = page(body);
+    const started = Date.now();
+    const out = await read("/p/tee", { maxBytes: 3_000_000 });
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(out.offers).toEqual([]);
+  });
+
+  it("stops a compressed page that stalls halfway at the time limit", async () => {
+    const zipped = gzipSync(html(product("InStock")));
+    handler = (_req, res) => {
+      res.writeHead(200, { "content-type": "text/html", "content-encoding": "gzip" });
+      res.write(zipped.subarray(0, 20));
+    };
+    const started = Date.now();
+    expect(await read("/p/tee", { timeoutMs: 300 })).toMatchObject({ result: "unreachable", signal: "timeout" });
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  it("stops downloading a redirect's body at once", async () => {
+    let ended = false;
+    handler = (req, res) => {
+      if (req.url === "/big") {
+        res.writeHead(302, { location: "/p/tee", "content-type": "text/plain" });
+        const timer = setInterval(() => res.write("x".repeat(64_000)), 5);
+        res.on("close", () => {
+          clearInterval(timer);
+          ended = true;
+        });
+        return;
+      }
+      page(html(product("InStock")))(req, res);
+    };
+    expect(await read("/big")).toMatchObject({ result: "ok" });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(ended).toBe(true);
+  });
+});
