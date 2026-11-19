@@ -88,7 +88,7 @@ export function AppShell({ email, onSignOut, children, notifications, proposalCo
           open ? "translate-x-0" : "-translate-x-full max-lg:invisible",
         )}
       >
-        <div className="px-5 py-5 text-white">
+        <div className="px-5 py-5 text-foreground">
           <Logo />
         </div>
         <nav ref={nav} id="main-nav" aria-label="Main" className="flex-1 overflow-y-auto px-3">
@@ -103,8 +103,8 @@ export function AppShell({ email, onSignOut, children, notifications, proposalCo
                     aria-current={isCurrent ? "page" : undefined}
                     aria-label={n ? `${item.label}, ${n} ${item.count === "proposals" ? "waiting" : n === 1 ? "needs attention" : "need attention"}` : undefined}
                     className={cn(
-                      "relative flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium hover:bg-sidebar-active hover:text-white [&_svg]:size-[1.15rem] [&_svg]:shrink-0",
-                      isCurrent && "bg-sidebar-active text-white before:absolute before:inset-y-2 before:left-0 before:w-1 before:rounded-full before:bg-accent",
+                      "relative flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium hover:bg-hover hover:text-foreground [&_svg]:size-[1.15rem] [&_svg]:shrink-0",
+                      isCurrent && "bg-sidebar-active font-semibold text-foreground before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-foreground",
                     )}
                   >
                     {item.icon}

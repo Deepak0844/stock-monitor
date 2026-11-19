@@ -42,9 +42,9 @@ export function LoginPage({ onLogin }: Props) {
   return (
     <div className="grid min-h-screen bg-background text-foreground lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
       <aside className="flex flex-col justify-between gap-10 bg-sidebar p-8 text-sidebar-foreground lg:p-12">
-        <Logo className="text-white" />
+        <Logo className="text-foreground" />
         <div className="max-w-md">
-          <p className="text-2xl font-bold leading-snug text-white lg:text-3xl">Know what your suppliers have, before your customers order.</p>
+          <p className="text-2xl font-semibold leading-snug text-foreground lg:text-3xl">Know what your suppliers have, before your customers order.</p>
           <ul className="mt-6 flex flex-col gap-3 text-base">
             {["Checks your suppliers' stock for you.", "You approve every change.", "Nothing reaches Shopify without your OK."].map((point) => (
               <li key={point} className="flex items-start gap-3">
