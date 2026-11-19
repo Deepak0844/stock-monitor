@@ -9,13 +9,15 @@ type Props = {
   description: string;
   confirmLabel: string;
   onConfirm(): Promise<void>;
+  /** "danger" (the default) for deleting; "default" for an action that is not destructive, such as approving many. */
+  tone?: "danger" | "default";
   onClose(): void;
   /** Where focus goes when the dialog closes. The menu item that opened it is gone by then. Falls back to the main area. */
   returnFocusTo?: () => HTMLElement | null;
 };
 
 /** Asks before something that cannot be undone. Stays open, with the reason, if the action fails. */
-export function ConfirmDialog({ open, title, description, confirmLabel, onConfirm, onClose, returnFocusTo }: Props) {
+export function ConfirmDialog({ open, title, description, confirmLabel, onConfirm, onClose, returnFocusTo, tone = "danger" }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const running = useRef(false);
@@ -49,9 +51,11 @@ export function ConfirmDialog({ open, title, description, confirmLabel, onConfir
           (returnFocusTo?.() ?? document.getElementById("main"))?.focus();
         }}
         onEscapeKeyDown={(e) => busy && e.preventDefault()} onInteractOutside={(e) => busy && e.preventDefault()}>
-        <div className="mb-3 grid size-10 place-items-center rounded-full bg-danger-soft text-danger">
-          <TriangleAlert className="size-5" aria-hidden="true" />
-        </div>
+        {tone === "danger" && (
+          <div className="mb-3 grid size-10 place-items-center rounded-full bg-danger-soft text-danger">
+            <TriangleAlert className="size-5" aria-hidden="true" />
+          </div>
+        )}
         <DialogTitle className="text-lg font-semibold">{title}</DialogTitle>
         <DialogDescription className="mt-1 text-sm text-muted-foreground">{description}</DialogDescription>
         {error && (
@@ -63,7 +67,7 @@ export function ConfirmDialog({ open, title, description, confirmLabel, onConfir
           <Button variant="outline" disabled={busy} onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="destructive" loading={busy} onClick={confirm}>
+          <Button variant={tone === "danger" ? "destructive" : "default"} loading={busy} onClick={confirm}>
             {confirmLabel}
           </Button>
         </div>

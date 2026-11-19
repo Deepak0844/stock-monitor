@@ -7,6 +7,11 @@ import { Input, Select } from "@/components/ui/input.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
 import type { Api, Proposal, Supplier, WritePermission } from "../api.js";
 import { DataTable, type Column } from "../components/DataTable.js";
+import { BulkBar } from "../components/BulkBar.js";
+import { ConfirmDialog } from "../components/ConfirmDialog.js";
+import { SearchSelect } from "../components/SearchSelect.js";
+import { deferred } from "../lib/deferred.js";
+import { inTurn } from "../lib/inTurn.js";
 import { EmptyState } from "../components/EmptyState.js";
 import { Field } from "../components/Field.js";
 import { PageHeader } from "../components/PageHeader.js";
@@ -28,7 +33,20 @@ const name = (p: Proposal) => `${p.productTitle}, ${p.variantTitle}`;
 type Open = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; proposals: Proposal[]; total: number; permission: WritePermission };
 
 /** One suggestion waiting for the owner. Approve is one press on this one suggestion. */
-function OpenItem({ api, proposal, permission, onChanged }: { api: Api; proposal: Proposal; permission: WritePermission; onChanged: (p: Proposal) => void }) {
+type ItemProps = {
+  api: Api;
+  proposal: Proposal;
+  permission: WritePermission;
+  onChanged: (p: Proposal) => void;
+  /** Reject goes through the page, which hides the row and offers Undo. */
+  onReject: (p: Proposal) => void;
+  selected: boolean;
+  onSelect: (on: boolean) => void;
+  /** The number typed in Edit number, or null once editing is closed, so a bulk Approve uses what the row shows. */
+  onText: (text: string | null) => void;
+};
+
+function OpenItem({ api, proposal, permission, onChanged, onReject, selected, onSelect, onText }: ItemProps) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(String(proposal.proposedQuantity));
   const [error, setError] = useState<string | null>(null);
@@ -55,20 +73,25 @@ function OpenItem({ api, proposal, permission, onChanged }: { api: Api; proposal
     }
   }
 
-  async function reject() {
+  const reject = () => {
     setError(null);
-    setActing("reject");
-    try {
-      onChanged(await api.proposals.reject(proposal.id));
-    } catch (e) {
-      setError(message(e));
-      setActing(null);
-    }
-  }
+    onReject(proposal);
+  };
 
   return (
-    <li aria-label={name(proposal)}>
-      <Card className="flex flex-col gap-2 p-4">
+    <li aria-label={name(proposal)} className={selected ? "flex gap-3 border-b border-rule-soft bg-selected px-2 py-4" : "flex gap-3 border-b border-rule-soft px-2 py-4"}>
+      {!waiting ? (
+        <input
+          type="checkbox"
+          aria-label={`Select ${name(proposal)}`}
+          checked={selected}
+          onChange={(e) => onSelect(e.target.checked)}
+          className="mt-1 size-5 shrink-0 cursor-pointer accent-foreground lg:size-4"
+        />
+      ) : (
+        <span className="w-5 shrink-0 lg:w-4" />
+      )}
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <h2 className="text-base font-semibold">
             <span>{proposal.productTitle}</span> <span className="font-normal text-muted-foreground">{proposal.variantTitle}</span>
@@ -83,7 +106,7 @@ function OpenItem({ api, proposal, permission, onChanged }: { api: Api; proposal
           </p>
         )}
         <p className="text-sm">Shopify shows {proposal.shopifyQuantitySeen}</p>
-        <p className="text-lg font-bold">Suggested: set to {waiting ? proposal.approvedQuantity : proposal.proposedQuantity}</p>
+        <p className="font-mono text-base font-medium">Suggested: set to {waiting ? proposal.approvedQuantity : proposal.proposedQuantity}</p>
         <p className="text-sm text-muted-foreground">
           {stateWords(proposal.state)}
           {waiting ? "" : ` · Expires ${formatWhen(proposal.expiresAt)}`}
@@ -99,7 +122,16 @@ function OpenItem({ api, proposal, permission, onChanged }: { api: Api; proposal
             {editing && (
               <div className="max-w-xs">
                 <Field id={`qty-${proposal.id}`} label="New number">
-                  <Input id={`qty-${proposal.id}`} inputMode="numeric" value={text} onChange={(e) => setText(e.target.value)} aria-invalid={error === NOT_A_NUMBER} />
+                  <Input
+                    id={`qty-${proposal.id}`}
+                    inputMode="numeric"
+                    value={text}
+                    onChange={(e) => {
+                      setText(e.target.value);
+                      onText(e.target.value);
+                    }}
+                    aria-invalid={error === NOT_A_NUMBER}
+                  />
                 </Field>
               </div>
             )}
@@ -113,17 +145,25 @@ function OpenItem({ api, proposal, permission, onChanged }: { api: Api; proposal
                 Approve
               </Button>
               {!editing && (
-                <Button variant="outline" disabled={busy} aria-label={`Edit number for ${name(proposal)}`} onClick={() => setEditing(true)}>
+                <Button
+                  variant="outline"
+                  disabled={busy}
+                  aria-label={`Edit number for ${name(proposal)}`}
+                  onClick={() => {
+                    setEditing(true);
+                    onText(text);
+                  }}
+                >
                   Edit number
                 </Button>
               )}
-              <Button variant="outline" loading={acting === "reject"} disabled={busy} aria-label={`Reject ${name(proposal)}`} onClick={() => void reject()}>
+              <Button variant="outline" disabled={busy} aria-label={`Reject ${name(proposal)}`} onClick={reject}>
                 Reject
               </Button>
             </div>
           </>
         )}
-      </Card>
+      </div>
     </li>
   );
 }
@@ -239,7 +279,7 @@ function History({ api, params, supplierId, supplierName }: { api: Api; params: 
 export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => void }) {
   useTitle("Proposals");
   const params = useListParams({ pageSize: 10 });
-  const { page, pageSize, set } = params;
+  const { page, pageSize, sort, dir, set } = params;
   const tab = params.filters.tab === "history" ? "history" : "open";
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [suppliersRead, setSuppliersRead] = useState(false);
@@ -259,6 +299,12 @@ export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => vo
   const readCounts = useCallback(() => void api.proposals.waitingBySupplier().then(setWaitingCounts).catch(() => {}), [api]);
   const supplierName = suppliers.find((s) => s.id === supplierId)?.name;
   const [open, setOpen] = useState<Open>({ kind: "loading" });
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Rejected with Undo still waiting: hidden at once, back on Undo or if the reject fails.
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const texts = useRef(new Map<string, string>());
+  const [bulk, setBulk] = useState<{ done: number; total: number } | null>(null);
+  const [confirmApprove, setConfirmApprove] = useState(false);
   const [finished, setFinished] = useState(false);
   const waitingIds = useRef<Set<string>>(new Set());
   const latest = useRef(0);
@@ -268,7 +314,7 @@ export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => vo
       const mine = ++latest.current;
       if (!quiet) setOpen({ kind: "loading" });
       api.proposals
-        .openPage(supplierId ? { page, pageSize, supplierId } : { page, pageSize })
+        .openPage({ page, pageSize, ...(supplierId ? { supplierId } : {}), ...(sort ? { sort, dir } : {}) })
         .then((r) => {
           if (mine !== latest.current) return; // a newer read was asked for since
           // One that was waiting for Shopify and has gone has finished: its result is in History.
@@ -282,7 +328,7 @@ export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => vo
         });
       readCounts();
     },
-    [api, onChange, page, pageSize, supplierId, readCounts],
+    [api, onChange, page, pageSize, supplierId, sort, dir, readCounts],
   );
   useEffect(() => {
     if (tab === "open") read();
@@ -313,7 +359,49 @@ export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => vo
     if (reload) queueMicrotask(() => read(true));
   }
 
-  const items = open.kind === "ready" ? open.proposals : [];
+  const items = open.kind === "ready" ? open.proposals.filter((p) => !hidden.has(p.id)) : [];
+  const selectable = items.filter((p) => p.state === "open");
+  const ticked = selectable.filter((p) => selected.has(p.id));
+  const allTicked = selectable.length > 0 && ticked.length === selectable.length;
+  const select = (id: string, on: boolean) =>
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  const show = (ids: string[]) => setHidden((h) => new Set([...h].filter((x) => !ids.includes(x))));
+  /** The number a row shows: the owner's edit when it differs from the suggestion, else none (the suggestion is used). */
+  const quantityOf = (p: Proposal) => {
+    const text = texts.current.get(p.id);
+    if (text === undefined) return undefined;
+    if (!/^\d+$/.test(text.trim()) || Number(text) > MAX_QUANTITY) throw new Error(NOT_A_NUMBER);
+    return Number(text) === p.proposedQuantity ? undefined : Number(text);
+  };
+  const approveTicked = async () => {
+    const list = ticked;
+    const failed = await inTurn(list, async (p) => changed(await api.proposals.approve(p.id, quantityOf(p))), (done, total) => setBulk({ done, total }));
+    setBulk(null);
+    setSelected(new Set());
+    if (failed.length) toast(failed.map((f) => `${f.item.productTitle}: ${f.message}`).join(" "), { kind: "error" });
+    else toast(`Approved ${list.length}. Shopify will be updated for each.`);
+  };
+  const rejectMany = (list: Proposal[]) => {
+    const ids = list.map((p) => p.id);
+    setHidden((h) => new Set([...h, ...ids]));
+    setSelected((cur) => new Set([...cur].filter((x) => !ids.includes(x))));
+    deferred({
+      text: list.length === 1 ? `Rejected ${name(list[0]!)}.` : `${list.length} proposals rejected.`,
+      commit: async (keepalive) => {
+        const failed = await inTurn(list, async (p) => changed(await api.proposals.reject(p.id, { keepalive })), () => {});
+        show(ids);
+        read(true); // what is left on this page, or the next page's suggestions when this one is now empty
+        if (failed.length) throw new Error(failed.map((f) => `${f.item.productTitle}: ${f.message}`).join(" "));
+      },
+      onUndo: () => show(ids),
+      onFailed: () => show(ids),
+    });
+  };
   return (
     <>
       <PageHeader title="Proposals" description="Changes this app suggests to your Shopify stock. Nothing changes in Shopify until you press Approve." />
@@ -332,16 +420,25 @@ export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => vo
           </button>
         ))}
         </div>
-        <div className="w-full sm:w-64">
-          <Select aria-label="Supplier" value={supplierId} onChange={(e) => set({ supplier: e.target.value || undefined })}>
-            <option value="">All suppliers</option>
-            {suppliers.map((s) => (
-              <option key={s.id} value={s.id}>
-                {tab === "open" ? `${s.name} (${waitingCounts[s.id] ?? 0})` : s.name}
-              </option>
-            ))}
-          </Select>
-        </div>
+        <SearchSelect
+          label="Supplier"
+          value={supplierId || null}
+          options={suppliers.map((s) => ({ id: s.id, label: s.name, count: tab === "open" ? (waitingCounts[s.id] ?? 0) : undefined }))}
+          allOption={{ id: "", label: "All suppliers" }}
+          placeholder="Search suppliers"
+          noMatch={(text) => `No supplier matches "${text}".`}
+          onChange={(id) => set({ supplier: id ?? undefined })}
+        />
+        {tab === "open" && (
+          <label className="flex items-center gap-2 text-sm text-muted-foreground lg:text-[0.8125rem]">
+            Sort
+            <Select value={sort ?? ""} onChange={(e) => set({ sort: e.target.value || undefined, dir: undefined })}>
+              <option value="">Newest first</option>
+              <option value="product">Product A to Z</option>
+              <option value="supplier">Supplier A to Z</option>
+            </Select>
+          </label>
+        )}
       </div>
 
       {tab === "history" && <History api={api} params={params} supplierId={supplierId} supplierName={supplierName} />}
@@ -378,21 +475,66 @@ export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => vo
             </div>
           )}
           {open.kind === "ready" && items.length === 0 && open.total === 0 && (
-            <Card>
-              <EmptyState title={supplierName ? `Nothing is waiting for ${supplierName}.` : "Nothing is waiting for you."} description="New suggestions appear here after a supplier check finds a difference." />
-            </Card>
+            <EmptyState title={supplierName ? `Nothing is waiting for ${supplierName}.` : "Nothing is waiting for you."} description="New suggestions appear here after a supplier check finds a difference." />
+          )}
+          {ticked.length > 0 && open.kind === "ready" && (
+            <BulkBar
+              count={ticked.length}
+              canApprove={open.permission.state === "ready"}
+              onApprove={() => setConfirmApprove(true)}
+              onReject={() => rejectMany(ticked)}
+              onClear={() => setSelected(new Set())}
+              progress={bulk}
+            />
           )}
           {open.kind === "ready" && items.length > 0 && (
-            <ul className="flex flex-col gap-3">
-              {items.map((p) => (
-                <OpenItem key={p.id} api={api} proposal={p} permission={open.permission} onChanged={changed} />
-              ))}
-            </ul>
+            <>
+              {selectable.length > 0 && (
+                <label className="flex items-center gap-3 border-b border-foreground px-2 pb-2 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={allTicked}
+                    ref={(el) => {
+                      if (el) el.indeterminate = ticked.length > 0 && !allTicked;
+                    }}
+                    onChange={() => setSelected(allTicked ? new Set() : new Set(selectable.map((p) => p.id)))}
+                    className="size-5 cursor-pointer accent-foreground lg:size-4"
+                  />
+                  Select all on this page
+                </label>
+              )}
+              <ul className="flex flex-col">
+                {items.map((p) => (
+                  <OpenItem
+                    key={p.id}
+                    api={api}
+                    proposal={p}
+                    permission={open.permission}
+                    onChanged={changed}
+                    onReject={(x) => rejectMany([x])}
+                    selected={selected.has(p.id)}
+                    onSelect={(on) => select(p.id, on)}
+                    onText={(t) => (t === null ? texts.current.delete(p.id) : texts.current.set(p.id, t))}
+                  />
+                ))}
+              </ul>
+            </>
+          )}
+          {confirmApprove && (
+            <ConfirmDialog
+              open
+              tone="default"
+              title={`Approve ${ticked.length} changes?`}
+              description="Shopify will be updated for each."
+              confirmLabel={`Approve ${ticked.length}`}
+              onConfirm={approveTicked}
+              onClose={() => setConfirmApprove(false)}
+            />
           )}
           {open.kind === "ready" && open.total > 0 && (
-            <Card className="mt-4 overflow-hidden">
+            <div className="mt-2">
               <Pager page={page} pageSize={pageSize} total={open.total} onPage={(n) => set({ page: n })} onPageSize={(n) => set({ pageSize: n })} />
-            </Card>
+            </div>
           )}
         </>
       )}
