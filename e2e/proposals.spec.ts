@@ -196,7 +196,7 @@ test("a check that could not tell shows no suggestion", async ({ page }) => {
 
 test("the settings change the back-in-stock number, and they are still there after a reload", async ({ page }) => {
   await signIn(page);
-  await page.goto("/settings/shopify");
+  await page.goto("/settings/suggestions");
   await page.getByLabel("Quantity for back-in-stock suggestions").fill("9");
   await page.getByLabel("Hours a suggestion stays open").fill("12");
   await page.getByRole("button", { name: "Save", exact: true }).click();

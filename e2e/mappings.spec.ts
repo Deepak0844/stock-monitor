@@ -93,8 +93,9 @@ test("the owner maps a variant by hand from the list of variants with no link, w
   await signIn(page);
   await openLinks(page);
   await page.getByRole("link", { name: "Map Blue Tee Medium" }).click();
-  await expect(page.getByLabel("Variant", { exact: true })).toHaveValue("v3");
-  await page.getByLabel("Supplier", { exact: true }).selectOption({ label: "Acme Supply" });
+  await expect(page.getByLabel("Variant", { exact: true })).toContainText("Blue Tee · Medium");
+  await page.getByLabel("Supplier", { exact: true }).click();
+  await page.getByRole("option", { name: /Acme Supply/ }).click();
   await page.getByLabel("Supplier page address").fill("https://other.example/p");
   await page.getByRole("button", { name: "Add link" }).click();
   await expect(page.getByText("That address is not on this supplier's website.")).toBeVisible();
@@ -109,7 +110,8 @@ test("a link check needs recorded permission, then shows works, page missing, an
   await signIn(page);
   await openLinks(page);
   await page.getByRole("link", { name: "Map Blue Tee Medium" }).click();
-  await page.getByLabel("Supplier", { exact: true }).selectOption({ label: "Acme Supply" });
+  await page.getByLabel("Supplier", { exact: true }).click();
+  await page.getByRole("option", { name: /Acme Supply/ }).click();
   await page.getByLabel("Supplier page address").fill("https://shop.acme.example/p/blue-tee-m");
   await page.getByRole("button", { name: "Add link" }).click();
   const blue = row(page, /Blue Tee.*Medium/);
