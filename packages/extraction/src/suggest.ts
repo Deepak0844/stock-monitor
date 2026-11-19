@@ -113,5 +113,5 @@ export function suggestRules(examples: Example[]): SuggestResult {
 
   const ticked = (kind: SuggestionKind) => suggestions.filter((s) => s.kind === kind && s.checked).map((s) => s.rule);
   const recipe: Recipe = { pageChecks: ticked("pageCheck"), inStock: ticked("inStock"), outOfStock: ticked("outOfStock") };
-  return { ok: true, suggestions, passes: allPass(runExamples(examples, recipe)) };
+  return { ok: true, suggestions, passes: allPass(runExamples(examples, recipe), recipe) };
 }

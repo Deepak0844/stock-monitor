@@ -420,6 +420,8 @@ describe("a supplier that needs no login", () => {
     setup();
     await screen.findByText(/No saved pages yet/);
     expect(screen.queryByText(NOTICE)).toBeNull();
+  });
+});
 
 describe("suggesting rules", () => {
   const soldOut = { kind: "outOfStock", rule: { type: "text", text: "Sold out" }, seenOn: 1, ofTotal: 1, seenOnOther: 0, otherTotal: 1, starter: true, checked: true } as const;
