@@ -13,6 +13,8 @@ import { Input, Select } from "@/components/ui/input.js";
 import { Tip } from "@/components/ui/tooltip.js";
 import { CopyButton } from "../components/CopyButton.js";
 import { FilterChips } from "../components/FilterChips.js";
+import { FilterSheet } from "../components/FilterSheet.js";
+import { useWide } from "@/lib/useWide.js";
 import { SearchSelect } from "../components/SearchSelect.js";
 import { When } from "../components/When.js";
 import { deferred } from "../lib/deferred.js";
@@ -139,6 +141,7 @@ function Swap({ busy, idle }: { busy: boolean; idle: ReactNode }) {
 }
 
 export function MappingsPage({ api }: { api: Api }) {
+  const wide = useWide();
   useTitle("Links");
   const params = useListParams({ pageSize: 10 });
   const { page, pageSize, search, sort, dir, set } = params;
@@ -439,7 +442,7 @@ export function MappingsPage({ api }: { api: Api }) {
       header: "Product",
       sortKey: "product",
       cell: (m) => (
-        <>
+        <div className="max-lg:flex max-lg:flex-wrap max-lg:items-baseline max-lg:gap-x-2">
           <span className="font-semibold">{m.productTitle}</span>
           <div className="text-muted-foreground">
             {m.variantTitle}
@@ -453,12 +456,13 @@ export function MappingsPage({ api }: { api: Api }) {
           {m.variantRemoved && (
             <div className="text-muted-foreground">Variant removed in Shopify</div>
           )}
-        </>
+        </div>
       ),
     },
-    { header: "Supplier", sortKey: "supplier", cell: (m) => m.supplierName },
+    { header: "Supplier", phone: "half", sortKey: "supplier", cell: (m) => m.supplierName },
     {
       header: "Page",
+      phone: "half",
       cell: (m) => (
         <span className="flex items-center gap-1">
           <Tip label={m.url}>
@@ -475,6 +479,7 @@ export function MappingsPage({ api }: { api: Api }) {
     },
     {
       header: "Status",
+      phone: "half",
       cell: (m) => {
         const s = linkStatusOf(m);
         // While a check runs only the first line changes, so the row keeps its size.
@@ -497,6 +502,7 @@ export function MappingsPage({ api }: { api: Api }) {
     },
     {
       header: "Stock",
+      phone: "half",
       cell: (m) =>
         m.latestStock ? (
           <div className="flex flex-col items-start gap-1">
@@ -516,7 +522,7 @@ export function MappingsPage({ api }: { api: Api }) {
                 <Link to={`/suppliers/${m.supplierId}/rules`}>Review stock rules</Link>
               </Button>
             )}
-            <span className="text-muted-foreground">
+            <span className="text-muted-foreground max-lg:hidden">
               Seen {formatWhen(m.latestStock.observedAt)}
             </span>
             {m.latestSuggestion && (
@@ -534,6 +540,7 @@ export function MappingsPage({ api }: { api: Api }) {
     },
     {
       header: "Last checked",
+      phone: "inline-label",
       sortKey: "lastChecked",
       cell: (m) => (
         <div className="flex flex-col items-start gap-1">
@@ -609,6 +616,48 @@ export function MappingsPage({ api }: { api: Api }) {
     },
   ];
 
+  const filterFields = (
+    <>
+      <SearchSelect
+        label="Supplier"
+        value={supplierId || null}
+        options={suppliers.map((s) => ({
+          id: s.id,
+          label: s.name,
+          detail: host(s.websiteUrl),
+        }))}
+        allOption={{ id: "", label: "All suppliers" }}
+        placeholder="Search suppliers"
+        noMatch={(text) => `No supplier matches "${text}".`}
+        onChange={(id) => set({ supplier: id ?? undefined })}
+      />
+      <Select
+        aria-label="Link status"
+        value={status}
+        onChange={(e) => set({ status: e.target.value || undefined })}
+      >
+        <option value="">Any status</option>
+        {LINK_STATUS_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.words}
+          </option>
+        ))}
+      </Select>
+      <Select
+        aria-label="Stock answer"
+        value={stock}
+        onChange={(e) => set({ stock: e.target.value || undefined })}
+      >
+        <option value="">Any stock answer</option>
+        {STOCK_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.words}
+          </option>
+        ))}
+      </Select>
+    </>
+  );
+
   return (
     <>
       <PageHeader
@@ -654,43 +703,16 @@ export function MappingsPage({ api }: { api: Api }) {
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
-            <SearchSelect
-              label="Supplier"
-              value={supplierId || null}
-              options={suppliers.map((s) => ({
-                id: s.id,
-                label: s.name,
-                detail: host(s.websiteUrl),
-              }))}
-              allOption={{ id: "", label: "All suppliers" }}
-              placeholder="Search suppliers"
-              noMatch={(text) => `No supplier matches "${text}".`}
-              onChange={(id) => set({ supplier: id ?? undefined })}
-            />
-            <Select
-              aria-label="Link status"
-              value={status}
-              onChange={(e) => set({ status: e.target.value || undefined })}
-            >
-              <option value="">Any status</option>
-              {LINK_STATUS_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.words}
-                </option>
-              ))}
-            </Select>
-            <Select
-              aria-label="Stock answer"
-              value={stock}
-              onChange={(e) => set({ stock: e.target.value || undefined })}
-            >
-              <option value="">Any stock answer</option>
-              {STOCK_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.words}
-                </option>
-              ))}
-            </Select>
+            {wide ? (
+              filterFields
+            ) : (
+              <FilterSheet
+                count={[supplierId, status, stock].filter(Boolean).length}
+                onClear={() => set({ supplier: undefined, status: undefined, stock: undefined })}
+              >
+                {filterFields}
+              </FilterSheet>
+            )}
             {supplier && (
               <>
                 <Button

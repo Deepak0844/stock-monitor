@@ -2,7 +2,14 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table.js";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table.js";
 import { Tip } from "@/components/ui/tooltip.js";
 import { usePreference } from "@/lib/preferences.js";
 import { useWide } from "@/lib/useWide.js";
@@ -19,10 +26,19 @@ export type Column<T> = {
   /** Cut a long value off with "…" and put the whole of it in a tooltip (`title`). */
   truncate?: boolean;
   title?(row: T): string;
+  /**
+   * How the cell sits in a phone card. Set on any column and the rows become short cards with no label on each line:
+   * "half" shares a line with the next half, "inline-label" keeps its label in front of the value, "hide" leaves it out.
+   */
+  phone?: "half" | "inline-label" | "hide";
 };
 
 export type TableSort = { key: string; dir: "asc" | "desc" };
-export type TableSelection<T> = { selected: ReadonlySet<string>; onChange(next: Set<string>): void; rowLabel(row: T): string };
+export type TableSelection<T> = {
+  selected: ReadonlySet<string>;
+  onChange(next: Set<string>): void;
+  rowLabel(row: T): string;
+};
 
 type Props<T> = {
   columns: Column<T>[];
@@ -71,7 +87,20 @@ function PageBox({ ids, selection }: { ids: string[]; selection: TableSelection<
 
 /** A list: skeleton rows while it loads, a retryable error if it fails, the empty message when there is nothing. Headings can
  * sort, rows can be ticked, and the owner's row height applies on a wide screen. On a phone each row stacks into a block. */
-export function DataTable<T>({ columns, rows, rowKey, loading, error, onRetry, empty, pageSize, label, sort, onSort, selection }: Props<T>) {
+export function DataTable<T>({
+  columns,
+  rows,
+  rowKey,
+  loading,
+  error,
+  onRetry,
+  empty,
+  pageSize,
+  label,
+  sort,
+  onSort,
+  selection,
+}: Props<T>) {
   const [chosen] = usePreference("rows");
   // Rows are always comfortable on a phone, so they stay easy to tap.
   const density = useWide() ? chosen : "comfortable";
@@ -91,7 +120,8 @@ export function DataTable<T>({ columns, rows, rowKey, loading, error, onRetry, e
       />
     );
   }
-  if (!((loading && rows === null) || showRows)) return <div className="min-w-0">{rows !== null && empty}</div>;
+  if (!((loading && rows === null) || showRows))
+    return <div className="min-w-0">{rows !== null && empty}</div>;
 
   const heading = (c: Column<T>) => {
     if (c.hideHeader) return <span className="sr-only">{c.header}</span>;
@@ -102,7 +132,10 @@ export function DataTable<T>({ columns, rows, rowKey, loading, error, onRetry, e
       <button
         type="button"
         onClick={() => onSort(c.sortKey!)}
-        className={cn("inline-flex cursor-pointer items-center gap-1 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring", on && "font-semibold text-foreground")}
+        className={cn(
+          "inline-flex cursor-pointer items-center gap-1 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring",
+          on && "font-semibold text-foreground",
+        )}
       >
         {c.header}
         <Icon aria-hidden="true" className={cn("size-3", !on && "opacity-50")} />
@@ -112,7 +145,12 @@ export function DataTable<T>({ columns, rows, rowKey, loading, error, onRetry, e
 
   return (
     <div className="min-w-0">
-      <Table aria-label={label} aria-busy={loading} data-density={density}>
+      <Table
+        aria-label={label}
+        aria-busy={loading}
+        data-density={density}
+        className={cn(columns.some((c) => c.phone) && "cards")}
+      >
         <TableHeader>
           <tr role="row">
             {selection && (
@@ -121,7 +159,17 @@ export function DataTable<T>({ columns, rows, rowKey, loading, error, onRetry, e
               </TableHead>
             )}
             {columns.map((c) => (
-              <TableHead key={c.header} className={c.className} aria-sort={c.sortKey && onSort ? (sort?.key === c.sortKey ? ARIA_SORT[sort.dir] : "none") : undefined}>
+              <TableHead
+                key={c.header}
+                className={c.className}
+                aria-sort={
+                  c.sortKey && onSort
+                    ? sort?.key === c.sortKey
+                      ? ARIA_SORT[sort.dir]
+                      : "none"
+                    : undefined
+                }
+              >
                 {heading(c)}
               </TableHead>
             ))}
@@ -133,7 +181,11 @@ export function DataTable<T>({ columns, rows, rowKey, loading, error, onRetry, e
                 <TableRow key={i} className="hover:bg-transparent">
                   {selection && <TableCell />}
                   {columns.map((c) => (
-                    <TableCell key={c.header} className={c.className} data-label={c.hideHeader ? undefined : c.header}>
+                    <TableCell
+                      key={c.header}
+                      className={c.className}
+                      data-label={c.hideHeader ? undefined : c.header}
+                    >
                       <Skeleton className={i % 2 ? "w-2/3" : "w-4/5"} />
                     </TableCell>
                   ))}
@@ -143,7 +195,14 @@ export function DataTable<T>({ columns, rows, rowKey, loading, error, onRetry, e
                 const id = rowKey(row);
                 const ticked = selection?.selected.has(id) ?? false;
                 return (
-                  <TableRow key={id} data-selected={ticked || undefined} className={cn(loading && "opacity-60", ticked && "bg-selected hover:bg-selected")}>
+                  <TableRow
+                    key={id}
+                    data-selected={ticked || undefined}
+                    className={cn(
+                      loading && "opacity-60",
+                      ticked && "bg-selected hover:bg-selected",
+                    )}
+                  >
                     {selection && (
                       <TableCell className="w-8">
                         <input
@@ -161,10 +220,17 @@ export function DataTable<T>({ columns, rows, rowKey, loading, error, onRetry, e
                       </TableCell>
                     )}
                     {columns.map((c) => (
-                      <TableCell key={c.header} className={c.className} data-label={c.hideHeader ? undefined : c.header}>
+                      <TableCell
+                        key={c.header}
+                        className={cn(c.className, c.phone && `phone-${c.phone}`)}
+                        data-label={c.hideHeader ? undefined : c.header}
+                      >
                         {c.truncate ? (
                           <Tip label={c.title?.(row) ?? ""}>
-                            <span tabIndex={0} className="block max-w-[16rem] truncate focus-visible:outline-2 focus-visible:outline-ring">
+                            <span
+                              tabIndex={0}
+                              className="block max-w-[16rem] truncate focus-visible:outline-2 focus-visible:outline-ring"
+                            >
                               {c.cell(row)}
                             </span>
                           </Tip>

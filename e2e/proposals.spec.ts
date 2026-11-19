@@ -372,3 +372,25 @@ test("checking a link or its stock keeps the row the same size", async ({ page }
   const heights = await page.evaluate(() => (window as unknown as { heights: number[] }).heights);
   expect(new Set(heights).size, `row heights: ${heights.join(", ")}`).toBe(1);
 });
+
+test("on a phone each link is a short card, and the page never scrolls sideways", async ({
+  page,
+}) => {
+  test.skip((page.viewportSize()?.width ?? 0) > 600, "phone only");
+  await signIn(page);
+  await control.browser({ description: SOLD_OUT });
+  await checkAll(page);
+  await page.goto("/mappings");
+  const row = page.getByRole("row", { name: /Blue Tee/ }).first();
+  await expect(row).toBeVisible();
+  expect((await row.boundingBox())!.height).toBeLessThan(220);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    ),
+  ).toBe(false);
+  await page.goto("/suppliers");
+  const supplier = page.getByRole("row", { name: /Acme Supply/ });
+  await expect(supplier).toBeVisible();
+  expect((await supplier.boundingBox())!.height).toBeLessThan(220);
+});
