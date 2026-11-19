@@ -27,7 +27,7 @@ export function recentChecksSentence(row: ScheduleRow, now: Date): RecentSentenc
   const { recent, status, lastRun } = row;
   if (status.state === "off") {
     const ended = lastRun?.endedAt;
-    return { text: ended ? `No checks since ${when(ended, now)} (automatic checks off)` : "Automatic checks off", tone: "neutral" };
+    return { text: ended ? `No checks since ${when(ended, now)} (automatic checks off)` : "No checks yet", tone: "neutral" };
   }
   if (recent.total === 0) return { text: "No checks yet", tone: "neutral" };
   if (recent.streak) {

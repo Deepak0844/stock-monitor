@@ -78,17 +78,17 @@ describe("the table", () => {
     // The table shows while loading too, with placeholder rows: wait for a real row first.
     await screen.findByRole("row", { name: /Acme Supply/ });
     const table = screen.getByRole("table", { name: "Suppliers" });
-    expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Name", "Website", "Status", "Last checked", "Automatic checks", "Actions"]);
+    expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Supplier", "Status", "Recent checks", "Automatic checks", "Actions"]);
     expect(within(rowOf("Acme Supply")).getByText("shop.acme.example")).toBeInTheDocument();
     expect(within(rowOf("Globex")).getByText("globex.example")).toBeInTheDocument();
-    expect(within(rowOf("Acme Supply")).getByText("Never")).toBeInTheDocument();
+    expect(within(rowOf("Acme Supply")).getByText("Never checked")).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "Add supplier" })).toHaveLength(1);
   });
 
   it("shows when a supplier was last checked", async () => {
     setup([aSupplier({ lastSessionCheckAt: "2026-11-08T10:30:00.000Z" })]);
     const row = await screen.findByRole("row", { name: /Acme Supply/ });
-    expect(within(row).queryByText("Never")).toBeNull();
+    expect(within(row).queryByText("Never checked")).toBeNull();
     expect(within(row).getByText(/2026|Nov/)).toBeInTheDocument();
   });
 
@@ -442,7 +442,7 @@ describe("automatic checks", () => {
     try {
       const overview = vi.fn().mockResolvedValue([scheduleRow({ status: { state: "running" }, run: aRun({ outcome: "running", endedAt: null }) })]);
       const { unmount } = setup([acme], { schedule: { overview } });
-      await screen.findByText(/Checking/);
+      await screen.findByRole("progressbar");
       unmount();
       await act(async () => void vi.advanceTimersByTime(20_000));
       expect(overview).toHaveBeenCalledTimes(1);
@@ -478,5 +478,40 @@ describe("suppliers that need no login in the tiles and the filter", () => {
     await waitFor(() => expect(api.suppliers.page).toHaveBeenLastCalledWith(expect.objectContaining({ status: "no_login" })));
     expect(await screen.findByRole("row", { name: /Evans/ })).toBeInTheDocument();
     expect(screen.queryByRole("row", { name: /Acme Supply/ })).toBeNull();
+  });
+});
+
+describe("direction D suppliers", () => {
+  const sid = acme.id;
+  const none = { total: 0, finished: 0, failed: 0, stopped: 0, streak: null };
+  const scheduleRow = (over: Partial<ScheduleRow> = {}): ScheduleRow => ({ supplierId: sid, status: { state: "waiting" }, intervalMinutes: 30, window: null, nextCheckAt: null, run: null, lastRun: null, recent: none, ...over });
+
+  it("marks the number tile whose filter is in use", async () => {
+    window.history.replaceState(null, "", "/suppliers?status=connected");
+    setup([acme, globex]);
+    expect(await screen.findByRole("link", { name: /Connected/ })).toHaveAttribute("aria-current", "true");
+    expect(screen.getByRole("link", { name: /All suppliers/ })).not.toHaveAttribute("aria-current");
+  });
+
+  it("says each supplier's recent checks in words", async () => {
+    setup([acme], { schedule: { overview: vi.fn().mockResolvedValue([scheduleRow({ recent: { total: 24, finished: 24, failed: 0, stopped: 0, streak: null } })]) } });
+    await screen.findByRole("row", { name: new RegExp(acme.name) });
+    expect(await within(rowOf(acme.name)).findByText("Last 24 checks fine")).toBeInTheDocument();
+  });
+
+  it("shows how far a running check has got, in its row", async () => {
+    const run = aRun({ outcome: "running", endedAt: null, linksDone: 312, linksTotal: 812, outOfStock: 14 });
+    setup([acme], { schedule: { overview: vi.fn().mockResolvedValue([scheduleRow({ status: { state: "running" }, run })]) } });
+    expect(await screen.findByText("312 of 812 links · 14 out so far")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: `Check of ${acme.name}` })).toHaveAttribute("aria-valuenow", "312");
+  });
+
+  it("shows the search and status in use as chips, and Clear all resets both", async () => {
+    window.history.replaceState(null, "", "/suppliers?search=glob&status=connected");
+    const { user } = setup([acme, globex]);
+    expect(await screen.findByRole("button", { name: "Remove Search filter" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove Status filter" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Clear all" }));
+    await waitFor(() => expect(window.location.search).toBe(""));
   });
 });

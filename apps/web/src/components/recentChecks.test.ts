@@ -17,8 +17,8 @@ describe("recentChecksSentence", () => {
     expect(recentChecksSentence(row({ status: { state: "off" }, intervalMinutes: null, lastRun: ran(at(2, 9, 0)) }), NOW).text).toBe("No checks since 2 Nov (automatic checks off)");
   });
 
-  it("says automatic checks are off when there was never a check", () => {
-    expect(recentChecksSentence(row({ status: { state: "off" }, intervalMinutes: null }), NOW)).toEqual({ text: "Automatic checks off", tone: "neutral" });
+  it("says there were no checks when automatic checks are off and there was never one (the schedule column already says off)", () => {
+    expect(recentChecksSentence(row({ status: { state: "off" }, intervalMinutes: null }), NOW)).toEqual({ text: "No checks yet", tone: "neutral" });
   });
 
   it("says there are no checks yet", () => {

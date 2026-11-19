@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link as ListChecks, MoreHorizontal, Pause, Pencil, Play, Plus, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge.js";
 import { Button } from "@/components/ui/button.js";
-import { Card } from "@/components/ui/card.js";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu.js";
 import { Input, Select } from "@/components/ui/input.js";
 import type { Api, ScheduleRow, Supplier, SupplierStatusFilter } from "../api.js";
@@ -11,12 +10,16 @@ import { DataTable, type Column } from "../components/DataTable.js";
 import { EmptyState } from "../components/EmptyState.js";
 import { Notice } from "../components/Notice.js";
 import { PageHeader } from "../components/PageHeader.js";
+import { FilterChips } from "../components/FilterChips.js";
+import { recentChecksSentence } from "../components/recentChecks.js";
+import { RowsSwitch } from "../components/RowsSwitch.js";
+import { RunProgress } from "../components/RunProgress.js";
+import { When } from "../components/When.js";
 import { Pager } from "../components/Pager.js";
 import { StatRow, StatTile } from "../components/StatTile.js";
 import { useListParams } from "../lib/useListParams.js";
 import { useWatch } from "../lib/useWatch.js";
 import { intervalWords, runSummary, whenWords } from "../components/scheduleWords.js";
-import { formatWhen } from "../format.js";
 import { Link } from "../router.js";
 import { useTitle } from "../useTitle.js";
 import { toast } from "../lib/toast.js";
@@ -207,17 +210,47 @@ export function SuppliersPage({ api }: { api: Api }) {
   const count = (key?: SupplierStatusFilter) => (all === null ? null : key ? all.filter((s) => keyOf(s) === key).length : all.length);
 
   const columns: Column<Supplier>[] = [
-    { header: "Name", cell: (s) => <span className="font-semibold">{s.name}</span> },
-    { header: "Website", cell: (s) => hostOf(s.websiteUrl) },
+    {
+      header: "Supplier",
+      cell: (s) => (
+        <>
+          <span className="font-semibold">{s.name}</span>
+          <span className="cell-sub">{hostOf(s.websiteUrl)}</span>
+        </>
+      ),
+    },
     {
       header: "Status",
       cell: (s) => {
-        if (waiting.has(s.id)) return <Badge variant="warning" className="animate-pulse">Checking…</Badge>;
         const st = statusOf(s);
-        return <Badge variant={st.tone}>{st.words}</Badge>;
+        return (
+          <>
+            {waiting.has(s.id) ? (
+              <Badge variant="warning" className="animate-pulse">
+                Checking…
+              </Badge>
+            ) : (
+              <Badge variant={st.tone}>{st.words}</Badge>
+            )}
+            <span className="cell-sub">{s.lastSessionCheckAt ? <>Checked <When at={s.lastSessionCheckAt} /></> : "Never checked"}</span>
+          </>
+        );
       },
     },
-    { header: "Last checked", cell: (s) => (s.lastSessionCheckAt ? formatWhen(s.lastSessionCheckAt) : <span className="text-muted-foreground">Never</span>) },
+    {
+      header: "Recent checks",
+      cell: (s) => {
+        const row = schedule.find((r) => r.supplierId === s.id);
+        if (!row) return <span className="text-muted-foreground">No checks yet</span>;
+        if (row.status.state === "running" && row.run) return <RunProgress run={row.run} name={s.name} />;
+        const said = recentChecksSentence(row, new Date());
+        return (
+          <span data-tone={said.tone} className={said.tone === "bad" ? "font-semibold text-bad" : "text-ink-soft"}>
+            {said.text}
+          </span>
+        );
+      },
+    },
     { header: "Automatic checks", cell: (s) => <ScheduleCell row={schedule.find((r) => r.supplierId === s.id)} /> },
     {
       header: "Actions",
@@ -295,10 +328,10 @@ export function SuppliersPage({ api }: { api: Api }) {
 
       {all !== null && !confirmedEmpty && (
         <StatRow>
-          <StatTile label="All suppliers" value={count()} to="/suppliers" />
-          <StatTile label="Connected" value={count("connected")} to="/suppliers?status=connected" />
-          <StatTile label="Needs reconnecting" value={count("needs_reconnect")} to="/suppliers?status=needs_reconnect" tone="warning" />
-          <StatTile label="Paused" value={count("paused")} to="/suppliers?status=paused" />
+          <StatTile label="All suppliers" value={count()} to="/suppliers" selected={status === undefined} />
+          <StatTile label="Connected" value={count("connected")} to="/suppliers?status=connected" selected={status === "connected"} />
+          <StatTile label="Needs reconnecting" value={count("needs_reconnect")} to="/suppliers?status=needs_reconnect" tone="warning" selected={status === "needs_reconnect"} />
+          <StatTile label="Paused" value={count("paused")} to="/suppliers?status=paused" selected={status === "paused"} />
         </StatRow>
       )}
 
@@ -316,9 +349,9 @@ export function SuppliersPage({ api }: { api: Api }) {
         </p>
       )}
 
-      <Card className="overflow-hidden">
+      <div className="min-w-0">
         {!confirmedEmpty && (
-          <div className="flex flex-wrap items-center gap-3 border-b border-border p-4">
+          <div className="flex flex-wrap items-center gap-2 border-b border-border pb-3">
             <Input type="search" aria-label="Search suppliers" placeholder="Search by name or website" className="min-w-48 flex-1" value={q} onChange={(e) => setQ(e.target.value)} />
             <Select aria-label="Filter by status" value={status ?? ""} onChange={(e) => set({ status: e.target.value || undefined })}>
               <option value="">All statuses</option>
@@ -328,8 +361,18 @@ export function SuppliersPage({ api }: { api: Api }) {
                 </option>
               ))}
             </Select>
+            <span className="ml-auto">
+              <RowsSwitch />
+            </span>
           </div>
         )}
+        <FilterChips
+          chips={[
+            ...(search ? [{ key: "search", label: "Search", value: `"${search}"`, onRemove: () => set({ search: undefined }) }] : []),
+            ...(status ? [{ key: "status", label: "Status", value: STATUSES.find((o) => o.value === status)!.label, onRemove: () => set({ status: undefined }) }] : []),
+          ]}
+          onClearAll={() => set({ search: undefined, status: undefined })}
+        />
         <DataTable
           label="Suppliers"
           columns={columns}
@@ -366,7 +409,7 @@ export function SuppliersPage({ api }: { api: Api }) {
           }
         />
         {data !== null && data.total > 0 && <Pager page={page} pageSize={pageSize} total={data.total} onPage={(n) => set({ page: n })} onPageSize={(n) => set({ pageSize: n })} />}
-      </Card>
+      </div>
 
       {confirming && (
         <ConfirmDialog
