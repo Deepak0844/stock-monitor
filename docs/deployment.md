@@ -53,6 +53,15 @@ Server-level steps that are not in Compose:
 - On a Mac used for the pilot, the supplier sees your home internet address. On a server it sees the datacentre's, which some suppliers distrust.
 - A compromised Chromium could reach the API's port over `control` (it would still need a signed-in session). If that worries you, the next step is a firewall rule on the control network.
 
+### Quick reads in the logs
+
+A supplier that needs no login is read from its HTML first. Fixed reason codes, never addresses:
+
+- `docker compose logs browser | grep "quick-read:"`: what each quick read found, e.g. `quick-read: ok (looks_real) http=200`.
+- `docker compose logs worker | grep "quick_read: fallback"`: why a page went to the browser (`no_offers`, `not_ok`,
+  `blocked`, `unavailable`, `variant_unclear`, `built_in_unclear`, `page_missing`, `never_worked`).
+- `docker compose logs worker | grep "stock check: retry"`: a page that could not be loaded and was tried again.
+
 ## Connecting a supplier
 
 This is how you give the app access to a supplier's website, so it can check stock without you. **You log in yourself, by hand.** The app never asks for your supplier password, never stores it, and never logs in for you, unless you switch on "Automatic login" for that supplier (see "Automatic login" below).
