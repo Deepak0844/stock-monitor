@@ -2,7 +2,7 @@ import type { FastifyInstance, RawReplyDefaultExpression, RawRequestDefaultExpre
 import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
 import type { createCaptureRepository, createMappingRepository, createRecipeRepository, createSupplierRepository } from "@stock-monitor/db";
-import { allPass, runExamples, validateRecipe, type Example, type PageDescription, type Recipe } from "@stock-monitor/extraction";
+import { allPass, runExamples, suggestRules, validateRecipe, type Example, type PageDescription, type Recipe } from "@stock-monitor/extraction";
 import { AppError } from "../errors.js";
 
 type App = FastifyInstance<RawServerDefault, RawRequestDefaultExpression, RawReplyDefaultExpression, Logger>;
@@ -68,6 +68,17 @@ export function registerRecipeRoutes(app: App, deps: RecipeRoutesDeps, audit: Au
     if (!supplier) throw SUPPLIER_NOT_FOUND();
     const results = runExamples(await examplesFor(supplier.id, supplier.defaultRegion), valid(input.recipe));
     return { results, passed: allPass(results) };
+  });
+
+  // Proposes rules from the labelled examples. Read-only: nothing is saved, and the audit entry holds counts, never page text.
+  app.post<{ Params: { id: string } }>("/api/suppliers/:id/recipes/suggest", async (request) => {
+    object(request.body, []);
+    const supplier = await suppliers.get(request.params.id);
+    if (!supplier) throw SUPPLIER_NOT_FOUND();
+    const examples = await examplesFor(supplier.id, supplier.defaultRegion);
+    const result = suggestRules(examples);
+    await record(request, "recipe.suggested", "supplier", supplier.id, { examples: examples.length, suggestions: result.ok ? result.suggestions.length : 0 });
+    return result;
   });
 
   app.post<{ Params: { id: string } }>("/api/recipes/:id/activate", async (request) => {

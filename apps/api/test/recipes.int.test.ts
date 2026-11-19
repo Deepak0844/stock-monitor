@@ -73,7 +73,7 @@ beforeEach(async () => {
 
 describe("every recipe route needs a signed-in owner", () => {
   const routes: [string, string][] = [
-    ["GET", "/api/suppliers/x/recipes"], ["POST", "/api/suppliers/x/recipes"], ["POST", "/api/suppliers/x/recipes/test"],
+    ["GET", "/api/suppliers/x/recipes"], ["POST", "/api/suppliers/x/recipes"], ["POST", "/api/suppliers/x/recipes/test"], ["POST", "/api/suppliers/x/recipes/suggest"],
     ["POST", "/api/recipes/x/activate"], ["DELETE", "/api/recipes/x"], ["PATCH", "/api/suppliers/x/region"],
   ];
   it.each(routes)("%s %s returns 401 without a session", async (method, url) => {
@@ -98,6 +98,42 @@ describe("saving versions", () => {
     expect(r.body.error.message).toMatch(/page check/i);
     expect((await call("POST", `/api/suppliers/${acme}/recipes`, {})).status).toBe(400);
     expect((await call("POST", "/api/suppliers/00000000-0000-4000-8000-000000000000/recipes", { recipe })).status).toBe(404);
+  });
+});
+
+describe("suggesting rules from the saved examples", () => {
+  const soldOut = () => page({ lines: ["Sold out"], buttons: [{ label: "Add to cart", enabled: false, section: "Blue Tee" }] });
+  const url = () => `/api/suppliers/${acme}/recipes/suggest`;
+
+  it("returns rules that pass the labelled pages", async () => {
+    await example(page(), "in_stock");
+    await example(soldOut(), "out_of_stock");
+    const r = await call("POST", url(), {});
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.passes).toBe(true);
+    expect(r.body.suggestions).toContainEqual(expect.objectContaining({ kind: "outOfStock", rule: { type: "text", text: "Sold out" }, checked: true }));
+  });
+
+  it("says why when one answer is missing", async () => {
+    await example(page(), "in_stock");
+    expect(await call("POST", url(), {})).toMatchObject({ status: 200, body: { ok: false, reason: "need_both_answers" } });
+  });
+
+  it("refuses an unknown supplier and unknown body keys", async () => {
+    expect((await call("POST", "/api/suppliers/00000000-0000-4000-8000-000000000000/recipes/suggest", {})).status).toBe(404);
+    expect((await call("POST", url(), { recipe })).status).toBe(400);
+  });
+
+  it("audits counts only and saves nothing", async () => {
+    await example(page(), "in_stock");
+    await example(soldOut(), "out_of_stock");
+    await call("POST", url(), {});
+    const rows = await events("recipe.suggested");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].details).toEqual({ examples: 2, suggestions: expect.any(Number) });
+    expect(JSON.stringify(rows[0].details)).not.toContain("Sold out");
+    expect((await call("GET", `/api/suppliers/${acme}/recipes`)).body.recipes).toEqual([]);
   });
 });
 
