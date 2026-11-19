@@ -54,8 +54,8 @@ export function SettingsShopifyPage({ api }: { api: Api }) {
             <p role="status" className="sr-only">
               Loading…
             </p>
-            <Skeleton className="h-48 w-full rounded-xl" />
-            <Skeleton className="h-32 w-full rounded-xl" />
+            <Skeleton className="h-48 w-full rounded-md" />
+            <Skeleton className="h-32 w-full rounded-md" />
           </>
         )}
 

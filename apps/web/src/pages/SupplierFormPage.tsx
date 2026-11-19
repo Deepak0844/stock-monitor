@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button.js";
-import { Card } from "@/components/ui/card.js";
 import { Input } from "@/components/ui/input.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
 import { ApiError, type Api, type Supplier, type SupplierInput } from "../api.js";
@@ -62,14 +61,14 @@ export function SupplierFormPage({ api, id }: { api: Api; id?: string }) {
       />
 
       {load.kind === "loading" && (
-        <Card className="flex max-w-2xl flex-col gap-4 p-6">
+        <div className="flex max-w-3xl flex-col gap-4">
           <p role="status" className="sr-only">
             Loading…
           </p>
           <Skeleton className="h-10 w-full" />
           <Skeleton className="h-10 w-full" />
           <Skeleton className="h-10 w-2/3" />
-        </Card>
+        </div>
       )}
       {load.kind === "error" && (
         <div className="flex max-w-2xl flex-col items-start gap-3">
@@ -82,28 +81,28 @@ export function SupplierFormPage({ api, id }: { api: Api; id?: string }) {
         </div>
       )}
       {load.kind === "ready" && (
-        <div className="flex max-w-2xl flex-col gap-6">
-          <Card className="p-6">
+        <div className="flex max-w-3xl flex-col">
+          <section className="border-t border-border py-7 first:border-t-0 first:pt-2 [&_h2]:text-base [&_h2]:font-semibold lg:[&_h2]:text-[0.9375rem]">
             <SupplierForm api={api} supplier={load.supplier} />
-          </Card>
+          </section>
           {load.supplier && (
             <>
-              <Card className="p-6">
+              <section className="border-t border-border py-7 first:border-t-0 first:pt-2 [&_h2]:text-base [&_h2]:font-semibold lg:[&_h2]:text-[0.9375rem]">
                 <PermissionPanel api={api} supplier={load.supplier} onSaved={reload} />
-              </Card>
-              <Card className="p-6">
+              </section>
+              <section className="border-t border-border py-7 first:border-t-0 first:pt-2 [&_h2]:text-base [&_h2]:font-semibold lg:[&_h2]:text-[0.9375rem]">
                 <RegionPanel api={api} supplier={load.supplier} />
-              </Card>
-              <Card className="p-6">
+              </section>
+              <section className="border-t border-border py-7 first:border-t-0 first:pt-2 [&_h2]:text-base [&_h2]:font-semibold lg:[&_h2]:text-[0.9375rem]">
                 <SchedulePanel api={api} supplier={load.supplier} />
-              </Card>
-              <Card className="p-6">
+              </section>
+              <section className="border-t border-border py-7 first:border-t-0 first:pt-2 [&_h2]:text-base [&_h2]:font-semibold lg:[&_h2]:text-[0.9375rem]">
                 <NeedsLoginCard api={api} supplier={load.supplier} onChange={reload} />
-              </Card>
+              </section>
               {load.supplier.needsLogin && (
-                <Card className="p-6">
+                <section className="border-t border-border py-7 first:border-t-0 first:pt-2 [&_h2]:text-base [&_h2]:font-semibold lg:[&_h2]:text-[0.9375rem]">
                   <AutoLoginCard api={api} supplier={load.supplier} onChange={reload} />
-                </Card>
+                </section>
               )}
             </>
           )}

@@ -282,7 +282,7 @@ export function LiveWindow({
           <p role="status" className="text-sm font-medium">
             Opening the login window…
           </p>
-          <Skeleton className="h-64 w-full rounded-xl" />
+          <Skeleton className="h-64 w-full rounded-md" />
         </div>
       )}
       <div className="mb-3 flex flex-wrap items-end justify-between gap-x-8 gap-y-3">
@@ -344,7 +344,7 @@ export function LiveWindow({
         ref={screenRef}
         role="group"
         aria-label="Live login window. Click it to type into the supplier's website. Use the buttons above to finish or cancel."
-        className={phase === "live" ? "h-[clamp(20rem,calc(100vh-20rem),50rem)] w-full overflow-hidden rounded-xl border border-border bg-black" : "hidden"}
+        className={phase === "live" ? "h-[clamp(20rem,calc(100vh-20rem),50rem)] w-full overflow-hidden rounded-md border border-border bg-black" : "hidden"}
       />
     </div>
   );

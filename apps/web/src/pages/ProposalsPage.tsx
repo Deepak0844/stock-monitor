@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { MAX_QUANTITY } from "@stock-monitor/proposals";
 import { Badge } from "@/components/ui/badge.js";
 import { Button } from "@/components/ui/button.js";
-import { Card } from "@/components/ui/card.js";
 import { Input, Select } from "@/components/ui/input.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
 import type { Api, Proposal, Supplier, WritePermission } from "../api.js";
@@ -257,7 +256,7 @@ function History({ api, params, supplierId, supplierName }: { api: Api; params: 
           </Notice>
         </div>
       )}
-      <Card className="overflow-hidden">
+      <div className="min-w-0">
         <DataTable
           label="Past suggestions"
           columns={columns}
@@ -270,7 +269,7 @@ function History({ api, params, supplierId, supplierName }: { api: Api; params: 
           empty={<EmptyState title={supplierName ? `No past suggestions for ${supplierName} yet.` : "No past suggestions yet."} />}
         />
         {data !== null && data.total > 0 && <Pager page={page} pageSize={pageSize} total={data.total} onPage={(n) => set({ page: n })} onPageSize={(n) => set({ pageSize: n })} />}
-      </Card>
+      </div>
     </>
   );
 }
@@ -411,14 +410,14 @@ export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => vo
       <PageHeader title="Proposals" description="Changes this app suggests to your Shopify stock. Nothing changes in Shopify until you press Approve." />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="inline-flex rounded-lg bg-muted p-1" role="group" aria-label="Show">
+        <div className="flex gap-6 border-b border-border" role="group" aria-label="Show">
         {(["open", "history"] as const).map((t) => (
           <button
             key={t}
             type="button"
             aria-pressed={tab === t}
             onClick={() => set({ tab: t === "history" ? "history" : undefined })}
-            className="min-h-9 rounded-md px-4 text-sm font-semibold text-muted-foreground focus-visible:outline-2 focus-visible:outline-ring aria-pressed:bg-primary aria-pressed:text-primary-foreground"
+            className="-mb-px min-h-11 cursor-pointer border-b-2 border-transparent px-0.5 text-sm font-semibold text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring lg:min-h-9 aria-pressed:border-foreground aria-pressed:text-foreground"
           >
             {t === "open" ? "Waiting" : "History"}
           </button>
@@ -454,8 +453,8 @@ export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => vo
               <p role="status" className="sr-only">
                 Loading…
               </p>
-              <Skeleton className="h-40 w-full rounded-xl" />
-              <Skeleton className="h-40 w-full rounded-xl" />
+              <Skeleton className="h-28 w-full" />
+              <Skeleton className="h-28 w-full" />
             </div>
           )}
           {open.kind === "error" && (

@@ -175,9 +175,9 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
           </Notice>
         )}
 
-        <section aria-labelledby="pages-heading" className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-          <div className="border-b border-border p-6 pb-4">
-            <h2 id="pages-heading" className="text-lg font-semibold">
+        <section aria-labelledby="pages-heading" className="border-y border-border">
+          <div className="border-b border-border py-4">
+            <h2 id="pages-heading" className="text-base font-semibold lg:text-[0.9375rem]">
               Saved pages
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">Capture a real product page, then label saved pages with the answer you expect. Your rules are tested on them before they can be turned on.</p>

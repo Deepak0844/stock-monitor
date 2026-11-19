@@ -374,7 +374,7 @@ export function SavedPages({
                     <div
                       role="tablist"
                       aria-label="Saved page view"
-                      className="inline-flex rounded-lg bg-muted p-1"
+                      className="flex gap-6 border-b border-border"
                     >
                       {(["picture", "text"] as const).map((t) => (
                         <button
@@ -383,7 +383,7 @@ export function SavedPages({
                           type="button"
                           aria-selected={tab === t}
                           onClick={() => setTab(t)}
-                          className="min-h-9 rounded-md px-4 text-sm font-semibold text-muted-foreground focus-visible:outline-2 focus-visible:outline-ring aria-selected:bg-primary aria-selected:text-primary-foreground"
+                          className="-mb-px min-h-11 cursor-pointer border-b-2 border-transparent px-0.5 text-sm font-semibold text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring lg:min-h-9 aria-selected:border-foreground aria-selected:text-foreground"
                         >
                           {t === "picture" ? "Picture" : "Page text"}
                         </button>

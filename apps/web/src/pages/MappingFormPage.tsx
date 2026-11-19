@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button.js";
-import { Card } from "@/components/ui/card.js";
 import { Input } from "@/components/ui/input.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
 import { ApiError, type Api, type Mapping, type Supplier, type UnmappedVariant } from "../api.js";
@@ -49,14 +48,14 @@ export function MappingFormPage({ api, id }: { api: Api; id?: string }) {
         description={editing ? "Change the supplier page this variant is linked to." : "Link a Shopify variant to the same item on a supplier's website."}
       />
       {load.kind === "loading" && (
-        <Card className="flex max-w-2xl flex-col gap-4 p-6">
+        <section className="flex max-w-2xl flex-col gap-4 border-t border-border py-6 first:border-t-0 first:pt-2 max-w-3xl">
           <p role="status" className="sr-only">
             Loading…
           </p>
           <Skeleton className="h-10 w-full" />
           <Skeleton className="h-10 w-full" />
           <Skeleton className="h-10 w-2/3" />
-        </Card>
+        </section>
       )}
       {load.kind === "error" && (
         <div className="flex max-w-2xl flex-col items-start gap-3">
@@ -69,14 +68,14 @@ export function MappingFormPage({ api, id }: { api: Api; id?: string }) {
         </div>
       )}
       {load.kind === "ready" && (
-        <Card className="flex max-w-2xl flex-col gap-4 p-6">
+        <section className="flex max-w-2xl flex-col gap-4 border-t border-border py-6 first:border-t-0 first:pt-2 max-w-3xl">
           {load.mapping?.shopifyManaged && (
             <Notice kind="warning">
               This link is set from Shopify, from the supplier name and page address on the product. If you change it here, the next Sync puts Shopify's supplier and page address back. Change them in Shopify instead.
             </Notice>
           )}
           <MappingForm api={api} mapping={load.mapping} />
-        </Card>
+        </section>
       )}
     </>
   );

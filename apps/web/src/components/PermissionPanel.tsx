@@ -109,7 +109,7 @@ export function RegionPanel({ api, supplier }: { api: Api; supplier: Supplier })
 
   return (
     <form onSubmit={(e) => void submit(e)} noValidate className="flex max-w-xl flex-col gap-4">
-      <h2 className="text-lg font-semibold">Region for stock checks</h2>
+      <h2 className="text-base font-semibold lg:text-[0.9375rem]">Region for stock checks</h2>
       <Field
         id="default-region"
         label="Default region (optional)"

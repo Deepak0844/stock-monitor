@@ -39,7 +39,7 @@ export function DropdownMenuContent({ className, ...props }: React.ComponentProp
       <M.Content
         align="end"
         sideOffset={6}
-        className={cn("z-50 min-w-44 rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lg", className)}
+        className={cn("z-50 min-w-44 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg", className)}
         {...props}
       />
     </M.Portal>
