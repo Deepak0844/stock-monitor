@@ -16,6 +16,7 @@ import { SuppliersPage } from "./pages/SuppliersPage.js";
 import { SettingsShopifyPage } from "./pages/SettingsShopifyPage.js";
 import { LoginPage } from "./pages/LoginPage.js";
 import { AppShell } from "./shell/AppShell.js";
+import { setWaiting } from "./tabTitle.js";
 import { useNotifications } from "./shell/useNotifications.js";
 import { usePath } from "./router.js";
 
@@ -49,6 +50,10 @@ export function App({ api = realApi }: { api?: Api }) {
   useEffect(() => {
     if (signedIn) refreshCount();
   }, [signedIn, path, refreshCount]);
+
+  // The browser tab shows the waiting count, and its icon a dot while anything needs the owner.
+  const attention = notifications.items.length;
+  useEffect(() => setWaiting(signedIn ? proposalCount : 0, signedIn && attention > 0), [signedIn, proposalCount, attention]);
 
   // The schedule, for the check status in the sidebar. Read when signed in and every minute after.
   const [schedule, setSchedule] = useState<ScheduleRow[] | null>(null);
