@@ -1,13 +1,16 @@
-import type { Frame, Locator } from "playwright";
+import type { Frame, Locator, Page } from "playwright";
 
 // What a login control says, when its wording is not on the exact lists in login.ts. A guess never takes a control that talks about
 // something else (a newsletter, a sign-up, a social login, a log-out), however login-like its other words are.
 export const LOGIN_WORDS = ["log in", "login", "sign in", "signin", "submit", "continue", "next", "enter", "go", "access", "your account"];
 export const AVOID_WORDS = ["forgot", "reset", "register", "sign up", "signup", "create", "join", "guest", "show", "hide", "cancel", "back", "google", "facebook", "apple", "microsoft", "log out", "logout", "sign out"];
 
+export const OPENER_WORDS = ["login", "log in", "sign in", "account"];
+
 const source = (words: string[]) => `\\b(?:${words.join("|")})\\b`;
 export const LOGIN_SOURCE = source(LOGIN_WORDS);
 export const AVOID_SOURCE = source(AVOID_WORDS);
+const OPENER_SOURCE = source(OPENER_WORDS);
 const login = new RegExp(LOGIN_SOURCE, "i");
 const avoid = new RegExp(AVOID_SOURCE, "i");
 const tidy = (text: string) => text.replace(/\s+/g, " ").trim();
@@ -60,4 +63,41 @@ export async function guessSubmit(frame: Frame, field: Locator): Promise<Locator
     )
     .catch(() => false);
   return picked ? frame.locator(`[${PICK_ATTR}="1"]`) : null;
+}
+
+/**
+ * The visible control that opens the login, found by what it says: a link, button or role=button whose words contain an opener word
+ * and no avoid word (shortest first). A link with no words counts when its address contains login, signin or account.
+ * Looks in every frame. Null when there is none, so a page with only "Log out" and "Register" is never clicked.
+ */
+export async function guessOpener(page: Page): Promise<Locator | null> {
+  for (const frame of page.frames()) {
+    const found = await frame
+      .evaluate(
+        (o) => {
+          const opener = new RegExp(o.opener, "i");
+          const avoidWords = new RegExp(o.avoid, "i");
+          const textOf = (c: Element) => ((c as HTMLElement).innerText || c.getAttribute("aria-label") || c.getAttribute("title") || "").replace(/\s+/g, " ").trim();
+          const usable = (c: Element) => {
+            const box = c.getBoundingClientRect();
+            const style = getComputedStyle(c);
+            return box.width > 0 && box.height > 0 && style.visibility !== "hidden" && style.display !== "none" && Number(style.opacity) > 0.1 && c.getAttribute("aria-disabled") !== "true";
+          };
+          const ranked = [...document.querySelectorAll("a, button, [role=button]")]
+            .filter(usable)
+            .map((c) => ({ c, text: textOf(c) }))
+            .filter(({ c, text }) => (text ? opener.test(text) && !avoidWords.test(text) : c.tagName === "A" && /login|sign-?in|account/i.test(c.getAttribute("href") ?? "")))
+            .sort((a, b) => (a.text ? a.text.length : 1e6) - (b.text ? b.text.length : 1e6));
+          const first = ranked[0];
+          if (!first) return false;
+          for (const old of document.querySelectorAll(`[${o.attr}]`)) old.removeAttribute(o.attr);
+          first.c.setAttribute(o.attr, "1");
+          return true;
+        },
+        { opener: OPENER_SOURCE, avoid: AVOID_SOURCE, attr: PICK_ATTR },
+      )
+      .catch(() => false);
+    if (found) return frame.locator(`[${PICK_ATTR}="1"]`);
+  }
+  return null;
 }

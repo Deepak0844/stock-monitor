@@ -38,7 +38,15 @@ const PAGES: Record<string, string> = {
     '<input type="search" name="q"><form action="/newsletter-neighbour/news"><input type="email" name="news"><button type="button" onclick="fetch(\'/newsletter-neighbour/subscribed\')">Subscribe</button></form>' +
     loginForm("newsletter-neighbour", plain("Enter portal")),
   "only-signup": loginForm("only-signup", '<button type="button">Sign up</button>'),
+  // The login is behind an opener that is not on the word list.
+  "long-opener": `<header><a href="/long-opener/register">Register</a><a href="#" onclick="document.getElementById('f').style.display='block';return false">Customer login</a></header><div id="f" style="display:none">${loginForm("long-opener", '<button type="submit">Sign in</button>')}</div>`,
+  "icon-link-opener": '<header><a href="/icon-link-opener/account"><svg width="16" height="16"><circle cx="8" cy="8" r="6"/></svg></a></header><p>Welcome to our shop.</p>',
+  "popup-form": `<button onclick="const m=document.getElementById('m');m.style.display='block';setTimeout(()=>{m.style.opacity=1},700)">My account area</button><div id="m" style="display:none;opacity:0;transition:opacity 200ms">${loginForm("popup-form", '<button type="submit">Sign in</button>')}</div>`,
+  "two-step-popup": `<button onclick="document.getElementById('m').style.display='block'">Customer login</button><div id="m" style="display:none"><form method="post" action="/two-step-popup/do"><label>Email <input type="email" name="username"></label><div id="pw" style="display:none"><label>Password <input type="password" name="password"></label></div><button type="button" onclick="document.getElementById('pw').style.display='block';this.style.display='none';document.getElementById('s').style.display='inline-block'">Continue</button><button id="s" type="submit" style="display:none">Sign in</button></form></div>`,
+  "logout-only": '<header><a href="/logout-only/logout">Log out</a><a href="/logout-only/register">Register</a></header><p>Welcome to our shop.</p>',
 };
+/** Pages other than a login page, by path. */
+const ROUTES: Record<string, string> = { "icon-link-opener/account": loginForm("icon-link-opener", '<button type="submit">Sign in</button>') };
 
 let site: Server;
 let base = "";
@@ -57,7 +65,8 @@ beforeAll(async () => {
       if (b.get("username") === USER && b.get("password") === PASSWORD) return res.writeHead(302, { "set-cookie": "sid=ok; Path=/", location: "/account" }).end();
       return html(page("<p>Wrong password.</p>"));
     }
-    if (step === "login" && PAGES[kase]) return html(page(PAGES[kase] as string));
+    const route = ROUTES[`${kase}/${step}`] ?? (step === "login" ? PAGES[kase] : undefined);
+    if (route) return html(page(route));
     return html(page("not here"), 404);
   });
   await new Promise<void>((r) => site.listen(0, "127.0.0.1", () => r()));
@@ -106,5 +115,32 @@ describe("guessing the login button", () => {
     const r = await login("only-signup");
     expect(r.result).not.toBe("ok");
     expect(posts["only-signup"]).toBeUndefined();
+  });
+});
+
+describe("guessing the opener", () => {
+  it("opens a login behind a link that says more than Log in", async () => {
+    const r = await login("long-opener");
+    expect(r.result, r.why).toBe("ok");
+    expect(hits["/long-opener/register"]).toBeUndefined();
+  });
+  it("follows a link with no words whose address is the account page", async () => {
+    const r = await login("icon-link-opener");
+    expect(r.result, r.why).toBe("ok");
+  });
+  it("waits for a popup form that fades in", async () => {
+    const r = await login("popup-form");
+    expect(r.result, r.why).toBe("ok");
+  });
+  it("goes through a two-step form inside a popup", async () => {
+    const r = await login("two-step-popup");
+    expect(r.result, r.why).toBe("ok");
+  });
+  it("never takes Log out or Register for an opener", async () => {
+    const r = await login("logout-only");
+    expect(r.result).toBe("form_not_found");
+    expect(r.why).toMatch(/^no_opener/);
+    expect(hits["/logout-only/logout"]).toBeUndefined();
+    expect(hits["/logout-only/register"]).toBeUndefined();
   });
 });
