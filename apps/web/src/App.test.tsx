@@ -110,5 +110,42 @@ describe("App", () => {
       render(<App api={fakeApi()} />);
       expect(await screen.findByRole("heading", { name: /sign in/i })).toBeInTheDocument();
     });
+
+    it("moves a signed-out visitor to /login, remembering where they were going", async () => {
+      window.history.replaceState(null, "", "/settings/shopify?x=1");
+      render(<App api={fakeApi()} />);
+      await screen.findByRole("heading", { name: /sign in/i });
+      expect(window.location.pathname).toBe("/login");
+      expect(new URLSearchParams(window.location.search).get("next")).toBe("/settings/shopify?x=1");
+    });
+
+    it("goes back to where the owner was going once they sign in", async () => {
+      window.history.replaceState(null, "", "/login?next=%2Fsuppliers");
+      const user = userEvent.setup();
+      render(<App api={fakeApi({ login: vi.fn().mockResolvedValue({ email: "owner@example.com" }) })} />);
+      await user.type(await screen.findByLabelText("Email"), "owner@example.com");
+      await user.type(screen.getByLabelText("Password", { exact: true }), "correct horse battery staple");
+      await user.click(screen.getByRole("button", { name: "Sign in" }));
+      expect(await screen.findByRole("heading", { level: 1, name: "Suppliers" })).toBeInTheDocument();
+      expect(window.location.pathname).toBe("/suppliers");
+    });
+
+    it.each(["//evil.example/x", "https://evil.example/", "javascript:alert(1)"])("never follows %s after signing in, only addresses inside the app", async (next) => {
+      window.history.replaceState(null, "", `/login?next=${encodeURIComponent(next)}`);
+      const user = userEvent.setup();
+      render(<App api={fakeApi({ login: vi.fn().mockResolvedValue({ email: "owner@example.com" }) })} />);
+      await user.type(await screen.findByLabelText("Email"), "owner@example.com");
+      await user.type(screen.getByLabelText("Password", { exact: true }), "correct horse battery staple");
+      await user.click(screen.getByRole("button", { name: "Sign in" }));
+      expect(await screen.findByRole("heading", { level: 1, name: "Dashboard" })).toBeInTheDocument();
+      expect(window.location.pathname).toBe("/");
+    });
+
+    it("sends a signed-in owner from /login to the app", async () => {
+      window.history.replaceState(null, "", "/login");
+      render(<App api={signedIn()} />);
+      expect(await screen.findByRole("heading", { level: 1, name: "Dashboard" })).toBeInTheDocument();
+      expect(window.location.pathname).toBe("/");
+    });
   });
 });

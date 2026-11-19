@@ -23,7 +23,7 @@ import { AppShell } from "./shell/AppShell.js";
 import { TooltipProvider } from "@/components/ui/tooltip.js";
 import { setWaiting } from "./tabTitle.js";
 import { useNotifications } from "./shell/useNotifications.js";
-import { usePath } from "./router.js";
+import { redirect, usePath } from "./router.js";
 
 type State =
   | { kind: "loading" }
@@ -32,6 +32,8 @@ type State =
   | { kind: "error"; message: string };
 
 const SCHEDULE_POLL_MS = 60_000;
+/** Where to go after signing in: only an address inside this app ("/suppliers"), never another site ("//x", "https://x"). */
+const safeNext = (next: string | null) => (next && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/");
 const messageOf = (e: unknown) =>
   e instanceof Error ? e.message : "Something went wrong. Please try again.";
 
@@ -92,6 +94,16 @@ export function App({ api = realApi }: { api?: Api }) {
 
   useEffect(checkSession, [checkSession]);
 
+  // Signed out, every address shows the sign-in page at /login, remembering where the owner was going. Signed in, /login moves
+  // on to that page, or to the Dashboard.
+  useEffect(() => {
+    if (state.kind === "signedOut" && path !== "/login") {
+      const going = path + window.location.search;
+      redirect(going === "/" ? "/login" : `/login?next=${encodeURIComponent(going)}`);
+    }
+    if (state.kind === "signedIn" && path === "/login") redirect(safeNext(new URLSearchParams(window.location.search).get("next")));
+  }, [state.kind, path]);
+
   if (state.kind === "loading") {
     return (
       <div className="grid min-h-screen place-items-center bg-background p-6">
@@ -134,7 +146,10 @@ export function App({ api = realApi }: { api?: Api }) {
   const signOut = () =>
     api
       .logout()
-      .then(() => setState({ kind: "signedOut" }))
+      .then(() => {
+        redirect("/login");
+        setState({ kind: "signedOut" });
+      })
       .catch((e: unknown) => setState({ kind: "error", message: messageOf(e) }));
 
   return (
