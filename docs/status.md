@@ -1,6 +1,6 @@
 # Project status
 
-Last updated 2026-11-13.
+Last updated 2026-11-20.
 
 ## Where the app stands
 
@@ -29,6 +29,28 @@ Login guessing (branch `feature/login-guess`, 2026-11-19): automatic login now g
 says when the wording is not on the exact list, and never takes Register, Forgot password, a social login or Log out.
 "Check login page" (branch `feature/login-check`) opens the supplier's login page without typing or sending anything and lists
 what a login would use, with a dropdown per part for the owner to correct. Next: a learned logged-in marker.
+
+UI redesign, direction D "Ledger" (2026-11-19 to 2026-11-20): the whole web app restyled to paper and ink, thin rules instead of
+boxed cards, IBM Plex fonts, light and dark, and a designed phone layout. Spec: `docs/superpowers/specs/2026-11-19-ui-redesign-design.md`
+(with HTML mockups). Plan: `docs/superpowers/plans/2026-11-19-ui-redesign.md`. Nine stacked pull requests: #190 (spec and plan),
+#191 to #197 (phases 1 to 7), then phases 8 and 9. Merge them in order; none is merged yet.
+
+- Phase 1, foundations: D colours (contrast checked by `apps/web/src/theme.test.ts`), IBM Plex, buttons, fields, badges, ruled
+  sections and number tiles.
+- Phase 2, frame: sidebar with a "Checks" status box, phone tabs with a More sheet, the waiting count in the browser tab.
+- Phase 3, feedback: tooltips, exact times on hover, copy buttons, messages with Undo, empty/error/not-found/offline states,
+  pagination with "Go to page", filter chips, the dropdown with search.
+- Phase 4, tables: sorting (server `sort`/`dir` on links, proposals and products), row selection, compact or comfortable rows,
+  headings that stay on screen, stacked rows below 1024px.
+- Phase 5, Dashboard: recent checks in words from a new `recent` summary on `GET /api/schedule`.
+- Phase 6, Suppliers and Links: live check progress, sentences, copy buttons, delete a link with Undo.
+- Phase 7, Proposals and Products: bulk approve (one confirm, each in turn) and bulk reject with Undo; Products sorting and copy.
+- Phase 8, Settings with a side menu (Shopify, Stock suggestions, Appearance, Account), the link form's dropdowns with search,
+  switches, back links, the new Sign in and Not found.
+- Phase 9, a final accessibility sweep (`e2e/redesign.spec.ts`): every main page in light and dark, at 390px and 1440px.
+
+Two changes made while building, against the spec: the mixed recent-checks sentence says "didn't finish" (runs have no "couldn't
+tell" outcome), and Links has no Recent checks column (no per-link history).
 
 Decided against (do not bring them up again unless something changes):
 
