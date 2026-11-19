@@ -100,6 +100,7 @@ describe("App", () => {
       render(<App api={signedIn()} />);
       expect(await screen.findByRole("heading", { level: 1, name: "Page not found" })).toBeInTheDocument();
       await waitFor(() => expect(document.title).toBe("Page not found · Stock Monitor")); // set after render, so wait for it
+      expect(screen.getByRole("button", { name: "Back" })).toBeInTheDocument();
       await user.click(screen.getByRole("link", { name: "Go to the dashboard" }));
       expect(await screen.findByRole("heading", { level: 1, name: "Dashboard" })).toBeInTheDocument();
     });

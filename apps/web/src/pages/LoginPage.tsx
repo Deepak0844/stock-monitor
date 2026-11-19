@@ -41,25 +41,27 @@ export function LoginPage({ onLogin }: Props) {
 
   return (
     <div className="grid min-h-screen bg-background text-foreground lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
-      <aside className="flex flex-col justify-between gap-10 bg-sidebar p-8 text-sidebar-foreground lg:p-12">
+      <aside className="flex flex-col justify-between gap-10 border-border bg-sidebar p-8 text-sidebar-foreground lg:border-r lg:p-12">
         <Logo className="text-foreground" />
-        <div className="max-w-md">
-          <p className="text-2xl font-semibold leading-snug text-foreground lg:text-3xl">Know what your suppliers have, before your customers order.</p>
-          <ul className="mt-6 flex flex-col gap-3 text-base">
-            {["Checks your suppliers' stock for you.", "You approve every change.", "Nothing reaches Shopify without your OK."].map((point) => (
-              <li key={point} className="flex items-start gap-3">
-                <span aria-hidden="true" className="mt-2 size-2 shrink-0 rounded-full bg-accent" />
-                {point}
-              </li>
-            ))}
-          </ul>
-        </div>
+        <p className="max-w-md text-3xl leading-tight font-semibold tracking-tight text-foreground lg:text-4xl">Know what your suppliers have, before your customers order.</p>
+        <ul className="grid gap-5 border-t border-border pt-5 sm:grid-cols-3">
+          {[
+            ["Check", "Checks your suppliers' stock for you."],
+            ["Propose", "Suggests a change when stock differs."],
+            ["Approve", "You approve every change. Nothing reaches Shopify without your OK."],
+          ].map(([step, text]) => (
+            <li key={step}>
+              <h2 className="text-base font-semibold text-foreground">{step}</h2>
+              <p className="mt-0.5 text-sm text-muted-foreground">{text}</p>
+            </li>
+          ))}
+        </ul>
       </aside>
 
       <main className="grid place-items-center p-6 lg:p-12">
         <form className="flex w-full max-w-sm flex-col gap-5" onSubmit={submit} noValidate>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Sign in</h1>
+            <h1 className="text-xl font-semibold tracking-tight">Sign in</h1>
             <p className="mt-1 text-sm text-muted-foreground">Use the owner account to review supplier stock and approve changes.</p>
           </div>
 
