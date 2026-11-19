@@ -1,8 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { CircleUser, LogOut } from "lucide-react";
-import { Button } from "@/components/ui/button.js";
 import { Toaster } from "@/components/ui/toaster.js";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu.js";
 import { cn } from "@/lib/utils.js";
 import { useWide } from "@/lib/useWide.js";
 import { Logo } from "../components/Logo.js";
@@ -16,6 +13,7 @@ import { MoreSheet } from "./MoreSheet.js";
 import { NAV, countLabel } from "./nav.js";
 import { NotificationBell } from "./NotificationBell.js";
 import { ThemeToggle } from "./ThemeToggle.js";
+import { AccountMenu } from "./AccountMenu.js";
 import type { NotificationsState } from "./useNotifications.js";
 
 type Props = {
@@ -32,7 +30,15 @@ type Props = {
 };
 
 /** The frame around every signed-in page: a sidebar on a wide screen, tabs along the bottom on a phone. */
-export function AppShell({ email, onSignOut, children, notifications, proposalCount, attentionCount, schedule = null }: Props) {
+export function AppShell({
+  email,
+  onSignOut,
+  children,
+  notifications,
+  proposalCount,
+  attentionCount,
+  schedule = null,
+}: Props) {
   const wide = useWide();
   const [moreOpen, setMoreOpen] = useState(false);
   const [crumbs, setCrumbs] = useState<Crumb[] | null>(null);
@@ -51,7 +57,8 @@ export function AppShell({ email, onSignOut, children, notifications, proposalCo
     mainRef.current?.focus();
   }, [path]);
 
-  const countOf = (item: (typeof NAV)[number]) => (item.count === "proposals" ? proposalCount : item.count === "attention" ? attentionCount : 0);
+  const countOf = (item: (typeof NAV)[number]) =>
+    item.count === "proposals" ? proposalCount : item.count === "attention" ? attentionCount : 0;
 
   return (
     <div className="min-h-screen bg-background text-foreground lg:grid lg:grid-cols-[14rem_minmax(0,1fr)]">
@@ -80,13 +87,18 @@ export function AppShell({ email, onSignOut, children, notifications, proposalCo
                       aria-label={countLabel(item, n)}
                       className={cn(
                         "relative flex min-h-9 items-center gap-3 px-4 text-[0.8125rem] font-medium hover:bg-hover hover:text-foreground [&_svg]:size-4 [&_svg]:shrink-0",
-                        isCurrent && "bg-sidebar-active font-semibold text-foreground shadow-[inset_2px_0_0_var(--foreground)]",
+                        isCurrent &&
+                          "bg-sidebar-active font-semibold text-foreground shadow-[inset_2px_0_0_var(--foreground)]",
                       )}
                     >
                       {item.icon}
                       {item.label}
                       {n ? (
-                        <span data-count aria-hidden="true" className="ml-auto font-mono text-xs font-medium text-bad">
+                        <span
+                          data-count
+                          aria-hidden="true"
+                          className="ml-auto font-mono text-xs font-medium text-bad"
+                        >
                           {n}
                         </span>
                       ) : null}
@@ -97,7 +109,10 @@ export function AppShell({ email, onSignOut, children, notifications, proposalCo
             </ul>
           </nav>
           <CheckStatus rows={schedule} />
-          <p className="truncate border-t border-border px-4 py-3 text-[0.8125rem] text-muted-foreground" title={email}>
+          <p
+            className="truncate border-t border-border px-4 py-3 text-[0.8125rem] text-muted-foreground"
+            title={email}
+          >
             {email}
           </p>
         </aside>
@@ -110,31 +125,24 @@ export function AppShell({ email, onSignOut, children, notifications, proposalCo
           <div className="min-w-0 flex-1">
             <Breadcrumbs items={crumbs ?? crumbsForPath(path)} />
           </div>
-          <NotificationBell state={notifications} />
-          {wide && (
-            <>
-              <ThemeToggle />
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="icon" aria-label="Account">
-                    <CircleUser aria-hidden="true" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent>
-                  <DropdownMenuLabel>{email}</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={onSignOut}>
-                    <LogOut aria-hidden="true" />
-                    Sign out
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </>
-          )}
+          <div className="flex items-center gap-1">
+            <NotificationBell state={notifications} />
+            {wide && <ThemeToggle />}
+            <span aria-hidden="true" className="mx-1.5 h-5 w-px bg-border max-lg:hidden" />
+            <AccountMenu email={email} onSignOut={onSignOut} compact={!wide} />
+          </div>
         </header>
         <OfflineBar />
         <CrumbsContext.Provider value={setCrumbs}>
-          <main id="main" tabIndex={-1} ref={mainRef} className={cn("mx-auto w-full max-w-7xl px-4 py-6 outline-none sm:px-6", !wide && "pb-24")}>
+          <main
+            id="main"
+            tabIndex={-1}
+            ref={mainRef}
+            className={cn(
+              "mx-auto w-full max-w-7xl px-4 py-6 outline-none sm:px-6",
+              !wide && "pb-24",
+            )}
+          >
             {children}
           </main>
         </CrumbsContext.Provider>
@@ -142,8 +150,21 @@ export function AppShell({ email, onSignOut, children, notifications, proposalCo
 
       {!wide && (
         <>
-          <BottomTabs ref={moreButton} path={path} proposalCount={proposalCount} attentionCount={attentionCount} onMore={() => setMoreOpen(true)} />
-          <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} email={email} onSignOut={onSignOut} schedule={schedule} returnFocusTo={moreButton} />
+          <BottomTabs
+            ref={moreButton}
+            path={path}
+            proposalCount={proposalCount}
+            attentionCount={attentionCount}
+            onMore={() => setMoreOpen(true)}
+          />
+          <MoreSheet
+            open={moreOpen}
+            onClose={() => setMoreOpen(false)}
+            email={email}
+            onSignOut={onSignOut}
+            schedule={schedule}
+            returnFocusTo={moreButton}
+          />
         </>
       )}
     </div>

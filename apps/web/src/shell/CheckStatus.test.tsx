@@ -34,8 +34,17 @@ describe("checkStatusOf", () => {
     const rows = [
       row({ supplierId: "a", nextCheckAt: "2026-11-19T10:12:00" }),
       row({ supplierId: "b", nextCheckAt: "2026-11-19T09:28:00" }),
-      row({ supplierId: "c", status: { state: "not_checked", reason: "needs_reconnect", message: "Reconnect" }, nextCheckAt: null }),
-      row({ supplierId: "d", intervalMinutes: null, status: { state: "off" }, nextCheckAt: "2026-11-19T08:00:00" }),
+      row({
+        supplierId: "c",
+        status: { state: "not_checked", reason: "needs_reconnect", message: "Reconnect" },
+        nextCheckAt: null,
+      }),
+      row({
+        supplierId: "d",
+        intervalMinutes: null,
+        status: { state: "off" },
+        nextCheckAt: "2026-11-19T08:00:00",
+      }),
     ];
     expect(checkStatusOf(rows)).toEqual({ on: true, nextAt: "2026-11-19T09:28:00", stopped: 1 });
   });
@@ -43,14 +52,32 @@ describe("checkStatusOf", () => {
 
 describe("CheckStatus", () => {
   it("says checks are on, when the next one is, and how many suppliers stopped", () => {
-    render(<CheckStatus rows={[row({}), row({ supplierId: "c", status: { state: "not_checked", reason: "needs_reconnect", message: "Reconnect" }, nextCheckAt: null })]} />);
+    render(
+      <CheckStatus
+        rows={[
+          row({}),
+          row({
+            supplierId: "c",
+            status: { state: "not_checked", reason: "needs_reconnect", message: "Reconnect" },
+            nextCheckAt: null,
+          }),
+        ]}
+      />,
+    );
     expect(screen.getByText(/On · next at/)).toHaveTextContent("On · next at 09:28");
     expect(screen.getByText("1 supplier stopped")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "See suppliers" })).toHaveAttribute("href", "/suppliers");
+    expect(screen.getByRole("link", { name: "See suppliers" })).toHaveAttribute(
+      "href",
+      "/suppliers",
+    );
   });
 
   it("says Off when no supplier has automatic checks", () => {
-    render(<CheckStatus rows={[row({ intervalMinutes: null, status: { state: "off" }, nextCheckAt: null })]} />);
+    render(
+      <CheckStatus
+        rows={[row({ intervalMinutes: null, status: { state: "off" }, nextCheckAt: null })]}
+      />,
+    );
     expect(screen.getByText("Off")).toBeInTheDocument();
     expect(screen.queryByText(/stopped/)).not.toBeInTheDocument();
   });

@@ -57,7 +57,9 @@ export function useNotifications(api: Api, enabled: boolean): NotificationsState
     async (id: string) => {
       changes.current++;
       const now = new Date().toISOString();
-      setItems((rows) => rows.map((n) => (n.id === id && n.readAt === null ? { ...n, readAt: now } : n)));
+      setItems((rows) =>
+        rows.map((n) => (n.id === id && n.readAt === null ? { ...n, readAt: now } : n)),
+      );
       try {
         await api.notifications.markRead(id);
       } catch {
@@ -78,5 +80,13 @@ export function useNotifications(api: Api, enabled: boolean): NotificationsState
     }
   }, [api, reload]);
 
-  return { items, unread: items.filter((n) => n.readAt === null).length, loading, error, markRead, markAllRead, reload };
+  return {
+    items,
+    unread: items.filter((n) => n.readAt === null).length,
+    loading,
+    error,
+    markRead,
+    markAllRead,
+    reload,
+  };
 }

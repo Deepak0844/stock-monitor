@@ -21,10 +21,18 @@ export function NotificationBell({ state }: { state: NotificationsState }) {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="icon" className="relative" aria-label={`Notifications, ${unread === 0 ? "none" : unread} unread`}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="relative text-muted-foreground hover:text-foreground"
+          aria-label={`Notifications, ${unread === 0 ? "none" : unread} unread`}
+        >
           <Bell aria-hidden="true" />
           {unread > 0 && (
-            <span aria-hidden="true" className="absolute -right-1 -top-1 grid min-w-5 place-items-center rounded-full bg-accent px-1 text-[0.7rem] font-bold leading-5 text-accent-foreground">
+            <span
+              aria-hidden="true"
+              className="absolute right-1 top-1 grid h-4 min-w-4 place-items-center rounded-full border-[1.5px] border-background bg-accent px-0.5 font-mono text-[0.625rem] font-semibold leading-none text-accent-foreground lg:-right-0.5 lg:-top-0.5"
+            >
               {unread}
             </span>
           )}
@@ -33,7 +41,12 @@ export function NotificationBell({ state }: { state: NotificationsState }) {
       <PopoverContent aria-label="Notifications" role="dialog">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <h2 className="text-sm font-semibold">Notifications</h2>
-          <Button variant="ghost" size="sm" disabled={unread === 0} onClick={() => void state.markAllRead()}>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={unread === 0}
+            onClick={() => void state.markAllRead()}
+          >
             Mark all as read
           </Button>
         </div>
@@ -49,7 +62,9 @@ export function NotificationBell({ state }: { state: NotificationsState }) {
               <Skeleton className="h-3 w-1/3" />
             </div>
           ) : items.length === 0 && !error ? (
-            <p className="px-4 py-8 text-center text-sm text-muted-foreground">You're all caught up.</p>
+            <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+              You're all caught up.
+            </p>
           ) : (
             <ul>
               {items.map((n) => (
@@ -62,10 +77,25 @@ export function NotificationBell({ state }: { state: NotificationsState }) {
                     }}
                     className="flex gap-3 px-4 py-3 hover:bg-muted"
                   >
-                    <span aria-hidden="true" className={n.readAt === null ? "mt-1.5 size-2 shrink-0 rounded-full bg-accent" : "mt-1.5 size-2 shrink-0"} />
+                    <span
+                      aria-hidden="true"
+                      className={
+                        n.readAt === null
+                          ? "mt-1.5 size-2 shrink-0 rounded-full bg-accent"
+                          : "mt-1.5 size-2 shrink-0"
+                      }
+                    />
                     <span className="min-w-0">
-                      <span className={n.readAt === null ? "block text-sm font-semibold" : "block text-sm"}>{n.message}</span>
-                      <span className="block text-xs text-muted-foreground">{formatAgo(n.createdAt)}</span>
+                      <span
+                        className={
+                          n.readAt === null ? "block text-sm font-semibold" : "block text-sm"
+                        }
+                      >
+                        {n.message}
+                      </span>
+                      <span className="block text-xs text-muted-foreground">
+                        {formatAgo(n.createdAt)}
+                      </span>
                     </span>
                   </Link>
                 </li>

@@ -3,7 +3,8 @@ import { usePreference } from "../lib/preferences.js";
 import { Link } from "../router.js";
 import { checkStatusOf } from "./checkSummary.js";
 
-const clock = (iso: string) => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+const clock = (iso: string) =>
+  new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 
 /** A small box at the foot of the sidebar: are checks running, when is the next one, and is any supplier stopped. */
 export function CheckStatus({ rows }: { rows: ScheduleRow[] | null }) {
@@ -11,13 +12,27 @@ export function CheckStatus({ rows }: { rows: ScheduleRow[] | null }) {
   if (!show || rows === null) return null;
   const { on, nextAt, stopped } = checkStatusOf(rows);
   return (
-    <section aria-label="Checks" className="flex flex-col gap-1 border-t border-border px-4 py-3 text-[0.8125rem]">
-      <h2 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Checks</h2>
+    <section
+      aria-label="Checks"
+      className="flex flex-col gap-1 border-t border-border px-4 py-3 text-[0.8125rem]"
+    >
+      <h2 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+        Checks
+      </h2>
       <p className="flex items-center gap-2">
-        <span aria-hidden="true" className={on ? "size-[7px] rounded-full bg-good" : "size-[7px] rounded-full bg-neutral"} />
+        <span
+          aria-hidden="true"
+          className={on ? "size-[7px] rounded-full bg-good" : "size-[7px] rounded-full bg-neutral"}
+        />
         {on ? (
           <span>
-            On{nextAt && <> · next at <span className="font-mono">{clock(nextAt)}</span></>}
+            On
+            {nextAt && (
+              <>
+                {" "}
+                · next at <span className="font-mono">{clock(nextAt)}</span>
+              </>
+            )}
           </span>
         ) : (
           <span>Off</span>
