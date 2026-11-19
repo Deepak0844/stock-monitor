@@ -18,8 +18,10 @@ function sourceFiles(dir: string): string[] {
 }
 
 const WRITER = "packages/shopify/src/inventory-write.ts";
+// The one other allowed file: it signs the app up for Shopify's change messages, and does nothing else.
+const SUBSCRIBER = "packages/shopify/src/webhook-subscribe.ts";
 const allFiles = [...sourceFiles(join(root, "packages")), ...sourceFiles(join(root, "apps"))];
-const files = allFiles.filter((f) => relative(root, f) !== WRITER);
+const files = allFiles.filter((f) => relative(root, f) !== WRITER && relative(root, f) !== SUBSCRIBER);
 
 // A GraphQL mutation operation: the keyword followed by an optional name and then ( or {.
 const MUTATION = /\bmutation\s+[A-Za-z_]*\s*[({]/;
@@ -32,6 +34,7 @@ describe("Shopify is read-only except the one stock write", () => {
     expect(files.length).toBeGreaterThan(30);
     expect(files.some((f) => f.endsWith("packages/shopify/src/client.ts"))).toBe(true);
     expect(files.some((f) => f.endsWith("inventory-write.ts"))).toBe(false); // the one writer is checked on its own below
+    expect(files.some((f) => f.endsWith("webhook-subscribe.ts"))).toBe(false); // so is the one subscriber
   });
 
   it("contains no GraphQL mutation", () => {
@@ -52,6 +55,16 @@ describe("Shopify is read-only except the one stock write", () => {
     expect(text.match(WRITE_OPERATIONS_GLOBAL)?.every((m) => m === "inventorySetQuantities")).toBe(true);
     expect(text).toContain('name: "available"');
     expect(text).not.toMatch(/inventoryAdjustQuantities|inventorySetOnHandQuantities|inventoryActivate|inventoryDeactivate|productUpdate|productVariantsBulkUpdate/);
+  });
+
+  it("the one subscriber only signs up for change messages", () => {
+    const subscriber = allFiles.find((f) => relative(root, f) === SUBSCRIBER);
+    expect(subscriber).toBeDefined();
+    const text = readFileSync(subscriber!, "utf8");
+    expect(text.match(/\bmutation\s+\w*\s*[({]/g)).toHaveLength(1);
+    expect(text.match(/\b[a-z]+[A-Z]\w*\s*\(\s*topic\s*:/g)).toEqual(["webhookSubscriptionCreate(topic:"]);
+    expect(text).not.toMatch(WRITE_OPERATIONS);
+    expect(text).not.toMatch(/webhookSubscription(Update|Delete)|eventBridge|pubSub/i);
   });
 
   it("recognises a mutation when there is one", () => {
