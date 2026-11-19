@@ -7,7 +7,7 @@ type Props = { id: string; title: string; description?: ReactNode; children?: Re
  * screen, one above the other on a phone. The heading names the section for screen readers. */
 export function Panel({ id, title, description, children, className }: Props) {
   return (
-    <section aria-labelledby={id} className={cn("grid gap-4 border-t border-border py-6 first:border-t-0 lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-8", className)}>
+    <section aria-labelledby={id} className={cn("grid grid-cols-[minmax(0,1fr)] gap-4 border-t border-border py-6 first:border-t-0 lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-8", className)}>
       <div>
         <h2 id={id} className="text-base font-semibold lg:text-[0.9375rem]">
           {title}

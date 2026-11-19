@@ -239,7 +239,7 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
           ) : (
             <>
               {versionNote && <p className="text-sm text-muted-foreground">{versionNote}</p>}
-              <div className="-mx-6 -mb-6">
+              <div className="border-y border-border">
                 <VersionList key={versions.map((v) => v.id).join()} versions={versions} busy={busy !== null} turnOnBlock={turnOnBlockFor} onTurnOn={(v) => void turnOn(v)} onEdit={editAsNew} onDelete={deleteVersion} />
               </div>
             </>
