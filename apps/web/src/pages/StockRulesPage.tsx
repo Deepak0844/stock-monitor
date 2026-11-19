@@ -157,7 +157,7 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
         )}
         {supplier && !supplier.needsLogin && versions !== null && !versions.some((v) => v.active) && (
           <Notice kind="info">
-            This supplier needs no login, so it is already checked from its built-in stock data. Answers show on the Links page but are not sent to Shopify until you label one in-stock and one out-of-stock saved page and turn on a version.
+            This supplier needs no login, so it is already checked from its built-in stock data, with no stock rules needed. Its answers make suggestions on Proposals like any other supplier. Add rules here only if its pages have no built-in data.
           </Notice>
         )}
 

@@ -244,18 +244,16 @@ describe("evaluate: scope and safety", () => {
 });
 
 describe("evaluate: answers from the built-in default", () => {
-  it("never suggests a Shopify change from an answer the owner has not confirmed", async () => {
+  it("suggests a Shopify change from them like any other answer: the owner still approves every change", async () => {
     const { mappingId } = await link({ available: 4 });
     await observations().append({ mappingId, answer: "out_of_stock", reason: null, quantity: null, matchedText: "Built-in data: OutOfStock", quantityMismatch: false, recipeVersion: 0, checkResult: "ok", captureId: null });
     await run();
-    expect(await open()).toEqual([]);
+    expect(await open()).toMatchObject([{ kind: "set_zero_out_of_stock", proposedQuantity: 0, state: "open" }]);
   });
 
-  it("closes an open suggestion when the latest answer is from the built-in default", async () => {
-    const { mappingId } = await link({ available: 4, answer: "out_of_stock" });
-    await run();
-    expect(await open()).toHaveLength(1);
-    await observations().append({ mappingId, answer: "out_of_stock", reason: null, quantity: null, matchedText: "Built-in data: OutOfStock", quantityMismatch: false, recipeVersion: 0, checkResult: "ok", captureId: null });
+  it("never suggests anything from a cannot tell answer of the built-in default", async () => {
+    const { mappingId } = await link({ available: 4 });
+    await observations().append({ mappingId, answer: "cannot_tell", reason: "page_changed", quantity: null, matchedText: null, quantityMismatch: false, recipeVersion: 0, checkResult: "ok", captureId: null });
     await run();
     expect(await open()).toEqual([]);
   });

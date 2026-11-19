@@ -10,7 +10,7 @@ export type Waiting = "in_stock" | "out_of_stock" | "cannot_tell";
 
 /** The rules a supplier that needs no login is checked with until the owner turns on a version: built-in data only. */
 export const BUILT_IN_DEFAULT: Recipe = { pageChecks: [], inStock: [], outOfStock: [], builtIn: { waiting: "out_of_stock" } };
-/** The rules version answers from the built-in default are recorded under. They are never sent to Shopify. */
+/** The rules version answers from the built-in default are recorded under. */
 export const BUILT_IN_DEFAULT_VERSION = 0;
 
 type Kind = "in" | "out" | "waiting";

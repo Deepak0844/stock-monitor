@@ -272,3 +272,9 @@ The owner asked that a supplier with **Needs a login** off is checked without an
 Approaches considered: (1) this default plus hold-back, chosen; (2) the default with no hold-back, refused because stale public
 data would reach Shopify unchecked; (3) creating a real rules version automatically when the login is turned off, refused
 because it would make a version the owner never tested.
+
+## Addendum 2 (2026-11-19): no hold-back
+
+The owner asked to drop the hold-back: every Shopify change is approved by hand on Proposals anyway, so answers from the
+built-in default (rules version `0`) now make suggestions like any other answer. "Cannot tell" still never does. The link
+history says "built-in data, no stock rules".
