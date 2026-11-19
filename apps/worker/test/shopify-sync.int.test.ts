@@ -270,6 +270,15 @@ describe("through the real queue", () => {
     expect(job.rows.every((r) => JSON.stringify(r.data) === "{}")).toBe(true);
   }, 60_000);
 
+  it("grouped sends never leave more than two syncs waiting", async () => {
+    await fresh();
+    queue = createQueue({ connectionString: t.appUrl });
+    await queue.start();
+    for (let i = 0; i < 5; i++) await queue.enqueue("shopify.sync", {}, { groupSeconds: 60 });
+    const waiting = await t.pool.query("select count(*)::int as n from pgboss.job where name = 'shopify.sync' and state = 'created'");
+    expect(waiting.rows[0].n).toBe(2);
+  });
+
   it("refuses to queue a shopify.sync job that carries data", async () => {
     await fresh();
     queue = createQueue({ connectionString: t.appUrl });
