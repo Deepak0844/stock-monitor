@@ -49,18 +49,19 @@ const connect = (scopes: string[]) =>
 const WRITE = ["read_products", "read_inventory", "write_inventory"];
 
 let n = 0;
-async function suggest(over: { quantity?: number; kind?: string; tracked?: boolean; policy?: string; expiresAt?: Date } = {}) {
+async function suggest(over: { quantity?: number; kind?: string; tracked?: boolean; policy?: string; expiresAt?: Date; supplierId?: string } = {}) {
+  const supplierId = over.supplierId ?? acme;
   const v = `v${++n}`;
   await t.pool.query(
     `insert into shopify_variants (variant_id, product_id, product_title, variant_title, options, sku, inventory_item_id, tracked, inventory_policy, available)
      values ($1, 'p1', 'Blue Tee', 'Large', '[]', 'S-${n}', $2, $3, $4, 4)`,
     [v, `i${n}`, over.tracked ?? true, over.policy ?? "DENY"],
   );
-  const m = await createMappingRepository(t.appDb).create({ variantId: v, supplierId: acme, url: `https://acme.example/${v}`, note: null });
+  const m = await createMappingRepository(t.appDb).create({ variantId: v, supplierId, url: `https://${supplierId === acme ? "acme" : "bolt"}.example/${v}`, note: null });
   if (!m.ok) throw new Error("setup");
   mapping = m.mapping.id;
   const r = await proposals().evaluateFor({
-    variantId: v, mappingId: mapping, supplierId: acme, observationId: null, shopifyQuantitySeen: 4,
+    variantId: v, mappingId: mapping, supplierId, observationId: null, shopifyQuantitySeen: 4,
     wanted: { kind: over.kind ?? "set_zero_out_of_stock", proposedQuantity: over.quantity ?? 0 }, expiresAt: over.expiresAt ?? new Date(now.getTime() + 86_400_000),
   });
   return r.proposal!;
@@ -126,6 +127,38 @@ describe("listing", () => {
     expect(all.body.total).toBe(3);
   });
 
+  describe("by supplier", () => {
+    let bolt = "";
+    beforeEach(async () => {
+      const s = await createSupplierRepository(t.appDb).create({ name: "Bolt", websiteUrl: "https://bolt.example/", loginUrl: null, checkIntervalMinutes: 60 });
+      if (!s.ok) throw new Error("setup");
+      bolt = s.supplier.id;
+    });
+
+    it("lists one supplier's suggestions in both tabs", async () => {
+      const a = await suggest();
+      await suggest({ supplierId: bolt });
+      const open = await call("GET", `/api/proposals?tab=open&page=1&pageSize=10&supplierId=${bolt}`);
+      expect(open.body.total).toBe(1);
+      expect(open.body.proposals[0].supplierName).toBe("Bolt");
+      await proposals().reject(a.id, null, "owner", now);
+      const past = await call("GET", `/api/proposals?tab=history&supplierId=${acme}`);
+      expect(past.body).toMatchObject({ total: 1, hasMore: false });
+      expect((await call("GET", `/api/proposals?tab=history&supplierId=${bolt}`)).body.total).toBe(0);
+    });
+
+    it("refuses a supplier id that is not a UUID", async () => {
+      expect((await call("GET", "/api/proposals?tab=open&page=1&supplierId=nope")).status).toBe(400);
+    });
+
+    it("counts waiting suggestions per supplier next to the total", async () => {
+      await suggest();
+      await suggest({ supplierId: bolt });
+      await suggest({ supplierId: bolt });
+      expect((await call("GET", "/api/proposals/count")).body).toEqual({ open: 3, bySupplier: { [acme]: 1, [bolt]: 2 } });
+    });
+  });
+
   it("says how many history rows there are in all", async () => {
     for (let i = 0; i < 3; i++) await proposals().reject((await suggest()).id, null, "owner", now);
     expect((await call("GET", "/api/proposals?tab=history&pageSize=2")).body).toMatchObject({ total: 3, hasMore: true });
@@ -146,7 +179,7 @@ describe("listing", () => {
   it("counts the open ones for the menu", async () => {
     await suggest();
     await suggest();
-    expect((await call("GET", "/api/proposals/count")).body).toEqual({ open: 2 });
+    expect((await call("GET", "/api/proposals/count")).body).toMatchObject({ open: 2 });
   });
 
   it("says whether Shopify allows the write", async () => {
