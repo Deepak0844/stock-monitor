@@ -1,9 +1,25 @@
-import { Fragment, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import {
+  Fragment,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { ChevronDown, Search } from "lucide-react";
 import { Popover as P } from "radix-ui";
 import { cn } from "@/lib/utils.js";
 
-export type SearchOption = { id: string; label: string; detail?: string; count?: number; disabled?: boolean; note?: string };
+export type SearchOption = {
+  id: string;
+  label: string;
+  detail?: string;
+  count?: number;
+  disabled?: boolean;
+  note?: string;
+};
 
 type Props = {
   /** What is being chosen, shown before the value: "Supplier: All suppliers". */
@@ -34,7 +50,11 @@ const SEARCH_DELAY_MS = 300;
 
 const matches = (o: SearchOption, q: string) => {
   const needle = q.trim().toLowerCase();
-  return needle === "" || o.label.toLowerCase().includes(needle) || (o.detail ?? "").toLowerCase().includes(needle);
+  return (
+    needle === "" ||
+    o.label.toLowerCase().includes(needle) ||
+    (o.detail ?? "").toLowerCase().includes(needle)
+  );
 };
 
 /** Wraps every case-insensitive match of `q` in <mark>. */
@@ -42,11 +62,34 @@ function marked(text: string, q: string): ReactNode {
   const needle = q.trim();
   if (!needle) return text;
   const parts = text.split(new RegExp(`(${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "i"));
-  return parts.map((p, i) => (i % 2 ? <mark key={i} className="rounded-[1px] bg-bad/20 text-inherit">{p}</mark> : <Fragment key={i}>{p}</Fragment>));
+  return parts.map((p, i) =>
+    i % 2 ? (
+      <mark key={i} className="rounded-[1px] bg-bad/20 text-inherit">
+        {p}
+      </mark>
+    ) : (
+      <Fragment key={i}>{p}</Fragment>
+    ),
+  );
 }
 
 /** A dropdown with a search box, for lists that can be long: suppliers and variants. Arrow keys move, Enter picks, Esc closes. */
-export function SearchSelect({ label, value, valueLabel, options, search, allOption, placeholder, noMatch, onChange, className, id: fieldId, hideLabel, invalid, describedBy }: Props) {
+export function SearchSelect({
+  label,
+  value,
+  valueLabel,
+  options,
+  search,
+  allOption,
+  placeholder,
+  noMatch,
+  onChange,
+  className,
+  id: fieldId,
+  hideLabel,
+  invalid,
+  describedBy,
+}: Props) {
   const id = useId();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -73,7 +116,12 @@ export function SearchSelect({ label, value, valueLabel, options, search, allOpt
     return allOption ? [allOption, ...list] : list;
   }, [search, found, options, q, allOption]);
 
-  const shown = value === null ? (allOption?.label ?? "Choose") : (valueLabel ?? [...(options ?? []), ...(found ?? [])].find((o) => o.id === value)?.label ?? "Choose");
+  const shown =
+    value === null
+      ? (allOption?.label ?? "Choose")
+      : (valueLabel ??
+        [...(options ?? []), ...(found ?? [])].find((o) => o.id === value)?.label ??
+        "Choose");
   const optionId = (o: SearchOption) => `${id}-opt-${o.id || "all"}`;
 
   const close = () => {
@@ -111,7 +159,7 @@ export function SearchSelect({ label, value, valueLabel, options, search, allOpt
           aria-invalid={invalid || undefined}
           aria-describedby={describedBy}
           className={cn(
-            "inline-flex h-11 min-w-56 cursor-pointer items-center justify-between gap-2 rounded-md border border-input bg-background px-3 text-left text-base focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring aria-expanded:border-foreground lg:h-8 lg:text-sm",
+            "inline-flex h-11 min-w-56 cursor-pointer items-center justify-between gap-2 rounded-md border border-input bg-card px-3 text-left text-base focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring aria-expanded:border-foreground lg:h-8 lg:text-sm",
             className,
           )}
         >
@@ -137,7 +185,9 @@ export function SearchSelect({ label, value, valueLabel, options, search, allOpt
               aria-expanded="true"
               aria-controls={`${id}-list`}
               aria-autocomplete="list"
-              aria-activedescendant={active >= 0 && items[active] ? optionId(items[active]) : undefined}
+              aria-activedescendant={
+                active >= 0 && items[active] ? optionId(items[active]) : undefined
+              }
               placeholder={placeholder}
               autoComplete="off"
               value={q}
@@ -149,7 +199,12 @@ export function SearchSelect({ label, value, valueLabel, options, search, allOpt
               className="h-11 min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground lg:h-9 lg:text-sm"
             />
           </div>
-          <ul id={`${id}-list`} role="listbox" aria-label={label} className="max-h-72 overflow-y-auto py-1">
+          <ul
+            id={`${id}-list`}
+            role="listbox"
+            aria-label={label}
+            className="max-h-72 overflow-y-auto py-1"
+          >
             {items.map((o, i) => (
               <li
                 key={o.id || "all"}
@@ -169,14 +224,22 @@ export function SearchSelect({ label, value, valueLabel, options, search, allOpt
               >
                 <span className="min-w-0">
                   <span className="block truncate">{marked(o.label, q)}</span>
-                  {o.detail && <span className="block truncate text-xs text-muted-foreground">{marked(o.detail, q)}</span>}
+                  {o.detail && (
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {marked(o.detail, q)}
+                    </span>
+                  )}
                 </span>
-                <span className="shrink-0 font-mono text-xs text-muted-foreground">{o.note ?? o.count?.toLocaleString("en-GB")}</span>
+                <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                  {o.note ?? o.count?.toLocaleString("en-GB")}
+                </span>
               </li>
             ))}
           </ul>
           {items.filter((o) => o !== allOption).length === 0 && (
-            <p className="px-3 pb-3 text-sm text-muted-foreground">{search && found === null ? "Searching…" : noMatch(q.trim())}</p>
+            <p className="px-3 pb-3 text-sm text-muted-foreground">
+              {search && found === null ? "Searching…" : noMatch(q.trim())}
+            </p>
           )}
           <p className="hidden gap-3 border-t border-border px-3 py-1.5 text-xs text-muted-foreground lg:flex">
             <span>↑ ↓ move</span>

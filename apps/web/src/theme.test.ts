@@ -9,12 +9,15 @@ function block(selector: string): Record<string, string> {
   if (start < 0) throw new Error(`No ${selector} block in theme.css`);
   const body = css.slice(start + selector.length + 2, css.indexOf("}", start));
   const out: Record<string, string> = {};
-  for (const m of body.matchAll(/--([a-z-]+):\s*(#[0-9a-fA-F]{6})/g)) out[m[1] as string] = (m[2] as string).toLowerCase();
+  for (const m of body.matchAll(/--([a-z-]+):\s*(#[0-9a-fA-F]{6})/g))
+    out[m[1] as string] = (m[2] as string).toLowerCase();
   return out;
 }
 
 const luminance = (hex: string) => {
-  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  const [r, g, b] = [1, 3, 5]
+    .map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
   return 0.2126 * (r as number) + 0.7152 * (g as number) + 0.0722 * (b as number);
 };
 const contrast = (a: string, b: string) => {
@@ -37,12 +40,15 @@ const TEXT: [string, string][] = [
   ["muted-foreground", "muted"],
   ["muted-foreground", "secondary"],
   ["muted-foreground", "hover"],
+  ["muted-foreground", "card"],
+  ["foreground", "card"],
   ["foreground", "selected"],
   ["destructive-foreground", "destructive"],
   ["accent-foreground", "accent"],
 ];
 const CONTROLS: [string, string][] = [
   ["input", "background"],
+  ["input", "card"],
   ["ring", "background"],
 ];
 
@@ -61,4 +67,13 @@ describe.each(Object.entries(themes))("%s theme", (_name, t) => {
 
 it("the dark theme for the system setting matches the dark theme chosen by hand", () => {
   expect(block(":root:not(.light)")).toEqual(themes.dark);
+});
+
+it("uses the owner's chosen brightness: Stone in light, Charcoal in dark, with fields and panels a shade lighter than the page", () => {
+  expect(themes.light.background).toBe("#efeee9");
+  expect(themes.light.card).toBe("#f8f7f3");
+  expect(themes.light.sidebar).toBe("#e6e5df");
+  expect(themes.dark.background).toBe("#1b1c1a");
+  expect(themes.dark.card).toBe("#232421");
+  expect(themes.dark.sidebar).toBe("#161715");
 });
