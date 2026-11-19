@@ -5,6 +5,7 @@ import { hideConsentBanners } from "./consent.js";
 import { offersFrom, type PageOffer } from "./offers.js";
 import { NAME_SHIM } from "./page-shim.js";
 import type { GuardProxy } from "./proxy.js";
+import { waitUntilShown } from "./settle.js";
 import { CHALLENGE_WIDGET, MAX_TEXT, withFreshState, type BlockTracker, type CheckPageOutcome, type VerifyOptions } from "./verify.js";
 
 export type CaptureRequest = { url: string; loginUrl?: string; loggedInMarker?: string; state: SessionState; picture?: boolean; stealth?: boolean; publicPage?: boolean };
@@ -193,7 +194,8 @@ export async function capturePageIn(page: import("playwright").Page, request: Ca
 
   // A cookie banner would cover the picture and add its own words and buttons to every page.
   await hideConsentBanners(page);
-  // The picture first: describing the page hides its input fields.
+  // The picture first: describing the page hides its input fields. A page that fades in is waited for, or the picture is blank.
+  if (request.picture) await waitUntilShown(page);
   const picture = request.picture ? await takePicture(page) : null;
   const seen = await readPage(page);
   const { result, signal } = explainPage({
