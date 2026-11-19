@@ -203,7 +203,8 @@ test("when many pages change at once there is one dashboard notification, and a 
   await control.browser({ description: changed });
   await signIn(page);
   await page.goto("/mappings");
-  await page.getByLabel("Supplier", { exact: true }).selectOption({ label: "Acme Supply" });
+  await page.getByRole("button", { name: /^Supplier:/ }).click();
+  await page.getByRole("option", { name: /Acme Supply/ }).click();
   await page.getByRole("button", { name: "Check all stock for Acme Supply" }).click();
   await expect(page.getByText(/Checking stock for 6 links/)).toBeVisible();
 
@@ -217,7 +218,8 @@ test("when many pages change at once there is one dashboard notification, and a 
 
   await control.browser({ description: inStock });
   await page.goto("/mappings");
-  await page.getByLabel("Supplier", { exact: true }).selectOption({ label: "Acme Supply" });
+  await page.getByRole("button", { name: /^Supplier:/ }).click();
+  await page.getByRole("option", { name: /Acme Supply/ }).click();
   await page.getByRole("button", { name: "Check all stock for Acme Supply" }).click();
   await expect(async () => {
     await page.goto("/");
