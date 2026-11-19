@@ -464,12 +464,13 @@ describe("stock answers", () => {
     expect(items[2]).not.toHaveTextContent(/Read (quickly|with the browser)/);
   });
 
-  it("says when an answer came from built-in data the owner has not confirmed yet", async () => {
+  it("says when an answer came from the built-in data alone", async () => {
     const observations = vi.fn().mockResolvedValue([{ id: 3, ...stock({ answer: "out_of_stock" }), quantityMismatch: false, recipeVersion: 0, checkResult: "ok" }]);
     const { user } = setup([blue], { stock: { observations } });
     await user.click(within(await openMenu(user, "Blue Tee Large")).getByRole("menuitem", { name: "History" }));
     const list = await screen.findByRole("list", { name: "Stock history for Blue Tee Large" });
-    expect(within(list).getAllByRole("listitem")[0]).toHaveTextContent("built-in data, not confirmed yet, so not sent to Shopify");
+    expect(within(list).getAllByRole("listitem")[0]).toHaveTextContent("built-in data, no stock rules");
+    expect(list).not.toHaveTextContent("not sent to Shopify");
     expect(list).not.toHaveTextContent("rules version 0");
   });
 });

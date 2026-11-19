@@ -76,7 +76,7 @@ export async function stockGate(
   const refused = whyNotChecked(supplier, (await deps.supplierSessions.getSealed(supplierId)) !== null);
   if (refused) return { reason: refused.reason };
   const row = await deps.recipes.active(supplierId);
-  // A supplier that needs no login is checked from its built-in data until the owner turns on rules (answers held from Shopify).
+  // A supplier that needs no login is checked from its built-in data until the owner turns on rules of its own.
   if (!row && !supplier.needsLogin) return { supplier, active: { recipe: BUILT_IN_DEFAULT, version: BUILT_IN_DEFAULT_VERSION } };
   const checked = row ? validateRecipe(row.rules) : null;
   if (!row || !checked?.ok) return { reason: "no_recipe" };

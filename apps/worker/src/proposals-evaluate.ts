@@ -1,7 +1,6 @@
 import type { Logger } from "pino";
 import type { createMappingRepository, createObservationRepository, createProposalRepository, createShopifyRepository } from "@stock-monitor/db";
 import { isUnavailableCandidate } from "@stock-monitor/mapping";
-import { BUILT_IN_DEFAULT_VERSION } from "@stock-monitor/extraction";
 import { decideProposal, expiresAt } from "@stock-monitor/proposals";
 
 export type ProposalsEvaluateDeps = {
@@ -44,8 +43,7 @@ export function createProposalsEvaluateHandler(deps: ProposalsEvaluateDeps) {
       const seen = latest.get(link.id);
       const gone = !link.enabled || link.variantRemoved || !variant || variant.removed;
       const wanted =
-        // An answer from the built-in default is shown, never suggested to Shopify, until the owner confirms the supplier's data.
-        gone || !seen || variant.available === null || seen.recipeVersion === BUILT_IN_DEFAULT_VERSION
+        gone || !seen || variant.available === null
           ? null
           : decideProposal({
               answer: seen.answer,
