@@ -72,9 +72,9 @@ const onLoginPage = (url: string, loginUrl: string) => {
 };
 
 type Input = { index: number; mark: string; visible: boolean; empty: boolean; password: boolean; usernameLike: boolean; account: boolean; checkbox: boolean; code: boolean; maxLength: number };
-type Found = { frame: Frame; field: Locator; empty: boolean } | null;
+export type Found = { frame: Frame; field: Locator; empty: boolean } | null;
 /** `code`: a visible one-time-code box in the same frame. It is never taken for the username. */
-type Fields = { account: Found; username: Found; password: Found; code: boolean };
+export type Fields = { account: Found; username: Found; password: Found; code: boolean };
 
 /**
  * Each box the login reads is marked once with a number of its own, and every later look finds it by that mark. A box found by its
@@ -137,7 +137,7 @@ async function inputsOf(frame: Frame, overrides: LoginSelectors): Promise<Input[
 }
 
 /** The fields of this step, searched in every frame, visible ones only. The account field is never taken for the username. */
-async function findFields(page: Page, overrides: LoginSelectors): Promise<Fields> {
+export async function findFields(page: Page, overrides: LoginSelectors): Promise<Fields> {
   const none: Fields = { account: null, username: null, password: null, code: false };
   for (const frame of page.frames()) {
     const inputs = (await inputsOf(frame, overrides)).filter((i) => i.visible && !i.checkbox);
@@ -295,7 +295,7 @@ async function frameTexts(page: Page): Promise<FrameText[]> {
   );
 }
 
-async function challengeVisible(page: Page): Promise<boolean> {
+export async function challengeVisible(page: Page): Promise<boolean> {
   for (const frame of page.frames()) {
     const seen = await frame
       .locator(CHALLENGE_WIDGET)
@@ -848,7 +848,7 @@ async function findCheckbox(frame: Frame, words: RegExp): Promise<Locator | null
 }
 
 /** The step's next button: the override, the form's submit button, a Next/Continue/Sign in button, or null for Enter. */
-async function nextButton(page: Page, frame: Frame, field: Locator, override: string | undefined): Promise<Locator | "missing" | null> {
+export async function nextButton(page: Page, frame: Frame, field: Locator, override: string | undefined): Promise<Locator | "missing" | null> {
   if (override) return (await firstVisible(page, override)) ?? "missing";
   const visible = async (all: Locator) => {
     for (const el of await all.all().catch(() => [])) if (await el.isVisible().catch(() => false)) return el;

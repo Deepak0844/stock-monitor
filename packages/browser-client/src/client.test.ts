@@ -346,3 +346,53 @@ describe("login", () => {
     expect(await c({ pageTimeoutMs: 1_000, loginTimeoutMs: 50 }).login(request)).toEqual({ ok: false, reason: "unavailable" });
   });
 });
+
+describe("inspectLogin", () => {
+  const request = { loginUrl: "https://shop.acme.example/login", checkUrl: "https://shop.acme.example/", stealth: false };
+  const inspection = {
+    state: "form", opened: false,
+    found: { open: null, account: null, username: { label: "Email", selector: "#UserName" }, password: null, submit: { label: "Go", selector: "#go" } },
+    fields: [{ label: "Email", selector: "#UserName" }], buttons: [{ label: "Go", selector: "#go" }],
+  };
+  const withReply = (status: number, json: unknown, over: { inspectTimeoutMs?: number } = {}) =>
+    createBrowserClient({ baseUrl: "http://x.test", token: "t", fetchImpl: (async () => new Response(JSON.stringify(json), { status })) as typeof fetch, ...over });
+
+  it("posts to /login/inspect with the token and returns the inspection", async () => {
+    const seen: { url: string; auth: string | null; body: unknown }[] = [];
+    const c = createBrowserClient({
+      baseUrl: "http://x.test", token: "tok",
+      fetchImpl: (async (url: string, init: RequestInit) => {
+        seen.push({ url, auth: new Headers(init.headers).get("authorization"), body: JSON.parse(String(init.body)) });
+        return new Response(JSON.stringify(inspection), { status: 200 });
+      }) as unknown as typeof fetch,
+    });
+    expect(await c.inspectLogin({ ...request, selectors: { submit: "#go" } })).toEqual({ ok: true, inspection });
+    expect(seen).toEqual([{ url: "http://x.test/login/inspect", auth: "Bearer tok", body: { ...request, selectors: { submit: "#go" } } }]);
+  });
+  it("says not_supported when the service has no such route", async () => {
+    expect(await withReply(404, { error: "not_found" }).inspectLogin(request)).toEqual({ ok: false, reason: "not_supported" });
+  });
+  it("says failed for an error status or an answer that is not an inspection", async () => {
+    expect(await withReply(500, { error: "inspect_failed" }).inspectLogin(request)).toEqual({ ok: false, reason: "failed" });
+    expect(await withReply(200, { state: "weird" }).inspectLogin(request)).toEqual({ ok: false, reason: "failed" });
+    expect(await withReply(200, { ...inspection, fields: "x" }).inspectLogin(request)).toEqual({ ok: false, reason: "failed" });
+    expect(await withReply(200, { ...inspection, found: { ...inspection.found, username: { label: 1, selector: "#a" } } }).inspectLogin(request)).toEqual({ ok: false, reason: "failed" });
+  });
+  it("says unavailable when nothing answers", async () => {
+    const c = createBrowserClient({ baseUrl: "http://x.test", token: "t", fetchImpl: (async () => { throw new Error("down"); }) as typeof fetch });
+    expect(await c.inspectLogin(request)).toEqual({ ok: false, reason: "unavailable" });
+  });
+  it("waits by its own limit", async () => {
+    // Answers after 200 ms, unless the call gave up first.
+    const slow = (async (_url: string, init: RequestInit) => {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, 200);
+        init.signal?.addEventListener("abort", () => (clearTimeout(timer), reject(new Error("aborted"))));
+      });
+      return new Response(JSON.stringify(inspection), { status: 200 });
+    }) as unknown as typeof fetch;
+    const c = (over: { inspectTimeoutMs?: number; timeoutMs?: number }) => createBrowserClient({ baseUrl: "http://x.test", token: "t", fetchImpl: slow, ...over });
+    expect(await c({ timeoutMs: 50, inspectTimeoutMs: 1_000 }).inspectLogin(request)).toEqual({ ok: true, inspection });
+    expect(await c({ timeoutMs: 1_000, inspectTimeoutMs: 50 }).inspectLogin(request)).toEqual({ ok: false, reason: "unavailable" });
+  });
+});

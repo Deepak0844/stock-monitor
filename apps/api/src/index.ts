@@ -29,27 +29,28 @@ const queue = createQueue({
 await queue.start();
 
 const db = drizzle(pool);
+// The login routes need the browser service. Without its address and token the API has no login routes.
+const browser = config.browserServiceUrl && config.browserControlToken ? createBrowserClient({ baseUrl: config.browserServiceUrl, token: config.browserControlToken }) : undefined;
 const app = buildApp({
   db,
   logger,
   secureCookies: config.cookieSecure,
   trustProxy: config.trustProxy,
   webRoot,
-  suppliers: { repo: createSupplierRepository(db), credentials: createSupplierCredentialsRepository(db), key: { key: config.encryptionKey, keyId: KEY_ID }, queue },
+  suppliers: { repo: createSupplierRepository(db), credentials: createSupplierCredentialsRepository(db), key: { key: config.encryptionKey, keyId: KEY_ID }, queue, ...(browser ? { browser } : {}) },
   notifications: { repo: createNotificationRepository(db) },
   mappings: { mappings: createMappingRepository(db), suppliers: createSupplierRepository(db), observations: createObservationRepository(db), proposals: createProposalRepository(db), previews: createImportPreviewRepository(db), supplierSessions: createSupplierSessionRepository(db), queue, checkRuns: createCheckRunRepository(db) },
   captures: { captures: createCaptureRepository(db), mappings: createMappingRepository(db), suppliers: createSupplierRepository(db), supplierSessions: createSupplierSessionRepository(db), queue },
   recipes: { recipes: createRecipeRepository(db), captures: createCaptureRepository(db), mappings: createMappingRepository(db), suppliers: createSupplierRepository(db) },
   schedule: { suppliers: createSupplierRepository(db), supplierSessions: createSupplierSessionRepository(db), recipes: createRecipeRepository(db), checkRuns: createCheckRunRepository(db), timezone: config.timezone },
   stockChecks: { mappings: createMappingRepository(db), suppliers: createSupplierRepository(db), supplierSessions: createSupplierSessionRepository(db), recipes: createRecipeRepository(db), observations: createObservationRepository(db), checkRuns: createCheckRunRepository(db), queue },
-  // The login routes need the browser service. Without its address and token the API has no login routes.
   loginSessions:
     config.browserServiceUrl && config.browserControlToken
       ? {
           suppliers: createSupplierRepository(db),
           loginSessions: createLoginSessionRepository(db),
           supplierSessions: createSupplierSessionRepository(db),
-          browser: createBrowserClient({ baseUrl: config.browserServiceUrl, token: config.browserControlToken }),
+          browser: browser as NonNullable<typeof browser>,
           key: { key: config.encryptionKey, keyId: KEY_ID },
           notifications: createNotificationRepository(db),
           queue,

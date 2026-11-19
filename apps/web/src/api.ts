@@ -128,6 +128,16 @@ export type Supplier = {
 };
 
 export type LoginSelectors = { open?: string; account?: string; username?: string; password?: string; submit?: string };
+/** One box or button on a supplier's login page: its own short words, and a selector that finds only it. */
+export type InspectControl = { label: string; selector: string };
+/** What "Check login page" found. Nothing was typed or sent. `found` is what a login would use. */
+export type LoginInspection = {
+  state: "form" | "opener" | "none" | "captcha" | "unreachable";
+  opened: boolean;
+  found: Record<"open" | "account" | "username" | "password" | "submit", InspectControl | null>;
+  fields: InspectControl[];
+  buttons: InspectControl[];
+};
 export type AutoLoginResult = "ok" | "captcha" | "code_required" | "wrong_password" | "account_locked" | "blocked" | "form_not_found" | "unreachable" | "unknown";
 export type CredentialsInput = { username: string; password: string; account?: string };
 
@@ -209,6 +219,8 @@ export type SuppliersApi = {
   testAutoLogin(id: string): Promise<void>;
   /** Clears the pause after a failed automatic login. */
   resumeAutoLogin(id: string): Promise<void>;
+  /** Looks at the supplier's login page and says what a login would use there. Types and sends nothing. */
+  inspectLogin(id: string): Promise<LoginInspection>;
 };
 
 export type LinkStatus = "not_checked" | "works" | "never_worked" | "page_missing" | "moved" | "looks_different" | "needs_login" | "could_not_check";
@@ -606,6 +618,9 @@ const suppliers: SuppliersApi = {
   setAutoLogin: (id, patch) => supplier(`/api/suppliers/${encodeURIComponent(id)}`, { method: "PATCH", json: patch }),
   testAutoLogin: (id) => done(`/api/suppliers/${encodeURIComponent(id)}/auto-login/test`, { method: "POST" }),
   resumeAutoLogin: (id) => done(`/api/suppliers/${encodeURIComponent(id)}/auto-login/resume`, { method: "POST" }),
+  async inspectLogin(id) {
+    return (await request<{ inspection: LoginInspection }>(`/api/suppliers/${encodeURIComponent(id)}/auto-login/inspect`, { method: "POST", json: {} })).inspection;
+  },
 };
 
 const enc = encodeURIComponent;

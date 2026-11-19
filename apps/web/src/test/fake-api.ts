@@ -260,6 +260,7 @@ export function fakeApi(
       setAutoLogin: vi.fn().mockImplementation(async (_id, patch) => aSupplier({ ...patch })),
       testAutoLogin: vi.fn().mockResolvedValue(undefined),
       resumeAutoLogin: vi.fn().mockResolvedValue(undefined),
+      inspectLogin: vi.fn().mockResolvedValue({ state: "none", opened: false, found: { open: null, account: null, username: null, password: null, submit: null }, fields: [], buttons: [] }),
       ...suppliers,
     },
     schedule: {

@@ -10,7 +10,7 @@ export const OPENER_WORDS = ["login", "log in", "sign in", "account"];
 const source = (words: string[]) => `\\b(?:${words.join("|")})\\b`;
 export const LOGIN_SOURCE = source(LOGIN_WORDS);
 export const AVOID_SOURCE = source(AVOID_WORDS);
-const OPENER_SOURCE = source(OPENER_WORDS);
+export const OPENER_SOURCE = source(OPENER_WORDS);
 const login = new RegExp(LOGIN_SOURCE, "i");
 const avoid = new RegExp(AVOID_SOURCE, "i");
 const tidy = (text: string) => text.replace(/\s+/g, " ").trim();

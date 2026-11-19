@@ -20,6 +20,18 @@ export type LoginOutcome = { result: LoginResult; state?: SessionState } | { res
 /** `not_supported`: the service has no login (it is not in profile mode). */
 export type LoginCallOutcome = { ok: true; outcome: LoginOutcome } | { ok: false; reason: "unavailable" | "failed" | "not_supported" };
 
+/** Mirrors the browser service's login page check. The service never types or sends anything for it. */
+export type InspectControl = { label: string; selector: string };
+export type LoginInspection = {
+  state: "form" | "opener" | "none" | "captcha" | "unreachable";
+  /** The opener was clicked to show the form. */
+  opened: boolean;
+  found: Record<"open" | "account" | "username" | "password" | "submit", InspectControl | null>;
+  fields: InspectControl[];
+  buttons: InspectControl[];
+};
+export type InspectCallOutcome = { ok: true; inspection: LoginInspection } | { ok: false; reason: "unavailable" | "failed" | "not_supported" };
+
 export type OpenOutcome =
   | { ok: true; id: string; expiresAt: string; vncPassword?: string }
   | { ok: false; reason: "busy" | "failed" | "unavailable" };
@@ -64,6 +76,8 @@ export type BrowserClient = {
   quickRead(request: { url: string }): Promise<QuickReadOutcome>;
   /** Signs in with a username and password, once, in the supplier's profile. The password goes in the request only, never in an answer or an error. */
   login(request: LoginRequest): Promise<LoginCallOutcome>;
+  /** Looks at a supplier's login page and says what a login would use there, and what else could be picked. Nothing is typed or sent. */
+  inspectLogin(request: { loginUrl: string; checkUrl: string; stealth: boolean; selectors?: LoginSelectors }): Promise<InspectCallOutcome>;
   /** Sends the emailed code to a login waiting at a code box, and answers how that login ended. */
   sendCode(holdId: string, code: string): Promise<LoginCallOutcome>;
   /** Ends a login waiting at a code box with no code. Never throws. */
@@ -82,11 +96,20 @@ export type BrowserClientOptions = {
   loginTimeoutMs?: number;
   /** How long to wait for a login to finish after its emailed code is sent: type, submit, confirm. */
   codeTimeoutMs?: number;
+  /** How long to wait for a login page check: it loads the page, may open it once, and lists what is there. */
+  inspectTimeoutMs?: number;
   fetchImpl?: typeof fetch;
 };
 
 const PAGE_CLASSES: readonly string[] = ["ok", "login_required", "captcha", "blocked", "unreachable", "unknown"];
 const LOGIN_RESULTS: readonly string[] = ["ok", "captcha", "code_required", "wrong_password", "account_locked", "blocked", "form_not_found", "unreachable", "unknown"];
+const INSPECT_STATES: readonly string[] = ["form", "opener", "none", "captcha", "unreachable"];
+const INSPECT_ROLES = ["open", "account", "username", "password", "submit"] as const;
+const MAX_CONTROLS = 40;
+const isControl = (v: unknown): v is InspectControl => isObject(v) && typeof v.label === "string" && typeof v.selector === "string";
+const isControlList = (v: unknown): v is InspectControl[] => Array.isArray(v) && v.length <= MAX_CONTROLS && v.every(isControl);
+const isInspection = (v: unknown): v is LoginInspection =>
+  isObject(v) && INSPECT_STATES.includes(v.state as string) && typeof v.opened === "boolean" && isObject(v.found) && INSPECT_ROLES.every((r) => (v.found as Record<string, unknown>)[r] === null || isControl((v.found as Record<string, unknown>)[r])) && isControlList(v.fields) && isControlList(v.buttons);
 const WINDOW_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
@@ -94,7 +117,7 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "obj
  * Talks to the browser service over the private network. It never throws and never puts a token, an
  * address or a session in a message: every problem becomes a short reason the caller turns into plain words.
  */
-export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, pageTimeoutMs = 120_000, loginTimeoutMs = 240_000, codeTimeoutMs = 150_000, fetchImpl = fetch }: BrowserClientOptions): BrowserClient {
+export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, pageTimeoutMs = 120_000, loginTimeoutMs = 240_000, codeTimeoutMs = 150_000, inspectTimeoutMs = 90_000, fetchImpl = fetch }: BrowserClientOptions): BrowserClient {
   const root = baseUrl.replace(/\/+$/, "");
 
   /** A finished login's answer: the result, and the session when it is ok. */
@@ -170,6 +193,13 @@ export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, pageTi
         return typeof r.json.holdId === "string" ? { ok: true, outcome: { result: "code_needed", holdId: r.json.holdId } } : { ok: false, reason: "failed" };
       }
       return loginAnswer(r);
+    },
+
+    async inspectLogin(request) {
+      const r = await call("POST", "/login/inspect", request, inspectTimeoutMs);
+      if (!r) return { ok: false, reason: "unavailable" };
+      if (r.status === 404) return { ok: false, reason: "not_supported" };
+      return r.status === 200 && isInspection(r.json) ? { ok: true, inspection: r.json } : { ok: false, reason: "failed" };
     },
 
     async sendCode(holdId, code) {

@@ -545,6 +545,74 @@ describe("automatic login", () => {
   });
 });
 
+describe("POST /api/suppliers/:id/auto-login/inspect", () => {
+  const inspection = {
+    state: "form", opened: false,
+    found: { open: null, account: null, username: { label: "Email", selector: "#UserName" }, password: null, submit: { label: "login to your account", selector: "#dupbtn" } },
+    fields: [{ label: "Email", selector: "#UserName" }], buttons: [{ label: "login to your account", selector: "#dupbtn" }],
+  };
+  const calls: unknown[] = [];
+  let outcome: unknown = { ok: true, inspection };
+  const browser = { inspectLogin: async (request: unknown) => (calls.push(request), outcome) };
+  const inspectApp = (withBrowser = true) => buildApp({ db: t.appDb, logger, suppliers: { ...supplierDeps(), ...(withBrowser ? { browser: browser as never } : {}) } });
+  const grant = (id: string) => createSupplierRepository(t.appDb).setPermission(id, { status: "granted", note: null });
+  const post = (id: string, payload: unknown = {}, cookie = true, a = inspectApp()) => a.inject({ method: "POST", url: `/api/suppliers/${id}/auto-login/inspect`, payload: payload as never, cookies: cookie ? { sid } : {} });
+  beforeEach(() => {
+    calls.length = 0;
+    outcome = { ok: true, inspection };
+  });
+
+  it("needs a signed-in owner", async () => {
+    const s = await create();
+    expect((await post(s.id, {}, false)).statusCode).toBe(401);
+  });
+  it("asks the browser about the supplier's own login page and returns what it found", async () => {
+    const s = await create({ ...acme, loginUrl: "https://shop.acme.example/Account/Login" });
+    await grant(s.id);
+    await call("PATCH", `/api/suppliers/${s.id}`, { loginSelectors: { submit: "#go" } });
+    const res = await post(s.id);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ inspection });
+    expect(calls).toEqual([{ loginUrl: "https://shop.acme.example/Account/Login", checkUrl: s.websiteUrl, stealth: false, selectors: { submit: "#go" } }]);
+  });
+  it("uses the supplier's website when it has no login address, and sends no selectors when there are none", async () => {
+    const s = await create();
+    await grant(s.id);
+    await post(s.id);
+    expect(calls).toEqual([{ loginUrl: s.websiteUrl, checkUrl: s.websiteUrl, stealth: false }]);
+  });
+  it("refuses a supplier that does not allow automatic checks, an unknown one, and a body", async () => {
+    const s = await create();
+    expect(await post(s.id).then((r) => [r.statusCode, r.json().error.code])).toEqual([409, "not_granted"]);
+    expect((await post("00000000-0000-4000-8000-000000000000")).statusCode).toBe(404);
+    await grant(s.id);
+    expect((await post(s.id, { loginUrl: "https://elsewhere.example/" })).statusCode).toBe(400);
+    expect(calls).toEqual([]);
+  });
+  it.each([["unavailable"], ["failed"], ["not_supported"]])("says the browser service did not answer when it is %s", async (reason) => {
+    const s = await create();
+    await grant(s.id);
+    outcome = { ok: false, reason };
+    const res = await post(s.id);
+    expect(res.statusCode).toBe(503);
+    expect(res.json().error).toMatchObject({ code: "browser_unavailable", message: "The browser service did not answer. Try again in a minute." });
+  });
+  it("audits counts and the state, never a label or a selector", async () => {
+    const s = await create();
+    await grant(s.id);
+    await post(s.id);
+    const rows = await events("supplier.login_inspected");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].details).toEqual({ state: "form", found: 2, fields: 1, buttons: 1 });
+    expect(JSON.stringify(rows[0].details)).not.toMatch(/UserName|dupbtn|Email/);
+  });
+  it("has no such route without a browser client", async () => {
+    const s = await create();
+    await grant(s.id);
+    expect((await post(s.id, {}, true, inspectApp(false))).statusCode).toBe(404);
+  });
+});
+
 describe("PATCH /api/suppliers/:id needsLogin", () => {
   it("a new supplier needs a login, and it can be turned off and on", async () => {
     const s = await create();
