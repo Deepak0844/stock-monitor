@@ -84,6 +84,8 @@ All of this is done in the Console (console.cloud.google.com) and in the VM's br
 
 **Updating:** `git pull && docker compose up -d --build`. Without `--build`, the old code keeps running.
 
+**Automatic Shopify sync.** The app reads only **active** products, and it syncs by itself whenever a product or a stock level changes in Shopify. That needs two things: `APP_ORIGIN` set to the `https://` address above, and Shopify connected with a **client ID and client secret** (a pasted access token keeps manual Sync only). After deploying, press **Sync** once. That sync signs the app up for Shopify's change messages, and from then on changes arrive by themselves, grouped into at most one sync a minute.
+
 ### If the site cannot be reached
 
 - `curl -s ifconfig.me` on the VM must print the same IP that is in `HOST`. Check `/etc/caddy/Caddyfile` and `APP_ORIGIN` in `.env`.
