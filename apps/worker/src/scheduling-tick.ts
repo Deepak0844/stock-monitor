@@ -119,10 +119,12 @@ async function keepLoginsAlive(deps: TickDeps, now: Date, busy: Set<string>) {
  */
 async function precheckLogin(
   deps: TickDeps,
-  supplier: { id: string; nextCheckAt: Date | null; sessionPrecheckFor: Date | null; autoLogin: boolean; autoLoginPausedReason: string | null },
+  supplier: { id: string; nextCheckAt: Date | null; sessionPrecheckFor: Date | null; autoLogin: boolean; autoLoginPausedReason: string | null; needsLogin: boolean },
   window: { start: string; end: string } | null,
   now: Date,
 ) {
+  // No login to check.
+  if (!supplier.needsLogin) return false;
   // The run logs in by itself, and a login two hours early would not last until the run anyway.
   if (supplier.autoLogin && !supplier.autoLoginPausedReason) return false;
   const lastVerifiedAt = (await deps.supplierSessions.facts(supplier.id))?.lastVerifiedAt ?? null;

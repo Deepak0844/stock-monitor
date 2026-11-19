@@ -405,3 +405,25 @@ describe("login alert emails", () => {
     expect(mails).toEqual([]);
   });
 });
+
+describe("a supplier that needs no login", () => {
+  const noLogin = async (id: string) => {
+    await createSupplierSessionRepository(t.appDb).remove(id);
+    await suppliers().markNotConnected(id);
+    await suppliers().setNeedsLogin(id, false);
+  };
+  const verifies = () => enqueued.filter((e) => e.name === "supplier.session.verify");
+
+  it("starts its due run with no saved login", async () => {
+    const id = await ready("Acme");
+    await noLogin(id);
+    expect((await runTick(deps())).started).toEqual([id]);
+  });
+
+  it("never gets an early login check before a run", async () => {
+    const id = await ready("Acme", -90);
+    await noLogin(id);
+    await runTick(deps());
+    expect(verifies()).toEqual([]);
+  });
+});

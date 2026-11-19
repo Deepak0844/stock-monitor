@@ -44,7 +44,7 @@ export type SessionReason = Exclude<AttentionReason, "code_required" | "wrong_pa
 
 export type CheckOutcome =
   /** not_checked: a keep-alive visit for a supplier paused or refused after it was queued. */
-  | { kind: "skipped"; reason: "no_supplier" | "no_session" | "not_checked" }
+  | { kind: "skipped"; reason: "no_supplier" | "no_session" | "not_checked" | "no_login" }
   | { kind: "ok" }
   | { kind: "needs_attention"; result: SessionReason }
   /** An early check found a page it could not read clearly. Nothing is marked: the run does not stop on one either. */
@@ -81,11 +81,16 @@ const STATUS = {
 /** Marks the supplier as needing attention and tells the owner on the dashboard. Used by session checks and by stock runs that meet a login, puzzle or block. */
 export async function raiseNeedsAttention(
   deps: Pick<SupplierVerifyDeps, "suppliers" | "notifications">,
-  supplier: { id: string; name: string },
+  supplier: { id: string; name: string; needsLogin?: boolean },
   result: AttentionReason,
 ): Promise<void> {
   await deps.suppliers.markNeedsAttention(supplier.id, STATUS[result]);
-  await deps.notifications.raise({ kind: "supplier_needs_reconnect", supplierId: supplier.id, message: MESSAGES[result](supplier.name), reason: result });
+  // "Log in again" makes no sense for a supplier set to need no login: the setting may be wrong, so say that.
+  const message =
+    supplier.needsLogin === false && result === "login_required"
+      ? `${supplier.name} showed a login page, but it is set to need no login. Open one of its links to see why, or turn Needs a login back on.`
+      : MESSAGES[result](supplier.name);
+  await deps.notifications.raise({ kind: "supplier_needs_reconnect", supplierId: supplier.id, message, reason: result });
 }
 
 /**
@@ -97,6 +102,8 @@ export async function verifySupplierSession(deps: SupplierVerifyDeps, supplierId
   const { suppliers, supplierSessions, notifications, audit, browser, logger } = deps;
   const supplier = await suppliers.get(supplierId);
   if (!supplier) return { kind: "skipped", reason: "no_supplier" };
+  // No login to check: a session kept from before the setting changed is never opened.
+  if (!supplier.needsLogin) return { kind: "skipped", reason: "no_login" };
 
   // The HTTP status tells us why a check was refused (403 vs 429 vs a challenge page). Never page text.
   let httpStatus: number | null = null;

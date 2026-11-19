@@ -463,7 +463,7 @@ export function MappingsPage({ api }: { api: Api }) {
               {history.items.map((o) => (
                 <li key={o.id} className="border-b border-border pb-2 last:border-b-0">
                   <strong>{stockSentence(o, history.mapping.region)}</strong> · {formatWhen(o.observedAt)}
-                  {o.recipeVersion !== null ? ` · rules version ${o.recipeVersion}` : ""}
+                  {o.recipeVersion === 0 ? " · built-in data, not confirmed yet, so not sent to Shopify" : o.recipeVersion !== null ? ` · rules version ${o.recipeVersion}` : ""}
                   {reasonWords(o.reason) && o.reason !== "not_listed" ? ` · ${reasonWords(o.reason)}` : ""}
                 </li>
               ))}

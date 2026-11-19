@@ -6,10 +6,10 @@ const browser = await chromium.launch({ args: process.env.CI ? ["--no-sandbox"] 
 try {
   const page = await browser.newPage();
   await page.setContent(
-    "<h1>Blue widget</h1><p>Out of stock</p><button disabled>Add to cart</button>",
+    '<h1>Blue widget</h1><p>Out of stock</p><button disabled>Add to cart</button><script type="application/ld+json">{"@type":"Product","offers":{"availability":"https://schema.org/OutOfStock"}}</script>',
   );
   const seen = await readPage(page);
-  console.log(JSON.stringify({ sections: seen.sections, buttons: seen.buttons }));
+  console.log(JSON.stringify({ sections: seen.sections, buttons: seen.buttons, offers: seen.offers }));
 } finally {
   await browser.close();
 }

@@ -93,6 +93,7 @@ export const aSupplier = (over: Partial<Supplier> = {}): Supplier => ({
   permissionSetAt: null,
   checkPauseSeconds: 10,
   defaultRegion: null,
+  needsLogin: true,
   autoLogin: false,
   stealth: false,
   loginSelectors: null,
@@ -145,6 +146,7 @@ export const aMapping = (over: Partial<Mapping> = {}): Mapping => ({
   latestStock: null,
   latestSuggestion: null,
   region: null,
+  supplierOption: null,
   ...over,
 });
 
@@ -250,6 +252,7 @@ export function fakeApi(
       resume: vi.fn().mockImplementation(async () => aSupplier()),
       checkSession: vi.fn().mockResolvedValue(undefined),
       setRegion: vi.fn().mockImplementation(async (_id, region) => aSupplier({ defaultRegion: region })),
+      setNeedsLogin: vi.fn().mockImplementation(async (_id, needsLogin) => aSupplier({ needsLogin })),
       setPermission: vi.fn().mockImplementation(async (_id, input) => aSupplier({ automationPermission: input.status, permissionNote: input.note })),
       saveCredentials: vi.fn().mockResolvedValue({ savedAt: "2026-11-17T06:58:00.000Z" }),
       removeCredentials: vi.fn().mockResolvedValue(undefined),

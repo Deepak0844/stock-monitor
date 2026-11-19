@@ -151,6 +151,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
           requestedUrl: request.url,
           loginUrl: request.loginUrl,
           loggedInMarker: request.loggedInMarker,
+          publicPage: request.publicPage,
           page: { finalUrl: page.url(), status, ...seen, text: seen.text.slice(0, MAX_TEXT) },
         });
         return { result, status };
@@ -336,6 +337,6 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
     checkPage: (request: CheckPageRequest, timeoutMs = 20_000): Promise<CheckPageOutcome> =>
       inTurn(() => inProfile(request, noPage as CheckPageOutcome, (page, tracker) => inspectPage(page, request, tracker, timeoutMs))),
     capture: (request: CaptureRequest, timeoutMs = 20_000): Promise<CaptureOutcome> =>
-      inTurn(() => inProfile(request, { ...noPage, description: { sections: [], buttons: [] }, picture: null } as CaptureOutcome, (page, tracker) => capturePageIn(page, request, tracker, timeoutMs))),
+      inTurn(() => inProfile(request, { ...noPage, description: { sections: [], buttons: [], offers: [] }, picture: null } as CaptureOutcome, (page, tracker) => capturePageIn(page, request, tracker, timeoutMs))),
   });
 }

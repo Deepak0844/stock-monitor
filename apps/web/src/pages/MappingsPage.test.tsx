@@ -449,6 +449,15 @@ describe("stock answers", () => {
     expect(items[0]).toHaveTextContent("rules version 2");
     expect(items[1]).toHaveTextContent("Out of stock");
   });
+
+  it("says when an answer came from built-in data the owner has not confirmed yet", async () => {
+    const observations = vi.fn().mockResolvedValue([{ id: 3, ...stock({ answer: "out_of_stock" }), quantityMismatch: false, recipeVersion: 0, checkResult: "ok" }]);
+    const { user } = setup([blue], { stock: { observations } });
+    await user.click(within(await openMenu(user, "Blue Tee Large")).getByRole("menuitem", { name: "History" }));
+    const list = await screen.findByRole("list", { name: "Stock history for Blue Tee Large" });
+    expect(within(list).getAllByRole("listitem")[0]).toHaveTextContent("built-in data, not confirmed yet, so not sent to Shopify");
+    expect(list).not.toHaveTextContent("rules version 0");
+  });
 });
 
 describe("answers that are out of date", () => {

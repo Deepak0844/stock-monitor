@@ -35,6 +35,17 @@ The supplier's terms decide whether automatic checks are allowed. This is your c
 
 ## Phase 3. Add the supplier and log in
 
+**Suppliers without a login.** Many suppliers show stock on their product pages to anyone. Open a product page in a private
+window, press View Source (⌘⌥U on a Mac, Ctrl+U elsewhere) and search for `availability`. If you find
+`"availability": "https://schema.org/InStock"` (or `OutOfStock` on a sold-out product), the supplier needs no login: add it,
+open its **Edit** page and turn **Needs a login** off. Skip steps 2 to 6 below. The app then checks it with no saved login,
+no automatic login and no keep-alive, and the supplier list shows **No login needed**. Keep it on if the supplier hides stock
+until you log in. Turning it off also lifts a pause the app made because the login needed attention.
+
+Such a supplier needs no Stock rules to start: it is checked from its built-in stock data at once. Those answers show on
+**Links** but are **not sent to Shopify** until you confirm them: on **Stock rules**, label one in-stock and one out-of-stock
+saved page, test, save and turn the version on.
+
 1. Open **Suppliers**, then **Add supplier**.
    - **Name:** use exactly the name your Shopify export holds for this supplier (see Phase 4). Capitals do not matter.
    - **Website address:** the supplier's site, starting with `https://`.
@@ -170,16 +181,38 @@ How a rule matches:
 - **Button rule:** matches when any button's label **contains** your words. Optionally the button must be **Enabled** or **Disabled**. **Either** ignores that.
 - **Only under this heading (optional):** limits the rule to one part of the page. The app finds the **first** heading that contains your words, then looks at that section and the sub-sections below it, up to the next heading of the same or higher level. If no heading matches, the rule finds nothing.
 
+### Built-in stock data
+
+Most shops put each product's stock in data built into the page for search engines (schema.org `availability`). With
+**Use the stock data built into the supplier's pages** on (the default for a new supplier's first rules), the app reads that
+first:
+
+- `InStock`, `LimitedAvailability`, `OnlineOnly`: **In stock**.
+- `OutOfStock`, `SoldOut`, `Discontinued`: **Out of stock**.
+- `PreOrder`, `PreSale`, `BackOrder`, `MadeToOrder`: what you choose in **Pre-order and back-order count as** (Out of stock by default).
+- Anything else: not clear, so your word rules decide.
+
+If the data is missing or unclear, your word rules (below) decide. With no word rules, a page without built-in data is
+**Cannot tell** ("page changed"). Page checks are optional while built-in data is on.
+
+A page can list several options (sizes, colours) with different stock. The app picks the option whose address matches the
+link's `?variant=` value. If the link has no `?variant=`, set **Option on the supplier's page** on the link (the option name
+or the supplier's SKU, as the saved page lists them). Without a clear match the answer is **Cannot tell**, never a guess.
+
+Saved pages captured before this feature have no built-in data: capture them again. To turn on rules that use built-in data,
+label at least one in-stock and one out-of-stock saved page, so data that never changes cannot pass.
+
 How the answer is decided, in this order:
 
 1. **Page checks.** Every one must match. If any is missing, the answer is **Cannot tell** ("page changed").
 2. **Region** (only if you turned it on and a region is set): the answer comes from the region's number. See example 4.
-3. **In stock when / Out of stock when:** any one rule in a list matching counts.
+3. **Built-in data** (only if it is on): a clear value answers. See "Built-in stock data" above.
+4. **In stock when / Out of stock when:** any one rule in a list matching counts.
    - Only in-stock matches: **In stock**.
    - Only out-of-stock matches: **Out of stock**.
    - Both match: **Cannot tell** ("rules disagree").
    - Neither matches: **Cannot tell**, unless a quantity was read. Then a number above 0 means In stock and 0 means Out of stock.
-4. **Quantity** is a cross-check. If the words say in stock but the number is 0 (or the reverse), the answer is **Cannot tell** ("quantity and wording disagree").
+5. **Quantity** is a cross-check. If the words say in stock but the number is 0 (or the reverse), the answer is **Cannot tell** ("quantity and wording disagree").
 
 So the app says In stock or Out of stock only when the rules agree clearly. Everything else is Cannot tell, and Cannot tell is never turned into a stock change.
 

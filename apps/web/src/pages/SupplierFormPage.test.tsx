@@ -264,3 +264,26 @@ describe("permission and automatic login on the same page", () => {
     await waitFor(() => expect(screen.getByRole("switch", { name: "Automatic login" })).toBeEnabled());
   });
 });
+
+describe("a supplier that needs no login", () => {
+  const setupEdit = (supplier = aSupplier()) => {
+    const api = fakeApi({ suppliers: { get: vi.fn().mockResolvedValue(supplier) } });
+    render(<SupplierFormPage api={api} id={supplier.id} />);
+    return { api, user: userEvent.setup() };
+  };
+
+  it("shows the Needs a login switch above the login settings", async () => {
+    setupEdit();
+    expect(await screen.findByRole("switch", { name: "Needs a login" })).toBeChecked();
+    expect(screen.getByRole("switch", { name: "Automatic login" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Keep login alive")).toBeInTheDocument();
+  });
+
+  it("hides automatic login and keep-alive when no login is needed", async () => {
+    setupEdit(aSupplier({ needsLogin: false }));
+    expect(await screen.findByRole("switch", { name: "Needs a login" })).not.toBeChecked();
+    expect(screen.queryByRole("switch", { name: "Automatic login" })).toBeNull();
+    expect(screen.queryByLabelText("Keep login alive")).toBeNull();
+    expect(screen.getByText("Checked without logging in")).toBeInTheDocument();
+  });
+});

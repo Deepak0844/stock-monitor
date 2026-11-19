@@ -5,9 +5,10 @@ import type {
   createCaptureRepository, createCheckRunRepository, createMappingRepository, createNotificationRepository, createObservationRepository, createRecipeRepository,
   createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository, MappingRow, SupplierRecord,
 } from "@stock-monitor/db";
-import { decide, isSupplierWideChange, validateRecipe, type Answer, type Decision, type PageDescription, type Reason, type Recipe } from "@stock-monitor/extraction";
+import { BUILT_IN_DEFAULT, BUILT_IN_DEFAULT_VERSION, decide, isSupplierWideChange, validateRecipe, type Answer, type Decision, type PageDescription, type Reason, type Recipe } from "@stock-monitor/extraction";
 import { decideLinkStatus, isSupplierWide, whyNotChecked, type CheckGateReason, type LinkStatus, type Observation } from "@stock-monitor/mapping";
 import { unsealSessionState } from "@stock-monitor/supplier-session";
+import { EMPTY_STATE, loginFields } from "./supplier-visit.js";
 import { saveRefreshedSession } from "./session-refresh.js";
 import { backoffMs, nextCheckAt } from "@stock-monitor/scheduling";
 import { ensureLoggedIn, loginCheckUrl, type AutoLoginDeps } from "./auto-login.js";
@@ -58,7 +59,7 @@ const STOP_AT_ONCE = new Set(["login_required", "captcha", "blocked"]);
 const UNREACHABLE_RESULTS = new Set(["unreachable", "service_unavailable"]);
 const UNREACHABLE_IN_A_ROW = 3;
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-const tell = (reason: Reason): Decision => ({ answer: "cannot_tell", reason, quantity: null, matchedText: null, quantityMismatch: false });
+const tell = (reason: Reason): Decision => ({ answer: "cannot_tell", reason, quantity: null, matchedText: null, quantityMismatch: false, decidedBy: null });
 const RETENTION_DAYS = 30;
 
 /** The supplier and its active rules, or the plain reason a check must not run now. The tick uses the same gate, so it never starts a run the checker would refuse. */
@@ -71,6 +72,8 @@ export async function stockGate(
   const refused = whyNotChecked(supplier, (await deps.supplierSessions.getSealed(supplierId)) !== null);
   if (refused) return { reason: refused.reason };
   const row = await deps.recipes.active(supplierId);
+  // A supplier that needs no login is checked from its built-in data until the owner turns on rules (answers held from Shopify).
+  if (!row && !supplier.needsLogin) return { supplier, active: { recipe: BUILT_IN_DEFAULT, version: BUILT_IN_DEFAULT_VERSION } };
   const checked = row ? validateRecipe(row.rules) : null;
   if (!row || !checked?.ok) return { reason: "no_recipe" };
   return { supplier, active: { recipe: checked.recipe, version: row.version } };
@@ -90,14 +93,15 @@ export function createStockChecker(deps: StockCheckDeps) {
   const gate = (supplierId: string) => stockGate(deps, supplierId);
 
   async function visit(supplier: SupplierRecord, mapping: MappingRow, recipe: Recipe): Promise<Visit> {
-    const sealed = await supplierSessions.getSealed(supplier.id);
+    // A supplier that needs no login is visited with no session, no login address and no logged-in marker.
+    const sealed = supplier.needsLogin ? await supplierSessions.getSealed(supplier.id) : null;
     let state;
     try {
-      state = sealed ? unsealSessionState(sealed, deps.key) : null;
+      state = !supplier.needsLogin ? EMPTY_STATE : sealed ? unsealSessionState(sealed, deps.key) : null;
     } catch {
       state = null;
     }
-    const outcome = state ? await browser.capture({ url: mapping.url, loginUrl: supplier.loginUrl ?? undefined, ...(supplier.loggedInMarker ? { loggedInMarker: supplier.loggedInMarker } : {}), state, picture: true, ...(supplier.stealth ? { stealth: true } : {}) }) : null;
+    const outcome = state ? await browser.capture({ url: mapping.url, ...loginFields(supplier), state, picture: true, ...(supplier.stealth ? { stealth: true } : {}) }) : null;
     if (!outcome || !outcome.ok) {
       if (outcome) logger.warn({ mappingId: mapping.id }, "stock check could not run: the browser service did not answer");
       const obs: Observation = { result: "service_unavailable", status: null, finalUrl: null, title: null, heading: null, softNotFound: false };
@@ -115,6 +119,7 @@ export function createStockChecker(deps: StockCheckDeps) {
       pageClass: outcome.result,
       sections: outcome.description.sections,
       buttons: outcome.description.buttons,
+      offers: outcome.description.offers,
     };
     const region = (mapping.region ?? supplier.defaultRegion) || null;
     const decision = FAILED_VISIT.has(outcome.result)
@@ -123,7 +128,7 @@ export function createStockChecker(deps: StockCheckDeps) {
         ? tell("page_missing")
         : trial === "never_worked"
           ? tell("never_worked")
-          : decide(page, recipe, region);
+          : decide(page, recipe, region, { url: mapping.url, option: mapping.supplierOption });
     return { mapping, obs, page, picture: outcome.picture, checkResult: outcome.result, decision, linkTrial: trial };
   }
 

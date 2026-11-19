@@ -49,6 +49,12 @@ const regionOf = (value: unknown): string | null => {
   if (typeof value !== "string" || value.length > MAX_REGION) throw new AppError(400, "invalid_region", `A region can be up to ${MAX_REGION} characters of text, or empty to clear it.`);
   return value.trim() || null;
 };
+/** The supplier's own option name or SKU for this link: text up to 200 characters, or empty/null for none. */
+const supplierOptionOf = (value: unknown): string | null => {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string" || value.length > MAX_REGION) throw new AppError(400, "invalid_supplier_option", `A supplier option can be up to ${MAX_REGION} characters of text, or empty to clear it.`);
+  return value.trim() || null;
+};
 const noteOf = (value: unknown): string | null => {
   if (value === undefined || value === null) return null;
   if (typeof value !== "string" || value.length > MAX_NOTE) throw new AppError(400, "invalid_note", `A note can be up to ${MAX_NOTE} characters.`);
@@ -116,17 +122,18 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
   });
 
   app.post("/api/mappings", async (request, reply) => {
-    const input = object(request.body, ["variantId", "supplierId", "url", "note", "region"]);
+    const input = object(request.body, ["variantId", "supplierId", "url", "note", "region", "supplierOption"]);
     if (typeof input.variantId !== "string" || typeof input.supplierId !== "string") throw BAD_INPUT();
     const supplier = await suppliers.get(input.supplierId);
     if (!supplier) throw new AppError(400, "supplier_not_found", "Choose a supplier that exists.");
     const note = noteOf(input.note);
     const region = regionOf(input.region);
+    const supplierOption = supplierOptionOf(input.supplierOption);
     const url = await pageAddress(input.url, supplier.websiteUrl);
     if (await mappings.linkForVariant(input.variantId)) {
       throw new AppError(409, "already_mapped", "This variant already has a link. Edit or delete it instead.");
     }
-    const result = await mappings.create({ variantId: input.variantId, supplierId: supplier.id, url, note, region });
+    const result = await mappings.create({ variantId: input.variantId, supplierId: supplier.id, url, note, region, supplierOption });
     if (!result.ok) {
       if (result.reason === "unknown_variant") throw new AppError(400, "variant_not_found", "Choose a product variant that exists.");
       throw new AppError(409, "already_mapped", "This variant already has a link. Edit or delete it instead.");
@@ -153,11 +160,11 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
   });
 
   app.patch<{ Params: { id: string } }>("/api/mappings/:id", async (request) => {
-    const input = object(request.body, ["url", "note", "region", "enabled"]);
+    const input = object(request.body, ["url", "note", "region", "supplierOption", "enabled"]);
     if (Object.keys(input).length === 0) throw new AppError(400, "invalid_input", "There is nothing to change.");
     const current = await mappings.get(request.params.id);
     if (!current) throw MAPPING_NOT_FOUND();
-    const patch: { url?: string; note?: string | null; region?: string | null; enabled?: boolean } = {};
+    const patch: { url?: string; note?: string | null; region?: string | null; supplierOption?: string | null; enabled?: boolean } = {};
     if ("url" in input) {
       const supplier = await suppliers.get(current.supplierId);
       if (!supplier) throw SUPPLIER_NOT_FOUND();
@@ -165,6 +172,7 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
     }
     if ("note" in input) patch.note = noteOf(input.note);
     if ("region" in input) patch.region = regionOf(input.region);
+    if ("supplierOption" in input) patch.supplierOption = supplierOptionOf(input.supplierOption);
     if ("enabled" in input) {
       if (typeof input.enabled !== "boolean") throw BAD_INPUT();
       patch.enabled = input.enabled;

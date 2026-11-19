@@ -110,7 +110,7 @@ export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit
     page: z.coerce.number().int().min(1),
     pageSize: z.coerce.number().int().min(1).max(100).default(10),
     search: z.string().trim().max(100).optional(),
-    status: z.enum(["connected", "needs_reconnect", "blocked", "paused", "not_connected"]).optional(),
+    status: z.enum(["connected", "needs_reconnect", "blocked", "paused", "not_connected", "no_login"]).optional(),
   });
 
   // With no `page` this lists every supplier, which the dropdowns and the dashboard rely on.
@@ -144,9 +144,25 @@ export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit
   });
 
   app.patch<{ Params: { id: string } }>("/api/suppliers/:id", async (request) => {
-    const input = typeof request.body === "object" && request.body !== null && !Array.isArray(request.body) ? (request.body as Record<string, unknown>) : null;
+    const body = typeof request.body === "object" && request.body !== null && !Array.isArray(request.body) ? (request.body as Record<string, unknown>) : null;
+    // Whether the supplier's pages need a login: set on its own after the other fields, so a refused field changes nothing.
+    let needsLogin: boolean | undefined;
+    let sent: unknown = request.body;
+    if (body && "needsLogin" in body) {
+      if (typeof body.needsLogin !== "boolean") throw new AppError(400, "invalid_input", "Check the supplier details and try again.");
+      needsLogin = body.needsLogin;
+      const others = Object.fromEntries(Object.entries(body).filter(([k]) => k !== "needsLogin"));
+      if (Object.keys(others).length === 0) {
+        const updated = await repo.setNeedsLogin(request.params.id, needsLogin);
+        if (!updated) throw NOT_FOUND();
+        await record(request, "supplier.updated", updated.id, { changed: ["needsLogin"] });
+        return { supplier: await decorate(updated) };
+      }
+      sent = others;
+    }
+    const input = body && sent !== request.body ? (sent as Record<string, unknown>) : body;
     const auto: Parameters<Repository["setAutoLogin"]>[1] = {};
-    let rest: unknown = request.body;
+    let rest: unknown = sent;
     if (input && AUTO_LOGIN_BODY.some((k) => k in input)) {
       const invalid = () => new AppError(400, "invalid_input", "Check the supplier details and try again.");
       if ("autoLogin" in input) {
@@ -203,8 +219,9 @@ export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit
       }
       latest = result.supplier;
     }
+    if (latest && needsLogin !== undefined) latest = await repo.setNeedsLogin(latest.id, needsLogin);
     if (!latest) throw NOT_FOUND();
-    await record(request, "supplier.updated", latest.id, { changed: [...Object.keys(values), ...Object.keys(auto)] });
+    await record(request, "supplier.updated", latest.id, { changed: [...Object.keys(values), ...Object.keys(auto), ...(needsLogin === undefined ? [] : ["needsLogin"])] });
     return { supplier: await decorate(latest) };
   });
 

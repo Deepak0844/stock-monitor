@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, afterEach } from "vitest";
 import { createBrowserClient } from "./client.js";
 import { createFakeBrowserService, FAKE_CONTROL_TOKEN, type FakeBrowserService } from "../test/fake-browser-service.js";
 
@@ -136,6 +136,14 @@ describe("verify", () => {
     expect("loginUrl" in (fake.requests[1]?.body as Record<string, unknown>)).toBe(false);
   });
 
+  it("says the page is public on check-page and capture when asked, and leaves it out otherwise", async () => {
+    const url = "https://a.example/";
+    await client().checkPage({ url, state, publicPage: true });
+    await client().capture({ url, state, publicPage: true });
+    await client().capture({ url, state });
+    expect(fake.requests.map((r) => (r.body as Record<string, unknown>).publicPage)).toEqual([true, true, undefined]);
+  });
+
   it("sends the logged-in marker on verify, check-page and capture when there is one, and leaves it out when there is not", async () => {
     const url = "https://a.example/";
     await client().verify({ url, state, loggedInMarker: "Log out" });
@@ -216,6 +224,23 @@ describe("capture", () => {
     expect(r).toMatchObject({ ok: true, result: "ok", picture: null, description: { buttons: [{ label: "Add to cart", enabled: true, section: "Blue Tee" }] } });
     expect(fake.requests[0]).toMatchObject({ method: "POST", path: "/capture", auth: `Bearer ${FAKE_CONTROL_TOKEN}`, body: { url: "https://shop.acme.example/p" } });
     expect((fake.requests[0]?.body as Record<string, unknown>).picture).toBeUndefined();
+  });
+
+  let original: typeof fake.behaviour.description;
+  beforeEach(() => void (original = fake.behaviour.description));
+  afterEach(() => void (fake.behaviour.description = original));
+
+  it("keeps the page's built-in offers, and gives none when the service sent none", async () => {
+    const offer = { availability: "InStock", url: "https://shop.acme.example/p?variant=1", sku: "A-1", name: "500 ml" };
+    fake.behaviour.description = { ...fake.behaviour.description, offers: [offer, { availability: 5 }, "junk"] };
+    expect(await client().capture({ url: "https://shop.acme.example/p", state })).toMatchObject({ ok: true, description: { offers: [offer] } });
+    fake.behaviour.description = { sections: [], buttons: [] };
+    expect(await client().capture({ url: "https://shop.acme.example/p", state })).toMatchObject({ ok: true, description: { offers: [] } });
+  });
+
+  it("says failed when the offers are not a list", async () => {
+    fake.behaviour.description = { sections: [], buttons: [], offers: "InStock" };
+    expect(await client().capture({ url: "https://shop.acme.example/p", state })).toEqual({ ok: false, reason: "failed" });
   });
 
   it("asks for a picture and gets the bytes back", async () => {

@@ -44,6 +44,16 @@ describe("mappings", () => {
     expect(await maps().create({ variantId: "v1", supplierId: acme, url: "https://acme.example/b", note: null })).toEqual({ ok: false, reason: "duplicate" });
   });
 
+  it("keeps a link's supplier option, and clears it", async () => {
+    const made = await maps().create({ variantId: "v1", supplierId: acme, url: "https://acme.example/a", note: null, supplierOption: "500 ml" });
+    if (!made.ok) throw new Error("setup failed");
+    expect(made.mapping.supplierOption).toBe("500 ml");
+    expect((await maps().get(made.mapping.id))?.supplierOption).toBe("500 ml");
+    expect((await maps().update(made.mapping.id, { supplierOption: null }))?.supplierOption).toBeNull();
+    const plain = await maps().create({ variantId: "v2", supplierId: acme, url: "https://acme.example/b", note: null });
+    expect(plain.ok && plain.mapping.supplierOption).toBeNull();
+  });
+
   it("says plainly when the variant or the supplier does not exist", async () => {
     expect(await maps().create({ variantId: "nope", supplierId: acme, url: "https://acme.example/a", note: null })).toEqual({ ok: false, reason: "unknown_variant" });
     expect(await maps().create({ variantId: "v1", supplierId: "11111111-1111-4111-8111-111111111111", url: "https://acme.example/a", note: null })).toEqual({ ok: false, reason: "unknown_supplier" });

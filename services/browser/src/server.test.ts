@@ -21,7 +21,7 @@ beforeEach(async () => {
   logs.length = 0;
   verify = vi.fn<VerifyFn>().mockResolvedValue({ result: "ok", status: 200, blockedRequests: 0 });
   checkPage = vi.fn<CheckPageFn>().mockResolvedValue({ result: "ok", status: 200, blockedRequests: 0, finalUrl: "https://shop.acme.example/p", title: "P", heading: "P", softNotFound: false });
-  capture = vi.fn<CaptureFn>().mockResolvedValue({ result: "ok", status: 200, blockedRequests: 0, finalUrl: "https://shop.acme.example/p", title: "P", heading: "P", softNotFound: false, description: { sections: [], buttons: [] }, picture: null });
+  capture = vi.fn<CaptureFn>().mockResolvedValue({ result: "ok", status: 200, blockedRequests: 0, finalUrl: "https://shop.acme.example/p", title: "P", heading: "P", softNotFound: false, description: { sections: [], buttons: [], offers: [] }, picture: null });
   sessions = {
     open: vi.fn<SessionsApi["open"]>().mockResolvedValue({ ok: true, id: ID, expiresAt: "2026-11-08T12:00:00.000Z" }),
     finish: vi.fn<SessionsApi["finish"]>().mockResolvedValue(state),
@@ -291,6 +291,12 @@ describe("POST /capture", () => {
   it("passes on the logged-in marker", async () => {
     expect((await call(TOKEN, { ...body, loggedInMarker: "Log out" })).status).toBe(200);
     expect(capture).toHaveBeenCalledWith(expect.objectContaining({ url: body.url, loggedInMarker: "Log out" }));
+  });
+
+  it("passes on that the page is public, and refuses a setting that is not yes or no", async () => {
+    expect((await call(TOKEN, { ...body, publicPage: true })).status).toBe(200);
+    expect(capture).toHaveBeenCalledWith(expect.objectContaining({ url: body.url, publicPage: true }));
+    expect((await call(TOKEN, { ...body, publicPage: "yes" })).status).toBe(400);
   });
 
   it("refuses a picture setting that is not yes or no, and an address that is not a web address", async () => {

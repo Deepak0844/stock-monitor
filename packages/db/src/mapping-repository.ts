@@ -12,6 +12,8 @@ export type MappingRecord = {
   note: string | null;
   /** The region label to look for on this page. null means the supplier's default region. */
   region: string | null;
+  /** The supplier's option name or SKU, for a page that lists several options. null: none. */
+  supplierOption: string | null;
   enabled: boolean;
   linkStatus: LinkStatusValue;
   lastLinkCheckAt: Date | null;
@@ -25,7 +27,7 @@ export type MappingRecord = {
 };
 /** `shopifyManaged`: the variant's product has a supplier name and page address in Shopify, so the next sync sets this link from them. */
 export type MappingRow = MappingRecord & { productTitle: string; variantTitle: string; sku: string | null; supplierName: string; variantRemoved: boolean; shopifyManaged: boolean };
-export type MappingInput = { variantId: string; supplierId: string; url: string; note: string | null; region?: string | null };
+export type MappingInput = { variantId: string; supplierId: string; url: string; note: string | null; region?: string | null; supplierOption?: string | null };
 export type MappingWrite = { ok: true; mapping: MappingRecord } | { ok: false; reason: "duplicate" | "unknown_variant" | "unknown_supplier" };
 /** What a link check decided. Matches the link-status rules in the mapping package. */
 export type LinkCheckResult = {
@@ -64,7 +66,7 @@ export function createMappingRepository<S extends Record<string, unknown>>(db: N
   const joined = () =>
     db
       .select({
-        id: mappings.id, variantId: mappings.variantId, supplierId: mappings.supplierId, url: mappings.url, note: mappings.note, region: mappings.region,
+        id: mappings.id, variantId: mappings.variantId, supplierId: mappings.supplierId, url: mappings.url, note: mappings.note, region: mappings.region, supplierOption: mappings.supplierOption,
         enabled: mappings.enabled, linkStatus: mappings.linkStatus, lastLinkCheckAt: mappings.lastLinkCheckAt,
         lastWorkedAt: mappings.lastWorkedAt, workedTitle: mappings.workedTitle, workedHeading: mappings.workedHeading,
         missingChecks: mappings.missingChecks, firstMissingAt: mappings.firstMissingAt, createdAt: mappings.createdAt, updatedAt: mappings.updatedAt,
@@ -149,7 +151,7 @@ export function createMappingRepository<S extends Record<string, unknown>>(db: N
     },
 
     /** Changing the address starts the link's history again. Changing only the note or `enabled` does not. */
-    async update(id: string, patch: { url?: string; note?: string | null; region?: string | null; enabled?: boolean }): Promise<MappingRecord | null> {
+    async update(id: string, patch: { url?: string; note?: string | null; region?: string | null; supplierOption?: string | null; enabled?: boolean }): Promise<MappingRecord | null> {
       if (!UUID.test(id)) return null;
       const [row] = await db
         .update(mappings)
