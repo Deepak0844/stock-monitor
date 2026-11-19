@@ -18,6 +18,11 @@ export type FakeBrowserService = {
     checkPage: "ok" | "fail" | "garbage";
     /** How a page capture behaves, what it describes, and the picture (base64) it returns. */
     capture: "ok" | "fail" | "garbage";
+    /** A quick read: answered, failed, or a service that has no such route (the default, so older tests use /capture). */
+    quickRead: "ok" | "fail" | "missing";
+    /** What a quick read says the page was. Falls back to `page`. */
+    quickPage?: { result: string; status: number | null; finalUrl: string | null; softNotFound: boolean; blocked?: boolean };
+    quickOffers: unknown[];
     description: { sections: { heading: string | null; level: number; lines: string[] }[]; buttons: { label: string; enabled: boolean; section: string | null }[]; offers?: unknown };
     picture: string | null;
     /** Lets a test give each address its own description. Falls back to `description`. */
@@ -41,7 +46,7 @@ export type FakeBrowserService = {
 export async function createFakeBrowserService(): Promise<FakeBrowserService> {
   const requests: FakeBrowserService["requests"] = [];
   const behaviour: FakeBrowserService["behaviour"] = {
-    open: "ok", finish: "ok", cancel: "ok", verify: "ok", verifyResult: "ok", checkPage: "ok", capture: "ok", description: { sections: [{ heading: "Blue Tee", level: 1, lines: ["Soft cotton."] }], buttons: [{ label: "Add to cart", enabled: true, section: "Blue Tee" }] }, picture: Buffer.from("PNG-bytes").toString("base64"), page: { result: "ok", status: 200, finalUrl: "https://shop.acme.example/p", title: "Blue Widget", heading: "Blue Widget", softNotFound: false }, state: { cookies: [], origins: [] }, vncPassword: "Ab3dE6gH", delayMs: 0,
+    open: "ok", finish: "ok", cancel: "ok", verify: "ok", verifyResult: "ok", checkPage: "ok", capture: "ok", quickRead: "missing", quickOffers: [], description: { sections: [{ heading: "Blue Tee", level: 1, lines: ["Soft cotton."] }], buttons: [{ label: "Add to cart", enabled: true, section: "Blue Tee" }] }, picture: Buffer.from("PNG-bytes").toString("base64"), page: { result: "ok", status: 200, finalUrl: "https://shop.acme.example/p", title: "Blue Widget", heading: "Blue Widget", softNotFound: false }, state: { cookies: [], origins: [] }, vncPassword: "Ab3dE6gH", delayMs: 0,
   };
   let counter = 0;
 
@@ -86,6 +91,14 @@ export async function createFakeBrowserService(): Promise<FakeBrowserService> {
       const asked = (body as { url?: string } | undefined)?.url ?? "";
       const page = behaviour.pageFor?.(asked) ?? behaviour.page;
       return reply(200, { ...page, finalUrl: page.finalUrl === undefined ? asked : page.finalUrl, blockedRequests: 0, ...fresh() });
+    }
+    if (req.method === "POST" && path === "/quick-read") {
+      if (behaviour.quickRead === "missing") return reply(404, { error: "not_found" });
+      if (behaviour.quickRead === "fail") return reply(500, { error: "quick_read_failed" });
+      const asked = body as { url?: string } | undefined;
+      const page = behaviour.pageFor?.(asked?.url ?? "") ?? behaviour.page;
+      const q = behaviour.quickPage ?? { result: page.result, status: page.status, finalUrl: page.finalUrl ?? asked?.url ?? null, softNotFound: page.softNotFound };
+      return reply(200, { blocked: false, signal: "looks_real", ...q, offers: behaviour.quickOffers });
     }
     if (req.method === "POST" && path === "/capture") {
       if (behaviour.capture === "fail") return reply(500, { error: "capture_failed" });

@@ -42,6 +42,10 @@ export type PageDescriptionParts = { sections: { heading: string | null; level: 
 export type CaptureOutcome =
   | ({ ok: true; picture: Buffer | null; description: PageDescriptionParts } & Omit<Extract<CheckPageOutcome, { ok: true }>, "ok">)
   | { ok: false; reason: "failed" | "unavailable" };
+/** What a quick read (a plain download, no browser) found: what the page was and its built-in offers. Never its HTML. */
+export type QuickReadOutcome =
+  | { ok: true; result: PageClass; status: number | null; finalUrl: string | null; softNotFound: boolean; offers: PageOffer[]; blockedRequests: number }
+  | { ok: false; reason: "failed" | "unavailable" };
 export type CancelOutcome = { ok: true } | { ok: false; reason: "not_found" | "unavailable" };
 
 export type BrowserClient = {
@@ -56,6 +60,8 @@ export type BrowserClient = {
   checkPage(request: { url: string; loginUrl?: string; loggedInMarker?: string; state: SessionState; stealth?: boolean; publicPage?: boolean }): Promise<CheckPageOutcome>;
   /** Loads one page with a saved session and describes it, for stock rules. A picture is taken only when asked for. */
   capture(request: { url: string; loginUrl?: string; loggedInMarker?: string; state: SessionState; picture?: boolean; stealth?: boolean; publicPage?: boolean }): Promise<CaptureOutcome>;
+  /** Downloads a public page without the browser and reads its offers. An older service without the route says failed. */
+  quickRead(request: { url: string }): Promise<QuickReadOutcome>;
   /** Signs in with a username and password, once, in the supplier's profile. The password goes in the request only, never in an answer or an error. */
   login(request: LoginRequest): Promise<LoginCallOutcome>;
   /** Sends the emailed code to a login waiting at a code box, and answers how that login ended. */
@@ -192,6 +198,23 @@ export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, pageTi
         softNotFound: j.softNotFound === true,
         blockedRequests: typeof j.blockedRequests === "number" ? j.blockedRequests : 0,
         ...(isSessionState(j.state) ? { state: j.state } : {}),
+      };
+    },
+
+    async quickRead({ url }) {
+      const r = await call("POST", "/quick-read", { url, publicPage: true }, pageTimeoutMs);
+      if (!r) return { ok: false, reason: "unavailable" };
+      const j = r.json;
+      if (r.status !== 200 || !isObject(j) || typeof j.result !== "string" || !PAGE_CLASSES.includes(j.result) || !Array.isArray(j.offers)) return { ok: false, reason: "failed" };
+      const text = (v: unknown) => (typeof v === "string" ? v : null);
+      return {
+        ok: true,
+        result: j.result as PageClass,
+        status: typeof j.status === "number" ? j.status : null,
+        finalUrl: text(j.finalUrl),
+        softNotFound: j.softNotFound === true,
+        offers: (j.offers as unknown[]).filter((o): o is Record<string, unknown> => isObject(o) && typeof o.availability === "string").map((o) => ({ availability: o.availability as string, url: text(o.url), sku: text(o.sku), name: text(o.name) })),
+        blockedRequests: j.blocked === true ? 1 : 0,
       };
     },
 

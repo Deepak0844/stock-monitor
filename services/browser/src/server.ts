@@ -2,12 +2,15 @@ import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { isLoginSelectors, isSessionState, type SessionState } from "@stock-monitor/supplier-session";
 import type { CaptureOutcome, CaptureRequest } from "./capture.js";
+import type { QuickReadOutcome } from "./quick-read.js";
 import type { LoginOutcome, LoginRequest } from "./login.js";
 import type { CheckPageOutcome, CheckPageRequest, VerifyOutcome, VerifyRequest } from "./verify.js";
 
 export type VerifyFn = (request: VerifyRequest) => Promise<VerifyOutcome>;
 export type CheckPageFn = (request: CheckPageRequest) => Promise<CheckPageOutcome>;
 export type CaptureFn = (request: CaptureRequest) => Promise<CaptureOutcome>;
+/** Downloads one public page's HTML, with no browser, and reads its built-in offers. */
+export type QuickReadFn = (request: { url: string }) => Promise<QuickReadOutcome>;
 /** `awaitCode` is passed only when the caller can read the emailed code: the login then waits for it at a code box. */
 export type LoginFn = (request: LoginRequest, codes?: { awaitCode: () => Promise<string | null> }) => Promise<LoginOutcome>;
 export type SessionsApi = {
@@ -24,6 +27,8 @@ export type ControlServerOptions = {
   checkPage?: CheckPageFn;
   /** Loads one page with a saved session and describes it (and can draw it). Left out, there is no /capture route. */
   capture?: CaptureFn;
+  /** Reads a public page without the browser. Left out, there is no /quick-read route. */
+  quickRead?: QuickReadFn;
   /** Signs in to a supplier with a username and password. Left out, there is no /login route. */
   login?: LoginFn;
   /** The live login window. Left out, the service has no /sessions routes. */
@@ -130,7 +135,7 @@ const SESSION_PATH = /^\/sessions(?:\/([^/]+?)(\/finish)?)?$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The service's only door. Plain HTTP on the private network: the caller proves itself with the control token. */
-export function createControlServer({ token, verify, checkPage, capture, login, sessions, vncPassword, log = () => {}, maxBodyBytes = 5_000_000, loginHoldMs = 180_000 }: ControlServerOptions): Server {
+export function createControlServer({ token, verify, checkPage, capture, quickRead, login, sessions, vncPassword, log = () => {}, maxBodyBytes = 5_000_000, loginHoldMs = 180_000 }: ControlServerOptions): Server {
   /** Logins waiting at a code box: `give` ends the wait (null: no code), `outcome` is how the login ended. A code is taken once. */
   const holds = new Map<string, { give: (code: string | null) => void; outcome: () => Promise<LoginOutcome> }>();
   const tokenDigest = digest(token);
@@ -272,6 +277,27 @@ export function createControlServer({ token, verify, checkPage, capture, login, 
         // The name only. The message could hold the address, and the request holds a password.
         log(`login failed: ${error instanceof Error ? error.name : "unknown"}`);
         return reply(res, 500, { error: "login_failed" });
+      }
+    }
+    if (req.method === "POST" && path === "/quick-read" && quickRead) {
+      const text = await readBody(req, maxBodyBytes);
+      if (text === null) return reply(res, 413, { error: "too_large" }, { connection: "close" });
+      let input: unknown;
+      try {
+        input = JSON.parse(text);
+      } catch {
+        return reply(res, 400, { error: "invalid_request" });
+      }
+      const { url, publicPage } = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>;
+      // Only a page the worker says is public: a supplier that needs a login is never read without its session.
+      if (!isWebUrl(url) || publicPage !== true) return reply(res, 400, { error: "invalid_request" });
+      try {
+        const answer = await quickRead({ url });
+        log(`quick-read: ${answer.result} (${answer.signal}) http=${answer.status ?? "none"}`);
+        return reply(res, 200, answer);
+      } catch (error) {
+        log(`quick-read failed: ${error instanceof Error ? error.name : "unknown"}`);
+        return reply(res, 500, { error: "quick_read_failed" });
       }
     }
     const known = path === "/verify" || (path === "/check-page" && checkPage) || (path === "/capture" && capture);
