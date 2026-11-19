@@ -58,7 +58,7 @@ describe("empty and loading", () => {
     const { user } = setup([acme], { suppliers: { page } });
     expect(await screen.findByRole("alert")).toHaveTextContent("Can't reach the server");
     page.mockResolvedValue({ items: [acme], total: 1, page: 1, pageSize: 10 });
-    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await user.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByText("Acme Supply")).toBeInTheDocument();
   });
 

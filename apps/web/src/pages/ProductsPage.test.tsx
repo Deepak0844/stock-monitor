@@ -33,7 +33,7 @@ describe("loading and failing", () => {
     const variants = vi.fn().mockRejectedValueOnce(new ApiError("Can't reach the server. Check your connection and try again.", 0)).mockResolvedValue(aPage(some(1)));
     const { user } = setup(variants);
     expect(await screen.findByRole("alert")).toHaveTextContent("Can't reach the server");
-    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await user.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByText("Product 1")).toBeInTheDocument();
   });
 });

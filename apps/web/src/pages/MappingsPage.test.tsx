@@ -69,7 +69,7 @@ describe("empty and loading", () => {
     const { user } = setup([blue], { mappings: { page } });
     expect(await screen.findByRole("alert")).toHaveTextContent("Can't reach the server");
     page.mockResolvedValue({ items: [blue], total: 1, page: 1, pageSize: 10 });
-    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await user.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByText("Blue Tee")).toBeInTheDocument();
   });
 });

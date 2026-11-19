@@ -1,9 +1,22 @@
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button.js";
+import { EmptyState } from "./EmptyState.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table.js";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table.js";
 
-export type Column<T> = { header: string; cell(row: T): ReactNode; className?: string; hideHeader?: boolean };
+export type Column<T> = {
+  header: string;
+  cell(row: T): ReactNode;
+  className?: string;
+  hideHeader?: boolean;
+};
 
 type Props<T> = {
   columns: Column<T>[];
@@ -21,19 +34,30 @@ type Props<T> = {
 };
 
 /** A list: skeleton rows while it loads, a retryable error if it fails, the empty message when there is nothing. */
-export function DataTable<T>({ columns, rows, rowKey, loading, error, onRetry, empty, pageSize, label }: Props<T>) {
+export function DataTable<T>({
+  columns,
+  rows,
+  rowKey,
+  loading,
+  error,
+  onRetry,
+  empty,
+  pageSize,
+  label,
+}: Props<T>) {
   const showRows = !error && rows !== null && rows.length > 0;
   return (
     <div className="min-w-0">
       {error ? (
-        <div className="flex flex-col items-start gap-3 p-4">
-          <p role="alert" className="text-sm font-medium text-danger">
-            {error}
-          </p>
-          <Button variant="outline" size="sm" onClick={onRetry}>
-            Retry
-          </Button>
-        </div>
+        <EmptyState
+          kind="error"
+          title={error}
+          action={
+            <Button variant="outline" onClick={onRetry}>
+              Try again
+            </Button>
+          }
+        />
       ) : (
         <>
           {(loading && rows === null) || showRows ? (
@@ -52,7 +76,11 @@ export function DataTable<T>({ columns, rows, rowKey, loading, error, onRetry, e
                   ? Array.from({ length: pageSize }, (_, i) => (
                       <TableRow key={i} className="hover:bg-transparent">
                         {columns.map((c) => (
-                          <TableCell key={c.header} className={c.className} data-label={c.hideHeader ? undefined : c.header}>
+                          <TableCell
+                            key={c.header}
+                            className={c.className}
+                            data-label={c.hideHeader ? undefined : c.header}
+                          >
                             <Skeleton className={i % 2 ? "w-2/3" : "w-4/5"} />
                           </TableCell>
                         ))}
@@ -61,7 +89,11 @@ export function DataTable<T>({ columns, rows, rowKey, loading, error, onRetry, e
                   : rows.map((row) => (
                       <TableRow key={rowKey(row)} className={loading ? "opacity-60" : undefined}>
                         {columns.map((c) => (
-                          <TableCell key={c.header} className={c.className} data-label={c.hideHeader ? undefined : c.header}>
+                          <TableCell
+                            key={c.header}
+                            className={c.className}
+                            data-label={c.hideHeader ? undefined : c.header}
+                          >
                             {c.cell(row)}
                           </TableCell>
                         ))}

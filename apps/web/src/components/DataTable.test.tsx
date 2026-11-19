@@ -22,7 +22,7 @@ describe("DataTable", () => {
     const onRetry = vi.fn();
     render(<DataTable {...base} onRetry={onRetry} rows={null} loading={false} error="Could not load suppliers." label="Suppliers" />);
     expect(screen.getByRole("alert")).toHaveTextContent("Could not load suppliers.");
-    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(onRetry).toHaveBeenCalledOnce();
   });
 
