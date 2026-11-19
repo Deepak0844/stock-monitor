@@ -12,7 +12,7 @@ import { EmptyState } from "../components/EmptyState.js";
 import { Notice } from "../components/Notice.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { Pager } from "../components/Pager.js";
-import { StatTile } from "../components/StatTile.js";
+import { StatRow, StatTile } from "../components/StatTile.js";
 import { useListParams } from "../lib/useListParams.js";
 import { useWatch } from "../lib/useWatch.js";
 import { intervalWords, runSummary, whenWords } from "../components/scheduleWords.js";
@@ -294,12 +294,12 @@ export function SuppliersPage({ api }: { api: Api }) {
       />
 
       {all !== null && !confirmedEmpty && (
-        <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatRow>
           <StatTile label="All suppliers" value={count()} to="/suppliers" />
           <StatTile label="Connected" value={count("connected")} to="/suppliers?status=connected" />
           <StatTile label="Needs reconnecting" value={count("needs_reconnect")} to="/suppliers?status=needs_reconnect" tone="warning" />
           <StatTile label="Paused" value={count("paused")} to="/suppliers?status=paused" />
-        </div>
+        </StatRow>
       )}
 
       {actionError && (
