@@ -1,4 +1,13 @@
-import { useEffect, useRef, useState, type FocusEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FocusEvent,
+  type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from "react";
+import { cn } from "@/lib/utils.js";
 import { Button } from "@/components/ui/button.js";
 import { Input } from "@/components/ui/input.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
@@ -14,7 +23,18 @@ export type RfbLike = EventTarget & {
 };
 
 // X11 keysyms the window sends itself.
-const XK = { BackSpace: 0xff08, Return: 0xff0d, Shift_L: 0xffe1, Shift_R: 0xffe2, Control_L: 0xffe3, Control_R: 0xffe4, Alt_L: 0xffe9, Alt_R: 0xffea, Super_L: 0xffeb, Super_R: 0xffec };
+const XK = {
+  BackSpace: 0xff08,
+  Return: 0xff0d,
+  Shift_L: 0xffe1,
+  Shift_R: 0xffe2,
+  Control_L: 0xffe3,
+  Control_R: 0xffe4,
+  Alt_L: 0xffe9,
+  Alt_R: 0xffea,
+  Super_L: 0xffeb,
+  Super_R: 0xffec,
+};
 // Latin-1 keysyms equal the character code; anything else uses X11's Unicode keysym range.
 const keysymOf = (ch: string) => {
   const cp = ch.codePointAt(0)!;
@@ -37,6 +57,8 @@ type Props = {
   onConnected: () => void;
   onFailed: (reason: LiveWindowFailure) => void;
   onExpired: () => void;
+  /** Drawn right on top of the remote screen, like a browser's address bar. */
+  bar?: ReactNode;
   /** For tests: replaces the browser's WebSocket and the noVNC viewer. */
   createSocket?: (url: string) => WebSocket;
   loadRfb?: () => Promise<RfbConstructor>;
@@ -61,6 +83,7 @@ export function LiveWindow({
   loginSessionId,
   token,
   expiresAt,
+  bar,
   onConnected,
   onFailed,
   onExpired,
@@ -164,7 +187,8 @@ export function LiveWindow({
         // Runs before noVNC's own key handler. Ctrl/Cmd+V pastes this computer's clipboard into the window. Cmd+letter
         // on a Mac becomes Ctrl+letter, since noVNC sends Cmd as Alt and the remote browser expects Ctrl for copy and paste.
         const onKeyDown = (e: KeyboardEvent) => {
-          if ((e.ctrlKey || e.metaKey) && (e.code === "KeyC" || e.code === "KeyX")) copyKeyAt = Date.now();
+          if ((e.ctrlKey || e.metaKey) && (e.code === "KeyC" || e.code === "KeyX"))
+            copyKeyAt = Date.now();
           const letter = /^Key([A-Z])$/.exec(e.code)?.[1]?.toLowerCase();
           if (!letter || e.altKey || !(e.metaKey || (e.ctrlKey && letter === "v"))) return;
           e.stopPropagation();
@@ -187,14 +211,26 @@ export function LiveWindow({
               },
               () => {
                 setPasteBlocked(true);
-                setNotice("Your browser did not let the window read your clipboard. Paste it in the box above instead.");
+                setNotice(
+                  "Your browser did not let the window read your clipboard. Paste it in the box above instead.",
+                );
               },
             )
             .finally(press);
         };
         // A key still held when the window loses focus would never be released there (a stuck Shift types only capitals).
         const onFocusOut = () => {
-          for (const k of [XK.Shift_L, XK.Shift_R, XK.Control_L, XK.Control_R, XK.Alt_L, XK.Alt_R, XK.Super_L, XK.Super_R]) rfb.sendKey(k, null, false);
+          for (const k of [
+            XK.Shift_L,
+            XK.Shift_R,
+            XK.Control_L,
+            XK.Control_R,
+            XK.Alt_L,
+            XK.Alt_R,
+            XK.Super_L,
+            XK.Super_R,
+          ])
+            rfb.sendKey(k, null, false);
         };
         screenEl.addEventListener("keydown", onKeyDown, true);
         screenEl.addEventListener("focusout", onFocusOut);
@@ -276,7 +312,7 @@ export function LiveWindow({
   };
 
   return (
-    <div className="mt-5">
+    <div>
       {phase === "connecting" && (
         <div className="mb-3 flex flex-col gap-2">
           <p role="status" className="text-sm font-medium">
@@ -294,9 +330,24 @@ export function LiveWindow({
         {phase === "live" && (
           <div className="max-w-xl flex-1 basis-96">
             {pasteBlocked && (
-              <Field id="paste-text" label="Paste text" hint={<span id="paste-hint">Send it to the window, click the field there, then press Ctrl+V.</span>}>
+              <Field
+                id="paste-text"
+                label="Paste text"
+                hint={
+                  <span id="paste-hint">
+                    Send it to the window, click the field there, then press Ctrl+V.
+                  </span>
+                }
+              >
                 <div className="flex gap-2">
-                  <Input id="paste-text" type="password" autoComplete="off" value={pasteText} onChange={(e) => setPasteText(e.target.value)} aria-describedby="paste-hint" />
+                  <Input
+                    id="paste-text"
+                    type="password"
+                    autoComplete="off"
+                    value={pasteText}
+                    onChange={(e) => setPasteText(e.target.value)}
+                    aria-describedby="paste-hint"
+                  />
                   <Button type="button" variant="outline" className="shrink-0" onClick={sendPaste}>
                     Send to the window
                   </Button>
@@ -340,11 +391,19 @@ export function LiveWindow({
       </div>
       {/* The remote screen is 1280 by 800. The viewer scales it to fit this box, so it is never scrolled, and the box is kept short
           enough that the buttons above it and the window can be seen together on a laptop. */}
+      {phase === "live" && bar}
       <div
         ref={screenRef}
         role="group"
         aria-label="Live login window. Click it to type into the supplier's website. Use the buttons above to finish or cancel."
-        className={phase === "live" ? "h-[clamp(20rem,calc(100vh-20rem),50rem)] w-full overflow-hidden rounded-md border border-border bg-black" : "hidden"}
+        className={
+          phase === "live"
+            ? cn(
+                "h-[clamp(20rem,calc(100vh-20rem),50rem)] w-full overflow-hidden border border-border bg-black",
+                bar ? "rounded-b-md" : "rounded-md",
+              )
+            : "hidden"
+        }
       />
     </div>
   );
