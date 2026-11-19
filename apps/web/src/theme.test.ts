@@ -31,6 +31,15 @@ const TEXT: [string, string][] = [
   ["bad", "background"],
   ["bad", "selected"],
   ["primary-foreground", "primary"],
+  ["success", "success-soft"],
+  ["warning", "warning-soft"],
+  ["danger", "danger-soft"],
+  ["muted-foreground", "muted"],
+  ["muted-foreground", "secondary"],
+  ["muted-foreground", "hover"],
+  ["foreground", "selected"],
+  ["destructive-foreground", "destructive"],
+  ["accent-foreground", "accent"],
 ];
 const CONTROLS: [string, string][] = [
   ["input", "background"],

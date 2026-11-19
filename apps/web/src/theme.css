@@ -18,7 +18,7 @@
   --secondary: #f0efe9;
   --secondary-foreground: #16181d;
   --muted: #f4f3ee;
-  --muted-foreground: #6b6e76;
+  --muted-foreground: #62656d;
   --accent: #c2410c;
   --accent-foreground: #ffffff;
   --destructive: #c2410c;
@@ -30,7 +30,7 @@
   --sidebar-foreground: #3c3f46;
   --sidebar-active: #fbfbf8;
   --success: #15803d;
-  --success-soft: #e6f2ea;
+  --success-soft: #f1f7f2;
   --warning: #c2410c;
   --warning-soft: #fdf1e7;
   --danger: #c2410c;
