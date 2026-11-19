@@ -385,3 +385,25 @@ describe("supplier repository: quick checks", () => {
     expect((await repo().setNeedsLogin(g.id, false))?.checkPauseSeconds).toBe(7);
   });
 });
+
+describe("supplier repository: name in Shopify", () => {
+  it("keeps an optional name in Shopify, and clears it", async () => {
+    const s = await made();
+    expect(s.shopifyName).toBeNull();
+    const set = await repo().update(s.id, { shopifyName: "Acme Trading Ltd" });
+    expect(set.ok && set.supplier.shopifyName).toBe("Acme Trading Ltd");
+    const cleared = await repo().update(s.id, { shopifyName: null });
+    expect(cleared.ok && cleared.supplier.shopifyName).toBeNull();
+    const created = await repo().create({ ...globex, shopifyName: "Globex Trading" });
+    expect(created.ok && created.supplier.shopifyName).toBe("Globex Trading");
+  });
+
+  it("refuses two suppliers with the same name for matching, whichever field it comes from", async () => {
+    const a = await made(); // "Acme Supply"
+    const g = await made(globex);
+    expect(await repo().update(g.id, { shopifyName: "acme supply" })).toEqual({ ok: false, reason: "shopify_name_taken" });
+    await repo().update(a.id, { shopifyName: "Acme Wholesale" });
+    expect((await repo().update(g.id, { shopifyName: "ACME WHOLESALE" })).ok).toBe(false);
+    expect((await repo().update(g.id, { shopifyName: "Acme Supply" })).ok).toBe(true); // Acme's match name is now "Acme Wholesale"
+  });
+});

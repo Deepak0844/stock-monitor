@@ -18,7 +18,7 @@ export type RowResult =
 
 /** Decides what one export row means. Messages are for the owner: they say what to fix. */
 export function checkRow(row: ExportRow, ctx: RowContext): RowResult {
-  const supplier = ctx.suppliers.get(row.supplierName.toLowerCase());
+  const supplier = ctx.suppliers.get(row.supplierName.trim().toLowerCase());
   if (!supplier) return { kind: "skipped_supplier" };
 
   const variants = ctx.variantsBySku.get(row.sku) ?? [];

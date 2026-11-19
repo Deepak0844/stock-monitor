@@ -105,6 +105,14 @@ describe("preview", () => {
     expect(await linkCount()).toBe(0); // nothing is saved by a preview
   });
 
+  it("matches rows by the supplier's name in Shopify when it has one", async () => {
+    await t.pool.query("update suppliers set shopify_name = 'Acme Trading' where name = 'Acme'");
+    const renamed = FILE.replace(/,Acme,/g, ",Acme Trading,");
+    expect((await preview(renamed)).body).toMatchObject({ goodCount: 2 });
+    expect((await preview()).body.goodCount).toBe(0); // "Acme" is no longer the name products match on
+    await t.pool.query("update suppliers set shopify_name = null");
+  });
+
   it("leaves out rows for variants whose supplier and address come from Shopify, and says how many", async () => {
     await t.pool.query("update shopify_variants set supplier_name = 'Acme', supplier_url = 'https://shop.acme.example/p/1' where variant_id = 'v1'");
     const r = await preview();

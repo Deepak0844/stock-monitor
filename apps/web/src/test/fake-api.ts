@@ -94,6 +94,7 @@ export const aSupplier = (over: Partial<Supplier> = {}): Supplier => ({
   checkPauseSeconds: 10,
   defaultRegion: null,
   needsLogin: true,
+  shopifyName: null,
   autoLogin: false,
   stealth: false,
   loginSelectors: null,

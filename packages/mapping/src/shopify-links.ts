@@ -14,6 +14,12 @@ const label = (s: ShopifyLinkSource) => (s.variantTitle && s.variantTitle !== "D
  * always becomes the variant's link. A pair that cannot be used is skipped and explained, never guessed at. `suppliers` is keyed
  * by the supplier's name in lower case, like the import's.
  */
+/**
+ * The name products are matched to a supplier by: the name Shopify uses for it when the owner set one, else its name in the
+ * app. Trimmed and lower case, so spacing and capitals never matter. The Shopify sync and the export import both use it.
+ */
+export const supplierMatchName = (supplier: { name: string; shopifyName: string | null }): string => (supplier.shopifyName?.trim() || supplier.name.trim()).toLowerCase();
+
 export function planShopifyLinks(sources: ShopifyLinkSource[], suppliers: Map<string, SupplierRef>): ShopifyLinkPlan {
   const plan: ShopifyLinkPlan = { rows: [], problems: [] };
   for (const source of sources) {

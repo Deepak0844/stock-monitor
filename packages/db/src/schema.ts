@@ -136,6 +136,8 @@ export const suppliers = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     name: text("name").notNull(),
+    /** The supplier name Shopify uses for this supplier, when it differs from `name`. Matching uses it first. */
+    shopifyName: text("shopify_name"),
     websiteUrl: text("website_url").notNull(),
     loginUrl: text("login_url"),
     checkIntervalMinutes: integer("check_interval_minutes").notNull().default(60),
@@ -210,6 +212,9 @@ export const suppliers = pgTable(
       sql`(${t.enabled} and ${t.pausedReason} is null) or (not ${t.enabled} and ${t.pausedReason} is not null and ${t.pausedReason} in ('owner', 'session'))`,
     ),
     uniqueIndex("suppliers_name_unique").on(sql`lower(${t.name})`),
+    // Two suppliers can never share the name products are matched by (the name in Shopify, else the app name).
+    uniqueIndex("suppliers_match_name_unique").on(sql`lower(coalesce(${t.shopifyName}, ${t.name}))`),
+    check("suppliers_shopify_name", sql`${t.shopifyName} is null or char_length(${t.shopifyName}) between 1 and 200`),
   ],
 );
 
