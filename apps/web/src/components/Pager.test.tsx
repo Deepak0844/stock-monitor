@@ -65,4 +65,11 @@ describe("Pager", () => {
     await userEvent.type(screen.getByLabelText("Go to page"), "abc{Enter}");
     expect(onPage).not.toHaveBeenCalled();
   });
+  it("still says which rows are showing on a phone", () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: false, media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    render(<Pager page={1} pageSize={25} total={60} onPage={vi.fn()} onPageSize={vi.fn()} />);
+    expect(screen.getByText("Showing 1–25 of 60")).toBeInTheDocument();
+    expect(screen.getByText("Page 1 of 3")).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
 });

@@ -71,17 +71,16 @@ export function Pager({ page, pageSize, total, onPage, onPageSize }: Props) {
 
   if (!wide) {
     return (
-      <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-3 text-sm text-muted-foreground">
-        {total === 0 ? (
-          <span>No results</span>
-        ) : (
-          <>
+      <div className="flex flex-col gap-2 border-t border-border px-4 py-3 text-sm text-muted-foreground">
+        <span className="font-mono">{total === 0 ? "No results" : `Showing ${from}–${to} of ${total}`}</span>
+        {total > 0 && (
+          <div className="flex items-center justify-between gap-3">
             {prev}
             <span className="font-mono text-foreground">
               Page {page} of {last}
             </span>
             {next}
-          </>
+          </div>
         )}
       </div>
     );
