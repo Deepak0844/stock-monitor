@@ -8,7 +8,10 @@ import { aMapping, aRun, aSupplier, fakeApi } from "../test/fake-api.js";
 import { MappingsPage } from "./MappingsPage.js";
 
 beforeEach(() => window.history.replaceState(null, "", "/mappings"));
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  sessionStorage.clear(); // checks saved by one test never reach the next
+});
 
 const acme = aSupplier();
 const blue = aMapping();
@@ -229,13 +232,17 @@ describe("checking links", () => {
   });
 
   it("keeps a row's Checking spinner after leaving the page and coming back", async () => {
-    sessionStorage.setItem("pending-row-checks", JSON.stringify([{ key: `link:${blue.id}`, id: blue.id, kind: "link", baseline: blue.lastLinkCheckAt, at: Date.now() }]));
-    try {
-      setup([blue]);
-      expect(await screen.findByText("Checking…")).toBeInTheDocument();
-    } finally {
-      sessionStorage.clear();
-    }
+    sessionStorage.setItem("pending-row-checks", JSON.stringify([{ key: `link:${blue.id}`, id: blue.id, kind: "link", baseline: "2026-11-11T08:00:00.000Z", at: Date.now() }]));
+    setup([blue]); // the fake status still says 08:00, so the check is still going
+    expect(await screen.findByText("Checking…")).toBeInTheDocument();
+  });
+
+  it("drops a saved row check that already finished, without a spinner", async () => {
+    sessionStorage.setItem("pending-row-checks", JSON.stringify([{ key: `link:${blue.id}`, id: blue.id, kind: "link", baseline: null, at: Date.now() }]));
+    const { api } = setup([blue]);
+    await waitFor(() => expect(api.mappings.get).toHaveBeenCalledWith(blue.id));
+    expect(screen.queryByText("Checking…")).toBeNull();
+    expect(sessionStorage.getItem("pending-row-checks")).toBe("[]");
   });
 
   it("shows a running check on return even with no supplier chosen", async () => {

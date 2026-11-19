@@ -151,15 +151,24 @@ export function MappingsPage({ api }: { api: Api }) {
       stopWaiting(key);
     }
   };
-  // Back on the page: checks started before leaving are followed again from where they were.
+  // Back on the page: a check started before leaving is looked at once. If it already finished its row is read; if not, its
+  // spinner returns and it is followed again.
   useEffect(() => {
-    const again = readPending();
-    if (again.length === 0) return;
-    setWaiting((w) => new Set([...w, ...again.map((p) => p.key)]));
-    for (const p of again) {
-      void follow(p.key, { id: p.id }, (st) => (p.kind === "link" ? st.linkCheckedAt : st.stockCheckedAt) !== p.baseline);
+    for (const p of readPending()) {
+      const finished = (st: { linkCheckedAt: string | null; stockCheckedAt: string | null }) => (p.kind === "link" ? st.linkCheckedAt : st.stockCheckedAt) !== p.baseline;
+      api.mappings
+        .status(p.id)
+        .then(async (st) => {
+          if (finished(st)) {
+            forgetPending(p.key);
+            replaceRow(await api.mappings.get(p.id));
+          } else {
+            setWaiting((w) => new Set(w).add(p.key));
+            void follow(p.key, { id: p.id }, finished);
+          }
+        })
+        .catch(() => forgetPending(p.key));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // The chosen supplier's whole run: one going when the page opens or the supplier is chosen, or one just started here.
