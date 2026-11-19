@@ -197,6 +197,9 @@
     color: var(--foreground);
     font-size: 1rem;
     line-height: 1.5;
+    /* A very long name, link or SKU with no spaces wraps instead of pushing a phone screen sideways. It only breaks where there
+       is no room; text meant to be cut off with "…" (truncate) still is. */
+    overflow-wrap: anywhere;
     -webkit-font-smoothing: antialiased;
   }
   /* Desktop is denser: 14px text and 32px controls. A phone keeps 16px text and 44px controls. */

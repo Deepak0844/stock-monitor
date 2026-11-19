@@ -50,3 +50,23 @@ test("every main page passes the accessibility scan in light and dark, on a phon
     }
   }
 });
+
+test("a very long supplier name with no spaces never pushes a phone screen sideways", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "sets the phone width itself");
+  await signIn(page);
+  const name = "Northline" + "W".repeat(91); // 100 characters, the longest name allowed, with no spaces
+  const res = await page.request.post("/api/suppliers", { data: { name, websiteUrl: "https://shop.longname.example/", loginUrl: null } });
+  expect(res.status()).toBe(201);
+  const { supplier } = (await res.json()) as { supplier: { id: string } };
+  try {
+    await page.setViewportSize({ width: 390, height: 844 });
+    for (const path of ["/suppliers", "/"]) {
+      await page.goto(path);
+      await expect(page.getByText(name).first()).toBeVisible();
+      const sideways = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(sideways, `${path} scrolls sideways`).toBeLessThanOrEqual(0);
+    }
+  } finally {
+    await page.request.delete(`/api/suppliers/${supplier.id}`);
+  }
+});
