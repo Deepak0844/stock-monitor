@@ -54,4 +54,11 @@ describe("deferred actions with Undo", () => {
     expect(onFailed).toHaveBeenCalledWith("That suggestion was already decided.");
     expect(screen.getByRole("alert")).toHaveTextContent("That suggestion was already decided.");
   });
+  it("sends at once, kept alive, when a phone hides the page (switching apps)", async () => {
+    const { commit } = start();
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    act(() => void document.dispatchEvent(new Event("visibilitychange")));
+    expect(commit).toHaveBeenCalledWith(true);
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+  });
 });

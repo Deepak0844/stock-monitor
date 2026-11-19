@@ -106,6 +106,7 @@ export function SearchSelect({ label, value, valueLabel, options, search, allOpt
         <button
           type="button"
           id={fieldId}
+          title={shown}
           aria-haspopup="listbox"
           aria-invalid={invalid || undefined}
           aria-describedby={describedBy}
@@ -154,6 +155,7 @@ export function SearchSelect({ label, value, valueLabel, options, search, allOpt
                 key={o.id || "all"}
                 id={optionId(o)}
                 role="option"
+                title={o.detail ? `${o.label} · ${o.detail}` : o.label}
                 aria-selected={o.id === (value ?? "") || (value === null && o === allOption)}
                 aria-disabled={o.disabled || undefined}
                 onMouseEnter={() => !o.disabled && setActive(i)}

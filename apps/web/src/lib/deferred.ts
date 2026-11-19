@@ -1,7 +1,8 @@
 import { toast } from "./toast.js";
 
 // Reject and delete wait a few seconds before they are sent, so Undo really undoes. The page hides the row at once. If the owner
-// leaves the page during the wait, whatever is waiting is sent straight away (kept alive by the browser), so it is never lost.
+// leaves the page or a phone hides it during the wait, whatever is waiting is sent straight away (kept alive by the browser), so it
+// is never lost. Undo is no longer possible after that.
 export const UNDO_MS = 5000;
 
 type Waiting = { timer: ReturnType<typeof setTimeout>; send: (keepalive: boolean) => void };
@@ -25,6 +26,8 @@ export type DeferredAction = {
 export function deferred({ text, commit, onUndo, onFailed }: DeferredAction): void {
   if (!listening && typeof window !== "undefined") {
     window.addEventListener("pagehide", flush);
+    // A phone switching apps often only hides the page, and may then close it without a pagehide.
+    document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && flush());
     listening = true;
   }
   const id = next++;

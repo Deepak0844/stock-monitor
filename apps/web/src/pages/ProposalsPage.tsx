@@ -393,7 +393,11 @@ export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => vo
     deferred({
       text: list.length === 1 ? `Rejected ${name(list[0]!)}.` : `${list.length} proposals rejected.`,
       commit: async (keepalive) => {
-        const failed = await inTurn(list, async (p) => changed(await api.proposals.reject(p.id, { keepalive })), () => {});
+        const one = async (p: Proposal) => changed(await api.proposals.reject(p.id, { keepalive }));
+        // While the page closes there is no time to wait for each answer: send them all at once, each kept alive by the browser.
+        const failed = keepalive
+          ? (await Promise.allSettled(list.map(one))).flatMap((r, i) => (r.status === "rejected" ? [{ item: list[i]!, message: r.reason instanceof Error ? r.reason.message : String(r.reason) }] : []))
+          : await inTurn(list, one, () => {});
         show(ids);
         read(true); // what is left on this page, or the next page's suggestions when this one is now empty
         if (failed.length) throw new Error(failed.map((f) => `${f.item.productTitle}: ${f.message}`).join(" "));

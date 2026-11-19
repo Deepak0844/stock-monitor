@@ -112,4 +112,11 @@ describe("SearchSelect", () => {
     expect(screen.getByRole("option", { name: /Oak serving board/ })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /Old ring/ })).not.toBeInTheDocument();
   });
+  it("puts the whole of a long name in a tooltip title, on each option and on the field", async () => {
+    const long = "Northline " + "x".repeat(200);
+    const { user } = setup({ options: [{ id: "n", label: long, detail: "northline-trade.example" }], value: "n" });
+    expect(screen.getByRole("button", { name: /Supplier/ })).toHaveAttribute("title", long);
+    await open(user);
+    expect(screen.getByRole("option", { name: /Northline/ })).toHaveAttribute("title", `${long} · northline-trade.example`);
+  });
 });

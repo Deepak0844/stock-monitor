@@ -525,4 +525,14 @@ describe("bulk approve and reject", () => {
     await user.selectOptions(screen.getByLabelText("Sort"), "supplier");
     await waitFor(() => expect(api.proposals.openPage).toHaveBeenLastCalledWith({ page: 1, pageSize: 10, sort: "supplier", dir: "asc" }));
   });
+  it("sends every waiting reject at once when the owner leaves the page, not just the first", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { api, user } = await setup(three);
+    await user.click(screen.getByRole("checkbox", { name: "Select Blue Tee, Large" }));
+    await user.click(screen.getByRole("checkbox", { name: "Select Red Cap, Large" }));
+    await user.click(screen.getByRole("button", { name: "Reject 2" }));
+    act(() => void window.dispatchEvent(new Event("pagehide")));
+    expect(api.proposals.reject).toHaveBeenCalledTimes(2);
+    expect(api.proposals.reject).toHaveBeenCalledWith("b", { keepalive: true });
+  });
 });
