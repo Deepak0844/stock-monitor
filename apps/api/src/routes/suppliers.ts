@@ -2,6 +2,7 @@ import type { FastifyInstance, RawReplyDefaultExpression, RawRequestDefaultExpre
 import type { Logger } from "pino";
 import { z } from "zod";
 import type { createAuditWriter } from "@stock-monitor/audit";
+import type { BrowserClient } from "@stock-monitor/browser-client";
 import type { createSupplierCredentialsRepository, createSupplierRepository, SupplierInput, SupplierPatch } from "@stock-monitor/db";
 import type { Queue } from "@stock-monitor/queue";
 import { isCredentials, isLoginSelectors, sealCredentials, validateSupplierUrl, verifyPublicHost, type HostLookup } from "@stock-monitor/supplier-session";
@@ -19,6 +20,8 @@ export type SupplierRoutesDeps = {
   /** The key and key id that seal sessions, used the same way for logins. */
   key?: { key: Buffer; keyId: string };
   queue?: Pick<Queue, "enqueue">;
+  /** The browser service, for "Check login page". Without it that route does not exist. */
+  browser?: Pick<BrowserClient, "inspectLogin">;
   /** Test only: replaces the real DNS lookup. */
   lookup?: HostLookup;
   /** Runs before a supplier is deleted, for example to close a login window that is open for it. */
@@ -293,6 +296,34 @@ export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit
     }
     return reply.status(202).send({ queued: true });
   });
+
+  // Looks at the supplier's login page and says what a login would use there. Nothing is typed or sent, and no credentials are involved.
+  const { browser } = deps;
+  if (browser) {
+    app.post<{ Params: { id: string } }>("/api/suppliers/:id/auto-login/inspect", async (request) => {
+      const body = request.body;
+      if (body !== undefined && body !== null && !(typeof body === "object" && !Array.isArray(body) && Object.keys(body).length === 0)) throw new AppError(400, "invalid_input", "Check the details and try again.");
+      const supplier = await repo.get(request.params.id);
+      if (!supplier) throw NOT_FOUND();
+      if (supplier.automationPermission !== "granted") throw NOT_GRANTED();
+      const answer = await browser.inspectLogin({
+        loginUrl: supplier.loginUrl ?? supplier.websiteUrl,
+        checkUrl: supplier.websiteUrl,
+        stealth: supplier.stealth,
+        ...(supplier.loginSelectors ? { selectors: supplier.loginSelectors } : {}),
+      });
+      if (!answer.ok) throw new AppError(503, "browser_unavailable", "The browser service did not answer. Try again in a minute.");
+      const { inspection } = answer;
+      // Counts and the state only: the labels and selectors belong to the owner's screen, not the audit trail.
+      await record(request, "supplier.login_inspected", supplier.id, {
+        state: inspection.state,
+        found: Object.values(inspection.found).filter((c) => c !== null).length,
+        fields: inspection.fields.length,
+        buttons: inspection.buttons.length,
+      });
+      return { inspection };
+    });
+  }
 
   app.post<{ Params: { id: string } }>("/api/suppliers/:id/auto-login/resume", async (request, reply) => {
     if (!(await repo.resumeAutoLogin(request.params.id))) throw NOT_FOUND();
