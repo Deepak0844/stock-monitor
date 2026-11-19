@@ -1,7 +1,7 @@
 // Automatic supplier login: the step loop that finds and fills a login form, and the rules that read the page after it.
 // Runs on a page of the supplier's persistent profile. The username and password are typed into the page and nowhere else.
 import type { Frame, Locator, Page } from "playwright";
-import { classifyPage, type LoginSelectors, type PageClass, type SessionState } from "@stock-monitor/supplier-session";
+import { explainPage, type LoginSelectors, type PageClass, type SessionState } from "@stock-monitor/supplier-session";
 import { NAME_SHIM } from "./page-shim.js";
 import { CHALLENGE_WIDGET, MAX_TEXT } from "./verify.js";
 
@@ -503,9 +503,11 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
 
   // The logged-in marker counts for "already logged in?" and the final confirmation, not for the page right after the
   // submit: a landing page without it must not stop a login that worked.
-  const classifyHere = async (requestedUrl: string, useMarker = false) => {
+  const classifyHere = async (requestedUrl: string, useMarker = false) => (await explainHere(requestedUrl, useMarker)).result;
+  /** The page's class and the rule that decided it, a fixed code for the log. */
+  const explainHere = async (requestedUrl: string, useMarker = false) => {
     const seen = await page.evaluate(() => ({ title: document.title, text: (document.body?.innerText ?? "").slice(0, 20_000) })).catch(() => ({ title: "", text: "" }));
-    return classifyPage({
+    return explainPage({
       requestedUrl,
       loginUrl: request.loginUrl,
       ...(useMarker && request.loggedInMarker ? { loggedInMarker: request.loggedInMarker } : {}),
@@ -585,6 +587,8 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
     if ((first === "captcha" || first === "blocked") && !(await anyFormVisible())) return (await challengeVisible(page)) ? "captcha" : "blocked";
   }
 
+  /** Set when the page after the password was too unclear to read: the reason code, kept for the log if the confirm fails too. */
+  let unclearAfterSubmit = "";
   // 2. The step loop, unless the profile is still logged in.
   if (first !== "ok") {
     let opened = false;
@@ -747,8 +751,11 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
 
     // 4. What the page says now. A wrong password only once the page has settled, read again: it pauses automatic login.
     let frames: FrameText[] = [];
+    let pageSignal = "";
     const facts = async (): Promise<AfterSubmitFacts> => {
       frames = await frameTexts(page);
+      const after = await explainHere(request.loginUrl);
+      pageSignal = after.signal;
       return {
         challengeVisible: await challengeVisible(page),
         captchaFrameText: frames.some((f) => f.captcha && SECOND_CHECK.test(f.text)),
@@ -758,7 +765,7 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
         lockedText: LOCKED.test(frames.map((f) => f.text).join("\n")),
         passwordFieldVisible: !!(await firstVisible(page, 'input[type="password"]')),
         onLoginPage: onLoginPage(page.url(), request.loginUrl),
-        pageClass: await classifyHere(request.loginUrl),
+        pageClass: after.result,
       };
     };
     let seen = await facts();
@@ -779,7 +786,10 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
       onWhy?.(`code_not_taken len=${codeLength}`);
       return "code_required";
     }
-    if (decided === "unknown") return unclear(`unclear_after_submit page=${seen.pageClass}`);
+    // A page too bare to read (one still loading, an in-between page) is no answer: the confirm below decides, so a login that
+    // worked is not called failed. A page that still asks for the login is an answer.
+    if (decided === "unknown" && seen.pageClass === "unknown") unclearAfterSubmit = `unclear_after_submit page=unknown/${pageSignal} `;
+    else if (decided === "unknown") return unclear(`unclear_after_submit page=${seen.pageClass}/${pageSignal}`);
     if (decided === "captcha" && !seen.challengeVisible) onWhy?.(`after_submit captcha_frame=${frames.find((f) => f.captcha && SECOND_CHECK.test(f.text))?.captcha}`);
     if (decided === "code_required") {
       // Which rule said so, from our own fixed word list only: a code-like box, or one of the second-check words in a frame that counts.
@@ -788,17 +798,17 @@ export async function runLogin(page: Page, request: LoginRequest, { settleMs, st
       const inMain = frames[0] !== undefined && within(SECOND_CHECK_WORDS).test(frames[0].text);
       onWhy?.(`after_submit code_box=${seen.codeFieldVisible} word=${word} in=${word === "none" ? "none" : inMain ? "main" : "other_frame"} class=${seen.pageClass} loginpage=${seen.onLoginPage} password=${seen.passwordFieldVisible}`);
     }
-    if (decided !== "ok") return decided;
+    if (decided !== "ok" && decided !== "unknown") return decided;
   }
 
   // 5. Confirm on a page that needs the login. Anything but ok there is not proof the password is wrong.
   try {
     status = (await page.goto(request.checkUrl, { timeout: 20_000, waitUntil: "load" }))?.status() ?? null;
   } catch {
-    return unclear("confirm_page_unreachable");
+    return unclear(`${unclearAfterSubmit}confirm_page_unreachable`);
   }
-  const confirmed = await classifyHere(request.checkUrl, true);
-  return confirmed === "ok" ? "ok" : unclear(`confirm_not_ok page=${confirmed}`);
+  const confirmed = await explainHere(request.checkUrl, true);
+  return confirmed.result === "ok" ? "ok" : unclear(`${unclearAfterSubmit}confirm_not_ok page=${confirmed.result}/${confirmed.signal}`);
 }
 
 /** The site of an address: its host without the subdomains (two labels, three for a country's "co.uk"-style suffix). */
