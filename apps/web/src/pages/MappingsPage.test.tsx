@@ -228,6 +228,24 @@ describe("checking links", () => {
     expect(screen.getByRole("button", { name: "Check all stock for Acme Supply" })).toBeDisabled();
   });
 
+  it("keeps a row's Checking spinner after leaving the page and coming back", async () => {
+    sessionStorage.setItem("pending-row-checks", JSON.stringify([{ key: `link:${blue.id}`, id: blue.id, kind: "link", baseline: blue.lastLinkCheckAt, at: Date.now() }]));
+    try {
+      setup([blue]);
+      expect(await screen.findByText("Checking…")).toBeInTheDocument();
+    } finally {
+      sessionStorage.clear();
+    }
+  });
+
+  it("shows a running check on return even with no supplier chosen", async () => {
+    const going = aRun({ id: "r1", kind: "stock", supplierId: acme.id, linksTotal: 4, linksDone: 1, outcome: "running", endedAt: null, inStock: 0, outOfStock: 0, cannotTell: 0 });
+    const currentRun = vi.fn().mockResolvedValue(going);
+    setup([blue], { schedule: { currentRun } });
+    expect(await screen.findByText("Checking 1 of 4 links")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Stock check for Acme Supply" })).toBeInTheDocument();
+  });
+
   it("follows a whole run through its own status, then reads the list once when it ends", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
     try {
