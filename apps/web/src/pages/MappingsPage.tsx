@@ -336,11 +336,17 @@ export function MappingsPage({ api }: { api: Api }) {
     {
       header: "Status",
       cell: (m) => {
-        if (waiting.has(`link:${m.id}`)) return <Badge variant="warning" className="animate-pulse">Checking…</Badge>;
         const s = linkStatusOf(m);
+        // While a check runs only the first line changes, so the row keeps its size.
         return (
           <div className="flex flex-col items-start gap-1">
-            <Badge variant={badgeVariant(s.tone)}>{s.words}</Badge>
+            {waiting.has(`link:${m.id}`) ? (
+              <Badge variant="warning" className="animate-pulse">
+                Checking…
+              </Badge>
+            ) : (
+              <Badge variant={badgeVariant(s.tone)}>{s.words}</Badge>
+            )}
             {m.unavailableCandidate && <Badge variant="warning">May be unavailable</Badge>}
             {s.hint && <span className="text-muted-foreground">{s.hint}</span>}
             {m.linkStatus === "page_missing" && m.lastWorkedAt && <span className="text-muted-foreground">Worked until {formatDay(m.lastWorkedAt)}</span>}
@@ -351,13 +357,15 @@ export function MappingsPage({ api }: { api: Api }) {
     {
       header: "Stock",
       cell: (m) =>
-        waiting.has(`stock:${m.id}`) ? (
-          <Badge variant="warning" className="animate-pulse">
-            Checking…
-          </Badge>
-        ) : m.latestStock ? (
+        m.latestStock ? (
           <div className="flex flex-col items-start gap-1">
-            <Badge variant={badgeVariant(ANSWER_TONE[m.latestStock.answer])}>{stockSentence(m.latestStock, stockRegion(m))}</Badge>
+            {waiting.has(`stock:${m.id}`) ? (
+              <Badge variant="warning" className="animate-pulse">
+                Checking…
+              </Badge>
+            ) : (
+              <Badge variant={badgeVariant(ANSWER_TONE[m.latestStock.answer])}>{stockSentence(m.latestStock, stockRegion(m))}</Badge>
+            )}
             {reasonWords(m.latestStock.reason) && m.latestStock.reason !== "not_listed" && <span className="text-muted-foreground">{reasonWords(m.latestStock.reason)}</span>}
             {m.latestStock.reason === "page_changed" && (
               <Button variant="outline" size="sm" asChild>
@@ -371,6 +379,10 @@ export function MappingsPage({ api }: { api: Api }) {
               </Link>
             )}
           </div>
+        ) : waiting.has(`stock:${m.id}`) ? (
+          <Badge variant="warning" className="animate-pulse">
+            Checking…
+          </Badge>
         ) : (
           <span className="text-muted-foreground">No stock check yet</span>
         ),

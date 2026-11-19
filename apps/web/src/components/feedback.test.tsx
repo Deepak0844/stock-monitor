@@ -47,7 +47,8 @@ describe("CopyButton", () => {
     withTips(<CopyButton value="OSB-L" label="SKU" />);
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Copy SKU" })));
     expect(writeText).toHaveBeenCalledWith("OSB-L");
-    expect(screen.getByText("Copied")).toBeInTheDocument();
+    expect(screen.getByText("Copied")).toHaveClass("sr-only"); // said to screen readers, never pushes the row wider
+    expect(screen.getByRole("button", { name: "Copy SKU" })).toHaveAttribute("data-state", "copied");
     act(() => vi.advanceTimersByTime(2000));
     expect(screen.queryByText("Copied")).not.toBeInTheDocument();
   });

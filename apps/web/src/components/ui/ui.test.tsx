@@ -36,6 +36,13 @@ describe("Button", () => {
     expect(button).toBeDisabled();
     expect(button.querySelector("[data-spinner]")).not.toBeNull();
   });
+
+  it("keeps its size while loading: the words stay in place, hidden, and the spinner sits over them", () => {
+    render(<Button loading>Check now</Button>);
+    const button = screen.getByRole("button", { name: "Check now" });
+    expect(screen.getByText("Check now")).toHaveClass("opacity-0"); // still read by screen readers, unlike invisible
+    expect(button.querySelector("[data-spinner]")!.parentElement).toHaveClass("absolute");
+  });
 });
 
 describe("Dialog", () => {

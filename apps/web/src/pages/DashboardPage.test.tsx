@@ -234,9 +234,10 @@ describe("direction D dashboard", () => {
   const northline = aSupplier({ id: "33333333-3333-4333-8333-333333333333", name: "Northline Wholesale" });
   const row = (supplierId: string, over = {}) => ({ supplierId, status: { state: "waiting" as const }, intervalMinutes: 30, window: null, nextCheckAt: new Date(Date.now() + 14 * 60_000).toISOString(), run: null, lastRun: null, recent: none, ...over });
 
-  it("says in the top bar whether checks are on and when the next one is", async () => {
+  it("says when the next check is once, in Stock checks, not again in the top bar", async () => {
     setup({ schedule: { overview: vi.fn().mockResolvedValue([row(northline.id)]) } });
-    expect(await screen.findByText(/^Checks on · next/)).toBeInTheDocument();
+    expect(await screen.findByText(/^Next check: /)).toBeInTheDocument();
+    expect(screen.queryByText(/Checks on · next/)).toBeNull();
   });
 
   it("lists each supplier with its recent checks in words, and marks a failure streak", async () => {

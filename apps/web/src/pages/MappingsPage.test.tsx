@@ -298,6 +298,16 @@ describe("checking links", () => {
 });
 
 describe("progress in the row", () => {
+  it("keeps the rest of the Status cell in place while a link is checked, so the row does not jump", async () => {
+    const changed = { ...blue, linkStatus: "looks_different" as const, lastLinkCheckAt: "2026-11-11T08:00:00Z" };
+    const { user } = setup([changed], { mappings: { get: vi.fn(() => new Promise<never>(() => {})) } });
+    const row = within(await screen.findByRole("row", { name: /Blue Tee/ }));
+    expect(row.getByText(/The page changed/)).toBeInTheDocument();
+    await user.click(row.getByRole("button", { name: "Check now Blue Tee Large" }));
+    expect(await row.findByText("Checking…")).toBeInTheDocument();
+    expect(row.getByText(/The page changed/)).toBeInTheDocument();
+  });
+
   it("shows Checking… in the Status cell after Check now, and in the Stock cell after Check stock, until the answer arrives", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
     try {

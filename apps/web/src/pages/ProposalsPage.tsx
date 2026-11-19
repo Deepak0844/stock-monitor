@@ -6,7 +6,6 @@ import { Input, Select } from "@/components/ui/input.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
 import type { Api, Proposal, Supplier, WritePermission } from "../api.js";
 import { DataTable, type Column } from "../components/DataTable.js";
-import { BulkBar } from "../components/BulkBar.js";
 import { ConfirmDialog } from "../components/ConfirmDialog.js";
 import { SearchSelect } from "../components/SearchSelect.js";
 import { deferred } from "../lib/deferred.js";
@@ -78,7 +77,7 @@ function OpenItem({ api, proposal, permission, onChanged, onReject, selected, on
   };
 
   return (
-    <li aria-label={name(proposal)} className={selected ? "flex gap-3 border-b border-rule-soft bg-selected px-2 py-4" : "flex gap-3 border-b border-rule-soft px-2 py-4"}>
+    <li aria-label={name(proposal)} className={selected ? "flex gap-3 border-b border-rule-soft bg-hover px-2 py-4 shadow-[inset_2px_0_0_var(--foreground)]" : "flex gap-3 border-b border-rule-soft px-2 py-4"}>
       {!waiting ? (
         <input
           type="checkbox"
@@ -480,22 +479,17 @@ export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => vo
           {open.kind === "ready" && items.length === 0 && open.total === 0 && (
             <EmptyState title={supplierName ? `Nothing is waiting for ${supplierName}.` : "Nothing is waiting for you."} description="New suggestions appear here after a supplier check finds a difference." />
           )}
-          {ticked.length > 0 && open.kind === "ready" && (
-            <BulkBar
-              count={ticked.length}
-              canApprove={open.permission.state === "ready"}
-              onApprove={() => setConfirmApprove(true)}
-              onReject={() => rejectMany(ticked)}
-              onClear={() => setSelected(new Set())}
-              progress={bulk}
-            />
-          )}
           {open.kind === "ready" && items.length > 0 && (
             <>
               {selectable.length > 0 && (
-                <label className="flex items-center gap-3 border-b border-foreground px-2 pb-2 text-xs text-muted-foreground">
+                <div
+                  {...(ticked.length > 0 ? { role: "region", "aria-label": "Selected proposals" } : {})}
+                  className="sticky top-12 z-10 flex min-h-12 flex-wrap items-center gap-x-3 gap-y-1 border-b border-foreground bg-background px-2 py-1.5 text-sm lg:min-h-11"
+                >
                   <input
+                    id="select-page"
                     type="checkbox"
+                    aria-label="Select all on this page"
                     checked={allTicked}
                     ref={(el) => {
                       if (el) el.indeterminate = ticked.length > 0 && !allTicked;
@@ -503,8 +497,35 @@ export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => vo
                     onChange={() => setSelected(allTicked ? new Set() : new Set(selectable.map((p) => p.id)))}
                     className="size-5 cursor-pointer accent-foreground lg:size-4"
                   />
-                  Select all on this page
-                </label>
+                  {ticked.length === 0 ? (
+                    <label htmlFor="select-page" className="cursor-pointer text-xs text-muted-foreground">
+                      Select all on this page
+                    </label>
+                  ) : (
+                    <>
+                      <b className="font-semibold">{ticked.length} selected</b>
+                      {bulk ? (
+                        <span role="status" className="text-muted-foreground">
+                          Approving {bulk.done} of {bulk.total}…
+                        </span>
+                      ) : (
+                        <>
+                          {open.permission.state === "ready" && (
+                            <Button size="sm" onClick={() => setConfirmApprove(true)}>
+                              Approve {ticked.length}
+                            </Button>
+                          )}
+                          <Button size="sm" variant="outline" onClick={() => rejectMany(ticked)}>
+                            Reject {ticked.length}
+                          </Button>
+                        </>
+                      )}
+                      <button type="button" onClick={() => setSelected(new Set())} className="ml-auto min-h-10 cursor-pointer text-sm underline underline-offset-3 lg:min-h-7">
+                        Clear selection
+                      </button>
+                    </>
+                  )}
+                </div>
               )}
               <ul className="flex flex-col">
                 {items.map((p) => (

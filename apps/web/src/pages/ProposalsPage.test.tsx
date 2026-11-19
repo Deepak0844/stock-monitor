@@ -535,4 +535,11 @@ describe("bulk approve and reject", () => {
     expect(api.proposals.reject).toHaveBeenCalledTimes(2);
     expect(api.proposals.reject).toHaveBeenCalledWith("b", { keepalive: true });
   });
+  it("puts the bulk buttons in the select-all row, so ticking a row never pushes the list down", async () => {
+    const { user } = await setup(three);
+    await user.click(screen.getByRole("checkbox", { name: "Select Blue Tee, Large" }));
+    const bar = screen.getByRole("region", { name: "Selected proposals" });
+    expect(within(bar).getByRole("checkbox", { name: "Select all on this page" })).toBeInTheDocument();
+    expect(screen.getAllByRole("checkbox", { name: "Select all on this page" })).toHaveLength(1);
+  });
 });

@@ -247,18 +247,6 @@ export function DashboardPage({ api }: { api: Api }) {
                 : "Automatic checks are on.",
           };
 
-  const lastEnded = Array.isArray(schedule)
-    ? (schedule
-        .map((r) => r.lastRun?.endedAt)
-        .filter((t): t is string => !!t)
-        .sort()
-        .at(-1) ?? null)
-    : null;
-  const statusLine = !Array.isArray(schedule)
-    ? null
-    : on.length === 0
-      ? "Automatic checks off"
-      : `Checks on${nextAt ? ` · next at ${clock(nextAt)}` : ""}${lastEnded ? ` · last at ${clock(lastEnded)}` : ""}`;
   const noSuppliers = Array.isArray(suppliers) && suppliers.length === 0;
   const now = new Date();
   const linked = links !== null && links !== "error" ? links.total - links.unmapped : 0;
@@ -268,21 +256,6 @@ export function DashboardPage({ api }: { api: Api }) {
       <PageHeader
         title="Dashboard"
         description="A quick view of your suppliers and what needs your approval."
-        actions={
-          statusLine && (
-            <p className="flex items-center gap-2 text-[0.8125rem] text-muted-foreground">
-              <span
-                aria-hidden="true"
-                className={
-                  on.length > 0
-                    ? "size-[7px] rounded-full bg-good"
-                    : "size-[7px] rounded-full bg-neutral"
-                }
-              />
-              {statusLine}
-            </p>
-          )
-        }
       />
 
       <section
