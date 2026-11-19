@@ -43,6 +43,12 @@ const setup = (mappings: Mapping[], over: Parameters<typeof fakeApi>[0] = {}) =>
   render(<MappingsPage api={api} />);
   return { api, user: userEvent.setup() };
 };
+
+/** The supplier filter is a dropdown with search: open it and pick the supplier by name. */
+const pickSupplier = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
+  await user.click(await screen.findByRole("button", { name: /^Supplier:/ }));
+  await user.click(await screen.findByRole("option", { name: new RegExp(name) }));
+};
 /** Opens the "more actions" menu of one link, and returns it. */
 const openMenu = async (user: ReturnType<typeof userEvent.setup>, label: string) => {
   await user.click(await screen.findByRole("button", { name: `More actions for ${label}` }));
@@ -78,7 +84,8 @@ describe("the table", () => {
   it("shows product, variant, SKU, supplier, the page's host and path, the status in words and when it was checked", async () => {
     setup([blue, { ...red, lastLinkCheckAt: "2026-11-09T10:00:00.000Z" }]);
     const row = within(await screen.findByRole("row", { name: /Blue Tee/ }));
-    expect(row.getByText("Large · B0361")).toBeInTheDocument();
+    expect(row.getByText("B0361")).toBeInTheDocument();
+    expect(row.getByText(/^Large/)).toBeInTheDocument();
     expect(row.getByText("Acme Supply")).toBeInTheDocument();
     expect(row.getByText("shop.acme.example/p/blue")).toBeInTheDocument();
     expect(row.getByText("Not checked")).toBeInTheDocument();
@@ -116,7 +123,7 @@ describe("filters", () => {
   it("asks the server for one supplier, one status and a search", async () => {
     const { api, user } = setup([blue]);
     await screen.findByText("Blue Tee");
-    await user.selectOptions(screen.getByLabelText("Supplier"), acme.id);
+    await pickSupplier(user, acme.name);
     await user.selectOptions(screen.getByLabelText("Link status"), "works");
     await user.type(screen.getByLabelText("Search links"), "blue");
     await waitFor(() => expect(api.mappings.page).toHaveBeenLastCalledWith({ supplierId: acme.id, status: "works", search: "blue", page: 1, pageSize: 10 }));
@@ -223,7 +230,7 @@ describe("checking links", () => {
     const { user } = setup([blue], { mappings: { checkSupplierLinks } });
     await screen.findByText("Blue Tee");
     expect(screen.queryByRole("button", { name: /Check all links/ })).toBeNull();
-    await user.selectOptions(screen.getByLabelText("Supplier"), acme.id);
+    await pickSupplier(user, acme.name);
     await user.click(await screen.findByRole("button", { name: "Check all links for Acme Supply" }));
     expect(checkSupplierLinks).toHaveBeenCalledWith(acme.id);
     expect(await screen.findByText(/Checking 3 links for Acme Supply/)).toBeInTheDocument();
@@ -270,7 +277,7 @@ describe("checking links", () => {
       const runById = vi.fn().mockResolvedValueOnce({ ...going, linksDone: 3 }).mockResolvedValue({ ...going, linksDone: 4, outcome: "finished" });
       const { user, api } = setup([blue], { schedule: { currentRun, run: runById } });
       await screen.findByText("Blue Tee");
-      await user.selectOptions(screen.getByLabelText("Supplier"), acme.id);
+      await pickSupplier(user, acme.name);
       expect(await screen.findByText("Checking 1 of 4 links")).toBeInTheDocument();
       expect(currentRun).toHaveBeenCalledWith(acme.id);
       const listReads = vi.mocked(api.mappings.page).mock.calls.length;
@@ -341,32 +348,62 @@ describe("progress in the row", () => {
 });
 
 describe("deleting", () => {
-  const askToDelete = async (user: ReturnType<typeof userEvent.setup>) => {
-    await user.click(within(await openMenu(user, "Blue Tee Large")).getByRole("menuitem", { name: "Delete" }));
-    return screen.getByRole("dialog", { name: "Delete the link for Blue Tee Large?" });
-  };
+  beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: true }));
+  afterEach(() => vi.useRealTimers());
+  const deleteRow = async (user: ReturnType<typeof userEvent.setup>, name = "Blue Tee Large") =>
+    user.click(within(await openMenu(user, name)).getByRole("menuitem", { name: "Delete" }));
 
-  it("asks first in a dialog, then removes the row", async () => {
+  it("hides the row at once, offers Undo, and deletes it after five seconds", async () => {
     const { api, user } = setup([blue, red]);
-    const dialog = await askToDelete(user);
-    expect(dialog).toHaveTextContent("The product stays in Shopify");
-    expect(api.mappings.remove).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Delete link" }));
-    expect(api.mappings.remove).toHaveBeenCalledWith(blue.id);
-    await waitFor(() => expect(screen.queryByText("Blue Tee")).toBeNull());
+    await deleteRow(user);
+    expect(screen.queryByText("Blue Tee")).toBeNull();
     expect(screen.getByRole("status")).toHaveTextContent("Deleted the link for Blue Tee (Large).");
+    expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
+    expect(api.mappings.remove).not.toHaveBeenCalled();
+    await act(async () => void vi.advanceTimersByTime(5000));
+    expect(api.mappings.remove).toHaveBeenCalledWith(blue.id, { keepalive: false });
   });
 
-  it("cancelling changes nothing, and a failed delete says why inside the dialog", async () => {
+  it("Undo brings the row back and deletes nothing", async () => {
+    const { api, user } = setup([blue, red]);
+    await deleteRow(user);
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(await screen.findByText("Blue Tee")).toBeInTheDocument();
+    await act(async () => void vi.advanceTimersByTime(6000));
+    expect(api.mappings.remove).not.toHaveBeenCalled();
+  });
+
+  it("brings the row back and says why when the delete fails", async () => {
     const remove = vi.fn().mockRejectedValue(new ApiError("Something went wrong. Please try again.", 500));
-    const { api, user } = setup([blue], { mappings: { remove } });
-    await askToDelete(user);
-    await user.click(screen.getByRole("button", { name: "Delete link" }));
-    expect(await within(screen.getByRole("dialog")).findByRole("alert")).toHaveTextContent("Something went wrong");
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(api.mappings.remove).toHaveBeenCalledTimes(1);
+    const { user } = setup([blue], { mappings: { remove } });
+    await deleteRow(user);
+    await act(async () => void vi.advanceTimersByTime(5000));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong");
     expect(screen.getByText("Blue Tee")).toBeInTheDocument();
+  });
+});
+
+describe("direction D links", () => {
+  it("sorts by Last checked from its heading, through the address", async () => {
+    const { user } = setup([blue, red]);
+    await screen.findByText("Blue Tee");
+    await user.click(screen.getByRole("button", { name: /Last checked/ }));
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("sort")).toBe("lastChecked"));
+  });
+
+  it("filters to one supplier from the dropdown with search, and shows it as a chip", async () => {
+    const { api, user } = setup([blue, red]);
+    await screen.findByText("Blue Tee");
+    await pickSupplier(user, acme.name);
+    await waitFor(() => expect(api.mappings.page).toHaveBeenLastCalledWith(expect.objectContaining({ supplierId: acme.id })));
+    expect(screen.getByRole("button", { name: "Remove Supplier filter" })).toBeInTheDocument();
+  });
+
+  it("offers copy buttons for each SKU and supplier page", async () => {
+    setup([blue]);
+    await screen.findByText("Blue Tee");
+    expect(screen.getByRole("button", { name: "Copy SKU" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy supplier page" })).toBeInTheDocument();
   });
 });
 
@@ -391,6 +428,7 @@ describe("variants with no link", () => {
   });
 
   it("reads them again after a link is deleted, but not when only the page of links changes", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     const many = Array.from({ length: 12 }, (_, i) => aMapping({ id: `00000000-0000-4000-8000-0000000000${String(i).padStart(2, "0")}`, variantId: `v${i}`, productTitle: `Tee ${i}`, variantTitle: "Large" }));
     const unmapped = vi.fn().mockResolvedValue({ total: 20, unmapped: 8, items: [] });
     const { user } = setup(many, { mappings: { unmapped } });
@@ -400,8 +438,10 @@ describe("variants with no link", () => {
     await screen.findByText("Tee 10");
     expect(unmapped).toHaveBeenCalledTimes(1);
     await user.click(within(await openMenu(user, "Tee 10 Large")).getByRole("menuitem", { name: "Delete" }));
-    await user.click(screen.getByRole("button", { name: "Delete link" }));
+    await user.click(screen.getByRole("button", { name: "Dismiss" })); // closing the message does not undo: the delete still goes ahead
+    await act(async () => void vi.advanceTimersByTime(5000));
     await waitFor(() => expect(unmapped).toHaveBeenCalledTimes(2));
+    vi.useRealTimers();
   });
 
   it("says when every variant is mapped", async () => {
@@ -464,7 +504,7 @@ describe("stock answers", () => {
     const checkSupplier = vi.fn().mockResolvedValue({ links: 3, runId: "r1" });
     const { user } = setup([blue], { stock: { checkSupplier } });
     await screen.findByText("Blue Tee");
-    await user.selectOptions(screen.getByLabelText("Supplier"), acme.id);
+    await pickSupplier(user, acme.name);
     await user.click(await screen.findByRole("button", { name: "Check all stock for Acme Supply" }));
     expect(checkSupplier).toHaveBeenCalledWith(acme.id);
     expect(await screen.findByText(/Checking stock for 3 links/)).toBeInTheDocument();

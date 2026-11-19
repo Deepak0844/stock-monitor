@@ -3,11 +3,15 @@ import { Download, History, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-
 import { isStale } from "@stock-monitor/scheduling";
 import { Badge } from "@/components/ui/badge.js";
 import { Button } from "@/components/ui/button.js";
-import { Card } from "@/components/ui/card.js";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu.js";
 import { Input, Select } from "@/components/ui/input.js";
+import { Tip } from "@/components/ui/tooltip.js";
+import { CopyButton } from "../components/CopyButton.js";
+import { FilterChips } from "../components/FilterChips.js";
+import { SearchSelect } from "../components/SearchSelect.js";
+import { When } from "../components/When.js";
+import { deferred } from "../lib/deferred.js";
 import type { Api, CheckRun, LinkStatus, Mapping, Observation, StartedRun, StockFilter, Supplier, UnmappedList } from "../api.js";
-import { ConfirmDialog } from "../components/ConfirmDialog.js";
 import { DataTable, type Column } from "../components/DataTable.js";
 import { EmptyState } from "../components/EmptyState.js";
 import { LINK_STATUS_OPTIONS, linkStatusOf } from "../components/linkStatus.js";
@@ -61,6 +65,13 @@ const STOCK_OPTIONS: { value: StockFilter; words: string }[] = [
 const RUN_POLL_MS = 3000;
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong. Please try again.");
+const host = (url: string) => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+};
 const where = (url: string) => {
   try {
     const u = new URL(url);
@@ -83,7 +94,7 @@ function useDelayed(value: string): string {
 export function MappingsPage({ api }: { api: Api }) {
   useTitle("Links");
   const params = useListParams({ pageSize: 10 });
-  const { page, pageSize, search, set } = params;
+  const { page, pageSize, search, sort, dir, set } = params;
   const supplierId = params.filters.supplier ?? "";
   const status = (LINK_STATUS_OPTIONS.some((o) => o.value === params.filters.status) ? params.filters.status : "") as LinkStatus | "";
   const stock = (STOCK_OPTIONS.some((o) => o.value === params.filters.stock) ? params.filters.stock : "") as StockFilter | "";
@@ -94,7 +105,8 @@ export function MappingsPage({ api }: { api: Api }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState<Mapping | null>(null);
+  // Links deleted with Undo still waiting: hidden at once, back again on Undo or if the delete fails.
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [q, setQ] = useState(search);
   const [variantSearch, setVariantSearch] = useState("");
@@ -116,7 +128,7 @@ export function MappingsPage({ api }: { api: Api }) {
     setLoading(true);
     setLoadError(null);
     api.mappings
-      .page({ supplierId: supplierId || undefined, status: status || undefined, stock: stock || undefined, search: search || undefined, page, pageSize })
+      .page({ supplierId: supplierId || undefined, status: status || undefined, stock: stock || undefined, search: search || undefined, page, pageSize, ...(sort ? { sort, dir } : {}) })
       .then((result) => {
         if (mine !== latestCall.current) return;
         setData({ items: result.items, total: result.total });
@@ -127,7 +139,7 @@ export function MappingsPage({ api }: { api: Api }) {
         setLoadError(message(e));
         setLoading(false);
       });
-  }, [api, supplierId, status, stock, search, page, pageSize]);
+  }, [api, supplierId, status, stock, search, page, pageSize, sort, dir]);
   useEffect(load, [load]);
 
   // The search box waits for a pause in typing, then goes to the address. A change made elsewhere, such as clearing, comes back in.
@@ -265,31 +277,62 @@ export function MappingsPage({ api }: { api: Api }) {
       if (history?.mapping.id === m.id) return setHistory(null);
       setHistory({ mapping: m, items: await api.stock.observations(m.id) });
     });
-  const remove = async (m: Mapping) => {
-    await api.mappings.remove(m.id);
-    toast(`Deleted the link for ${m.productTitle} (${m.variantTitle}).`);
-    setReloaded((n) => n + 1); // its variant now has no link
-    load();
+  const show = (id: string) => setHidden((h) => new Set([...h].filter((x) => x !== id)));
+  const remove = (m: Mapping) => {
+    setHidden((h) => new Set(h).add(m.id));
+    deferred({
+      text: `Deleted the link for ${m.productTitle} (${m.variantTitle}).`,
+      commit: async (keepalive) => {
+        await api.mappings.remove(m.id, { keepalive });
+        show(m.id);
+        setReloaded((n) => n + 1); // its variant now has no link
+        load();
+      },
+      onUndo: () => show(m.id),
+      onFailed: () => show(m.id),
+    });
   };
+  const sortBy = (key: string) => set({ sort: key, dir: sort === key && dir === "asc" ? "desc" : "asc" });
 
   const confirmedEmpty = data !== null && data.total === 0 && !filtered;
   // A page past the end, for example after deleting its last row, is read again from the last page, so show it as loading.
-  const rows = data === null || (data.items.length === 0 && data.total > 0) ? null : data.items;
+  const rows = data === null || (data.items.length === 0 && data.total > 0) ? null : data.items.filter((m) => !hidden.has(m.id));
   const stockRegion = (m: Mapping) => m.region ?? suppliers.find((x) => x.id === m.supplierId)?.defaultRegion;
 
   const columns: Column<Mapping>[] = [
     {
       header: "Product",
+      sortKey: "product",
       cell: (m) => (
         <>
           <span className="font-semibold">{m.productTitle}</span>
-          <div className="text-muted-foreground">{m.sku ? `${m.variantTitle} · ${m.sku}` : m.variantTitle}</div>
+          <div className="text-muted-foreground">
+            {m.variantTitle}
+            {m.sku && (
+              <>
+                {" · "}
+                <span className="font-mono">{m.sku}</span> <CopyButton value={m.sku} label="SKU" />
+              </>
+            )}
+          </div>
           {m.variantRemoved && <div className="text-muted-foreground">Variant removed in Shopify</div>}
         </>
       ),
     },
-    { header: "Supplier", cell: (m) => m.supplierName },
-    { header: "Page", cell: (m) => <span className="break-all">{where(m.url)}</span> },
+    { header: "Supplier", sortKey: "supplier", cell: (m) => m.supplierName },
+    {
+      header: "Page",
+      cell: (m) => (
+        <span className="flex items-center gap-1">
+          <Tip label={m.url}>
+            <span tabIndex={0} className="block max-w-[14rem] truncate font-mono text-xs text-muted-foreground focus-visible:outline-2 focus-visible:outline-ring">
+              {where(m.url)}
+            </span>
+          </Tip>
+          <CopyButton value={m.url} label="supplier page" />
+        </span>
+      ),
+    },
     {
       header: "Status",
       cell: (m) => {
@@ -334,9 +377,10 @@ export function MappingsPage({ api }: { api: Api }) {
     },
     {
       header: "Last checked",
+      sortKey: "lastChecked",
       cell: (m) => (
         <div className="flex flex-col items-start gap-1">
-          {m.lastLinkCheckAt ? formatWhen(m.lastLinkCheckAt) : <span className="text-muted-foreground">Never</span>}
+          {m.lastLinkCheckAt ? <When at={m.lastLinkCheckAt} /> : <span className="text-muted-foreground">Never</span>}
           {isStale(m.lastLinkCheckAt ? new Date(m.lastLinkCheckAt) : null, suppliers.find((x) => x.id === m.supplierId)?.scheduleIntervalMinutes ?? null, new Date()) && (
             <Badge variant="warning">Not checked recently</Badge>
           )}
@@ -372,7 +416,7 @@ export function MappingsPage({ api }: { api: Api }) {
                   Edit
                 </Link>
               </DropdownMenuItem>
-              <DropdownMenuItem className="text-danger" onSelect={() => setConfirming(m)}>
+              <DropdownMenuItem className="text-danger" onSelect={() => remove(m)}>
                 <Trash2 aria-hidden="true" />
                 Delete
               </DropdownMenuItem>
@@ -416,18 +460,19 @@ export function MappingsPage({ api }: { api: Api }) {
         </p>
       )}
 
-      <Card className="overflow-hidden">
+      <div className="min-w-0">
         {!confirmedEmpty && (
-          <div className="flex flex-wrap items-center gap-3 border-b border-border p-4">
+          <div className="flex flex-wrap items-center gap-2 border-b border-border pb-3">
             <Input type="search" aria-label="Search links" placeholder="Search by product, variant or SKU" autoComplete="off" className="min-w-48 flex-1" value={q} onChange={(e) => setQ(e.target.value)} />
-            <Select aria-label="Supplier" value={supplierId} onChange={(e) => set({ supplier: e.target.value || undefined })}>
-              <option value="">All suppliers</option>
-              {suppliers.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </Select>
+            <SearchSelect
+              label="Supplier"
+              value={supplierId || null}
+              options={suppliers.map((s) => ({ id: s.id, label: s.name, detail: host(s.websiteUrl) }))}
+              allOption={{ id: "", label: "All suppliers" }}
+              placeholder="Search suppliers"
+              noMatch={(text) => `No supplier matches "${text}".`}
+              onChange={(id) => set({ supplier: id ?? undefined })}
+            />
             <Select aria-label="Link status" value={status} onChange={(e) => set({ status: e.target.value || undefined })}>
               <option value="">Any status</option>
               {LINK_STATUS_OPTIONS.map((o) => (
@@ -456,10 +501,21 @@ export function MappingsPage({ api }: { api: Api }) {
             )}
           </div>
         )}
+        <FilterChips
+          chips={[
+            ...(search ? [{ key: "search", label: "Search", value: `"${search}"`, onRemove: () => set({ search: undefined }) }] : []),
+            ...(supplierId ? [{ key: "supplier", label: "Supplier", value: suppliers.find((x) => x.id === supplierId)?.name ?? "One supplier", onRemove: () => set({ supplier: undefined }) }] : []),
+            ...(status ? [{ key: "status", label: "Status", value: LINK_STATUS_OPTIONS.find((o) => o.value === status)!.words, onRemove: () => set({ status: undefined }) }] : []),
+            ...(stock ? [{ key: "stock", label: "Stock", value: STOCK_OPTIONS.find((o) => o.value === stock)!.words, onRemove: () => set({ stock: undefined }) }] : []),
+          ]}
+          onClearAll={() => set({ search: undefined, supplier: undefined, status: undefined, stock: undefined })}
+        />
         {wholeRun && runSupplier && <RunProgress run={wholeRun} supplierName={runSupplier.name} />}
         <DataTable
           label="Links"
           columns={columns}
+          sort={sort ? { key: sort, dir } : null}
+          onSort={sortBy}
           rows={rows}
           rowKey={(m) => m.id}
           loading={loading}
@@ -498,10 +554,10 @@ export function MappingsPage({ api }: { api: Api }) {
           }
         />
         {data !== null && data.total > 0 && <Pager page={page} pageSize={pageSize} total={data.total} onPage={(n) => set({ page: n })} onPageSize={(n) => set({ pageSize: n })} />}
-      </Card>
+      </div>
 
       {history && (
-        <Card className="mt-6 p-4">
+        <section className="mt-8 border-t border-border pt-4">
           <h3 className="mb-2 text-base font-semibold">Stock history for {label(history.mapping)}</h3>
           {history.items.length === 0 ? (
             <p className="text-sm text-muted-foreground">No stock checks yet.</p>
@@ -517,11 +573,11 @@ export function MappingsPage({ api }: { api: Api }) {
               ))}
             </ul>
           )}
-        </Card>
+        </section>
       )}
 
       {unmapped && (
-        <section className="mt-6 rounded-xl border border-border bg-card p-4 shadow-sm" aria-labelledby="unmapped-heading">
+        <section className="mt-8 border-t border-border pt-4" aria-labelledby="unmapped-heading">
           <h2 id="unmapped-heading" className="mb-2 text-base font-semibold">
             Variants with no link
           </h2>
@@ -562,17 +618,6 @@ export function MappingsPage({ api }: { api: Api }) {
         </section>
       )}
 
-      {confirming && (
-        <ConfirmDialog
-          open
-          title={`Delete the link for ${label(confirming)}?`}
-          description="The product stays in Shopify. Only the link to the supplier page is removed."
-          confirmLabel="Delete link"
-          onConfirm={() => remove(confirming)}
-          onClose={() => setConfirming(null)}
-          returnFocusTo={() => document.querySelector<HTMLElement>(`[aria-label="More actions for ${label(confirming)}"]`)}
-        />
-      )}
     </>
   );
 }
