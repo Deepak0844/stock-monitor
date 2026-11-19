@@ -360,3 +360,29 @@ describe("loading problems", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("That supplier does not exist.");
   });
 });
+
+describe("suggesting rules", () => {
+  const soldOut = { kind: "outOfStock", rule: { type: "text", text: "Sold out" }, seenOn: 1, ofTotal: 1, seenOnOther: 0, otherTotal: 1, starter: true, checked: true } as const;
+  const suggest = (result: unknown) => ({ recipes: { suggest: vi.fn().mockResolvedValue(result) } });
+
+  it("asks for suggestions, shows them, and adds the ticked ones to the editor", async () => {
+    const { api, user } = setup(suggest({ ok: true, passes: true, suggestions: [soldOut] }));
+    await user.click(await screen.findByRole("button", { name: "Suggest rules" }));
+    expect(api.recipes.suggest).toHaveBeenCalledWith(acme.id);
+    await user.click(await screen.findByRole("button", { name: "Add ticked rules" }));
+    expect(screen.getByLabelText("Out of stock when rule 1 words")).toHaveValue("Sold out");
+    expect(screen.queryByRole("button", { name: "Add ticked rules" })).not.toBeInTheDocument();
+  });
+
+  it("tells the owner what to label when a side is missing", async () => {
+    const { user } = setup(suggest({ ok: false, reason: "need_both_answers" }));
+    await user.click(await screen.findByRole("button", { name: "Suggest rules" }));
+    expect(await screen.findByText(/Label one saved page in stock and one out of stock/)).toBeInTheDocument();
+  });
+
+  it("shows the server's plain refusal", async () => {
+    const { user } = setup({ recipes: { suggest: vi.fn().mockRejectedValue(new ApiError("That supplier does not exist.", 404, "supplier_not_found")) } });
+    await user.click(await screen.findByRole("button", { name: "Suggest rules" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("That supplier does not exist.");
+  });
+});

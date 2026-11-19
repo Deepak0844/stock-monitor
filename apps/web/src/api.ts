@@ -277,6 +277,10 @@ export type Recipe = {
 export type RecipeVersion = { id: string; supplierId: string; version: number; rules: Recipe; active: boolean; createdAt: string; activatedAt: string | null };
 export type ExampleResult = { id: string; name: string; expected: StockAnswer; passed: boolean; got: { answer: StockAnswer; reason: StockReason | null; quantity: number | null; matchedText: string | null } };
 export type RecipeTest = { results: ExampleResult[]; passed: boolean };
+export type SuggestionKind = "pageCheck" | "inStock" | "outOfStock";
+/** One proposed rule with its evidence: how many labelled pages of each answer contain it. */
+export type Suggestion = { kind: SuggestionKind; rule: StockRule; seenOn: number; ofTotal: number; seenOnOther: number; otherTotal: number; starter: boolean; checked: boolean };
+export type SuggestResult = { ok: false; reason: "need_both_answers" } | { ok: true; suggestions: Suggestion[]; passes: boolean };
 
 export type CapturesApi = {
   list(supplierId: string): Promise<Capture[]>;
@@ -294,6 +298,8 @@ export type RecipesApi = {
   save(supplierId: string, recipe: Recipe): Promise<{ id: string; version: number }>;
   /** Runs a draft on the labelled saved pages and saves nothing. */
   test(supplierId: string, recipe: Recipe): Promise<RecipeTest>;
+  /** Proposes rules from the labelled saved pages and saves nothing. */
+  suggest(supplierId: string): Promise<SuggestResult>;
   activate(id: string): Promise<RecipeVersion>;
   /** Hides a version that is not turned on. */
   remove(id: string): Promise<void>;
@@ -615,6 +621,7 @@ const recipes: RecipesApi = {
     return (await request<{ recipe: { id: string; version: number } }>(`/api/suppliers/${enc(supplierId)}/recipes`, { method: "POST", json: { recipe } })).recipe;
   },
   test: (supplierId, recipe) => request(`/api/suppliers/${enc(supplierId)}/recipes/test`, { method: "POST", json: { recipe } }),
+  suggest: (supplierId) => request(`/api/suppliers/${enc(supplierId)}/recipes/suggest`, { method: "POST", json: {} }),
   async activate(id) {
     return (await request<{ recipe: RecipeVersion }>(`/api/recipes/${enc(id)}/activate`, { method: "POST" })).recipe;
   },
