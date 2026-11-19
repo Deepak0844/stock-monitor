@@ -8,7 +8,10 @@ import { aMapping, aRun, aSupplier, fakeApi } from "../test/fake-api.js";
 import { MappingsPage } from "./MappingsPage.js";
 
 beforeEach(() => window.history.replaceState(null, "", "/mappings"));
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  sessionStorage.clear(); // checks saved by one test never reach the next
+});
 
 const acme = aSupplier();
 const blue = aMapping();
@@ -226,6 +229,37 @@ describe("checking links", () => {
     expect(await screen.findByText(/Checking 3 links for Acme Supply/)).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: "Link check for Acme Supply" })).toHaveAttribute("aria-valuenow", "0");
     expect(screen.getByRole("button", { name: "Check all stock for Acme Supply" })).toBeDisabled();
+  });
+
+  it("keeps a row's Checking spinner after leaving the page and coming back", async () => {
+    sessionStorage.setItem("pending-row-checks", JSON.stringify([{ key: `link:${blue.id}`, id: blue.id, kind: "link", baseline: "2026-11-11T08:00:00.000Z", at: Date.now() }]));
+    setup([blue]); // the fake status still says 08:00, so the check is still going
+    expect(await screen.findByText("Checking…")).toBeInTheDocument();
+  });
+
+  it("saves a row's check once, even when Check now is clicked twice", async () => {
+    const { user } = setup([blue]);
+    const button = await screen.findByRole("button", { name: /^Check now Blue Tee/ });
+    await user.click(button);
+    await waitFor(() => expect(button).toBeEnabled());
+    await user.click(button);
+    await waitFor(() => expect(JSON.parse(sessionStorage.getItem("pending-row-checks") ?? "[]")).toHaveLength(1));
+  });
+
+  it("drops a saved row check that already finished, without a spinner", async () => {
+    sessionStorage.setItem("pending-row-checks", JSON.stringify([{ key: `link:${blue.id}`, id: blue.id, kind: "link", baseline: null, at: Date.now() }]));
+    const { api } = setup([blue]);
+    await waitFor(() => expect(api.mappings.get).toHaveBeenCalledWith(blue.id));
+    expect(screen.queryByText("Checking…")).toBeNull();
+    expect(sessionStorage.getItem("pending-row-checks")).toBe("[]");
+  });
+
+  it("shows a running check on return even with no supplier chosen", async () => {
+    const going = aRun({ id: "r1", kind: "stock", supplierId: acme.id, linksTotal: 4, linksDone: 1, outcome: "running", endedAt: null, inStock: 0, outOfStock: 0, cannotTell: 0 });
+    const currentRun = vi.fn().mockResolvedValue(going);
+    setup([blue], { schedule: { currentRun } });
+    expect(await screen.findByText("Checking 1 of 4 links")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Stock check for Acme Supply" })).toBeInTheDocument();
   });
 
   it("follows a whole run through its own status, then reads the list once when it ends", async () => {
