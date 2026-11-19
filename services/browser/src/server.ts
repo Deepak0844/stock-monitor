@@ -4,6 +4,7 @@ import { isLoginSelectors, isSessionState, type SessionState } from "@stock-moni
 import type { CaptureOutcome, CaptureRequest } from "./capture.js";
 import type { QuickReadOutcome } from "./quick-read.js";
 import type { LoginOutcome, LoginRequest } from "./login.js";
+import type { InspectRequest, LoginInspection } from "./login-inspect.js";
 import type { CheckPageOutcome, CheckPageRequest, VerifyOutcome, VerifyRequest } from "./verify.js";
 
 export type VerifyFn = (request: VerifyRequest) => Promise<VerifyOutcome>;
@@ -13,6 +14,8 @@ export type CaptureFn = (request: CaptureRequest) => Promise<CaptureOutcome>;
 export type QuickReadFn = (request: { url: string }) => Promise<QuickReadOutcome>;
 /** `awaitCode` is passed only when the caller can read the emailed code: the login then waits for it at a code box. */
 export type LoginFn = (request: LoginRequest, codes?: { awaitCode: () => Promise<string | null> }) => Promise<LoginOutcome>;
+/** What a login would use on a supplier's login page, and what else is there to pick. Types and sends nothing. */
+export type InspectLoginFn = (request: InspectRequest) => Promise<LoginInspection>;
 export type SessionsApi = {
   open(url: string, options: { stealth: boolean }): Promise<{ ok: true; id: string; expiresAt: string } | { ok: false; reason: "busy" | "failed" }>;
   /** The saved session, with the window closed. null when there is no such open window. */
@@ -31,6 +34,8 @@ export type ControlServerOptions = {
   quickRead?: QuickReadFn;
   /** Signs in to a supplier with a username and password. Left out, there is no /login route. */
   login?: LoginFn;
+  /** Looks at a supplier's login page without logging in. Left out, there is no /login/inspect route. */
+  inspectLogin?: InspectLoginFn;
   /** The live login window. Left out, the service has no /sessions routes. */
   sessions?: SessionsApi;
   /** Handed to the caller with each new window, so it can log in to the shared screen. */
@@ -97,6 +102,22 @@ function parse(raw: string): (VerifyRequest & { picture?: boolean; stealth?: boo
   };
 }
 
+/** Exactly the fields of a login page check: where to look, which profile, and the owner's picks. No credentials. */
+export function parseInspect(raw: string): InspectRequest | null {
+  let body: unknown;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return null;
+  const b = body as Record<string, unknown>;
+  if (!Object.keys(b).every((k) => ["loginUrl", "checkUrl", "stealth", "selectors"].includes(k))) return null;
+  if (!isWebUrl(b.loginUrl) || !isWebUrl(b.checkUrl) || typeof b.stealth !== "boolean") return null;
+  if (b.selectors !== undefined && !isLoginSelectors(b.selectors)) return null;
+  return { loginUrl: b.loginUrl, checkUrl: b.checkUrl, stealth: b.stealth, ...(b.selectors === undefined ? {} : { selectors: b.selectors }) };
+}
+
 /** Exactly the login fields and nothing else. The password is only ever read here and handed on. */
 export function parseLogin(raw: string): (LoginRequest & { codeWanted?: true }) | null {
   let body: unknown;
@@ -135,7 +156,7 @@ const SESSION_PATH = /^\/sessions(?:\/([^/]+?)(\/finish)?)?$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The service's only door. Plain HTTP on the private network: the caller proves itself with the control token. */
-export function createControlServer({ token, verify, checkPage, capture, quickRead, login, sessions, vncPassword, log = () => {}, maxBodyBytes = 5_000_000, loginHoldMs = 180_000 }: ControlServerOptions): Server {
+export function createControlServer({ token, verify, checkPage, capture, quickRead, login, inspectLogin, sessions, vncPassword, log = () => {}, maxBodyBytes = 5_000_000, loginHoldMs = 180_000 }: ControlServerOptions): Server {
   /** Logins waiting at a code box: `give` ends the wait (null: no code), `outcome` is how the login ended. A code is taken once. */
   const holds = new Map<string, { give: (code: string | null) => void; outcome: () => Promise<LoginOutcome> }>();
   const tokenDigest = digest(token);
@@ -260,6 +281,21 @@ export function createControlServer({ token, verify, checkPage, capture, quickRe
       } catch (error) {
         log(`login failed: ${error instanceof Error ? error.name : "unknown"}`);
         return reply(res, 500, { error: "login_failed" });
+      }
+    }
+    if (req.method === "POST" && path === "/login/inspect" && inspectLogin) {
+      const text = await readBody(req, maxBodyBytes);
+      if (text === null) return reply(res, 413, { error: "too_large" }, { connection: "close" });
+      const parsed = parseInspect(text);
+      if (!parsed) return reply(res, 400, { error: "invalid_request" });
+      try {
+        const inspection = await inspectLogin(parsed);
+        // The state only: the address and the page's words are the owner's business, not the log's.
+        log(`login inspect: ${inspection.state}`);
+        return reply(res, 200, inspection);
+      } catch (error) {
+        log(`login inspect failed: ${error instanceof Error ? error.name : "unknown"}`);
+        return reply(res, 500, { error: "inspect_failed" });
       }
     }
     if (req.method === "POST" && path === "/login" && login) {
