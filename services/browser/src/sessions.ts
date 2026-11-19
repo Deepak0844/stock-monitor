@@ -10,7 +10,9 @@ export type LiveWindow = {
   /** Calls back when the window goes away without being asked, for example the owner closes it. */
   onClosed(callback: () => void): void;
 };
-export type OpenWindow = (url: string) => Promise<LiveWindow>;
+/** `stealth`: the supplier has "Hide automation" on, so the window wears the disguise (see disguise.ts). */
+export type OpenOptions = { stealth?: boolean };
+export type OpenWindow = (url: string, options: OpenOptions) => Promise<LiveWindow>;
 
 export type OpenResult = { ok: true; id: string; expiresAt: string } | { ok: false; reason: "busy" | "failed" };
 
@@ -40,7 +42,7 @@ export function createSessions({ openWindow, timeoutMs = DEFAULT_TIMEOUT_MS }: {
   };
 
   return {
-    async open(url: string): Promise<OpenResult> {
+    async open(url: string, options: OpenOptions = {}): Promise<OpenResult> {
       if (current) return { ok: false, reason: "busy" };
       // The slot is taken before Chromium starts, so two requests at once cannot both open a window.
       const slot: Slot = { id: randomUUID(), window: null, closing: null, timer: setTimeout(() => void end(slot).catch(() => {}), timeoutMs) };
@@ -48,7 +50,7 @@ export function createSessions({ openWindow, timeoutMs = DEFAULT_TIMEOUT_MS }: {
       const expiresAt = new Date(Date.now() + timeoutMs).toISOString();
       current = slot;
       try {
-        slot.window = await openWindow(url);
+        slot.window = await openWindow(url, options);
       } catch {
         await end(slot).catch(() => {});
         return { ok: false, reason: "failed" };

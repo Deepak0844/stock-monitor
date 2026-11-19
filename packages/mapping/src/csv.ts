@@ -67,3 +67,15 @@ export function parseCsv(input: string, limits: CsvLimits = DEFAULT_LIMITS): Csv
   }
   return { ok: true, header, rows };
 }
+
+/**
+ * Rows as CSV text Excel opens directly: a byte order mark so it reads UTF-8, Windows line endings, and
+ * a leading ' on cells that start with = + @ or a tab so a spreadsheet shows them as text, not a formula.
+ */
+export function toCsv(rows: string[][]): string {
+  const cell = (value: string) => {
+    const safe = /^[=+@\t\r]/.test(value) ? `'${value}` : value;
+    return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+  };
+  return "﻿" + rows.map((row) => row.map(cell).join(",")).join("\r\n") + "\r\n";
+}

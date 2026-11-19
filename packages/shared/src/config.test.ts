@@ -179,4 +179,32 @@ describe("loadConfig", () => {
       expect(() => loadConfig({ ...valid, SHOPIFY_SPU_METAFIELD: "spu" })).toThrow(/SHOPIFY_SPU_METAFIELD/);
     });
   });
+
+  describe("email alerts", () => {
+    const mail = { ALERT_EMAIL_FROM: "suppliers@example.com", ALERT_EMAIL_APP_PASSWORD: "abcd efgh ijkl mnop", ALERT_EMAIL_TO: "owner@example.com" };
+
+    it("are off when none of the three is set, or all are blank", () => {
+      expect(loadConfig(valid).alertEmail).toBeUndefined();
+      expect(loadConfig({ ...valid, ALERT_EMAIL_FROM: "", ALERT_EMAIL_APP_PASSWORD: "", ALERT_EMAIL_TO: "" }).alertEmail).toBeUndefined();
+    });
+
+    it("are on with all three, the app password without the spaces Google shows it with", () => {
+      expect(loadConfig({ ...valid, ...mail }).alertEmail).toEqual({ from: "suppliers@example.com", appPassword: "abcdefghijklmnop", to: "owner@example.com" });
+    });
+
+    it("refuse to start with only some set, naming what is missing and never the password", () => {
+      const half = { ...valid, ALERT_EMAIL_FROM: mail.ALERT_EMAIL_FROM, ALERT_EMAIL_APP_PASSWORD: mail.ALERT_EMAIL_APP_PASSWORD };
+      expect(() => loadConfig(half)).toThrow(/ALERT_EMAIL_TO/);
+      try {
+        loadConfig(half);
+      } catch (e) {
+        expect(String(e)).not.toContain("abcd");
+      }
+      expect(() => loadConfig({ ...valid, ALERT_EMAIL_TO: mail.ALERT_EMAIL_TO })).toThrow(/ALERT_EMAIL_FROM.*\n?.*ALERT_EMAIL_APP_PASSWORD|ALERT_EMAIL_APP_PASSWORD/s);
+    });
+
+    it("refuse an address that is not an email address", () => {
+      expect(() => loadConfig({ ...valid, ...mail, ALERT_EMAIL_TO: "owner" })).toThrow(/ALERT_EMAIL_TO/);
+    });
+  });
 });

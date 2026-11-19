@@ -2,10 +2,10 @@ import type { FastifyInstance, RawReplyDefaultExpression, RawRequestDefaultExpre
 import { z } from "zod";
 import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
-import type { createImportPreviewRepository, createMappingRepository, createObservationRepository, createProposalRepository, ObservationRecord, createSupplierRepository, createSupplierSessionRepository, MappingRow } from "@stock-monitor/db";
+import type { createCheckRunRepository, createImportPreviewRepository, createMappingRepository, createObservationRepository, createProposalRepository, ObservationRecord, createSupplierRepository, createSupplierSessionRepository, MappingRow } from "@stock-monitor/db";
 import type { Queue } from "@stock-monitor/queue";
 import { runExpirySeconds } from "@stock-monitor/scheduling";
-import { isUnavailableCandidate, sameSite, whyNotChecked } from "@stock-monitor/mapping";
+import { isUnavailableCandidate, sameSite, toCsv, whyNotChecked } from "@stock-monitor/mapping";
 import { validateSupplierUrl, verifyPublicHost, type HostLookup } from "@stock-monitor/supplier-session";
 import { AppError } from "../errors.js";
 import { registerMappingImportRoutes } from "./mapping-import.js";
@@ -22,9 +22,10 @@ export type MappingRoutesDeps = {
   observations?: ReturnType<typeof createObservationRepository>;
   /** When set, each link carries its latest suggestion. */
   proposals?: ReturnType<typeof createProposalRepository>;
-  /** Link checks. Both are needed. Left out, there are no check routes. */
+  /** Link checks. All three are needed. Left out, there are no check routes. */
   supplierSessions?: ReturnType<typeof createSupplierSessionRepository>;
   queue?: Pick<Queue, "enqueue">;
+  checkRuns?: ReturnType<typeof createCheckRunRepository>;
   /** Test only: replaces the real DNS lookup. */
   lookup?: HostLookup;
 };
@@ -46,6 +47,12 @@ const MAX_REGION = 200;
 const regionOf = (value: unknown): string | null => {
   if (value === undefined || value === null) return null;
   if (typeof value !== "string" || value.length > MAX_REGION) throw new AppError(400, "invalid_region", `A region can be up to ${MAX_REGION} characters of text, or empty to clear it.`);
+  return value.trim() || null;
+};
+/** The supplier's own option name or SKU for this link: text up to 200 characters, or empty/null for none. */
+const supplierOptionOf = (value: unknown): string | null => {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string" || value.length > MAX_REGION) throw new AppError(400, "invalid_supplier_option", `A supplier option can be up to ${MAX_REGION} characters of text, or empty to clear it.`);
   return value.trim() || null;
 };
 const noteOf = (value: unknown): string | null => {
@@ -91,6 +98,7 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
   const filterQuery = z.object({
     supplierId: z.string().uuid().optional(),
     status: z.enum(["not_checked", "works", "never_worked", "page_missing", "moved", "looks_different", "needs_login", "could_not_check"]).optional(),
+    stock: z.enum(["in_stock", "out_of_stock", "cannot_tell", "none"]).optional(),
     search: z.string().trim().max(100).optional(),
   });
 
@@ -99,8 +107,8 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
     const query = request.query as { page?: string; pageSize?: string };
     const filters = filterQuery.safeParse(request.query);
     if (!filters.success) throw new AppError(400, "invalid_input", "Check the search and status and try again.");
-    const { supplierId, status, search } = filters.data;
-    const filter = { supplierId, linkStatus: status, search: search || undefined };
+    const { supplierId, status, stock, search } = filters.data;
+    const filter = { supplierId, linkStatus: status, stock, search: search || undefined };
     const latest = deps.observations ? await deps.observations.latestByMapping() : new Map<string, ObservationRecord>();
     const suggestions = deps.proposals ? await deps.proposals.latestByMapping() : new Map();
     if (query.page === undefined) {
@@ -114,17 +122,18 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
   });
 
   app.post("/api/mappings", async (request, reply) => {
-    const input = object(request.body, ["variantId", "supplierId", "url", "note", "region"]);
+    const input = object(request.body, ["variantId", "supplierId", "url", "note", "region", "supplierOption"]);
     if (typeof input.variantId !== "string" || typeof input.supplierId !== "string") throw BAD_INPUT();
     const supplier = await suppliers.get(input.supplierId);
     if (!supplier) throw new AppError(400, "supplier_not_found", "Choose a supplier that exists.");
     const note = noteOf(input.note);
     const region = regionOf(input.region);
+    const supplierOption = supplierOptionOf(input.supplierOption);
     const url = await pageAddress(input.url, supplier.websiteUrl);
     if (await mappings.linkForVariant(input.variantId)) {
       throw new AppError(409, "already_mapped", "This variant already has a link. Edit or delete it instead.");
     }
-    const result = await mappings.create({ variantId: input.variantId, supplierId: supplier.id, url, note, region });
+    const result = await mappings.create({ variantId: input.variantId, supplierId: supplier.id, url, note, region, supplierOption });
     if (!result.ok) {
       if (result.reason === "unknown_variant") throw new AppError(400, "variant_not_found", "Choose a product variant that exists.");
       throw new AppError(409, "already_mapped", "This variant already has a link. Edit or delete it instead.");
@@ -133,18 +142,29 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
     return reply.status(201).send({ mapping: result.mapping });
   });
 
+  // Only when the last link check and the last stock check finished. The page asks this while a check goes, then reads the link once.
+  app.get<{ Params: { id: string } }>("/api/mappings/:id/status", async (request) => {
+    const mapping = await mappings.get(request.params.id);
+    if (!mapping) throw MAPPING_NOT_FOUND();
+    const [latest] = deps.observations ? await deps.observations.listFor(mapping.id, 1) : [];
+    return { linkCheckedAt: mapping.lastLinkCheckAt, stockCheckedAt: latest?.observedAt ?? null };
+  });
+
   app.get<{ Params: { id: string } }>("/api/mappings/:id", async (request) => {
     const mapping = await mappings.get(request.params.id);
     if (!mapping) throw MAPPING_NOT_FOUND();
-    return { mapping: present(mapping) };
+    // The same row the list shows, so the page can follow one check by asking for this link alone.
+    const [latest] = deps.observations ? await deps.observations.listFor(mapping.id, 1) : [];
+    const suggestion = deps.proposals ? (await deps.proposals.latestByMapping(mapping.id)).get(mapping.id) : undefined;
+    return { mapping: present(mapping, latest, suggestion) };
   });
 
   app.patch<{ Params: { id: string } }>("/api/mappings/:id", async (request) => {
-    const input = object(request.body, ["url", "note", "region", "enabled"]);
+    const input = object(request.body, ["url", "note", "region", "supplierOption", "enabled"]);
     if (Object.keys(input).length === 0) throw new AppError(400, "invalid_input", "There is nothing to change.");
     const current = await mappings.get(request.params.id);
     if (!current) throw MAPPING_NOT_FOUND();
-    const patch: { url?: string; note?: string | null; region?: string | null; enabled?: boolean } = {};
+    const patch: { url?: string; note?: string | null; region?: string | null; supplierOption?: string | null; enabled?: boolean } = {};
     if ("url" in input) {
       const supplier = await suppliers.get(current.supplierId);
       if (!supplier) throw SUPPLIER_NOT_FOUND();
@@ -152,6 +172,7 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
     }
     if ("note" in input) patch.note = noteOf(input.note);
     if ("region" in input) patch.region = regionOf(input.region);
+    if ("supplierOption" in input) patch.supplierOption = supplierOptionOf(input.supplierOption);
     if ("enabled" in input) {
       if (typeof input.enabled !== "boolean") throw BAD_INPUT();
       patch.enabled = input.enabled;
@@ -176,6 +197,19 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
     return mappings.unmappedVariants({ search: search.data || undefined });
   });
 
+  app.get("/api/variants/unmapped.csv", async (request, reply) => {
+    const search = z.string().trim().max(100).optional().safeParse((request.query as { search?: unknown }).search);
+    if (!search.success) throw new AppError(400, "invalid_input", "Check the search and try again.");
+    // shortcut: every row in one response, fine for a shop's few thousand variants; stream if it ever reaches hundreds of thousands
+    const { items } = await mappings.unmappedVariants({ search: search.data || undefined, limit: 100_000 });
+    const csv = toCsv([["Product", "Variant", "SKU", "Variant ID"], ...items.map((v) => [v.productTitle, v.variantTitle, v.sku ?? "", v.variantId])]);
+    return reply
+      .header("content-type", "text/csv; charset=utf-8")
+      .header("content-disposition", 'attachment; filename="variants-with-no-link.csv"')
+      .header("cache-control", "private, no-store")
+      .send(csv);
+  });
+
   app.patch<{ Params: { id: string } }>("/api/suppliers/:id/permission", async (request) => {
     const input = object(request.body, ["status", "note", "pauseSeconds"]);
     if (!PERMISSIONS.includes(input.status as never)) throw new AppError(400, "invalid_status", "Choose unknown, granted or not granted.");
@@ -193,8 +227,8 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
     return { supplier };
   });
 
-  const { supplierSessions, queue } = deps;
-  if (!supplierSessions || !queue) return;
+  const { supplierSessions, queue, checkRuns } = deps;
+  if (!supplierSessions || !queue || !checkRuns) return;
 
   /** A supplier whose links may be checked now, or the plain reason they may not. */
   async function readySupplier(supplierId: string) {
@@ -226,16 +260,20 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
     const supplier = await readySupplier(request.params.id);
     const links = (await mappings.forSupplier(supplier.id)).filter((m) => m.enabled).length;
     if (links === 0) throw new AppError(409, "no_links", "This supplier has no links to check yet.");
+    // The run record shows the owner how far it got, and stops it running beside another run for the same supplier.
+    const run = await checkRuns.start(supplier.id, "manual", links, "links");
+    if (!run) throw new AppError(409, "run_in_progress", "A check for this supplier is already running. Wait for it to finish.");
     try {
       await queue.enqueue(
         "mapping.links.check",
-        { supplierId: supplier.id },
+        { supplierId: supplier.id, runId: run.id },
         { expireInSeconds: runExpirySeconds(links, supplier.checkPauseSeconds), retryLimit: 0 },
       );
     } catch {
+      await checkRuns.end(run.id, "failed", "not_queued");
       throw NOT_STARTED();
     }
     await record(request, "mapping.supplier_check_requested", "supplier", supplier.id, { links });
-    return reply.status(202).send({ queued: true, links });
+    return reply.status(202).send({ queued: true, links, runId: run.id });
   });
 }

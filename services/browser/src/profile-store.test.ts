@@ -1,5 +1,9 @@
+import { existsSync, lstatSync } from "node:fs";
+import { mkdtemp, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { cookieHash, holdProfile, isHeld, profileDirFor, releaseProfile } from "./profile-store.js";
+import { clearStaleLocks, cookieHash, holdProfile, isHeld, profileDirFor, releaseProfile } from "./profile-store.js";
 
 describe("profileDirFor", () => {
   it("gives one folder per site, whatever the page or query", () => {
@@ -30,5 +34,24 @@ describe("holding a profile", () => {
     releaseProfile("/p");
     expect(holdProfile("/p")).toBe(true);
     releaseProfile("/p");
+  });
+});
+
+describe("clearStaleLocks", () => {
+  it("removes Chromium's lock files, even ones that point at another machine, and nothing else", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "locks-"));
+    try {
+      await symlink("other-host-1", join(dir, "SingletonLock")); // dangling, as a recreated container leaves it
+      await symlink("/tmp/gone/socket", join(dir, "SingletonSocket"));
+      await writeFile(join(dir, "SingletonCookie"), "x");
+      await writeFile(join(dir, "seeded"), "hash");
+      await clearStaleLocks(dir);
+      expect(await readdir(dir)).toEqual(["seeded"]);
+      expect(() => lstatSync(join(dir, "SingletonLock"))).toThrow();
+      await clearStaleLocks(dir); // nothing left to remove
+      expect(existsSync(join(dir, "seeded"))).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

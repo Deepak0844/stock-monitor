@@ -1,9 +1,11 @@
 import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
-import type { createCheckRunRepository, createMappingRepository, createProposalRepository, createRecipeRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
+import type { createCheckRunRepository, createMappingRepository, createNotificationRepository, createProposalRepository, createRecipeRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
 import type { Queue } from "@stock-monitor/queue";
-import { needsSessionPrecheck, pickDue, runExpirySeconds } from "@stock-monitor/scheduling";
+import { keepAliveDue, needsSessionPrecheck, pickDue, runExpirySeconds } from "@stock-monitor/scheduling";
+import { whyNotChecked } from "@stock-monitor/mapping";
 import { stockGate, type SkipReason } from "./extraction-check.js";
+import { sendLoginAlerts, type SendMail } from "./alert-email.js";
 
 export type TickDeps = {
   suppliers: ReturnType<typeof createSupplierRepository>;
@@ -18,6 +20,8 @@ export type TickDeps = {
   logger: Logger;
   /** The owner's timezone, for each supplier's quiet-hours window. */
   timezone: string;
+  /** When set, each new login notice is emailed once. The link in the email points at `appOrigin`. */
+  alerts?: { notifications: ReturnType<typeof createNotificationRepository>; send: SendMail; appOrigin: string | undefined };
   now?: () => Date;
 };
 
@@ -27,6 +31,7 @@ export const MAX_RUNS_AT_ONCE = 2;
 const STUCK_AFTER_SECONDS = 6 * 3600 + 5 * 60;
 const KEEP_RUNS_DAYS = 30;
 const STUCK_APPROVED_MS = 15 * 60_000;
+const RUN_SOON_MS = 5 * 60_000;
 
 /**
  * Starts the supplier runs that are due. Every minute. It uses the same gate as the checker, so a supplier that is paused, not
@@ -50,6 +55,7 @@ export async function runTick(deps: TickDeps): Promise<{ started: string[]; skip
   const busy = new Set(going.map((r) => r.supplierId));
   const skipped: { supplierId: string; reason: SkipReason }[] = [];
   const candidates = [];
+  const prechecked = new Set<string>();
   for (const supplier of await suppliers.scheduled()) {
     if (busy.has(supplier.id)) continue; // already being checked: it must not use up a place meant for another supplier
     const gated = await stockGate(deps, supplier.id);
@@ -58,7 +64,7 @@ export async function runTick(deps: TickDeps): Promise<{ started: string[]; skip
       continue;
     }
     const window = supplier.scheduleWindowStart && supplier.scheduleWindowEnd ? { start: supplier.scheduleWindowStart, end: supplier.scheduleWindowEnd } : null;
-    await precheckLogin(deps, supplier, window, now);
+    if (await precheckLogin(deps, supplier, window, now)) prechecked.add(supplier.id);
     candidates.push({ id: supplier.id, nextCheckAt: supplier.nextCheckAt ?? now, window, pause: supplier.checkPauseSeconds });
   }
 
@@ -79,19 +85,53 @@ export async function runTick(deps: TickDeps): Promise<{ started: string[]; skip
     await audit.record({ action: "check_run.started", entityType: "supplier", entityId: id, details: { runId: run.id, trigger: "scheduled", links } });
     started.push(id);
   }
+  await keepLoginsAlive(deps, now, new Set([...busy, ...started, ...prechecked]));
+  // Email must never fail the tick: its runs have already started.
+  if (deps.alerts) await sendLoginAlerts({ ...deps.alerts, logger }).catch(() => logger.warn("login alert emails could not be checked"));
   return { started, skipped };
+}
+
+/**
+ * Visits each supplier with keep-alive on, inside its window, so an idle supplier does not log the session out. Never one
+ * that is being checked or the gate refuses. The next visit time is written first: a visit that cannot reach the supplier
+ * must not be queued again on every tick.
+ */
+async function keepLoginsAlive(deps: TickDeps, now: Date, busy: Set<string>) {
+  for (const supplier of await deps.suppliers.keepingAlive()) {
+    if (busy.has(supplier.id) || !supplier.keepAliveMinutes) continue;
+    // A run about to start would find its browser profile held by the visit. The run keeps the login alive anyway.
+    const runSoon = supplier.scheduleIntervalMinutes && supplier.nextCheckAt && supplier.nextCheckAt > now && supplier.nextCheckAt.getTime() - now.getTime() <= RUN_SOON_MS;
+    if (runSoon) continue;
+    if (whyNotChecked(supplier, (await deps.supplierSessions.getSealed(supplier.id)) !== null)) continue;
+    const window = supplier.scheduleWindowStart && supplier.scheduleWindowEnd ? { start: supplier.scheduleWindowStart, end: supplier.scheduleWindowEnd } : null;
+    const lastVerifiedAt = (await deps.supplierSessions.facts(supplier.id))?.lastVerifiedAt ?? null;
+    const next = keepAliveDue({ now, minutes: supplier.keepAliveMinutes, nextAt: supplier.keepAliveNextAt, lastVerifiedAt, window, timeZone: deps.timezone });
+    if (next.nextAt.getTime() !== supplier.keepAliveNextAt?.getTime()) await deps.suppliers.setKeepAliveNext(supplier.id, next.nextAt);
+    if (!next.due) continue;
+    await deps.queue.enqueue("supplier.session.verify", { supplierId: supplier.id, keepAlive: true }, { retryLimit: 0 }).catch(() => deps.logger.warn({ supplierId: supplier.id }, "keep-alive visit could not be queued"));
+  }
 }
 
 /**
  * Queues one check of the supplier's login ahead of its next run, so the owner can log in again before the run starts. The
  * run it was queued for is recorded first: a check that cannot reach the supplier proves nothing, and must not be queued
- * again on every tick.
+ * again on every tick. True when it was queued.
  */
-async function precheckLogin(deps: TickDeps, supplier: { id: string; nextCheckAt: Date | null; sessionPrecheckFor: Date | null }, window: { start: string; end: string } | null, now: Date) {
+async function precheckLogin(
+  deps: TickDeps,
+  supplier: { id: string; nextCheckAt: Date | null; sessionPrecheckFor: Date | null; autoLogin: boolean; autoLoginPausedReason: string | null; needsLogin: boolean },
+  window: { start: string; end: string } | null,
+  now: Date,
+) {
+  // No login to check.
+  if (!supplier.needsLogin) return false;
+  // The run logs in by itself, and a login two hours early would not last until the run anyway.
+  if (supplier.autoLogin && !supplier.autoLoginPausedReason) return false;
   const lastVerifiedAt = (await deps.supplierSessions.facts(supplier.id))?.lastVerifiedAt ?? null;
-  if (!needsSessionPrecheck({ now, nextCheckAt: supplier.nextCheckAt, window, lastVerifiedAt, precheckFor: supplier.sessionPrecheckFor }, deps.timezone)) return;
+  if (!needsSessionPrecheck({ now, nextCheckAt: supplier.nextCheckAt, window, lastVerifiedAt, precheckFor: supplier.sessionPrecheckFor }, deps.timezone)) return false;
   await deps.suppliers.markPrecheckQueued(supplier.id, supplier.nextCheckAt as Date);
   await deps.queue.enqueue("supplier.session.verify", { supplierId: supplier.id, early: true }, { retryLimit: 0 }).catch(() => deps.logger.warn({ supplierId: supplier.id }, "early login check could not be queued"));
+  return true;
 }
 
 /** At start-up nothing is running any more, so every run still marked running is stopped. */

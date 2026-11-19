@@ -75,3 +75,16 @@ describe("normaliseWords", () => {
     expect(normaliseWords("  Click   &\tCollect ")).toBe("click & collect");
   });
 });
+
+describe("validateRecipe: built-in data", () => {
+  it("accepts built-in data with no page checks", () => {
+    expect(validateRecipe({ pageChecks: [], inStock: [], outOfStock: [], builtIn: { waiting: "out_of_stock" } })).toEqual({
+      ok: true,
+      recipe: { pageChecks: [], inStock: [], outOfStock: [], builtIn: { waiting: "out_of_stock" } },
+    });
+  });
+  it("still needs a page check without built-in data", () => expect(validateRecipe({ pageChecks: [], inStock: [], outOfStock: [] }).ok).toBe(false));
+  it.each([[{ waiting: "maybe" }], [{ waiting: "in_stock", extra: 1 }], ["on"], [null], [{}]])("refuses built-in %j", (builtIn) =>
+    expect(validateRecipe({ pageChecks: [], inStock: [], outOfStock: [], builtIn }).ok).toBe(false),
+  );
+});

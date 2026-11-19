@@ -1,4 +1,4 @@
-export const INTERVALS = [60, 180, 360, 720, 1440] as const;
+export const INTERVALS = [15, 30, 60, 180, 360, 720, 1440] as const;
 export const DEFAULT_INTERVAL = 1440;
 export type Window = { start: string; end: string } | null; // "HH:MM" local time, null = all day
 export const DEFAULT_WINDOW = { start: "07:00", end: "22:00" } as const;
@@ -48,9 +48,12 @@ export function backoffMs(failureCount: number, pauseSeconds: number): number {
   return Math.max(step * MINUTE, pauseSeconds * 1000);
 }
 
+const STALE_FLOOR_MINUTES = 120;
+
 export function isStale(lastCheckedAt: Date | null, intervalMinutes: number | null, now: Date): boolean {
   if (!lastCheckedAt || !intervalMinutes) return false;
-  return now.getTime() - lastCheckedAt.getTime() > 2 * intervalMinutes * MINUTE;
+  // At least 2 hours: a whole run on a 15-minute schedule can take longer than two intervals without anything being wrong.
+  return now.getTime() - lastCheckedAt.getTime() > Math.max(2 * intervalMinutes, STALE_FLOOR_MINUTES) * MINUTE;
 }
 
 export type DueCandidate = { id: string; nextCheckAt: Date; window: Window };
@@ -89,4 +92,28 @@ export function needsSessionPrecheck(
   if (!insideWindow(now, window, timeZone)) return false;
   if (lastVerifiedAt && lastVerifiedAt.getTime() >= leadStart) return false;
   return precheckFor?.getTime() !== nextCheckAt.getTime();
+}
+
+/** Keep-alive choices in minutes. Off is null. */
+export const KEEP_ALIVE_CHOICES = [15, 30, 45, 60, 120] as const;
+
+/**
+ * Whether to visit the supplier now to keep its login alive, and when the visit after that is due.
+ * Never outside the window. Any good check (a run, an early check, a visit) counts as the last visit.
+ */
+export function keepAliveDue(i: {
+  now: Date;
+  minutes: number;
+  nextAt: Date | null;
+  lastVerifiedAt: Date | null;
+  window: Window;
+  timeZone: string;
+  rand?: () => number;
+}): { due: boolean; nextAt: Date } {
+  const { now, minutes, nextAt, lastVerifiedAt, window, timeZone, rand = Math.random } = i;
+  const after = (from: Date) => new Date(from.getTime() + minutes * (1 + rand() * 2 * SPREAD - SPREAD) * MINUTE);
+  if (!insideWindow(now, window, timeZone)) return { due: false, nextAt: nextAt ?? now };
+  if (nextAt && nextAt > now) return { due: false, nextAt };
+  if (lastVerifiedAt && now.getTime() - lastVerifiedAt.getTime() < minutes * MINUTE) return { due: false, nextAt: after(lastVerifiedAt) };
+  return { due: true, nextAt: after(now) };
 }

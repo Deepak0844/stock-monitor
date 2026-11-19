@@ -32,7 +32,7 @@ Rules the app always keeps:
 - A missing page counts only after two checks at least 6 hours apart, on a link that worked before.
 - If Shopify's number changed after a suggestion was made, nothing is written.
 - No checks run until you record that you have the supplier's **permission** for automated checks.
-- The app never solves puzzles, never hides that it is a program and never fakes being a person.
+- The app never solves puzzles and never fakes being a person. It does not hide that it is a program, except for a supplier where you switch on **Hide automation (stealth)**, which only works for suppliers you recorded as allowing automated checks. Some suppliers' terms forbid automated access whatever you switch on, so that choice is yours.
 
 ## How it works
 
@@ -76,11 +76,11 @@ flowchart TD
 
 1. **Permission.** Read the supplier's terms. If they forbid automated access, ask the supplier first. This decision is yours, not the app's.
 2. **Shopify.** In **Settings**, connect your store, pick the inventory location and press **Sync**. **Products** then lists your variants and SKUs.
-3. **Supplier.** On **Suppliers**, add the supplier and press **Connect**. Log in as you normally would, then press **I'm logged in**. You have 15 minutes. The supplier then shows **Connected**.
+3. **Supplier.** On **Suppliers**, add the supplier and press **Connect**. Log in as you normally would, then press **I'm logged in**. You have 15 minutes. The supplier then shows **Connected**. A supplier whose product pages show stock without a login needs none: turn **Needs a login** off on its **Edit** page instead.
 4. **Permission and pause.** On the supplier's **Edit** page, set permission to **Allowed** and set the pause between pages (at least the crawl-delay in the supplier's `robots.txt`).
 5. **Links.** Add links on **Links**. Check them once with **Check all links**.
-6. **Stock rules.** On **Stock rules**, capture at least one in-stock page and one out-of-stock page, label them, write the rules, and turn the rules on when every example passes.
-7. **Automatic checks.** On the supplier's **Edit** page, turn on automatic checks (daily, 07:00 to 22:00 by default).
+6. **Stock rules.** On **Stock rules**, capture at least one in-stock page and one out-of-stock page, label them, write the rules, and turn the rules on when every example passes. Most suppliers publish stock in data built into their pages: with **Use the stock data built into the supplier's pages** on (the default), no words need typing.
+7. **Automatic checks.** On the supplier's **Edit** page, turn on automatic checks (every 15 minutes up to daily; 07:00 to 22:00 by default). A supplier that needs no login is read from its page's HTML without the browser whenever that gives a clear answer, so frequent checks stay light on the server.
 
 The full walk-through, with worked examples of stock rules, is in [docs/pilot-flow.md](docs/pilot-flow.md).
 

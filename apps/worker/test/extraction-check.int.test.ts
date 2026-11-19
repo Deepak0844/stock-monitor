@@ -4,14 +4,14 @@ import { Writable } from "node:stream";
 import { startTestDb, type TestDb } from "@stock-monitor/db/test-harness";
 import {
   createCaptureRepository, createCheckRunRepository, createMappingRepository, createNotificationRepository, createObservationRepository, createRecipeRepository,
-  createSupplierRepository, createSupplierSessionRepository,
+  createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository,
 } from "@stock-monitor/db";
 import { createAuditWriter } from "@stock-monitor/audit";
-import { createBrowserClient } from "@stock-monitor/browser-client";
+import { createBrowserClient, type BrowserClient, type LoginCallOutcome, type LoginRequest } from "@stock-monitor/browser-client";
 import { createFakeBrowserService, FAKE_CONTROL_TOKEN, type FakeBrowserService } from "@stock-monitor/browser-client/testing";
 import { createLogger } from "@stock-monitor/shared";
-import { sealSessionState, unsealSessionState } from "@stock-monitor/supplier-session";
-import { checkStock, checkSupplierStock, type StockCheckDeps } from "../src/extraction-check.js";
+import { sealCredentials, sealSessionState, unsealSessionState } from "@stock-monitor/supplier-session";
+import { checkStock, checkSupplierStock, stockGate, type StockCheckDeps } from "../src/extraction-check.js";
 
 let t: TestDb;
 let fake: FakeBrowserService;
@@ -32,7 +32,7 @@ const notes = () => createNotificationRepository(t.appDb);
 const deps = (over: Partial<StockCheckDeps> = {}): StockCheckDeps => ({
   mappings: maps(), suppliers: suppliers(), supplierSessions: createSupplierSessionRepository(t.appDb), recipes: createRecipeRepository(t.appDb),
   observations: observations(), captures: createCaptureRepository(t.appDb), notifications: notes(), audit: createAuditWriter(t.appDb),
-  checkRuns: createCheckRunRepository(t.appDb), timezone: "UTC", random: () => 0,
+  checkRuns: createCheckRunRepository(t.appDb), supplierCredentials: createSupplierCredentialsRepository(t.appDb), timezone: "UTC", random: () => 0,
   browser: createBrowserClient({ baseUrl: fake.url, token: FAKE_CONTROL_TOKEN, timeoutMs: 2000 }), key, logger,
   sleep: async (ms) => { sleeps.push(ms); await onSleep(); }, now: () => now, ...over,
 });
@@ -87,7 +87,7 @@ beforeEach(async () => {
   sleeps.length = 0;
   onSleep = () => {};
   now = T0;
-  Object.assign(fake.behaviour, { capture: "ok", page: normal, pageFor: undefined, description: inStock, descriptionFor: undefined, refreshed: undefined, delayMs: 0 });
+  Object.assign(fake.behaviour, { capture: "ok", page: normal, pageFor: undefined, description: inStock, descriptionFor: undefined, refreshed: undefined, delayMs: 0, quickRead: "missing", quickPage: undefined, quickOffers: [] });
   const a = await suppliers().create({ name: "Acme", websiteUrl: "https://shop.acme.example/", loginUrl: "https://shop.acme.example/login", checkIntervalMinutes: 60 });
   if (!a.ok) throw new Error("setup");
   acme = a.supplier.id;
@@ -130,6 +130,14 @@ describe("one link", () => {
     expect(await latest(id)).toMatchObject({ answer: "in_stock", matchedText: "Add to cart", recipeVersion: version, checkResult: "ok", quantityMismatch: false });
     expect(await mapping(id)).toMatchObject({ linkStatus: "works", lastLinkCheckAt: T0 });
     expect(requests("/capture")[0]?.body).toMatchObject({ url: "https://shop.acme.example/p/v1", loginUrl: "https://shop.acme.example/login", state });
+  });
+
+  it("sends the supplier's logged-in marker with the capture", async () => {
+    const id = await link("v1");
+    await turnOn();
+    await suppliers().setAutoLogin(acme, { loggedInMarker: "Log out" });
+    await checkStock(deps(), id);
+    expect(requests("/capture")[0]?.body).toMatchObject({ url: "https://shop.acme.example/p/v1", loggedInMarker: "Log out" });
   });
 
   it("out of stock", async () => {
@@ -467,5 +475,413 @@ describe("run records and stop rules", () => {
     const rows = JSON.stringify((await t.pool.query("select * from check_runs")).rows);
     expect(rows).not.toContain("acme.example");
     expect(rows).not.toContain(COOKIE);
+  });
+});
+
+describe("automatic login in a run", () => {
+  const NEW = { cookies: [{ name: "session", value: "NEW-LOGIN", domain: "shop.acme.example", path: "/" }], origins: [] };
+  const logins: LoginRequest[] = [];
+  /** The real client against the fake service, with `login` answered here. Each login notes how many pages were read before it. */
+  const withLogin = (): BrowserClient => ({
+    ...createBrowserClient({ baseUrl: fake.url, token: FAKE_CONTROL_TOKEN, timeoutMs: 2000 }),
+    async login(r: LoginRequest): Promise<LoginCallOutcome> {
+      logins.push({ ...r, pagesBefore: requests("/capture").length } as never);
+      return { ok: true, outcome: { result: "ok", state: NEW } };
+    },
+  });
+  /** Each address answers from its own list in turn, then a normal page. */
+  const pages = (byPath: Record<string, string[]>) => {
+    fake.behaviour.pageFor = (url) => {
+      const next = byPath[url.split("/").pop() ?? ""]?.shift();
+      return next ? { ...normal, result: next } : undefined;
+    };
+  };
+  const autoLogin = async (lastVerifiedMinutesAgo: number) => {
+    await createSupplierCredentialsRepository(t.appDb).save(acme, sealCredentials({ username: "u", password: "p" }, key, "v1"));
+    const on = await suppliers().setAutoLogin(acme, { autoLogin: true });
+    if (!on.ok) throw new Error("setup");
+    await t.pool.query("update supplier_sessions set last_verified_at = $2 where supplier_id = $1", [acme, new Date(T0.getTime() - lastVerifiedMinutesAgo * 60_000)]);
+  };
+  const lastRun = async () => (await t.pool.query("select outcome, stop_reason from check_runs order by started_at desc limit 1")).rows[0];
+  const four = async () => {
+    for (const v of ["v1", "v2", "v3", "v4"]) await link(v);
+    await turnOn();
+  };
+
+  beforeEach(() => {
+    logins.length = 0;
+  });
+
+  it("logs in once before the first page when the session is stale", async () => {
+    await four();
+    await autoLogin(60);
+    expect(await runAll({ browser: withLogin() })).toMatchObject({ kind: "done", checked: 4, stopped: null });
+    expect(logins).toHaveLength(1);
+    expect(logins[0]).toMatchObject({ checkUrl: "https://shop.acme.example/p/v1", pagesBefore: 0 });
+    const first = requests("/capture")[0]?.body as { state: { cookies: { value: string }[] } };
+    expect(first.state.cookies.map((c) => c.value)).toContain("NEW-LOGIN");
+  });
+
+  it("does not log in when the session was checked a few minutes ago", async () => {
+    await four();
+    await autoLogin(5);
+    await runAll({ browser: withLogin() });
+    expect(logins).toHaveLength(0);
+  });
+
+  it("logs in again when a page asks for a login, retries that page, and finishes the run", async () => {
+    await four();
+    await autoLogin(5);
+    pages({ v2: ["login_required"] });
+    expect(await runAll({ browser: withLogin() })).toMatchObject({ kind: "done", checked: 4, stopped: null });
+    expect(logins).toHaveLength(1);
+    expect(logins[0]).toMatchObject({ checkUrl: "https://shop.acme.example/p/v1", pagesBefore: 2 });
+    expect(requests("/capture").map((r) => (r.body as { url: string }).url.split("/").pop())).toEqual(["v1", "v2", "v2", "v3", "v4"]);
+    expect(await lastRun()).toMatchObject({ outcome: "finished", stop_reason: null });
+  });
+
+  it("logs in at most once a run: a second page asking for a login stops it", async () => {
+    await four();
+    await autoLogin(5);
+    pages({ v2: ["login_required"], v4: ["login_required"] });
+    expect(await runAll({ browser: withLogin() })).toMatchObject({ kind: "done", stopped: "login_required" });
+    expect(logins).toHaveLength(1);
+    expect(await lastRun()).toMatchObject({ outcome: "stopped", stop_reason: "login_required" });
+  });
+
+  it("does not log in a second time right after logging in at the start: the first page still asking for a login stops the run", async () => {
+    await four();
+    await autoLogin(60);
+    pages({ v1: ["login_required"] });
+    expect(await runAll({ browser: withLogin() })).toMatchObject({ kind: "done", stopped: "login_required" });
+    // The supplier just accepted a login, so a second one seconds later would only repeat it.
+    expect(logins).toHaveLength(1);
+    expect(requests("/capture")).toHaveLength(1);
+    expect(await lastRun()).toMatchObject({ outcome: "stopped", stop_reason: "login_required" });
+    expect((await suppliers().get(acme))?.sessionStatus).toBe("needs_reconnect");
+  });
+
+  it("asks for the stealth browser on every page of a stealth supplier, and only then", async () => {
+    await four();
+    expect(await runAll()).toMatchObject({ kind: "done", checked: 4 });
+    expect(requests("/capture").map((r) => (r.body as { stealth?: boolean }).stealth)).toEqual([undefined, undefined, undefined, undefined]);
+    fake.requests.length = 0;
+    const on = await suppliers().setAutoLogin(acme, { stealth: true });
+    if (!on.ok) throw new Error("setup");
+    expect(await runAll()).toMatchObject({ kind: "done", checked: 4 });
+    expect(requests("/capture").map((r) => (r.body as { stealth?: boolean }).stealth)).toEqual([true, true, true, true]);
+  });
+
+  it("still logs in again when the session dies later in a run that began with a login", async () => {
+    await four();
+    await autoLogin(60);
+    pages({ v3: ["login_required"] });
+    // v1 and v2 worked since the start login, so a login page at v3 is a session that died, not a login the supplier just refused.
+    expect(await runAll({ browser: withLogin() })).toMatchObject({ kind: "done", checked: 4, stopped: null });
+    expect(logins).toHaveLength(2);
+    expect(requests("/capture").map((r) => (r.body as { url: string }).url.split("/").pop())).toEqual(["v1", "v2", "v3", "v3", "v4"]);
+    expect(await lastRun()).toMatchObject({ outcome: "finished", stop_reason: null });
+  });
+
+  it("never logs in on a puzzle: the run stops at once", async () => {
+    await four();
+    await autoLogin(5);
+    pages({ v2: ["captcha"] });
+    expect(await runAll({ browser: withLogin() })).toMatchObject({ kind: "done", stopped: "captcha" });
+    expect(logins).toHaveLength(0);
+    expect(requests("/capture")).toHaveLength(2);
+  });
+
+  it("stops the run with the login's reason when the login at the start fails", async () => {
+    await four();
+    await autoLogin(60);
+    const refused = { ...withLogin(), login: async (): Promise<LoginCallOutcome> => ({ ok: true, outcome: { result: "wrong_password" } as never }) };
+    expect(await runAll({ browser: refused })).toMatchObject({ kind: "done", checked: 0, stopped: "login_required" });
+    expect(requests("/capture")).toHaveLength(0);
+    expect(await lastRun()).toMatchObject({ outcome: "stopped", stop_reason: "login_required" });
+    // The login's own notice stands: the run does not replace it with a plain "log in again".
+    const notice = (await t.pool.query("select reason from notifications where supplier_id = $1 and resolved_at is null", [acme])).rows[0];
+    expect(notice).toMatchObject({ reason: "wrong_password" });
+  });
+
+  it("runs as today when automatic login is off", async () => {
+    await four();
+    pages({ v2: ["login_required"] });
+    expect(await runAll({ browser: withLogin() })).toMatchObject({ kind: "done", stopped: "login_required" });
+    expect(logins).toHaveLength(0);
+  });
+  describe("one link checked on its own", () => {
+    const openNotices = async () => (await t.pool.query("select reason from notifications where supplier_id = $1 and resolved_at is null", [acme])).rows;
+
+    it("the 1 h case: a login page logs in, retries the page, and the supplier stays ready for the next daily run", async () => {
+      const id = await link("v1");
+      await turnOn();
+      await autoLogin(5);
+      pages({ v1: ["login_required"] });
+      expect(await checkStock(deps({ browser: withLogin() }), id)).toEqual({ kind: "checked", answer: "in_stock", reason: null });
+      expect(logins).toHaveLength(1);
+      expect(logins[0]).toMatchObject({ checkUrl: "https://shop.acme.example/p/v1", pagesBefore: 1 });
+      expect(requests("/capture")).toHaveLength(2);
+      expect((await suppliers().get(acme))?.sessionStatus).toBe("connected");
+      expect(await openNotices()).toEqual([]);
+      expect(await stockGate(deps(), acme)).toHaveProperty("supplier");
+      expect(await runAll({ browser: withLogin() })).toMatchObject({ kind: "done", checked: 1, stopped: null });
+    });
+
+    it("does not log in a second time right after logging in first: the page still asking for a login is a failed check", async () => {
+      const id = await link("v1");
+      await turnOn();
+      await autoLogin(60);
+      pages({ v1: ["login_required"] });
+      expect(await checkStock(deps({ browser: withLogin() }), id)).toMatchObject({ kind: "checked", answer: "cannot_tell" });
+      expect(logins).toHaveLength(1);
+      expect(requests("/capture")).toHaveLength(1);
+      expect(await openNotices()).toEqual([{ reason: "login_required" }]);
+    });
+
+    it("logs in first when the session is stale", async () => {
+      const id = await link("v1");
+      await turnOn();
+      await autoLogin(60);
+      expect(await checkStock(deps({ browser: withLogin() }), id)).toMatchObject({ answer: "in_stock" });
+      expect(logins).toEqual([expect.objectContaining({ checkUrl: "https://shop.acme.example/p/v1", pagesBefore: 0 })]);
+    });
+
+    it("a failed login stops the check like a failed visit, and keeps the login's own notice", async () => {
+      const id = await link("v1");
+      await turnOn();
+      await autoLogin(60);
+      const refused = { ...withLogin(), login: async (): Promise<LoginCallOutcome> => ({ ok: true, outcome: { result: "wrong_password" } as never }) };
+      expect(await checkStock(deps({ browser: refused }), id)).toEqual({ kind: "checked", answer: "cannot_tell", reason: "check_failed" });
+      expect(requests("/capture")).toHaveLength(0);
+      expect(await latest(id)).toMatchObject({ answer: "cannot_tell", checkResult: "login_required" });
+      expect(await openNotices()).toEqual([{ reason: "wrong_password" }]);
+    });
+  });
+});
+
+describe("a supplier that needs no login", () => {
+  const builtIn = { pageChecks: [], inStock: [], outOfStock: [], builtIn: { waiting: "out_of_stock" } };
+  const offer = (availability: string, name: string | null = null) => ({ availability, url: null, sku: null, name });
+  const noLogin = async () => {
+    await createSupplierSessionRepository(t.appDb).remove(acme);
+    await suppliers().markNotConnected(acme);
+    await suppliers().setNeedsLogin(acme, false);
+  };
+
+  it("is checked with an empty session, no login address or marker, and never logs in", async () => {
+    const id = await link("v1");
+    await turnOn();
+    await suppliers().setAutoLogin(acme, { autoLogin: true, loggedInMarker: "Log out" });
+    await noLogin();
+    expect(await checkStock(deps(), id)).toMatchObject({ kind: "checked", answer: "in_stock" });
+    const body = requests("/capture")[0]?.body as Record<string, unknown>;
+    expect(body.state).toEqual({ cookies: [], origins: [] });
+    expect(body.loginUrl).toBeUndefined();
+    expect(body.loggedInMarker).toBeUndefined();
+    expect(body.publicPage).toBe(true);
+    expect(requests("/login")).toHaveLength(0);
+    expect(await createSupplierSessionRepository(t.appDb).getSealed(acme)).toBeNull();
+  });
+
+  it("never keeps a session the browser sent back", async () => {
+    const id = await link("v1");
+    await turnOn();
+    await noLogin();
+    fake.behaviour.refreshed = state;
+    await checkStock(deps(), id);
+    expect(await createSupplierSessionRepository(t.appDb).getSealed(acme)).toBeNull();
+  });
+
+  it("answers from the built-in data", async () => {
+    const id = await link("v1");
+    await turnOn(builtIn);
+    await noLogin();
+    fake.behaviour.description = { ...inStock, offers: [offer("https://schema.org/OutOfStock")] };
+    await checkStock(deps(), id);
+    expect(await latest(id)).toMatchObject({ answer: "out_of_stock", matchedText: "Built-in data: OutOfStock" });
+  });
+
+  it("uses the link's supplier option when the page lists several options", async () => {
+    const id = await link("v1");
+    await maps().update(id, { supplierOption: "1 L" });
+    await turnOn(builtIn);
+    await noLogin();
+    fake.behaviour.description = { ...inStock, offers: [offer("InStock", "500 ml"), offer("OutOfStock", "1 L")] };
+    await checkStock(deps(), id);
+    expect(await latest(id)).toMatchObject({ answer: "out_of_stock" });
+  });
+
+  it("still stops the run at a login wall", async () => {
+    await link("v1");
+    await link("v2");
+    await turnOn();
+    await noLogin();
+    fake.behaviour.page = { ...normal, result: "login_required" };
+    expect(await runAll()).toMatchObject({ kind: "done", stopped: "login_required", checked: 1 });
+  });
+
+  it("says plainly that a supplier set to need no login showed a login page", async () => {
+    await link("v1");
+    await turnOn();
+    await noLogin();
+    fake.behaviour.page = { ...normal, result: "login_required" };
+    await runAll();
+    const [note] = await notes().listOpen();
+    expect(note?.message).toBe("Acme showed a login page, but it is set to need no login. Open one of its links to see why, or turn Needs a login back on.");
+  });
+});
+
+describe("a supplier that needs no login and has no rules turned on", () => {
+  const noLogin = async () => {
+    await createSupplierSessionRepository(t.appDb).remove(acme);
+    await suppliers().markNotConnected(acme);
+    await suppliers().setNeedsLogin(acme, false);
+  };
+
+  it("is checked with the built-in default, recorded as rules version 0", async () => {
+    const id = await link("v1");
+    await noLogin();
+    fake.behaviour.description = { ...inStock, offers: [{ availability: "https://schema.org/OutOfStock", url: null, sku: null, name: null }] };
+    expect(await checkStock(deps(), id)).toEqual({ kind: "checked", answer: "out_of_stock", reason: null });
+    expect(await latest(id)).toMatchObject({ answer: "out_of_stock", recipeVersion: 0, matchedText: "Built-in data: OutOfStock" });
+  });
+
+  it("is cannot tell, never out of stock, when the page has no built-in data", async () => {
+    const id = await link("v1");
+    await noLogin();
+    expect(await checkStock(deps(), id)).toEqual({ kind: "checked", answer: "cannot_tell", reason: "page_changed" });
+  });
+
+  it("uses its own rules once a version is turned on", async () => {
+    const id = await link("v1");
+    await noLogin();
+    const version = await turnOn();
+    await checkStock(deps(), id);
+    expect(await latest(id)).toMatchObject({ answer: "in_stock", recipeVersion: version });
+  });
+
+  it("a supplier that needs a login still needs rules turned on", async () => {
+    expect(await checkStock(deps(), await link("v1"))).toEqual({ kind: "skipped", reason: "no_recipe" });
+  });
+});
+
+describe("quick reads and three tries", () => {
+  const offer = (availability: string, name: string | null = null) => ({ availability: `https://schema.org/${availability}`, url: null, sku: null, name });
+  const noLogin = async () => {
+    await createSupplierSessionRepository(t.appDb).remove(acme);
+    await suppliers().markNotConnected(acme);
+    await suppliers().setNeedsLogin(acme, false);
+  };
+  const quick = (offers: unknown[], page: Partial<{ result: string; status: number | null; finalUrl: string | null; softNotFound: boolean; blocked: boolean }> = {}) =>
+    Object.assign(fake.behaviour, { quickRead: "ok", quickOffers: offers, quickPage: { result: "ok", status: 200, finalUrl: null, softNotFound: false, ...page } });
+  const unreachable = { result: "unreachable", status: null, title: null, heading: null, softNotFound: false };
+
+  it("answers from a quick read when the built-in data is clear, and never opens the browser", async () => {
+    const id = await link("v1");
+    await noLogin();
+    quick([offer("OutOfStock")]);
+    expect(await checkStock(deps(), id)).toEqual({ kind: "checked", answer: "out_of_stock", reason: null });
+    expect(requests("/quick-read")).toHaveLength(1);
+    expect(requests("/capture")).toHaveLength(0);
+    expect(await latest(id)).toMatchObject({ answer: "out_of_stock", readBy: "quick", matchedText: "Built-in data: OutOfStock" });
+    expect(await mapping(id)).toMatchObject({ lastLinkCheckAt: T0, workedTitle: null });
+    expect(logLines.join("")).not.toContain("shop.acme.example");
+  });
+
+  it.each([
+    ["no offers", () => quick([])],
+    ["a login page", () => quick([offer("InStock")], { result: "login_required" })],
+    ["a puzzle", () => quick([offer("InStock")], { result: "captcha" })],
+    ["a blocked address", () => quick([offer("InStock")], { blocked: true, result: "unknown" })],
+    ["options that differ, with no option set", () => quick([offer("InStock", "Red"), offer("OutOfStock", "Blue")])],
+    ["a service without quick reads", () => Object.assign(fake.behaviour, { quickRead: "missing" })],
+    ["a failed quick read", () => Object.assign(fake.behaviour, { quickRead: "fail" })],
+  ])("falls back to the browser for %s", async (_what, arrange) => {
+    const id = await link("v1");
+    await noLogin();
+    arrange();
+    fake.behaviour.description = { ...inStock, offers: [offer("InStock")] };
+    expect(await checkStock(deps(), id)).toEqual({ kind: "checked", answer: "in_stock", reason: null });
+    expect(requests("/capture")).toHaveLength(1);
+    expect(await latest(id)).toMatchObject({ readBy: "browser" });
+  });
+
+  it("logs why it fell back, never the address", async () => {
+    const id = await link("v1");
+    await noLogin();
+    quick([]);
+    await checkStock(deps(), id);
+    expect(logLines.join("")).toContain("quick_read: fallback (no_offers)");
+    expect(logLines.join("")).not.toContain("shop.acme.example");
+  });
+
+  it("never reads quickly for a supplier that needs a login, has stealth on, or rules with page checks or a region", async () => {
+    const id = await link("v1");
+    quick([offer("InStock")]);
+    await turnOn({ pageChecks: [], inStock: [], outOfStock: [], builtIn: { waiting: "out_of_stock" } });
+    await checkStock(deps(), id); // needs a login
+    await noLogin();
+    await suppliers().setAutoLogin(acme, { stealth: true });
+    await checkStock(deps(), id); // stealth
+    await suppliers().setAutoLogin(acme, { stealth: false });
+    await turnOn({ pageChecks: [{ type: "text", text: "Blue Tee" }], inStock: [], outOfStock: [], builtIn: { waiting: "out_of_stock" } });
+    await checkStock(deps(), id); // page checks
+    await turnOn({ pageChecks: [], inStock: [], outOfStock: [], region: { under: "Stores" }, builtIn: { waiting: "out_of_stock" } });
+    await checkStock(deps(), id); // region
+    expect(requests("/quick-read")).toHaveLength(0);
+    expect(requests("/capture")).toHaveLength(4);
+  });
+
+  it("tries a page that could not be loaded three times, waiting 5 s then 15 s, and uses the answer when it loads", async () => {
+    const id = await link("v1");
+    let calls = 0;
+    fake.behaviour.pageFor = () => (++calls <= 2 ? unreachable : normal);
+    await turnOn();
+    expect(await checkStock(deps(), id)).toEqual({ kind: "checked", answer: "in_stock", reason: null });
+    expect(requests("/capture")).toHaveLength(3);
+    expect(sleeps).toEqual([5000, 15000]);
+    expect(await latest(id)).toMatchObject({ answer: "in_stock", readBy: "browser" });
+    expect(logLines.join("")).toContain("stock check: retry 1 (unreachable)");
+  });
+
+  it("gives cannot tell after three failed tries, and three such pages in a row still end the run", async () => {
+    await link("v1");
+    await link("v2");
+    await link("v3");
+    await link("v4");
+    fake.behaviour.page = unreachable;
+    await turnOn();
+    expect(await runAll()).toMatchObject({ kind: "done", stopped: "unreachable", checked: 3 });
+    expect(requests("/capture")).toHaveLength(9);
+  });
+
+  it("retries when the browser service does not answer, but never more than three times a page", async () => {
+    const id = await link("v1");
+    fake.behaviour.capture = "fail";
+    await turnOn();
+    expect(await checkStock(deps(), id)).toMatchObject({ kind: "checked", answer: "cannot_tell", reason: "check_failed" });
+    expect(requests("/capture")).toHaveLength(3);
+    expect(await latest(id)).toMatchObject({ readBy: null });
+  });
+
+  it.each(["login_required", "captcha", "blocked", "unknown"])("never retries a %s page", async (result) => {
+    const id = await link("v1");
+    fake.behaviour.page = { ...normal, result };
+    await turnOn();
+    await checkStock(deps(), id);
+    expect(requests("/capture")).toHaveLength(1);
+  });
+
+  it("records no read method for a page it never opened", async () => {
+    const id = await link("v1");
+    await turnOn();
+    await createSupplierSessionRepository(t.appDb).remove(acme);
+    await t.pool.query("update suppliers set session_status = 'connected' where id = $1", [acme]);
+    // A session that cannot be read: the page is never opened.
+    await createSupplierSessionRepository(t.appDb).save(acme, { ...sealSessionState(state, key, "v1"), tag: "AAAA" } as never, state);
+    await checkStock(deps(), id);
+    const row = await latest(id);
+    expect(row?.readBy ?? null).toBeNull();
   });
 });

@@ -63,6 +63,12 @@ beforeEach(async () => {
 });
 
 describe("a capture job", () => {
+  it("sends the supplier's logged-in marker with the capture", async () => {
+    await suppliers().setAutoLogin(acme, { loggedInMarker: "Log out" });
+    await handleCapture(deps(), await pending());
+    expect(captureRequests()[0]?.body).toMatchObject({ loggedInMarker: "Log out" });
+  });
+
   it("opens the link's page with the saved session, asks for a picture, and stores what it saw", async () => {
     const id = await pending();
     expect(await handleCapture(deps(), id)).toEqual({ kind: "ready" });
@@ -129,5 +135,27 @@ describe("a capture job", () => {
     expect(all).not.toContain(COOKIE);
     expect(all).not.toContain("Soft cotton");
     expect(all).not.toContain("PNG-bytes");
+  });
+});
+
+describe("a capture for a supplier that needs no login", () => {
+  it("runs with no session, and keeps the built-in offers and the link on the saved page", async () => {
+    await createSupplierSessionRepository(t.appDb).remove(acme);
+    await suppliers().markNotConnected(acme);
+    await suppliers().setNeedsLogin(acme, false);
+    await createMappingRepository(t.appDb).update(link, { supplierOption: "1 L" });
+    const before = fake.behaviour.description;
+    const offers = [{ availability: "InStock", url: "https://shop.acme.example/p/blue?variant=1", sku: "B-1", name: "1 L" }];
+    fake.behaviour.description = { ...before, offers };
+    try {
+      const id = await pending();
+      expect(await handleCapture(deps(), id)).toEqual({ kind: "ready" });
+      const body = captureRequests()[0]?.body as Record<string, unknown>;
+      expect(body.state).toEqual({ cookies: [], origins: [] });
+      expect(body.loginUrl).toBeUndefined();
+      expect((await captures().get(id))?.description).toMatchObject({ offers, link: { url: "https://shop.acme.example/p/blue", option: "1 L" } });
+    } finally {
+      fake.behaviour.description = before;
+    }
   });
 });

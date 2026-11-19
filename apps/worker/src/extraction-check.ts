@@ -3,20 +3,26 @@ import type { createAuditWriter } from "@stock-monitor/audit";
 import type { BrowserClient } from "@stock-monitor/browser-client";
 import type {
   createCaptureRepository, createCheckRunRepository, createMappingRepository, createNotificationRepository, createObservationRepository, createRecipeRepository,
-  createSupplierRepository, createSupplierSessionRepository, MappingRow, SupplierRecord,
+  createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository, MappingRow, SupplierRecord,
 } from "@stock-monitor/db";
-import { decide, isSupplierWideChange, validateRecipe, type Answer, type Decision, type PageDescription, type Reason, type Recipe } from "@stock-monitor/extraction";
+import { BUILT_IN_DEFAULT, BUILT_IN_DEFAULT_VERSION, decide, isSupplierWideChange, validateRecipe, type Answer, type Decision, type PageDescription, type Reason, type Recipe } from "@stock-monitor/extraction";
 import { decideLinkStatus, isSupplierWide, whyNotChecked, type CheckGateReason, type LinkStatus, type Observation } from "@stock-monitor/mapping";
 import { unsealSessionState } from "@stock-monitor/supplier-session";
+import { EMPTY_STATE, loginFields, quickEligible } from "./supplier-visit.js";
 import { saveRefreshedSession } from "./session-refresh.js";
 import { backoffMs, nextCheckAt } from "@stock-monitor/scheduling";
+import { ensureLoggedIn, loginCheckUrl, type AutoLoginDeps } from "./auto-login.js";
 import { toState } from "./mapping-link-check.js";
 import { raiseNeedsAttention } from "./supplier-verify.js";
 
 export type StockCheckDeps = {
+  /** Reads emailed login codes for automatic login. */
+  codes?: AutoLoginDeps["codes"];
   mappings: ReturnType<typeof createMappingRepository>;
   suppliers: ReturnType<typeof createSupplierRepository>;
   supplierSessions: ReturnType<typeof createSupplierSessionRepository>;
+  /** The saved login, for automatic login. */
+  supplierCredentials: ReturnType<typeof createSupplierCredentialsRepository>;
   recipes: ReturnType<typeof createRecipeRepository>;
   observations: ReturnType<typeof createObservationRepository>;
   captures: ReturnType<typeof createCaptureRepository>;
@@ -45,7 +51,11 @@ export type StockRunOutcome =
   | { kind: "failed" };
 
 type Active = { recipe: Recipe; version: number };
-type Visit = { mapping: MappingRow; obs: Observation; page: PageDescription | null; picture: Buffer | null; checkResult: string; decision: Decision; linkTrial: LinkStatus };
+/** `readBy`: how the page was read, or null when it was never opened. */
+type Visit = { mapping: MappingRow; obs: Observation; page: PageDescription | null; picture: Buffer | null; checkResult: string; decision: Decision; linkTrial: LinkStatus; readBy: "quick" | "browser" | null };
+// A page that could not be loaded is tried three times in all, waiting this long before the 2nd and the 3rd try.
+const RETRY_WAITS_MS = [5000, 15000];
+const RETRY_RESULTS = new Set(["unreachable", "service_unavailable"]);
 
 const FAILED_VISIT = new Set(["login_required", "captcha", "blocked", "unreachable"]);
 // The visit's result that ends a run at once, and the one that ends it after this many pages in a row.
@@ -53,7 +63,7 @@ const STOP_AT_ONCE = new Set(["login_required", "captcha", "blocked"]);
 const UNREACHABLE_RESULTS = new Set(["unreachable", "service_unavailable"]);
 const UNREACHABLE_IN_A_ROW = 3;
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-const tell = (reason: Reason): Decision => ({ answer: "cannot_tell", reason, quantity: null, matchedText: null, quantityMismatch: false });
+const tell = (reason: Reason): Decision => ({ answer: "cannot_tell", reason, quantity: null, matchedText: null, quantityMismatch: false, decidedBy: null });
 const RETENTION_DAYS = 30;
 
 /** The supplier and its active rules, or the plain reason a check must not run now. The tick uses the same gate, so it never starts a run the checker would refuse. */
@@ -66,6 +76,8 @@ export async function stockGate(
   const refused = whyNotChecked(supplier, (await deps.supplierSessions.getSealed(supplierId)) !== null);
   if (refused) return { reason: refused.reason };
   const row = await deps.recipes.active(supplierId);
+  // A supplier that needs no login is checked from its built-in data until the owner turns on rules (answers held from Shopify).
+  if (!row && !supplier.needsLogin) return { supplier, active: { recipe: BUILT_IN_DEFAULT, version: BUILT_IN_DEFAULT_VERSION } };
   const checked = row ? validateRecipe(row.rules) : null;
   if (!row || !checked?.ok) return { reason: "no_recipe" };
   return { supplier, active: { recipe: checked.recipe, version: row.version } };
@@ -84,20 +96,60 @@ export function createStockChecker(deps: StockCheckDeps) {
 
   const gate = (supplierId: string) => stockGate(deps, supplierId);
 
+  /**
+   * One page: a quick read first when the page can be answered without the browser, else (or when the quick read is not
+   * clear) the browser, tried up to three times when it could not load the page at all.
+   */
   async function visit(supplier: SupplierRecord, mapping: MappingRow, recipe: Recipe): Promise<Visit> {
-    const sealed = await supplierSessions.getSealed(supplier.id);
+    if (quickEligible(supplier, recipe)) {
+      const quick = await quickVisit(supplier, mapping, recipe);
+      if (quick) return quick;
+    }
+    for (let attempt = 1; ; attempt++) {
+      const v = await browserVisit(supplier, mapping, recipe);
+      if (attempt > RETRY_WAITS_MS.length || !RETRY_RESULTS.has(v.checkResult)) return v;
+      logger.info({ mappingId: mapping.id }, `stock check: retry ${attempt} (${v.checkResult})`);
+      await sleep(RETRY_WAITS_MS[attempt - 1] as number);
+    }
+  }
+
+  /** The answer from the page's HTML alone, or null when only the browser can say: then the reason is logged, never the page. */
+  async function quickVisit(supplier: SupplierRecord, mapping: MappingRow, recipe: Recipe): Promise<Visit | null> {
+    const fallback = (reason: string) => {
+      logger.info({ mappingId: mapping.id }, `quick_read: fallback (${reason})`);
+      return null;
+    };
+    const q = await browser.quickRead({ url: mapping.url });
+    if (!q.ok) return fallback("unavailable");
+    if (q.blockedRequests > 0) return fallback("blocked");
+    if (q.result !== "ok") return fallback("not_ok");
+    if (q.offers.length === 0) return fallback("no_offers");
+    // No title or heading: a script can change a title in the browser, so a quick read never compares them with the worked ones.
+    const obs: Observation = { result: q.result, status: q.status, finalUrl: q.finalUrl, title: null, heading: null, softNotFound: q.softNotFound };
+    const trial = decideLinkStatus(toState(mapping), obs, { requestedUrl: mapping.url, homeUrl: supplier.websiteUrl, now: now(), supplierWide: false }).status;
+    if (trial === "page_missing" || trial === "never_worked") return fallback(trial);
+    const page: PageDescription = { url: q.finalUrl ?? mapping.url, title: "", status: q.status, pageClass: q.result, sections: [], buttons: [], offers: q.offers };
+    const region = (mapping.region ?? supplier.defaultRegion) || null;
+    const decision = decide(page, recipe, region, { url: mapping.url, option: mapping.supplierOption });
+    if (decision.decidedBy !== "built_in") return fallback(decision.reason ?? "not_clear");
+    return { mapping, obs, page, picture: null, checkResult: q.result, decision, linkTrial: trial, readBy: "quick" };
+  }
+
+  async function browserVisit(supplier: SupplierRecord, mapping: MappingRow, recipe: Recipe): Promise<Visit> {
+    // A supplier that needs no login is visited with no session, no login address and no logged-in marker.
+    const sealed = supplier.needsLogin ? await supplierSessions.getSealed(supplier.id) : null;
     let state;
     try {
-      state = sealed ? unsealSessionState(sealed, deps.key) : null;
+      state = !supplier.needsLogin ? EMPTY_STATE : sealed ? unsealSessionState(sealed, deps.key) : null;
     } catch {
       state = null;
     }
-    const outcome = state ? await browser.capture({ url: mapping.url, loginUrl: supplier.loginUrl ?? undefined, state, picture: true }) : null;
+    const outcome = state ? await browser.capture({ url: mapping.url, ...loginFields(supplier), state, picture: true, ...(supplier.stealth ? { stealth: true } : {}) }) : null;
     if (!outcome || !outcome.ok) {
       if (outcome) logger.warn({ mappingId: mapping.id }, "stock check could not run: the browser service did not answer");
       const obs: Observation = { result: "service_unavailable", status: null, finalUrl: null, title: null, heading: null, softNotFound: false };
       const trial = decideLinkStatus(toState(mapping), obs, { requestedUrl: mapping.url, homeUrl: supplier.websiteUrl, now: now(), supplierWide: false });
-      return { mapping, obs, page: null, picture: null, checkResult: state ? "service_unavailable" : "session_unreadable", decision: tell("check_failed"), linkTrial: trial.status };
+      return { mapping, obs, page: null, picture: null, checkResult: state ? "service_unavailable" : "session_unreadable", decision: tell("check_failed"), linkTrial: trial.status, readBy: null };
     }
     // Each page loads the session again, so the next page in a run uses the one kept here.
     if (sealed && state && outcome.result === "ok") await saveRefreshedSession(deps, supplier.id, { sealed, state }, outcome.state);
@@ -110,6 +162,7 @@ export function createStockChecker(deps: StockCheckDeps) {
       pageClass: outcome.result,
       sections: outcome.description.sections,
       buttons: outcome.description.buttons,
+      offers: outcome.description.offers,
     };
     const region = (mapping.region ?? supplier.defaultRegion) || null;
     const decision = FAILED_VISIT.has(outcome.result)
@@ -118,8 +171,16 @@ export function createStockChecker(deps: StockCheckDeps) {
         ? tell("page_missing")
         : trial === "never_worked"
           ? tell("never_worked")
-          : decide(page, recipe, region);
-    return { mapping, obs, page, picture: outcome.picture, checkResult: outcome.result, decision, linkTrial: trial };
+          : decide(page, recipe, region, { url: mapping.url, option: mapping.supplierOption });
+    return { mapping, obs, page, picture: outcome.picture, checkResult: outcome.result, decision, linkTrial: trial, readBy: "browser" };
+  }
+
+  /** A page not opened because the automatic login before it failed: cannot tell, as a failed visit would be. */
+  function notVisited(supplier: SupplierRecord, mapping: MappingRow, stop: StopReason): Visit {
+    const result = stop === "supplier_not_ready" ? "unreachable" : stop;
+    const obs: Observation = { result, status: null, finalUrl: null, title: null, heading: null, softNotFound: false };
+    const trial = decideLinkStatus(toState(mapping), obs, { requestedUrl: mapping.url, homeUrl: supplier.websiteUrl, now: now(), supplierWide: false }).status;
+    return { mapping, obs, page: null, picture: null, checkResult: result, decision: tell("check_failed"), linkTrial: trial, readBy: null };
   }
 
   /** Saves what a visit found: the link status, the kept capture when the page changed, and the observation. */
@@ -140,7 +201,9 @@ export function createStockChecker(deps: StockCheckDeps) {
       recipeVersion: version,
       checkResult: v.checkResult,
       captureId,
+      readBy: v.readBy,
     });
+    logger.info({ mappingId: v.mapping.id, readBy: v.readBy }, "stock page read");
     await audit.record({ action: "mapping.stock_checked", entityType: "mapping", entityId: v.mapping.id, details: { answer: v.decision.answer, reason: v.decision.reason } });
   }
 
@@ -152,10 +215,26 @@ export function createStockChecker(deps: StockCheckDeps) {
       const gated = await gate(mapping.supplierId);
       if ("reason" in gated) return { kind: "skipped", reason: gated.reason };
       await captures.purge(RETENTION_DAYS);
-      const v = await visit(gated.supplier, mapping, gated.active.recipe);
+      // A failed automatic login already told the owner what went wrong, so the check must not replace that notice.
+      let toldOwner = false;
+      // A login that has just happened is not repeated if the very next page still asks for one: the supplier just accepted it.
+      let loggedInNow = false;
+      const login = await ensureLoggedIn(deps, gated.supplier, { force: false, checkUrl: mapping.url, onLoggedIn: () => void (loggedInNow = true) });
+      let v: Visit;
+      if (login !== "ready" && login !== "skipped") {
+        v = notVisited(gated.supplier, mapping, login);
+        toldOwner = true;
+      } else {
+        v = await visit(gated.supplier, mapping, gated.active.recipe);
+        if (v.checkResult === "login_required" && !loggedInNow) {
+          const again = await ensureLoggedIn(deps, gated.supplier, { force: true, checkUrl: mapping.url });
+          if (again === "ready") v = await visit(gated.supplier, mapping, gated.active.recipe);
+          else if (again !== "skipped") toldOwner = true;
+        }
+      }
       await finish(gated.supplier, v, gated.active.version, false);
       // A page that asked for a login or refused us means the session is no good, as a failed session check would say.
-      if (v.checkResult === "login_required" || v.checkResult === "captcha" || v.checkResult === "blocked") await raiseNeedsAttention(deps, gated.supplier, v.checkResult);
+      if (!toldOwner && (v.checkResult === "login_required" || v.checkResult === "captcha" || v.checkResult === "blocked")) await raiseNeedsAttention(deps, gated.supplier, v.checkResult);
       return { kind: "checked", answer: v.decision.answer, reason: v.decision.reason };
     },
 
@@ -213,21 +292,45 @@ export function createStockChecker(deps: StockCheckDeps) {
     const visits: Visit[] = [];
     const counts = { linksDone: 0, inStock: 0, outOfStock: 0, cannotTell: 0 };
     let stopped: StopReason | null = null;
+    // A failed automatic login already told the owner what went wrong, so the run must not replace that notice.
+    let toldOwner = false;
+    // One automatic login when a page asks for one, at most, per run.
+    let loggedInAgain = false;
+    // A login at the start of the run is not repeated if the first page still asks for one: the supplier just accepted it.
+    let loggedInAtStart = false;
+    const checkUrl = loginCheckUrl(first.supplier, links);
+    if (links.length > 0) {
+      const login = await ensureLoggedIn(deps, first.supplier, { force: false, checkUrl, onLoggedIn: () => void (loggedInAtStart = true) });
+      if (login !== "ready" && login !== "skipped") [stopped, toldOwner] = [login, true];
+    }
     let unreachableInARow = 0;
-    for (const [index, mapping] of links.entries()) {
+    for (const [index, mapping] of stopped ? [] : links.entries()) {
       if (index > 0) await sleep(first.supplier.checkPauseSeconds * 1000);
       const gated = await gate(supplierId);
       if ("reason" in gated) {
         stopped = "supplier_not_ready";
         break;
       }
-      const v = await visit(gated.supplier, mapping, first.active.recipe);
+      let v = await visit(gated.supplier, mapping, first.active.recipe);
+      let loginStop: StopReason | null = null;
+      if (v.checkResult === "login_required" && !loggedInAgain && !loggedInAtStart) {
+        loggedInAgain = true;
+        const login = await ensureLoggedIn(deps, gated.supplier, { force: true, checkUrl });
+        if (login === "ready") v = await visit(gated.supplier, mapping, first.active.recipe);
+        else if (login !== "skipped") loginStop = login;
+      }
+      // A page that worked means the start login held, so a later login page is a session that died.
+      if (v.checkResult !== "login_required") loggedInAtStart = false;
       visits.push(v);
       counts.linksDone++;
       if (v.decision.answer === "in_stock") counts.inStock++;
       else if (v.decision.answer === "out_of_stock") counts.outOfStock++;
       else counts.cannotTell++;
       await checkRuns.progress(runId, counts);
+      if (loginStop) {
+        [stopped, toldOwner] = [loginStop, true];
+        break;
+      }
       if (STOP_AT_ONCE.has(v.checkResult)) {
         stopped = v.checkResult as StopReason;
         break;
@@ -251,7 +354,7 @@ export function createStockChecker(deps: StockCheckDeps) {
     await checkRuns.end(runId, stopped ? "stopped" : "finished", stopped);
     if (stopped === "login_required" || stopped === "captcha" || stopped === "blocked") {
       // The supplier now needs the owner, so it is not checked again until it is reconnected: its next check is left as it was.
-      await raiseNeedsAttention(deps, first.supplier, stopped);
+      if (!toldOwner) await raiseNeedsAttention(deps, first.supplier, stopped);
     } else if (stopped === "unreachable") {
       await backOff(supplierId);
     } else if (stopped === "supplier_not_ready") {

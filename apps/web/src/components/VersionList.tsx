@@ -12,7 +12,8 @@ type Props = {
   versions: RecipeVersion[];
   busy: boolean;
   /** Why Turn on is off, or null. */
-  turnOnBlock: string | null;
+  /** Why a version cannot be turned on now, or null when it can. */
+  turnOnBlock: (version: RecipeVersion) => string | null;
   onTurnOn: (v: RecipeVersion) => void;
   onEdit: (v: RecipeVersion) => void;
   onDelete: (v: RecipeVersion) => Promise<void>;
@@ -132,7 +133,7 @@ export function VersionList({ versions, busy, turnOnBlock, onTurnOn, onEdit, onD
                       {!v.active && (
                         <Button
                           size="sm"
-                          disabled={busy || turnOnBlock !== null}
+                          disabled={busy || turnOnBlock(v) !== null}
                           aria-label={`Turn on version ${v.version}`}
                           onClick={() => onTurnOn(v)}
                         >

@@ -2,6 +2,7 @@ import { chromium, type Browser } from "playwright";
 import type { AddressInfo } from "node:net";
 import { createControlServer } from "./server.js";
 import { createGuard, type GuardOptions } from "./guard.js";
+import { quickRead } from "./quick-read.js";
 import { startGuardProxy } from "./proxy.js";
 import { createSessions } from "./sessions.js";
 import { createPlainWindowOpener } from "./plain-window.js";
@@ -36,6 +37,8 @@ export type BrowserServiceOptions = {
   profileDir?: string;
   /** The owner's real browser language, passed to plain windows. */
   language?: string;
+  /** The owner's real timezone (TZ). With the language, it is what a stealth visit needs. */
+  timezone?: string;
   /** The VNC password to give callers who open a window. */
   vncPassword?: string;
   /** false opens login windows with no display, for a machine that has none (tests). The container shows them on its virtual screen. */
@@ -55,7 +58,9 @@ export async function startBrowserService(options: BrowserServiceOptions): Promi
   if (options.token.length < MIN_TOKEN)
     throw new Error(`The control token must be at least ${MIN_TOKEN} characters.`);
 
-  const proxy = await startGuardProxy(createGuard(options.guard));
+  // One guard for everything that reaches a supplier: Chromium's proxy and the quick read.
+  const guard = createGuard(options.guard);
+  const proxy = await startGuardProxy(guard);
 
   // One Chromium is shared. Every check still gets its own throw-away context. A crashed browser is replaced on the next check.
   let launching: Promise<Browser> | null = null;
@@ -86,12 +91,13 @@ export async function startBrowserService(options: BrowserServiceOptions): Promi
   };
   const openWindow =
     options.loginWindowMode === "plain"
-      ? createPlainWindowOpener({ ...plainOptions, exposePage: options.exposePageForTests })
+      ? createPlainWindowOpener({ ...plainOptions, exposePage: options.exposePageForTests, log: options.log })
       : createWindowOpener(windowOptions);
   const sessions = createSessions({
     timeoutMs: options.sessionTimeoutMs,
-    openWindow: async (url) => {
-      const window = await openWindow(url);
+    openWindow: async (url, { stealth }) => {
+      if (stealth && options.loginWindowMode !== "plain") options.log?.("stealth ignored: the live window needs LOGIN_WINDOW_MODE=plain");
+      const window = await openWindow(url, { stealth });
       open = window;
       window.onClosed(() => void (open = open === window ? null : open));
       return window;
@@ -100,25 +106,38 @@ export async function startBrowserService(options: BrowserServiceOptions): Promi
 
   const checkInProfile =
     options.verifyMode === "profile"
-      ? createProfileChecker({ ...plainOptions, baseDir: options.profileDir, settleMs: options.profileSettleMs, display: process.env.CHECK_DISPLAY })
+      ? createProfileChecker({ ...plainOptions, timezone: options.timezone, baseDir: options.profileDir, settleMs: options.profileSettleMs, display: process.env.CHECK_DISPLAY })
       : null;
 
+  /** Stealth only exists in profile mode. Said in the log, so a switch that does nothing is not a mystery. */
+  const headlessNote = (stealth: boolean | undefined) => {
+    if (stealth && !checkInProfile) options.log?.("stealth ignored: it needs VERIFY_MODE=profile");
+  };
   const server = createControlServer({
     token: options.token,
     log: options.log,
     sessions,
     vncPassword: options.vncPassword,
+    // Only in profile mode: the login happens inside the supplier's persistent profile.
+    ...(checkInProfile ? { login: (request, codes) => checkInProfile.login(request, codes) } : {}),
     // In profile mode link and stock checks run in the same logged-in browser as the session check, not in a cookie-replaying headless one.
-    checkPage: async (request) =>
-      checkInProfile?.checkPage(request, options.navigationTimeoutMs) ?? checkPage(await getBrowser(), request, { navigationTimeoutMs: options.navigationTimeoutMs, proxy }),
-    capture: async (request) =>
-      checkInProfile?.capture(request, options.navigationTimeoutMs) ?? capturePage(await getBrowser(), request, { navigationTimeoutMs: options.navigationTimeoutMs, proxy }),
-    verify: async (request) =>
-      checkInProfile?.(request) ??
-      verifyPage(await getBrowser(), request, {
-        navigationTimeoutMs: options.navigationTimeoutMs,
-        proxy,
-      }),
+    checkPage: async (request) => {
+      if (checkInProfile) return checkInProfile.checkPage(request, options.navigationTimeoutMs);
+      headlessNote(request.stealth);
+      return checkPage(await getBrowser(), request, { navigationTimeoutMs: options.navigationTimeoutMs, proxy });
+    },
+    // No browser and no session: only ever for a supplier whose pages need no login.
+    quickRead: (request) => quickRead(request.url, { guard, ...(options.language ? { language: options.language } : {}) }),
+    capture: async (request) => {
+      if (checkInProfile) return checkInProfile.capture(request, options.navigationTimeoutMs);
+      headlessNote(request.stealth);
+      return capturePage(await getBrowser(), request, { navigationTimeoutMs: options.navigationTimeoutMs, proxy });
+    },
+    verify: async (request) => {
+      if (checkInProfile) return checkInProfile(request);
+      headlessNote(request.stealth);
+      return verifyPage(await getBrowser(), request, { navigationTimeoutMs: options.navigationTimeoutMs, proxy });
+    },
   });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);

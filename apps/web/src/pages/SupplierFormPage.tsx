@@ -4,6 +4,8 @@ import { Card } from "@/components/ui/card.js";
 import { Input } from "@/components/ui/input.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
 import { ApiError, type Api, type Supplier, type SupplierInput } from "../api.js";
+import { AutoLoginCard } from "../components/AutoLoginCard.js";
+import { NeedsLoginCard } from "../components/NeedsLoginCard.js";
 import { Field as FormField } from "../components/Field.js";
 import { Notice } from "../components/Notice.js";
 import { PageHeader } from "../components/PageHeader.js";
@@ -12,15 +14,17 @@ import { SchedulePanel } from "../components/SchedulePanel.js";
 import { Link, navigate } from "../router.js";
 import { useTitle } from "../useTitle.js";
 
-type Field = "name" | "websiteUrl" | "loginUrl";
+type Field = "name" | "shopifyName" | "websiteUrl" | "loginUrl";
 type Errors = Partial<Record<Field, string>>;
 type Load = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; supplier: Supplier | null };
 
-const ORDER: Field[] = ["name", "websiteUrl", "loginUrl"];
+const ORDER: Field[] = ["name", "shopifyName", "websiteUrl", "loginUrl"];
 // The server says which field a problem belongs to. Anything else is shown above the buttons.
 const FIELD_OF_CODE: Record<string, Field> = {
   invalid_name: "name",
   name_taken: "name",
+  invalid_shopify_name: "shopifyName",
+  shopify_name_taken: "shopifyName",
   invalid_website: "websiteUrl",
   invalid_login_url: "loginUrl",
 };
@@ -39,6 +43,15 @@ export function SupplierFormPage({ api, id }: { api: Api; id?: string }) {
       .then((supplier) => setLoad({ kind: "ready", supplier }))
       .catch((e: unknown) => setLoad({ kind: "error", message: message(e) }));
   }, [api, id]);
+
+  /** Loads the supplier again without the loading screen, so the page keeps what the owner typed. */
+  const reload = () => {
+    if (id === undefined) return;
+    api.suppliers
+      .get(id)
+      .then((supplier) => setLoad({ kind: "ready", supplier }))
+      .catch(() => undefined);
+  };
 
   return (
     <>
@@ -75,7 +88,7 @@ export function SupplierFormPage({ api, id }: { api: Api; id?: string }) {
           {load.supplier && (
             <>
               <Card className="p-6">
-                <PermissionPanel api={api} supplier={load.supplier} />
+                <PermissionPanel api={api} supplier={load.supplier} onSaved={reload} />
               </Card>
               <Card className="p-6">
                 <RegionPanel api={api} supplier={load.supplier} />
@@ -83,6 +96,14 @@ export function SupplierFormPage({ api, id }: { api: Api; id?: string }) {
               <Card className="p-6">
                 <SchedulePanel api={api} supplier={load.supplier} />
               </Card>
+              <Card className="p-6">
+                <NeedsLoginCard api={api} supplier={load.supplier} onChange={reload} />
+              </Card>
+              {load.supplier.needsLogin && (
+                <Card className="p-6">
+                  <AutoLoginCard api={api} supplier={load.supplier} onChange={reload} />
+                </Card>
+              )}
             </>
           )}
         </div>
@@ -93,6 +114,7 @@ export function SupplierFormPage({ api, id }: { api: Api; id?: string }) {
 
 function SupplierForm({ api, supplier }: { api: Api; supplier: Supplier | null }) {
   const [name, setName] = useState(supplier?.name ?? "");
+  const [shopifyName, setShopifyName] = useState(supplier?.shopifyName ?? "");
   const [websiteUrl, setWebsiteUrl] = useState(supplier?.websiteUrl ?? "");
   const [loginUrl, setLoginUrl] = useState(supplier?.loginUrl ?? "");
   const [errors, setErrors] = useState<Errors>({});
@@ -100,6 +122,7 @@ function SupplierForm({ api, supplier }: { api: Api; supplier: Supplier | null }
   const [saving, setSaving] = useState(false);
   const refs: Record<Field, React.RefObject<HTMLInputElement | null>> = {
     name: useRef<HTMLInputElement>(null),
+    shopifyName: useRef<HTMLInputElement>(null),
     websiteUrl: useRef<HTMLInputElement>(null),
     loginUrl: useRef<HTMLInputElement>(null),
   };
@@ -119,7 +142,10 @@ function SupplierForm({ api, supplier }: { api: Api; supplier: Supplier | null }
       showErrors(next);
       return null;
     }
-    return { name: name.trim(), websiteUrl: websiteUrl.trim(), loginUrl: loginUrl.trim() || null };
+    const values: SupplierInput = { name: name.trim(), websiteUrl: websiteUrl.trim(), loginUrl: loginUrl.trim() || null };
+    // Sent when filled in, and when editing (so clearing it reaches the server). Empty means "the same as the name".
+    if (shopifyName.trim() || supplier) values.shopifyName = shopifyName.trim() || null;
+    return values;
   }
 
   async function submit(event: FormEvent) {
@@ -132,7 +158,7 @@ function SupplierForm({ api, supplier }: { api: Api; supplier: Supplier | null }
     // When editing, send only what changed. Nothing changed means there is nothing to save.
     const patch: Partial<SupplierInput> = supplier
       ? Object.fromEntries(
-          (Object.entries(values) as [keyof SupplierInput, SupplierInput[keyof SupplierInput]][]).filter(([k, v]) => supplier[k] !== v),
+          (Object.entries(values) as [keyof SupplierInput, SupplierInput[keyof SupplierInput]][]).filter(([k, v]) => (supplier[k] ?? null) !== v),
         )
       : values;
     if (supplier && Object.keys(patch).length === 0) return navigate("/suppliers");
@@ -179,6 +205,9 @@ function SupplierForm({ api, supplier }: { api: Api; supplier: Supplier | null }
   return (
     <form onSubmit={(e) => void submit(e)} noValidate className="flex flex-col gap-5">
       {field("name", "Name", name, setName, { hint: "How you want to see this supplier in the app." })}
+      {field("shopifyName", "Name in Shopify (optional)", shopifyName, setShopifyName, {
+        hint: "The supplier name your Shopify products use (the custom.supplier_name field). Leave it empty if it is the same as the name above.",
+      })}
       {field("websiteUrl", "Website address", websiteUrl, setWebsiteUrl, {
         hint: "Starting with https://, like https://shop.example.com.",
         inputMode: "url",

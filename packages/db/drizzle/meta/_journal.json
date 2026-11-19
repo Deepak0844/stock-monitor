@@ -113,6 +113,69 @@
       "when": 1794575943113,
       "tag": "0015_session_precheck",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1794904133789,
+      "tag": "0016_auto_login",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1794911584282,
+      "tag": "0017_logged_in_marker",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1795024002726,
+      "tag": "0018_keep_alive",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1795026595786,
+      "tag": "0019_alert_emails",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1795030299602,
+      "tag": "0020_code_email_from",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1795035351242,
+      "tag": "0021_check_run_kind",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1795043680258,
+      "tag": "0022_built_in_stock",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1795050206486,
+      "tag": "0023_quick_read",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1795078107466,
+      "tag": "0024_shopify_name",
+      "breakpoints": true
     }
   ]
 }

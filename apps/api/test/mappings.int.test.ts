@@ -70,7 +70,7 @@ const events = async (action: string) => (await t.pool.query("select details fro
 describe("every mapping route needs a signed-in owner", () => {
   const routes: [string, string][] = [
     ["GET", "/api/mappings"], ["POST", "/api/mappings"], ["GET", "/api/mappings/x"], ["PATCH", "/api/mappings/x"],
-    ["DELETE", "/api/mappings/x"], ["GET", "/api/variants?mapped=false"], ["PATCH", "/api/suppliers/x/permission"],
+    ["DELETE", "/api/mappings/x"], ["GET", "/api/variants?mapped=false"], ["GET", "/api/variants/unmapped.csv"], ["PATCH", "/api/suppliers/x/permission"],
   ];
   it.each(routes)("%s %s returns 401 without a session", async (method, url) => {
     expect((await call(method as "GET", url, undefined, false)).status).toBe(401);
@@ -192,6 +192,19 @@ describe("list filters are checked", () => {
 });
 
 describe("unmapped variants", () => {
+  it("downloads every variant with no link as a CSV file, narrowed by the search", async () => {
+    await create();
+    await addVariant("v3", null);
+    const res = await app().inject({ method: "GET", url: "/api/variants/unmapped.csv", cookies: { sid } });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/^text\/csv/);
+    expect(res.headers["content-disposition"]).toBe('attachment; filename="variants-with-no-link.csv"');
+    expect(res.body).toBe("\uFEFFProduct,Variant,SKU,Variant ID\r\nTee,Variant v2,S2,v2\r\nTee,Variant v3,,v3\r\n");
+    const narrowed = await app().inject({ method: "GET", url: "/api/variants/unmapped.csv?search=S2", cookies: { sid } });
+    expect(narrowed.body).toBe("\uFEFFProduct,Variant,SKU,Variant ID\r\nTee,Variant v2,S2,v2\r\n");
+    expect((await call("GET", "/api/variants/unmapped.csv?search=a&search=b")).status).toBe(400);
+  });
+
   it("counts and lists variants with no link", async () => {
     await create();
     const r = await call("GET", "/api/variants?mapped=false");
@@ -248,5 +261,23 @@ describe("GET /api/mappings with a page", () => {
     const r = await call("GET", `/api/mappings?${query}`);
     expect(r.status).toBe(400);
     expect(r.body.error.code).toBe("invalid_input");
+  });
+});
+
+describe("a link's supplier option", () => {
+  it("is saved on create, trimmed, changed and cleared", async () => {
+    const m = await create({ supplierOption: " 1 L " });
+    expect(m.supplierOption).toBe("1 L");
+    const changed = await call("PATCH", `/api/mappings/${m.id}`, { supplierOption: "500 ml" });
+    expect(changed.body.mapping.supplierOption).toBe("500 ml");
+    expect((await call("PATCH", `/api/mappings/${m.id}`, { supplierOption: "" })).body.mapping.supplierOption).toBeNull();
+  });
+
+  it("refuses an option that is too long or not text", async () => {
+    const tooLong = await call("POST", "/api/mappings", { supplierId: acme, ...good, supplierOption: "x".repeat(201) });
+    expect(tooLong.status).toBe(400);
+    expect(tooLong.body.error).toMatchObject({ code: "invalid_supplier_option", message: "A supplier option can be up to 200 characters of text, or empty to clear it." });
+    const m = await create();
+    expect((await call("PATCH", `/api/mappings/${m.id}`, { supplierOption: 5 })).body.error.code).toBe("invalid_supplier_option");
   });
 });

@@ -2,12 +2,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { randomBytes } from "node:crypto";
 import { Writable } from "node:stream";
 import { startTestDb, type TestDb } from "@stock-monitor/db/test-harness";
-import { createMappingRepository, createNotificationRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
+import { createCheckRunRepository, createMappingRepository, createNotificationRepository, createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
 import { createAuditWriter } from "@stock-monitor/audit";
-import { createBrowserClient } from "@stock-monitor/browser-client";
+import { createBrowserClient, type BrowserClient, type LoginCallOutcome, type LoginRequest } from "@stock-monitor/browser-client";
 import { createFakeBrowserService, FAKE_CONTROL_TOKEN, type FakeBrowserService } from "@stock-monitor/browser-client/testing";
 import { createLogger } from "@stock-monitor/shared";
-import { sealSessionState, unsealSessionState } from "@stock-monitor/supplier-session";
+import { sealCredentials, sealSessionState, unsealSessionState } from "@stock-monitor/supplier-session";
 import { checkLink, checkSupplierLinks, type LinkCheckDeps } from "../src/mapping-link-check.js";
 
 let t: TestDb;
@@ -25,11 +25,14 @@ let now = T0;
 
 const suppliers = () => createSupplierRepository(t.appDb);
 const maps = () => createMappingRepository(t.appDb);
+const runs = () => createCheckRunRepository(t.appDb);
 const deps = (over: Partial<LinkCheckDeps> = {}): LinkCheckDeps => ({
   mappings: maps(),
   suppliers: suppliers(),
   supplierSessions: createSupplierSessionRepository(t.appDb),
+  supplierCredentials: createSupplierCredentialsRepository(t.appDb),
   notifications: createNotificationRepository(t.appDb),
+  checkRuns: runs(),
   audit: createAuditWriter(t.appDb),
   browser: createBrowserClient({ baseUrl: fake.url, token: FAKE_CONTROL_TOKEN, timeoutMs: 2000 }),
   key,
@@ -100,6 +103,12 @@ describe("one link", () => {
     expect(await checkLink(deps(), id)).toEqual({ kind: "checked", status: "works" });
     expect(checks()[0]?.body).toMatchObject({ url: "https://shop.acme.example/p/v1", loginUrl: "https://shop.acme.example/login", state });
     expect(await mapping(id)).toMatchObject({ linkStatus: "works", workedTitle: "Blue Widget", lastLinkCheckAt: T0 });
+  });
+
+  it("sends the supplier's logged-in marker with the check", async () => {
+    await suppliers().setAutoLogin(acme, { loggedInMarker: "Log out" });
+    await checkLink(deps(), await link("v1"));
+    expect(checks()[0]?.body).toMatchObject({ loggedInMarker: "Log out" });
   });
 
   it("a page that is gone, on a link that worked, counts as missing once", async () => {
@@ -223,7 +232,161 @@ describe("all of a supplier's links", () => {
     expect(await checkSupplierLinks(deps(), acme)).toMatchObject({ checked: 1 });
   });
 
+  it("reports each page to its run record, then ends it finished", async () => {
+    await link("v1");
+    await link("v2");
+    const run = (await runs().start(acme, "manual", 2, "links"))!;
+    const done: number[] = [];
+    onSleep = async () => void done.push((await runs().get(run.id))!.linksDone);
+    expect(await checkSupplierLinks(deps(), acme, run.id)).toMatchObject({ kind: "done", checked: 2 });
+    expect(done).toEqual([1]);
+    expect(await runs().get(run.id)).toMatchObject({ outcome: "finished", linksDone: 2, stopReason: null });
+  });
+
+  it("ends its run stopped when the supplier is paused while it waits, and does nothing for a run already ended", async () => {
+    await link("v1");
+    await link("v2");
+    const run = (await runs().start(acme, "manual", 2, "links"))!;
+    onSleep = async () => void (await suppliers().pause(acme));
+    await checkSupplierLinks(deps(), acme, run.id);
+    expect(await runs().get(run.id)).toMatchObject({ outcome: "stopped", stopReason: "supplier_not_ready", linksDone: 1 });
+    await suppliers().resume(acme);
+    expect(await checkSupplierLinks(deps(), acme, run.id)).toEqual({ kind: "skipped", reason: "run_ended" });
+  });
+
   it("does nothing for a supplier that was deleted while the job waited", async () => {
     expect(await checkSupplierLinks(deps(), "00000000-0000-4000-8000-000000000000")).toEqual({ kind: "skipped", reason: "no_supplier" });
+  });
+});
+
+describe("automatic login in a link run", () => {
+  const NEW = { cookies: [{ name: "session", value: "NEW-LOGIN", domain: "shop.acme.example", path: "/" }], origins: [] };
+  const logins: { checkUrl: string; pagesBefore: number }[] = [];
+  const withLogin = (): BrowserClient => ({
+    ...createBrowserClient({ baseUrl: fake.url, token: FAKE_CONTROL_TOKEN, timeoutMs: 2000 }),
+    async login(r: LoginRequest): Promise<LoginCallOutcome> {
+      logins.push({ checkUrl: r.checkUrl, pagesBefore: checks().length });
+      return { ok: true, outcome: { result: "ok", state: NEW } };
+    },
+  });
+  const autoLogin = async (lastVerifiedMinutesAgo: number) => {
+    await createSupplierCredentialsRepository(t.appDb).save(acme, sealCredentials({ username: "u", password: "p" }, key, "v1"));
+    const on = await suppliers().setAutoLogin(acme, { autoLogin: true });
+    if (!on.ok) throw new Error("setup");
+    await t.pool.query("update supplier_sessions set last_verified_at = $2 where supplier_id = $1", [acme, new Date(T0.getTime() - lastVerifiedMinutesAgo * 60_000)]);
+  };
+  beforeEach(() => {
+    logins.length = 0;
+  });
+
+  it("logs in once before the first page when the session is stale", async () => {
+    await link("v1");
+    await link("v2");
+    await autoLogin(60);
+    expect(await checkSupplierLinks(deps({ browser: withLogin() }), acme)).toMatchObject({ kind: "done", checked: 2 });
+    expect(logins).toEqual([{ checkUrl: "https://shop.acme.example/p/v1", pagesBefore: 0 }]);
+    expect((checks()[0]?.body as { state: { cookies: { value: string }[] } }).state.cookies.map((c) => c.value)).toContain("NEW-LOGIN");
+  });
+
+  it("logs in again when a page asks for a login, and retries that page once", async () => {
+    await link("v1");
+    await link("v2");
+    await autoLogin(5);
+    let asked = 0;
+    fake.behaviour.pageFor = (url) => (url.endsWith("/v2") && asked++ === 0 ? { ...normal, result: "login_required" } : undefined);
+    expect(await checkSupplierLinks(deps({ browser: withLogin() }), acme)).toMatchObject({ kind: "done", checked: 2 });
+    expect(logins).toHaveLength(1);
+    expect(checks().map((r) => (r.body as { url: string }).url.split("/").pop())).toEqual(["v1", "v2", "v2"]);
+    expect(await createNotificationRepository(t.appDb).listOpen()).toEqual([]);
+  });
+  it("does not log in a second time right after logging in at the start: the first page still asking for a login is reported", async () => {
+    await link("v1");
+    await link("v2");
+    await autoLogin(60);
+    fake.behaviour.pageFor = (url) => (url.endsWith("/v1") ? { ...normal, result: "login_required" } : undefined);
+    // A link run goes on to the other links and then tells the owner, as it does for any login page.
+    expect(await checkSupplierLinks(deps({ browser: withLogin() }), acme)).toMatchObject({ kind: "done", checked: 2 });
+    // The supplier just accepted a login, so a second one seconds later would only repeat it.
+    expect(logins).toHaveLength(1);
+    expect(checks().map((r) => (r.body as { url: string }).url.split("/").pop())).toEqual(["v1", "v2"]);
+    expect((await createNotificationRepository(t.appDb).listOpen()).map((n) => n.reason)).toEqual(["login_required"]);
+  });
+
+  it("asks for the stealth browser on every link of a stealth supplier, and only then", async () => {
+    await link("v1");
+    await link("v2");
+    expect(await checkSupplierLinks(deps(), acme)).toMatchObject({ kind: "done", checked: 2 });
+    expect(checks().map((r) => (r.body as { stealth?: boolean }).stealth)).toEqual([undefined, undefined]);
+    fake.requests.length = 0;
+    const on = await suppliers().setAutoLogin(acme, { stealth: true });
+    if (!on.ok) throw new Error("setup");
+    expect(await checkSupplierLinks(deps(), acme)).toMatchObject({ kind: "done", checked: 2 });
+    expect(checks().map((r) => (r.body as { stealth?: boolean }).stealth)).toEqual([true, true]);
+  });
+
+  it("still logs in again when the session dies later in a link run that began with a login", async () => {
+    await link("v1");
+    await link("v2");
+    await link("v3");
+    await autoLogin(60);
+    let asked = 0;
+    fake.behaviour.pageFor = (url) => (url.endsWith("/v3") && asked++ === 0 ? { ...normal, result: "login_required" } : undefined);
+    expect(await checkSupplierLinks(deps({ browser: withLogin() }), acme)).toMatchObject({ kind: "done", checked: 3 });
+    expect(logins).toHaveLength(2);
+    expect(checks().map((r) => (r.body as { url: string }).url.split("/").pop())).toEqual(["v1", "v2", "v3", "v3"]);
+    expect(await createNotificationRepository(t.appDb).listOpen()).toEqual([]);
+  });
+
+  it("one link does not log in a second time right after logging in first", async () => {
+    const id = await link("v1");
+    await autoLogin(60);
+    fake.behaviour.pageFor = () => ({ ...normal, result: "login_required" });
+    expect(await checkLink(deps({ browser: withLogin() }), id)).toMatchObject({ kind: "checked" });
+    expect(logins).toHaveLength(1);
+    expect(checks()).toHaveLength(1);
+    expect((await createNotificationRepository(t.appDb).listOpen()).map((n) => n.reason)).toEqual(["login_required"]);
+  });
+
+  it("the 1 h case: one link meeting a login page logs in, retries it, and the supplier stays ready", async () => {
+    const id = await link("v1");
+    await autoLogin(5);
+    let asked = 0;
+    fake.behaviour.pageFor = () => (asked++ === 0 ? { ...normal, result: "login_required" } : undefined);
+    expect(await checkLink(deps({ browser: withLogin() }), id)).toEqual({ kind: "checked", status: "works" });
+    expect(logins).toEqual([{ checkUrl: "https://shop.acme.example/p/v1", pagesBefore: 1 }]);
+    expect(checks()).toHaveLength(2);
+    expect((await suppliers().get(acme))?.sessionStatus).toBe("connected");
+    expect(await createNotificationRepository(t.appDb).listOpen()).toEqual([]);
+    expect(await checkSupplierLinks(deps({ browser: withLogin() }), acme)).toMatchObject({ kind: "done", checked: 1 });
+  });
+
+  it("one link logs in first when the session is stale, on that link's address", async () => {
+    const id = await link("v1", "deep/v1");
+    await autoLogin(60);
+    expect(await checkLink(deps({ browser: withLogin() }), id)).toEqual({ kind: "checked", status: "works" });
+    expect(logins).toEqual([{ checkUrl: "https://shop.acme.example/p/deep/v1", pagesBefore: 0 }]);
+  });
+
+  it("one link stops when the login fails, keeping the login's own notice", async () => {
+    const id = await link("v1");
+    await autoLogin(60);
+    const refused = { ...withLogin(), login: async (): Promise<LoginCallOutcome> => ({ ok: true, outcome: { result: "captcha" } as never }) };
+    expect(await checkLink(deps({ browser: refused }), id)).toMatchObject({ kind: "checked" });
+    expect(checks()).toHaveLength(0);
+    expect((await createNotificationRepository(t.appDb).listOpen()).map((n) => n.reason)).toEqual(["captcha"]);
+  });
+});
+
+describe("a supplier that needs no login", () => {
+  it("checks its links with no session and no login address", async () => {
+    await createSupplierSessionRepository(t.appDb).remove(acme);
+    await suppliers().markNotConnected(acme);
+    await suppliers().setNeedsLogin(acme, false);
+    const id = await link("v1");
+    expect(await checkLink(deps(), id)).toEqual({ kind: "checked", status: "works" });
+    const body = checks()[0]?.body as Record<string, unknown>;
+    expect(body.state).toEqual({ cookies: [], origins: [] });
+    expect(body.loginUrl).toBeUndefined();
+    expect(await createSupplierSessionRepository(t.appDb).getSealed(acme)).toBeNull();
   });
 });

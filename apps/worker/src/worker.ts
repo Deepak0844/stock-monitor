@@ -1,5 +1,6 @@
 import type { Logger } from "pino";
 import type { Queue } from "@stock-monitor/queue";
+import { createAutoLoginTestHandler, type AutoLoginTestDeps } from "./auto-login.js";
 import { createShopifySyncHandler, type ShopifySyncDeps } from "./shopify-sync.js";
 import { createCaptureHandler, type CaptureDeps } from "./extraction-capture.js";
 import { createStockCheckHandlers, type StockCheckDeps } from "./extraction-check.js";
@@ -10,7 +11,7 @@ import { reapStaleRuns, runTick, type TickDeps } from "./scheduling-tick.js";
 import { createSupplierVerifyHandler, type SupplierVerifyDeps } from "./supplier-verify.js";
 
 // Later modules register their job handlers here.
-export type WorkerDeps = { shopify?: Omit<ShopifySyncDeps, "logger">; supplierVerify?: Omit<SupplierVerifyDeps, "logger">; mappingLinks?: Omit<LinkCheckDeps, "logger">; extractionCapture?: Omit<CaptureDeps, "logger">; extractionChecks?: Omit<StockCheckDeps, "logger">; scheduling?: Omit<TickDeps, "logger">; proposals?: Omit<ProposalsEvaluateDeps, "logger">; proposalsApply?: Omit<ProposalsApplyDeps, "logger"> };
+export type WorkerDeps = { shopify?: Omit<ShopifySyncDeps, "logger">; supplierVerify?: Omit<SupplierVerifyDeps, "logger">; mappingLinks?: Omit<LinkCheckDeps, "logger">; extractionCapture?: Omit<CaptureDeps, "logger">; extractionChecks?: Omit<StockCheckDeps, "logger">; scheduling?: Omit<TickDeps, "logger">; proposals?: Omit<ProposalsEvaluateDeps, "logger">; proposalsApply?: Omit<ProposalsApplyDeps, "logger">; autoLoginTest?: Omit<AutoLoginTestDeps, "logger"> };
 
 export async function registerHandlers(queue: Queue, logger: Logger, deps: WorkerDeps = {}): Promise<void> {
   await queue.work("health.ping", async ({ message }) => {
@@ -49,6 +50,11 @@ export async function registerHandlers(queue: Queue, logger: Logger, deps: Worke
   if (deps.supplierVerify) {
     const handle = createSupplierVerifyHandler({ ...deps.supplierVerify, logger });
     await queue.work("supplier.session.verify", async (payload) => handle(payload));
+  }
+
+  if (deps.autoLoginTest) {
+    const handle = createAutoLoginTestHandler({ ...deps.autoLoginTest, logger });
+    await queue.work("supplier.session.login", async (payload) => void (await handle(payload)));
   }
 
   if (deps.mappingLinks) {

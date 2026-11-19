@@ -42,7 +42,7 @@ Supplier websites are the least trusted thing in the system, so they are opened 
 
 - **Networks.** There are three. `default` holds the database, the API and the worker. `control` is private to the API, the worker and the browser container, and has no route to the internet. `egress` holds the browser container alone, so it can reach supplier websites and nothing else of ours. The database is on neither of the browser's networks, so the browser cannot even look up its name.
 - **No published ports.** Its control port (8080) and its screen port (5900, VNC) are only reachable from the API and worker over `control`. A test checks that nothing is published and that the container is not on the default network.
-- **Locked down.** It runs as a non-root user, with every capability dropped except `SYS_CHROOT` (Chromium's own sandbox needs it to confine its helper processes), `no-new-privileges`, a read-only filesystem (only `/tmp` and its home folder are writable, in memory), no host folders, and limits of 2 GB of memory, 2 CPUs and 512 processes. Chromium's own sandbox stays on, which is why it uses Playwright's seccomp profile (`services/browser/seccomp_profile.json`, unchanged from Playwright's v1.65.0 tag) in place of Docker's default.
+- **Locked down.** It runs as a non-root user, with every capability dropped except `SYS_CHROOT` (Chromium's own sandbox needs it to confine its helper processes), `no-new-privileges`, a read-only filesystem (only `/tmp` and its home folder are writable, in memory, plus the `browser-profiles` volume for kept profiles), no host folders, and limits of 2 GB of memory, 2 CPUs and 512 processes. Chromium's own sandbox stays on, which is why it uses Playwright's seccomp profile (`services/browser/seccomp_profile.json`, unchanged from Playwright's v1.65.0 tag) in place of Docker's default.
 - **Two locks on every call.** The API and worker prove themselves with `BROWSER_CONTROL_TOKEN`. The live screen needs a signed-in owner, an allowed origin and a one-time token, and the VNC server has its own random password, made fresh each time the container starts.
 - **It never gets a private address.** Everything Chromium loads goes through a proxy inside the container that refuses private, loopback, link-local and cloud-metadata addresses, checks redirects, and connects to the address it checked.
 - **What it does not have.** No database credentials, no encryption key. Saved sessions are decrypted by the API and worker, and handed to the browser container only for the moment of a check.
@@ -53,9 +53,18 @@ Server-level steps that are not in Compose:
 - On a Mac used for the pilot, the supplier sees your home internet address. On a server it sees the datacentre's, which some suppliers distrust.
 - A compromised Chromium could reach the API's port over `control` (it would still need a signed-in session). If that worries you, the next step is a firewall rule on the control network.
 
+### Quick reads in the logs
+
+A supplier that needs no login is read from its HTML first. Fixed reason codes, never addresses:
+
+- `docker compose logs browser | grep "quick-read:"`: what each quick read found, e.g. `quick-read: ok (looks_real) http=200`.
+- `docker compose logs worker | grep "quick_read: fallback"`: why a page went to the browser (`no_offers`, `not_ok`,
+  `blocked`, `unavailable`, `variant_unclear`, `built_in_unclear`, `page_missing`, `never_worked`).
+- `docker compose logs worker | grep "stock check: retry"`: a page that could not be loaded and was tried again.
+
 ## Connecting a supplier
 
-This is how you give the app access to a supplier's website, so it can check stock without you. **You log in yourself, by hand.** The app never asks for your supplier password, never stores it, and never logs in for you.
+This is how you give the app access to a supplier's website, so it can check stock without you. **You log in yourself, by hand.** The app never asks for your supplier password, never stores it, and never logs in for you, unless you switch on "Automatic login" for that supplier (see "Automatic login" below).
 
 ### Before you start
 
@@ -68,7 +77,7 @@ This is how you give the app access to a supplier's website, so it can check sto
 1. Open **Suppliers**, then **Add supplier**. Give it a name, its website address (starting with `https://`), and, if its login page is somewhere else, the login address. The app refuses addresses that are not plain public websites.
 2. Press **Connect** on that supplier. After a few seconds a window appears in your page. It is the supplier's real website, running in a locked-down browser on the server.
 3. **Log in as you normally would.** Solve any puzzle (CAPTCHA) or code, and complete any text-message or app check. Click inside the window to type into it.
-4. If you want to paste a password from your password manager, put it in **Paste text**, press **Send to the window**, click the field in the window, then press **Ctrl+V**. The box is cleared after sending.
+4. Ctrl+V (⌘V on a Mac) in the window pastes what you copied on your computer, and text you copy in the window lands on your computer's clipboard. If your browser blocks pasting, a **Paste text** box appears: put the text in it, press **Send to the window**, click the field in the window, then press **Ctrl+V**. The box is cleared after sending.
 5. When you can see you are logged in, press **I'm logged in**. The window closes and the supplier shows **Connected**.
 
 You have 15 minutes. The clock is shown. If time runs out, or you press **Cancel**, or you leave the page, the window is closed and **nothing is saved**.
@@ -104,7 +113,9 @@ The browser container runs in UTC with no language set, which can look odd next 
 - **`controlled`** (the default). The window is a Chromium that the app's automation tool launches and keeps in contact with. This is the original way.
 - **`plain`**. The window is an ordinary Chromium that nothing is controlling while you log in. Use it if a supplier's puzzle (CAPTCHA) rejects you in the live window even though your own browser is accepted: puzzles and bot checks can refuse a browser that an automation tool is driving. When you press **I'm logged in**, the browser is closed the way a person would close it, and the login is read from its temporary profile, which is then deleted.
 
-Both modes look and work the same to you, including the **Paste text** box. In `plain` mode a password you type is never saved by the browser (saving, autofill and sign-in are turned off in its profile), the sandbox stays on, and everything it loads still goes through the same network guard. `plain` does not disguise anything: the browser says what it is. It also does not make the supplier's later automated checks any less visible to the supplier, and the supplier's terms still decide whether those are allowed.
+**Kept profiles** (the live window's with `LOGIN_PROFILE=persistent`, and the checks' and automatic logins' with `VERIFY_MODE=profile`) stay on the `browser-profiles` Docker volume, one folder per supplier site, so a supplier sees the same browser after a restart or a redeploy, not a new device. They hold that supplier's cookies, and the latest failed-login picture (which can show your username), so anyone who can read the server's disk can read them. Folder names are hashes of the site's address, not supplier names. To make the app forget one supplier's browser, stop the browser (`docker compose stop browser`), find the folder with `docker compose run --rm --no-deps --entrypoint ls browser /data/profiles`, remove it with `docker compose run --rm --no-deps --entrypoint rm browser -rf /data/profiles/<folder>`, and start it again. `docker compose down -v` removes every kept profile, together with the database.
+
+Both modes look and work the same to you, including copy and paste. In `plain` mode a password you type is never saved by the browser (saving, autofill and sign-in are turned off in its profile), the sandbox stays on, and everything it loads still goes through the same network guard. `plain` does not disguise anything unless the supplier has the stealth switch on (see below): the browser says what it is. It also does not make the supplier's later automated checks any less visible to the supplier, and the supplier's terms still decide whether those are allowed.
 
 ### Record your permission decision
 
@@ -119,6 +130,148 @@ What the pilot supplier showed when it was connected by hand (2026-11), with its
 - **The owner read the supplier's terms and recorded the permission decision** on the supplier's Edit page before any check.
 
 Earlier trials with other suppliers showed that a supplier's bot protection can accept a login by hand and still refuse the app's automated check (the check then shows **Blocked**, never a broken link or "out of stock"). If that happens, the options are to ask the supplier for a price list or feed, or to leave that supplier paused.
+
+## Automatic login
+
+This lets the app log in to a supplier for you when the saved login has ended, so you do not have to reconnect by hand. It is off until you turn it on, one supplier at a time. The app never solves a puzzle (CAPTCHA) or types a code for you.
+
+### Before you start
+
+1. **Check the supplier's terms.** Some suppliers forbid automated access. If you use automatic login, the supplier may notice and ban the account. This is your decision, not the app's.
+2. **Set `VERIFY_MODE=profile` in `.env`**, then run `docker compose up -d`. The app logs in inside the supplier's saved browser, so it needs this mode. If `VERIFY_MODE` is not `profile`, automatic login is skipped and checks run as before.
+3. **On the supplier's Edit page, set "Allows automatic checks" to Yes.** Automatic login stays switched off until you do.
+4. **We suggest connecting by hand once first** (see "Connecting a supplier"), so the supplier gets to know the app's browser. It is not required. If you have never connected the supplier, press **Test login now** once after turning automatic login on. Scheduled checks only start once the supplier has a saved login, and a successful test login gives it one.
+
+### Turning it on
+
+1. Open the supplier's page and find the **Automatic login** card.
+2. Type the **Username** and **Password**. If the supplier also asks for an account number, type it in **Account number**.
+3. Press **Save**. The boxes go empty and the card says "Password saved" with the date. The app never shows a saved username or password again.
+4. Switch **Automatic login** on, then press **Test login now**. The result is shown on the card.
+
+**Remove** deletes the saved details.
+
+### Hide automation (stealth), for a supplier that refuses the normal login
+
+Some suppliers turn the login away, or show a puzzle that fails even when you solve it, because the browser shows signs that a program is driving it. The **Hide automation (stealth)** switch on the Automatic login card hides those signs for that one supplier, for the login and for every visit to it. Nothing else is faked: the browser stays an ordinary window on the private screen, with the same saved profile, and the app still never solves a puzzle.
+
+- It needs **Allows automatic checks** to be Yes. It does not need a saved login, so you can use it with a hand login too.
+- It works only in profile mode (`VERIFY_MODE=profile`). Otherwise the browser log says `stealth ignored: it needs VERIFY_MODE=profile` and visits run as before.
+- It needs your real language and timezone, or the app refuses to start the browser for that visit and logs `stealth refused: timezone and language must be set`. Set `BROWSER_TIMEZONE` (it becomes the browser's `TZ`; for example `Asia/Kolkata`) and `BROWSER_LANGUAGE` (for example `en-IN`) in `.env`, then run `docker compose up -d browser`. The default, UTC (or any other name for it, such as `Etc/UTC` or `GMT`), counts as not set.
+- It uses the same sandbox as every other visit. If it ever fails to start, the browser log shows `login failed` or the check shows Cannot tell; switch it off and the supplier is checked as before.
+- The live login window (the one you log in by hand) wears a disguise when the switch is on, if `LOGIN_WINDOW_MODE=plain`. The server has no graphics card, so the window normally has no WebGL at all. With the switch on it gets software WebGL (`--enable-unsafe-swiftshader`), which reports a common Intel graphics card instead of SwiftShader. The browser also lists `Google Chrome` beside `Chromium` in its brands and its `Sec-CH-UA` header, in the order real Chrome of the same version uses. The OS (Linux), fonts, screen, language and timezone stay true. This is done by a small extension the window loads at start, so the window still has no remote-control channel. Limits: what WebGL draws is still drawn by SwiftShader, a determined page can tell the functions were replaced, and the disguise does not reach web workers. In `controlled` mode the browser log says `stealth ignored: the live window needs LOGIN_WINDOW_MODE=plain`.
+- The supplier's terms may forbid automated access whatever you switch on. Use it only where you accept that risk.
+
+### Seeing why a login failed
+
+When an automatic login does not work, the browser takes a picture of what the page showed and keeps the latest one (a login that works removes it). The browser log says `login screenshot saved: <path>`. Copy it out with `docker compose cp browser:<path> .` and open it. It can show your username (the password box shows dots), so keep it to yourself. The reason code is on the line before: `docker compose logs browser | grep "login"`.
+
+### What happens when a check needs a login
+
+If the saved login has ended, the app logs in with your saved details, then carries on with the check. If the login is still good, it does nothing.
+
+### When the app cannot log in
+
+If the supplier shows a puzzle, or asks for a text message or an approval on your phone, the app stops. It leaves a message on the Dashboard. Press **Reconnect supplier**, log in through the live window, and do the step there. A supplier that **emails** a code can log in by itself: see the next section. Without that set up, a code stops the login the same way.
+
+### Suppliers that email a code
+
+Some suppliers email a one-time code at every login: after the username and password, or after the username only. The app can read that code and type it, so these suppliers log in with no step from you.
+
+**What it needs:**
+
+1. **Email alerts set up** (see "Email alerts"). The app reads the codes from the same supplier Gmail, with the same app password. No new settings.
+2. **A Gmail filter in your own email** that forwards only the supplier code emails to the supplier Gmail:
+   1. In your own Gmail, open **Settings > Forwarding and POP/IMAP > Add a forwarding address**, and enter the supplier Gmail. Gmail sends a confirmation code to the supplier Gmail: sign in there, open that email, and confirm.
+   2. Open **Settings > Filters and blocked addresses > Create a new filter**. In **From**, put the supplier's sending address (for example `noreply@supplier-site.com`). Then choose **Forward it to** the supplier Gmail. Do this for each supplier that sends codes.
+3. **For a supplier that asks only for the username and then a code** (no password), save any word as the password. It is never typed, because the page never asks for it.
+
+**How it works:**
+
+- When the login reaches the code box, it waits there, for up to 3 minutes.
+- Every 5 seconds the app looks in the supplier Gmail for an email that arrived after this login started and comes from the supplier's website domain. For example, `mail.supplier-site.com` counts for `www.supplier-site.com`.
+- It takes the code from it, types it once, and finishes the login.
+- The inbox is only read: the app never marks, moves or deletes an email. A code is never written to a log.
+- The browser opens one page at a time, so while a login waits for its code, other suppliers' checks wait too. Usually that is seconds. If a code never comes, they wait up to 3 minutes, and a page check that waits too long counts as "cannot tell".
+- Check that the supplier's code emails do not land in Spam in the supplier Gmail. The app reads the inbox only.
+
+**If no code comes in time,** or the supplier refuses it, the login stops as `code_required`: a Dashboard message and an alert email. Two in a row pause automatic login, as for any failed login. Press **Resume** after you have fixed the cause.
+
+**Reading the log** (`docker compose logs worker | grep "code:"`):
+
+| Line | Meaning | What to do |
+|---|---|---|
+| `code: found from=supplier-site.com waited=12s` | The code was found and typed. | Nothing. |
+| `code: no_email waited=150s` | No email from anyone arrived. | Check the Gmail filter and the forwarding in your own email. |
+| `code: sender_mismatch seen=other-site.com` | An email arrived, from another domain. | Put that address or domain in **Code email sender** (under Login page fields). |
+| `code: no_code_in_email from=supplier-site.com` | The supplier's email came, but the app could not tell which part is the code. | Ask the developer, with the email's layout (never the code). |
+| `code: imap_failed reason=EAUTH` | The app could not open the supplier Gmail. | Check `ALERT_EMAIL_APP_PASSWORD`. |
+
+### When a login box changes what the app types
+
+Some login boxes change what is typed into them: they add dashes or spaces, switch capitals and small letters, or cut the text short. The app checks every box after typing and again just before it presses the button. If a box does not hold exactly what the app typed, automatic login stops with "login did not finish", and no password is sent (a first step that asks only for the username may already have gone out). The way out is to log in by hand in the live window. If the app picked the wrong box, use the advanced field settings on the supplier's page.
+
+### If automatic login does not work: read the log
+
+The card shows a short result such as "login form not found" or "login did not finish". The browser's log says **why**, in a short code. It never contains your password, your username, the supplier's address, or any text from the supplier's page. Press **Test login now**, wait a minute, then run:
+
+```bash
+docker compose logs --since 10m browser | grep "login:"
+```
+
+A line looks like `login: unknown (nothing_sent)`. The words in brackets mean:
+
+| In the log | It means | What to do |
+|---|---|---|
+| `no_opener` | The page shows no login boxes, and no "Sign in" button that opens them. The line also counts what the app saw (how many boxes, and whether it is still on the login address). | Check the login address on the supplier's page. If the login is hidden behind a button, fill in **Open login button**. |
+| `username_override_missing`, `password_override_missing`, `account_override_missing` | A box you named under the advanced fields is not on the page. | Correct that field, or clear it. |
+| `account_needed` | The page asks for an account number and none is saved. | Save one on the card. |
+| `no_submit_button` | The app filled the boxes but could not find the button that sends the form. | Fill in **Login button**. |
+| `username_not_typed`, `password_not_typed`, `account_not_typed` | A box would not hold exactly what the app typed, or the password box stopped being a password box. The numbers show how it differs. For the username and account, `typed` is the length typed, `box` the length in the box, and `firstdiff` the position of the first character that differs (0 means the first key was lost). For the password the log only says `shorter`, `longer` or `same-length`. Nothing was sent. | See "When a login box changes what the app types". |
+| `box_changed_before_press`, `box_changed_after_banner` | A box changed between typing and pressing the button. Nothing was sent. | Try again. If it keeps happening, log in by hand. |
+| `nothing_sent` | The app pressed the button and the page sent nothing. | Try again. If it keeps happening, log in by hand. |
+| `deadline` | The login took too long, so the app stopped before pressing anything. | Try again. A very slow supplier may need a hand login. |
+| `unclear_after_submit`, `confirm_not_ok` | The page after the password was not recognised as logged in. It may be a question, an expired password, new terms, or a page that looks the same logged in or out. The word after `page=` is what the app made of it. | If the supplier shows its pages to everyone, fill in **Only shows when logged in**. Otherwise log in by hand and see what the supplier asks for. |
+| `empty_password_box` | A password box is on the page but not the one the app filled, and it is empty. The app will not press the button with an empty password box on screen. Nothing was sent. | Fill in the **Password** field under the advanced settings. |
+| `after_submit captcha_frame=hcaptcha` (or `recaptcha`, `turnstile`) | After the password went in, the supplier's bot guard loaded a captcha puzzle, even if it never showed it on screen. The card says captcha. The app never solves puzzles. | Log in by hand in the live window. If it happens every time, try **Hide automation (stealth)** for that supplier. |
+| `confirm_page_unreachable` | The login went through, but the page the app uses to confirm it could not be reached. | Try again. Check that the supplier's site is up. |
+| `steps_used_up`, `no_change_after_next`, `username_step_stuck`, `opener_clicked_no_boxes`, `opener_no_change`, `choice_no_change` | The login has more steps than the app could follow. | Log in by hand in the live window. |
+
+### When automatic login pauses
+
+The app pauses automatic login for that supplier, so it does not keep trying and get the account locked. The card says why, and the Dashboard shows a message.
+
+| You see | It means | What to do |
+|---|---|---|
+| The supplier refused the saved password | The username or password is wrong. | Save the password again (or press **Resume**). |
+| The supplier says the account is locked | Too many wrong tries, or the supplier locked it. | Sort it out with the supplier, then save the password again or press **Resume**. |
+| Two automatic logins failed in a row | Something keeps going wrong. | Press **Resume**, then **Test login now** to see why. |
+
+Logging in yourself through the live window, saving the password again, or pressing **Resume** all start automatic login again. They also start a supplier the app had stopped. A supplier you paused yourself stays paused.
+
+### The login page fields (advanced)
+
+Under **Login page fields (advanced)** you can tell the app where things are on the supplier's login page. Leave them empty first. Use them only when **Test login now** says it could not find the login form.
+
+- **Open login button.** For a page that shows a "Sign in" button you must press before the form appears. The app closes a cookie popup by itself, when the popup covers a button it needs and its own button says Accept, Accept all, Allow all, Agree, OK, No thanks or Close. It also waits for a slow page by itself. Fill this in only for a login that stays hidden until you click something (a pop-up), and leave it empty if the login boxes are already on the page.
+- **Account.** The box for an account number, if the supplier asks for one.
+- **Username.** The box for the username or email.
+- **Password.** The box for the password.
+- **Login button.** The button that sends the form.
+
+Ask the developer for the right values for a supplier.
+
+**Only shows when logged in.** Some suppliers show their product pages to everyone and only hide the stock and prices when you are logged out, so the app cannot tell it was logged out. Type a word or phrase you see on the supplier's pages only when logged in, like "Log out" or your account name, then press **Save page fields**. From then on a page without it counts as logged out, for checks and for automatic login. Capitals and extra spaces do not matter. Leave it empty for any other supplier.
+
+Pick text you can see near the top of every page without opening a menu, like a "Log out" link in the header. The text must appear on every page the app opens for that supplier: product pages, the home page, and the login page when you are already logged in. Text hidden inside a menu you have to open, or only at the very bottom of a long page, may not be found. If the app keeps saying the supplier needs you to log in when you are logged in, pick different text. With a marker set, a login check loads the page one extra time.
+
+**Code email sender.** Only for a supplier that emails a login code from a domain other than its website's. Type the domain (`mail.example.com`) or the full address (`login@mail.example.com`), then press **Save page fields**. Leave it empty otherwise.
+
+### Things to know
+
+- **Some suppliers allow only one login at a time per account.** Then the app's login logs you out of your own browser, and your login logs the app out. If the supplier allows it, give the app its own supplier user.
+- **Your details are stored by the app.** Keep the server safe (see "Server hardening").
+- **A failed login never counts as "out of stock".**
 
 ## Links from Shopify
 
@@ -196,6 +349,15 @@ Open **Suppliers**, choose **Edit** on a supplier and find **Automatic checks**:
 
 Each run is the same as **Check all stock**: one page at a time, with the supplier's pause between pages. The next check is set one interval after the last one ended, plus a small random spread (up to 10%) so suppliers are not all visited together.
 
+### Keep login alive
+
+Some suppliers log you out after about an hour with nothing happening. **Keep login alive** (on the same card: Off, or every 15, 30, 45 or 60 minutes, or every 2 hours) visits the supplier with your saved login that often, so it does not time out. It is off by default, and it works with or without automatic checks turned on. Each visit is one page, the same as **Check login**; any other check or run also counts as a visit.
+
+- It only visits **inside the hours above** (all day when **Any time of day** is ticked). So a supplier that logs you out when idle will still do so overnight, and needs one login each morning.
+- It never visits a supplier that is paused, not allowed, or waiting for you to log in again, and never while a run is checking it.
+- If a visit finds you logged out: with **Automatic login** on, the app logs in again by itself. Otherwise you get the usual "log in again" message on the Dashboard. A page it cannot read clearly changes nothing.
+- A visit that cannot reach the supplier is not retried at once: the next one is one interval later.
+
 ### When a supplier is not checked
 
 A supplier is only checked automatically when it is connected, running (not paused), recorded as allowed, and has stock rules turned on. When it is not, the Suppliers list says why ("Not being checked. This supplier is paused...") and its next check is not moved: it is picked up again as soon as it is ready. At most 2 suppliers are checked at the same time.
@@ -218,6 +380,43 @@ A supplier is only checked automatically when it is connected, running (not paus
 
 - Run records hold only counts and a reason. They never hold page text, addresses, or login details, and are deleted after 30 days.
 - The old "Check every (minutes)" box on the supplier form is gone: it never did anything. Use **Automatic checks** instead.
+
+## Email alerts
+
+The app can email you when a supplier needs you to log in: the session ended, a puzzle (CAPTCHA) or a code is asked for, the supplier refused the check, or automatic login paused. The email says what is wrong and links straight to that supplier's login page in the app. Other messages (changed pages, Shopify problems) stay on the Dashboard only.
+
+### Setting it up
+
+Alerts are sent from the Gmail you use only for suppliers, through Gmail's own mail server.
+
+1. Sign in to that Gmail. Open **Google Account > Security**, and turn on **2-Step Verification** if it is not on.
+2. In **Google Account > Security**, open **App passwords**. Make one called "Stock Monitor" and copy the 16 letters. They are shown once.
+3. In `.env` on the server, set:
+   - `ALERT_EMAIL_FROM`: that Gmail address.
+   - `ALERT_EMAIL_APP_PASSWORD`: the 16 letters (spaces are fine).
+   - `ALERT_EMAIL_TO`: the address alerts go to, for example your usual email.
+
+   Also check that `APP_ORIGIN` is set to the address you open the app at, or the link in the email points at `localhost`.
+4. Run `docker compose up -d --build`.
+
+Leave all three blank to keep alerts off. If only some are set, the worker refuses to start and its log names what is missing. If alerts are off, the worker's log says so once when it starts.
+
+### How it works
+
+- **One email per problem.** A new login problem is emailed within about a minute. The same problem found again does not send another. A new email comes only after you have logged in and the problem comes back.
+- **No email for a problem that fixed itself.** If automatic login gets back in before the email goes out, nothing is sent.
+- **Gmail down or the app password wrong:** the email is tried again every minute until it goes. The worker's log says `alert email could not be sent` with a short code (`EAUTH` means the app password is wrong). It never logs the password.
+- At most 10 emails go out each minute.
+- Problems that were already on the Dashboard on the day you install this are not emailed.
+
+### After you log in by hand
+
+When you press **I'm logged in**, the app checks the login once. If it works, and the supplier's last run was stopped by a login, puzzle or block, the check runs again by itself:
+
+- With **Automatic checks** on, the run starts within a minute, inside the hours you set. The limit of 2 suppliers at once still applies.
+- With them off, the run starts at once, as if you had pressed **Check all stock**.
+
+**Check login** does not start a run.
 
 ## Stock suggestions
 
@@ -276,7 +475,7 @@ This check was run and passed on a Shopify development store on 2026-11-12. Repe
 
 ## Server hardening (the checklist from the design discussion)
 
-Saved supplier sessions are decrypted in memory while a check runs, so anyone who controls the server could use them. Encryption protects the database and backups, not a compromised server.
+Saved supplier sessions, and the username and password of any supplier with Automatic login on, are decrypted in memory while a check runs, so anyone who controls the server could use them. Encryption protects the database and backups, not a compromised server.
 
 - SSH with keys only. Password login off, root login off.
 - Firewall: allow only 22, 80 and 443. Nothing else is published.
@@ -284,7 +483,7 @@ Saved supplier sessions are decrypted in memory while a check runs, so anyone wh
 - HTTPS through a reverse proxy (Caddy or nginx) in front of `127.0.0.1:3000`. Set `COOKIE_SECURE=true`.
 - Set `TRUST_PROXY=true` **only** if the proxy overwrites `X-Forwarded-For` with the real client address. Otherwise anyone can fake their address and dodge the sign-in rate limit. Leave it `false` with no proxy.
 - `.env` readable only by the deploy user (`chmod 600 .env`). Never commit it.
-- Back up `APP_ENCRYPTION_KEY` separately, for example in a password manager. If it is lost, saved sessions and the Shopify token cannot be read. They can be recreated by reconnecting.
+- Back up `APP_ENCRYPTION_KEY` separately, for example in a password manager. If it is lost, saved sessions, saved supplier passwords and the Shopify token cannot be read. They can be recreated by reconnecting and saving the passwords again.
 - Database backups are manual by choice: see the README for `pg_dump` and `pg_restore`. Keep copies off the server and try a restore now and then.
 - Check the pilot supplier's terms of service on automated access before the first real check.
 

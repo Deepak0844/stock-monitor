@@ -193,4 +193,57 @@ describe("reading the answers", () => {
     await add("in_stock", 5);
     expect((await call("GET", "/api/mappings")).body.mappings[0].latestStock).toMatchObject({ answer: "in_stock", quantity: 5, reason: null, matchedText: "Add to cart" });
   });
+
+  it("says only when the last link and stock checks finished, and a plain 404 for an unknown link", async () => {
+    expect((await call("GET", `/api/mappings/${linkId}/status`)).body).toEqual({ linkCheckedAt: null, stockCheckedAt: null });
+    await add("in_stock", 5);
+    await t.pool.query("update mappings set last_link_check_at = '2026-11-11T08:00:00Z' where id = $1", [linkId]);
+    const body = (await call("GET", `/api/mappings/${linkId}/status`)).body;
+    expect(Object.keys(body)).toEqual(["linkCheckedAt", "stockCheckedAt"]);
+    expect(body.linkCheckedAt).toBe("2026-11-11T08:00:00.000Z");
+    expect(body.stockCheckedAt).toBe((await call("GET", `/api/mappings/${linkId}`)).body.mapping.latestStock.observedAt);
+    // The Links page compares the status with the row the list gave it, so both must write the times alike.
+    const listed = (await call("GET", "/api/mappings")).body.mappings.find((m: { id: string }) => m.id === linkId);
+    expect(listed.latestStock.observedAt).toBe(body.stockCheckedAt);
+    expect(listed.lastLinkCheckAt).toBe(body.linkCheckedAt);
+    expect((await call("GET", "/api/mappings/00000000-0000-4000-8000-000000000000/status")).status).toBe(404);
+  });
+
+  it("puts the latest answer on one link read by its id, as the list does", async () => {
+    expect((await call("GET", `/api/mappings/${linkId}`)).body.mapping.latestStock).toBeNull();
+    await add("out_of_stock", 0);
+    await add("cannot_tell");
+    expect((await call("GET", `/api/mappings/${linkId}`)).body.mapping).toMatchObject({ id: linkId, latestStock: { answer: "cannot_tell" }, latestSuggestion: null });
+  });
+
+  it("filters the links by their latest stock answer, with the right total, and refuses an unknown one", async () => {
+    await t.pool.query(
+      `insert into shopify_variants (variant_id, product_id, product_title, variant_title, options, sku, inventory_item_id, tracked, inventory_policy)
+       values ('v2', 'p1', 'Tee', 'M', '[]', 'S2', 'i2', true, 'DENY'), ('v3', 'p1', 'Tee', 'S', '[]', 'S3', 'i3', true, 'DENY')`,
+    );
+    const second = await createMappingRepository(t.appDb).create({ variantId: "v2", supplierId: acme, url: "https://shop.acme.example/p2", note: null });
+    await createMappingRepository(t.appDb).create({ variantId: "v3", supplierId: acme, url: "https://shop.acme.example/p3", note: null });
+    if (!second.ok) throw new Error("setup");
+    await add("in_stock", 5); // first link: in stock, then out of stock; the newest counts
+    await add("out_of_stock", 0);
+    await createObservationRepository(t.appDb).append({ mappingId: second.mapping.id, answer: "cannot_tell", reason: null, quantity: null, matchedText: null, quantityMismatch: false, recipeVersion: 1, checkResult: "ok", captureId: null });
+    const ids = async (stock: string) => {
+      const body = (await call("GET", `/api/mappings?stock=${stock}&page=1&pageSize=10`)).body;
+      return { ids: body.mappings.map((m: Json) => m.id), total: body.total };
+    };
+    expect(await ids("out_of_stock")).toEqual({ ids: [linkId], total: 1 });
+    expect(await ids("in_stock")).toEqual({ ids: [], total: 0 });
+    expect(await ids("cannot_tell")).toEqual({ ids: [second.mapping.id], total: 1 });
+    expect((await ids("none")).total).toBe(1);
+    expect((await call("GET", "/api/mappings?stock=maybe")).status).toBe(400);
+  });
+});
+
+describe("a supplier that needs no login, with no rules turned on", () => {
+  it("can be checked: it uses the built-in default", async () => {
+    await t.pool.query("update stock_recipes set active = false");
+    await suppliers().setNeedsLogin(acme, false);
+    expect((await call("POST", `/api/mappings/${linkId}/check-stock`)).status).toBe(202);
+    expect((await call("POST", `/api/suppliers/${acme}/check-stock`)).status).toBe(202);
+  });
 });

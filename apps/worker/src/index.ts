@@ -12,6 +12,7 @@ import {
   createRecipeRepository,
   createNotificationRepository,
   createShopifyRepository,
+  createSupplierCredentialsRepository,
   createSupplierRepository,
   createSupplierSessionRepository,
 } from "@stock-monitor/db";
@@ -19,6 +20,8 @@ import { createQueue } from "@stock-monitor/queue";
 import { parseMetafieldName } from "@stock-monitor/shopify";
 import { createLogger, loadConfig } from "@stock-monitor/shared";
 import { registerHandlers } from "./worker.js";
+import { createImapSource } from "./code-reader.js";
+import { createGmailSender } from "./alert-email.js";
 
 const config = loadConfig(process.env);
 function mustParseMetafield(name: string, value: string) {
@@ -27,6 +30,9 @@ function mustParseMetafield(name: string, value: string) {
   return parsed;
 }
 const logger = createLogger({ level: config.logLevel });
+// Emailed login codes are read from the same supplier Gmail the alerts are sent from.
+const codeReader = config.alertEmail ? { codes: { source: createImapSource({ user: config.alertEmail.from, appPassword: config.alertEmail.appPassword }) } } : {};
+if (!config.alertEmail) logger.info("email alerts are off: set ALERT_EMAIL_FROM, ALERT_EMAIL_APP_PASSWORD and ALERT_EMAIL_TO to turn them on");
 const pool = new pg.Pool({ connectionString: config.databaseUrl });
 const queue = createQueue({
   connectionString: config.databaseUrl,
@@ -53,10 +59,32 @@ await registerHandlers(queue, logger, {
       ? {
           suppliers: createSupplierRepository(db),
           supplierSessions: createSupplierSessionRepository(db),
+          supplierCredentials: createSupplierCredentialsRepository(db),
+          mappings: createMappingRepository(db),
           notifications: createNotificationRepository(db),
           audit: createAuditWriter(db),
           browser: createBrowserClient({ baseUrl: config.browserServiceUrl, token: config.browserControlToken }),
           key: config.encryptionKey,
+          ...codeReader,
+          // The check after a hand login runs again a check the login problem stopped.
+          rerun: { checkRuns: createCheckRunRepository(db), recipes: createRecipeRepository(db), queue },
+        }
+      : undefined,
+  // "Test login now": one automatic login through the same browser service.
+  autoLoginTest:
+    config.browserServiceUrl && config.browserControlToken
+      ? {
+          suppliers: createSupplierRepository(db),
+          supplierSessions: createSupplierSessionRepository(db),
+          supplierCredentials: createSupplierCredentialsRepository(db),
+          notifications: createNotificationRepository(db),
+          audit: createAuditWriter(db),
+          checkRuns: createCheckRunRepository(db),
+          mappings: createMappingRepository(db),
+          timezone: config.timezone,
+          browser: createBrowserClient({ baseUrl: config.browserServiceUrl, token: config.browserControlToken }),
+          key: config.encryptionKey,
+          ...codeReader,
         }
       : undefined,
   // Page captures for stock rules need the same browser service.
@@ -78,6 +106,7 @@ await registerHandlers(queue, logger, {
           mappings: createMappingRepository(db),
           suppliers: createSupplierRepository(db),
           supplierSessions: createSupplierSessionRepository(db),
+          supplierCredentials: createSupplierCredentialsRepository(db),
           recipes: createRecipeRepository(db),
           observations: createObservationRepository(db),
           captures: createCaptureRepository(db),
@@ -87,6 +116,7 @@ await registerHandlers(queue, logger, {
           timezone: config.timezone,
           browser: createBrowserClient({ baseUrl: config.browserServiceUrl, token: config.browserControlToken }),
           key: config.encryptionKey,
+          ...codeReader,
         }
       : undefined,
   // Automatic checks start the supplier runs above, so they need the same browser service.
@@ -102,6 +132,7 @@ await registerHandlers(queue, logger, {
           queue,
           audit: createAuditWriter(db),
           timezone: config.timezone,
+          ...(config.alertEmail && { alerts: { notifications: createNotificationRepository(db), send: createGmailSender(config.alertEmail), appOrigin: config.appOrigin } }),
         }
       : undefined,
   // Suggestions come from the stored answers and the synced Shopify numbers: no browser, no Shopify call.
@@ -126,10 +157,13 @@ await registerHandlers(queue, logger, {
           mappings: createMappingRepository(db),
           suppliers: createSupplierRepository(db),
           supplierSessions: createSupplierSessionRepository(db),
+          supplierCredentials: createSupplierCredentialsRepository(db),
           notifications: createNotificationRepository(db),
+          checkRuns: createCheckRunRepository(db),
           audit: createAuditWriter(db),
           browser: createBrowserClient({ baseUrl: config.browserServiceUrl, token: config.browserControlToken }),
           key: config.encryptionKey,
+          ...codeReader,
         }
       : undefined,
 });

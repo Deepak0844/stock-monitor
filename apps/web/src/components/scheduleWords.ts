@@ -4,11 +4,23 @@ import { formatWhen } from "../format.js";
 /** The choices for how often, in the owner's words. null is off. */
 export const INTERVAL_CHOICES: { minutes: number | null; words: string }[] = [
   { minutes: null, words: "Off" },
+  { minutes: 15, words: "Every 15 minutes" },
+  { minutes: 30, words: "Every 30 minutes" },
   { minutes: 60, words: "Every hour" },
   { minutes: 180, words: "Every 3 hours" },
   { minutes: 360, words: "Every 6 hours" },
   { minutes: 720, words: "Every 12 hours" },
   { minutes: 1440, words: "Every day" },
+];
+
+/** The choices for keeping the login alive. null is off. */
+export const KEEP_ALIVE_WORDS: { minutes: number | null; words: string }[] = [
+  { minutes: null, words: "Off" },
+  { minutes: 15, words: "Every 15 minutes" },
+  { minutes: 30, words: "Every 30 minutes" },
+  { minutes: 45, words: "Every 45 minutes" },
+  { minutes: 60, words: "Every hour" },
+  { minutes: 120, words: "Every 2 hours" },
 ];
 
 export const intervalWords = (minutes: number | null): string => (minutes === null ? "Automatic checks off" : (INTERVAL_CHOICES.find((c) => c.minutes === minutes)?.words ?? `Every ${minutes} minutes`));

@@ -1,9 +1,9 @@
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { notifications, suppliers } from "./schema.js";
 
 export type NotificationKind = "supplier_needs_reconnect" | "recipe_needs_review" | "proposal_needs_attention";
-export type NotificationReason = "login_required" | "captcha" | "blocked" | "unknown" | "page_changed";
+export type NotificationReason = "login_required" | "captcha" | "blocked" | "unknown" | "page_changed" | "code_required" | "wrong_password" | "account_locked" | "form_not_found";
 
 export type NotificationRecord = {
   id: string;
@@ -66,6 +66,43 @@ export function createNotificationRepository<S extends Record<string, unknown>>(
         .where(isNull(notifications.resolvedAt))
         .orderBy(desc(notifications.createdAt));
       return rows as NotificationRecord[];
+    },
+
+    /** Open login notices not emailed yet, oldest first: what the alert sweep sends. */
+    async unemailedLogin(limit: number): Promise<NotificationRecord[]> {
+      if (limit <= 0) return [];
+      const rows = await db
+        .select({
+          id: notifications.id,
+          kind: notifications.kind,
+          supplierId: notifications.supplierId,
+          supplierName: suppliers.name,
+          message: notifications.message,
+          reason: notifications.reason,
+          createdAt: notifications.createdAt,
+          readAt: notifications.readAt,
+        })
+        .from(notifications)
+        .innerJoin(suppliers, eq(suppliers.id, notifications.supplierId))
+        .where(and(eq(notifications.kind, "supplier_needs_reconnect"), isNull(notifications.resolvedAt), isNull(notifications.emailedAt)))
+        .orderBy(asc(notifications.createdAt))
+        .limit(limit);
+      return rows as NotificationRecord[];
+    },
+
+    /** Marks the notice as emailed before the send, only if it is still open and not emailed. False: skip it. */
+    async claimEmail(id: string): Promise<boolean> {
+      const rows = await db
+        .update(notifications)
+        .set({ emailedAt: sql`now()` as unknown as Date })
+        .where(and(eq(notifications.id, id), isNull(notifications.emailedAt), isNull(notifications.resolvedAt)))
+        .returning({ id: notifications.id });
+      return rows.length > 0;
+    },
+
+    /** A send that failed: the next sweep tries again. */
+    async releaseEmail(id: string): Promise<void> {
+      await db.update(notifications).set({ emailedAt: null }).where(eq(notifications.id, id));
     },
 
     async markRead(id: string): Promise<boolean> {

@@ -8,10 +8,13 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { chromium } from "playwright";
+import { driverFor } from "./driver.js";
+import { shimPage } from "./page-shim.js";
 import { classifyPage, mergeSessionState, type PageClass, type SessionState } from "@stock-monitor/supplier-session";
 import { readCookies } from "./chromium-cookies.js";
 import { cookieStore, forgetOpenTabs, plainLaunchArgs, quitCleanly, seedProfile, waitForDebuggingPort } from "./plain-window.js";
-import { cookieHash, holdProfile, PROFILE_ROOT, profileDirFor, releaseProfile } from "./profile-store.js";
+import { runLogin, type LoginOutcome, type LoginRequest, type LoginResult, type StepOptions } from "./login.js";
+import { clearStaleLocks, cookieHash, holdProfile, PROFILE_ROOT, profileDirFor, releaseProfile } from "./profile-store.js";
 import type { GuardProxy } from "./proxy.js";
 import { capturePageIn, type CaptureOutcome, type CaptureRequest } from "./capture.js";
 import { CHALLENGE_WIDGET, inspectPage, MAX_TEXT, withFreshState, type BlockTracker, type CheckPageOutcome, type CheckPageRequest, type VerifyOutcome, type VerifyRequest } from "./verify.js";
@@ -51,10 +54,19 @@ export function lastVisited(profile: string): { url: string; title: string } | n
 }
 
 export type ProfileCheckOptions = { proxy: GuardProxy; sandbox: boolean; headless: boolean; baseDir?: string; settleMs?: number; language?: string;
+  /** The owner's real timezone. A stealth visit is refused without it and the language. */
+  timezone?: string;
   /** The screen the browser opens on. Not the one VNC shows, or a check would appear in the owner's login window. */
-  display?: string };
+  display?: string;
+  /** Test only: how long each login step waits for the page to change. */
+  loginStepMs?: number;
+  /** After this long a login types and presses nothing more (default 150 s, under the client's 240 s). */
+  loginDeadlineMs?: number;
+  /** Test only: how long a login waits for a loading page to show its boxes (default 10 s). */
+  loginFormWaitMs?: number;
+  log?: (line: string) => void };
 
-export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFILE_ROOT, settleMs = 12_000, display, language }: ProfileCheckOptions) {
+export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFILE_ROOT, settleMs = 12_000, display, language, timezone, loginStepMs = 15_000, loginDeadlineMs, loginFormWaitMs, log = () => {} }: ProfileCheckOptions) {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
   /** Starts the browser on `profile`. Returns once it is running; `stop` quits it the way a person would. */
@@ -62,6 +74,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
     // A clean quit leaves the last port behind, and a new launch must not be mistaken for it.
     if (debuggable) await rm(join(profile, "DevToolsActivePort"), { force: true });
     await forgetOpenTabs(profile);
+    await clearStaleLocks(profile);
     const id = randomUUID();
     const tracker = proxy.track(id);
     const listener = await proxy.openListener(id);
@@ -91,7 +104,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
     try {
       const port = await waitForDebuggingPort(profile, b.child, 20_000);
       const cdp = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
-      await cdp.contexts()[0]?.addCookies(state.cookies as Parameters<NonNullable<ReturnType<typeof cdp.contexts>[0]>["addCookies"]>[0]);
+      await cdp.contexts()[0]?.addCookies(state.cookies as unknown as Parameters<NonNullable<ReturnType<typeof cdp.contexts>[0]>["addCookies"]>[0]);
       await cdp.close();
     } finally {
       await b.stop();
@@ -107,10 +120,11 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
     const b = await launch(profile, "about:blank", true);
     try {
       const port = await waitForDebuggingPort(profile, b.child, 20_000);
-      const cdp = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+      const cdp = await (await driverFor(!!request.stealth)).connectOverCDP(`http://127.0.0.1:${port}`);
       try {
         const context = cdp.contexts()[0];
         const page = context?.pages()[0] ?? (await context?.newPage());
+          if (page) shimPage(page);
         if (!page) return null;
         const response = await page.goto(request.url, { timeout: 20_000, waitUntil: "load" });
         const status = response?.status() ?? null;
@@ -136,6 +150,8 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
         const result = classifyPage({
           requestedUrl: request.url,
           loginUrl: request.loginUrl,
+          loggedInMarker: request.loggedInMarker,
+          publicPage: request.publicPage,
           page: { finalUrl: page.url(), status, ...seen, text: seen.text.slice(0, MAX_TEXT) },
         });
         return { result, status };
@@ -150,6 +166,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
   }
 
   async function check(request: VerifyRequest): Promise<VerifyOutcome> {
+    if (stealthRefused(request.stealth)) return { result: "unknown", status: null, blockedRequests: 0 };
     const profile = profileDirFor(baseDir, request.url);
     const hash = cookieHash(request.state.cookies);
     // The owner is logging in to this site in this profile. A check says nothing and is tried again.
@@ -179,9 +196,12 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
     const result = seen
       ? classifyByTitle({ url: request.url, loginUrl: request.loginUrl, finalUrl: seen.url, title: seen.title })
       : "unreachable";
-    if (result === "unknown") {
+    // A title cannot show the logged-in marker, so with one set an "ok" title is read too, and unread it is not ok.
+    const needsMarker = result === "ok" && !!request.loggedInMarker;
+    if (result === "unknown" || needsMarker) {
       const read = await readPage(profile, request);
       if (read) return { result: read.result, status: read.status, blockedRequests: b.blocked() };
+      if (needsMarker) return { result: "unknown", status: null, blockedRequests: b.blocked() };
     }
     return { result, status: null, blockedRequests: b.blocked() };
   }
@@ -203,7 +223,15 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
     return state;
   }
 
-  async function inProfile<T extends VerifyOutcome>(request: VerifyRequest, unavailable: T, run: (page: import("playwright").Page, tracker: BlockTracker) => Promise<T>): Promise<T> {
+  /** A browser that hides automation but has no real language or timezone would be an obvious fake, so it does not start. */
+  const stealthRefused = (stealth: boolean | undefined) => {
+    if (!stealth || (language && timezone)) return false;
+    log("stealth refused: timezone and language must be set");
+    return true;
+  };
+
+  async function inProfile<T extends VerifyOutcome>(request: VerifyRequest & { stealth?: boolean }, unavailable: T, run: (page: import("playwright").Page, tracker: BlockTracker) => Promise<T>): Promise<T> {
+    if (stealthRefused(request.stealth)) return { ...unavailable, result: "unknown" };
     const profile = profileDirFor(baseDir, request.url);
     if (!holdProfile(profile)) return unavailable;
     try {
@@ -216,10 +244,11 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
       let outcome: T;
       try {
         const port = await waitForDebuggingPort(profile, b.child, 20_000);
-        const cdp = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+        const cdp = await (await driverFor(!!request.stealth)).connectOverCDP(`http://127.0.0.1:${port}`);
         try {
           const context = cdp.contexts()[0];
           const page = context?.pages()[0] ?? (await context?.newPage());
+        if (page) shimPage(page);
           outcome = page ? await run(page, b.tracker) : unavailable;
         } finally {
           await cdp.close().catch(() => {});
@@ -230,6 +259,63 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
         await b.stop(); // a clean quit writes the cookie file read below
       }
       return await withFreshState(outcome, () => profileState(profile, request.state));
+    } finally {
+      releaseProfile(profile);
+    }
+  }
+
+  /**
+   * Logs in to the supplier in its persistent profile. The profile is never wiped or seeded with cookies: a returning browser
+   * is the point. The debugging channel is open for the whole login. The username and password are typed into the page only.
+   */
+  async function login(request: LoginRequest, codes: Pick<StepOptions, "awaitCode"> = {}): Promise<LoginOutcome> {
+    if (stealthRefused(request.stealth)) return { result: "unknown", why: "stealth_refused" };
+    // Keyed by the site the checks visit, so a login page on another host still lands in the profile checks open.
+    const profile = profileDirFor(baseDir, request.checkUrl);
+    if (!holdProfile(profile)) return { result: "unreachable" };
+    try {
+      // A new profile gets the preferences that stop Chromium from saving a typed password. An existing one is left as it is.
+      if (!existsSync(join(profile, "Default", "Preferences"))) await seedProfile(profile, language);
+      let result: LoginResult = "unknown";
+      let storage: SessionState = { cookies: [], origins: [] } as unknown as SessionState;
+      /** A fixed reason code from the login when it found no form; never page content or anything typed. */
+      let why = "";
+      const b = await launch(profile, "about:blank", true);
+      try {
+        const port = await waitForDebuggingPort(profile, b.child, 20_000);
+        const cdp = await (await driverFor(request.stealth)).connectOverCDP(`http://127.0.0.1:${port}`);
+        try {
+          const context = cdp.contexts()[0];
+          const page = context?.pages()[0] ?? (await context?.newPage());
+        if (page) shimPage(page);
+          if (context && page) {
+            result = await runLogin(page, request, { settleMs, stepWaitMs: loginStepMs, ...(loginDeadlineMs ? { deadlineMs: loginDeadlineMs } : {}), ...(loginFormWaitMs ? { formWaitMs: loginFormWaitMs } : {}), onWhy: (w) => void (why = w), ...codes });
+            // What the page showed when the login did not work, for the owner to look at. Only the latest is kept, and a login that works removes it.
+            const shot = join(profile, "last-login-failure.png");
+            if (result === "ok") await rm(shot, { force: true }).catch(() => {});
+            else if (await page.screenshot({ path: shot, fullPage: true }).then(() => true, () => false)) log(`login screenshot saved: ${shot}`);
+            // Page storage (a token in localStorage) can only be read while the channel is open. Cookies come from the file below.
+            if (result === "ok") storage = (await context.storageState().catch(() => storage)) as unknown as SessionState;
+          }
+        } finally {
+          await cdp.close().catch(() => {});
+        }
+      } catch (error) {
+        log(`login failed: ${error instanceof Error ? error.name : "Error"}`);
+        result = "unknown";
+      } finally {
+        await b.stop(); // a clean quit writes the cookie file read below
+      }
+      log(`login result: ${result}${why ? ` (${why})` : ""}`);
+      if (result !== "ok") return { result, ...(why ? { why } : {}) };
+      const file = { cookies: readCookies(cookieStore(profile)), origins: [] } as unknown as SessionState;
+      const state = mergeSessionState(storage, file, Date.now() / 1000);
+      // The worker stores this session, so the next check of it keeps the profile instead of wiping it.
+      await writeFile(join(profile, "seeded"), cookieHash(state.cookies));
+      return { result: "ok", state };
+    } catch (error) {
+      log(`login failed: ${error instanceof Error ? error.name : "Error"}`);
+      return { result: "unknown" };
     } finally {
       releaseProfile(profile);
     }
@@ -247,9 +333,10 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
 
   const verify = (request: VerifyRequest): Promise<VerifyOutcome> => inTurn(() => check(request));
   return Object.assign(verify, {
+    login: (request: LoginRequest, codes?: Pick<StepOptions, "awaitCode">): Promise<LoginOutcome> => inTurn(() => login(request, codes)),
     checkPage: (request: CheckPageRequest, timeoutMs = 20_000): Promise<CheckPageOutcome> =>
       inTurn(() => inProfile(request, noPage as CheckPageOutcome, (page, tracker) => inspectPage(page, request, tracker, timeoutMs))),
     capture: (request: CaptureRequest, timeoutMs = 20_000): Promise<CaptureOutcome> =>
-      inTurn(() => inProfile(request, { ...noPage, description: { sections: [], buttons: [] }, picture: null } as CaptureOutcome, (page, tracker) => capturePageIn(page, request, tracker, timeoutMs))),
+      inTurn(() => inProfile(request, { ...noPage, description: { sections: [], buttons: [], offers: [] }, picture: null } as CaptureOutcome, (page, tracker) => capturePageIn(page, request, tracker, timeoutMs))),
   });
 }

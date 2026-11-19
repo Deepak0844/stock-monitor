@@ -7,11 +7,11 @@ import { Input, Select } from "@/components/ui/input.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
 import { cn } from "@/lib/utils.js";
 import { toast } from "@/lib/toast.js";
-import type { Api, Capture, CaptureDetail, ExampleResult, Mapping, StockAnswer } from "../api.js";
+import type { Api, Capture, CaptureDetail, ExampleResult, Mapping, Offer, StockAnswer } from "../api.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
 import { Field } from "./Field.js";
 import { Notice } from "./Notice.js";
-import { ANSWER_WORDS, captureFailureWords } from "./stockWords.js";
+import { ANSWER_WORDS, builtInWords, captureFailureWords, offerLine } from "./stockWords.js";
 import { formatWhen } from "../format.js";
 
 const message = (e: unknown) =>
@@ -369,6 +369,7 @@ export function SavedPages({
                       </Notice>
                     ) : null;
                   })()}
+                  <BuiltInData offers={detail.description?.offers} />
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div
                       role="tablist"
@@ -492,6 +493,30 @@ export function SavedPages({
           onClose={() => setDeleting(false)}
         />
       )}
+    </div>
+  );
+}
+
+/** What a saved page's built-in stock data says. An old saved page has none, so it says how to get it. */
+function BuiltInData({ offers }: { offers: Offer[] | undefined }) {
+  if (!offers || offers.length === 0) {
+    return (
+      <div className="text-sm">
+        <p className="font-semibold">No built-in data</p>
+        {!offers && <p className="text-muted-foreground">Capture this page again to read its built-in data.</p>}
+      </div>
+    );
+  }
+  const words = [...new Set(offers.map((o) => builtInWords(o.availability)))];
+  if (words.length === 1) return <p className="text-sm font-semibold">Built-in data: {words[0]}</p>;
+  return (
+    <div className="text-sm">
+      <p className="font-semibold">Built-in data: the options differ</p>
+      <ul className="mt-1 flex flex-col gap-0.5 text-muted-foreground" aria-label="Options on the page">
+        {offers.map((o, i) => (
+          <li key={i}>{offerLine(o)}</li>
+        ))}
+      </ul>
     </div>
   );
 }

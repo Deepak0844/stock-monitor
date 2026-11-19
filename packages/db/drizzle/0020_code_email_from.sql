@@ -1,0 +1,2 @@
+ALTER TABLE "suppliers" ADD COLUMN "code_email_from" text;--> statement-breakpoint
+ALTER TABLE "suppliers" ADD CONSTRAINT "suppliers_code_email_from" CHECK ("suppliers"."code_email_from" is null or char_length("suppliers"."code_email_from") between 3 and 254);

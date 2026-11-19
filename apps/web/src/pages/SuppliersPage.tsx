@@ -14,14 +14,15 @@ import { PageHeader } from "../components/PageHeader.js";
 import { Pager } from "../components/Pager.js";
 import { StatTile } from "../components/StatTile.js";
 import { useListParams } from "../lib/useListParams.js";
+import { useWatch } from "../lib/useWatch.js";
 import { intervalWords, runSummary, whenWords } from "../components/scheduleWords.js";
 import { formatWhen } from "../format.js";
 import { Link } from "../router.js";
 import { useTitle } from "../useTitle.js";
 import { toast } from "../lib/toast.js";
 
-const CHECK_REFRESH_MS = 4000;
-const CHECK_REFRESHES = 12;
+// A connection check can include an automatic login and an emailed code, so the supplier is read again for up to 3 minutes.
+const CHECK_READS = 60;
 const SEARCH_PAUSE_MS = 300;
 const STATUSES: { value: SupplierStatusFilter; label: string }[] = [
   { value: "connected", label: "Connected" },
@@ -29,6 +30,7 @@ const STATUSES: { value: SupplierStatusFilter; label: string }[] = [
   { value: "blocked", label: "Blocked" },
   { value: "paused", label: "Paused" },
   { value: "not_connected", label: "Not connected" },
+  { value: "no_login", label: "No login needed" },
 ];
 // While a run is going, its progress is read again this often.
 const PROGRESS_REFRESH_MS = 5000;
@@ -41,6 +43,7 @@ const message = (e: unknown) => (e instanceof Error ? e.message : "Something wen
  */
 function statusOf(s: Supplier): { words: string; tone: "success" | "warning" | "neutral" } {
   if (!s.enabled && s.pausedReason !== "session") return { words: "Paused", tone: "neutral" };
+  if (!s.needsLogin) return { words: "No login needed", tone: "success" };
   switch (s.sessionStatus) {
     case "connected":
       return { words: "Connected", tone: "success" };
@@ -54,7 +57,7 @@ function statusOf(s: Supplier): { words: string; tone: "success" | "warning" | "
 }
 
 /** The one status key the filter and the tiles use: paused wins, as `statusOf` does. */
-const keyOf = (s: Supplier): SupplierStatusFilter => (!s.enabled && s.pausedReason !== "session" ? "paused" : s.sessionStatus);
+const keyOf = (s: Supplier): SupplierStatusFilter => (!s.enabled && s.pausedReason !== "session" ? "paused" : !s.needsLogin ? "no_login" : s.sessionStatus);
 
 /** What the schedule is doing for one supplier, in a few plain lines. */
 function ScheduleCell({ row }: { row: ScheduleRow | undefined }) {
@@ -103,11 +106,8 @@ export function SuppliersPage({ api }: { api: Api }) {
   const [waiting, setWaiting] = useState<Set<string>>(new Set());
   const stopWaiting = (id: string) => setWaiting((w) => (w.has(id) ? new Set([...w].filter((x) => x !== id)) : w));
   const [q, setQ] = useState(search);
-  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latest = useRef(0);
-  const query = { page, pageSize, search: search || undefined, status };
-  const queryRef = useRef(query);
-  queryRef.current = query;
+  const watch = useWatch();
 
   const load = useCallback(() => {
     const mine = ++latest.current;
@@ -161,8 +161,6 @@ export function SuppliersPage({ api }: { api: Api }) {
       if (timer) clearTimeout(timer);
     };
   }, [api]);
-  // A check takes a moment. The page is read again shortly after one is asked for, and never after the page is left.
-  useEffect(() => () => void (refreshTimer.current && clearTimeout(refreshTimer.current)), []);
 
   const replace = (updated: Supplier) => {
     setData((d) => d && { ...d, items: d.items.map((s) => (s.id === updated.id ? updated : s)) });
@@ -177,20 +175,6 @@ export function SuppliersPage({ api }: { api: Api }) {
     }
   }
   const toggle = (s: Supplier) => act(async () => replace(await (s.enabled ? api.suppliers.pause(s.id) : api.suppliers.resume(s.id))));
-  /** Reads the page again, a few times a few seconds apart, because a check finishes some moments after it is asked for. */
-  const refreshSoon = (times: number, finished: (list: Supplier[]) => boolean, id: string) => {
-    if (refreshTimer.current) clearTimeout(refreshTimer.current);
-    refreshTimer.current = setTimeout(() => {
-      api.suppliers
-        .page(queryRef.current)
-        .then((result) => {
-          setData({ items: result.items, total: result.total });
-          if (finished(result.items) || times <= 1) stopWaiting(id);
-          else refreshSoon(times - 1, finished, id);
-        })
-        .catch(() => stopWaiting(id));
-    }, CHECK_REFRESH_MS);
-  };
   const check = (s: Supplier) =>
     act(async () => {
       setCheckingId(s.id);
@@ -204,7 +188,11 @@ export function SuppliersPage({ api }: { api: Api }) {
         setCheckingId(null);
       }
       toast(`A check of ${s.name} has started. Its status will update in a moment.`);
-      refreshSoon(CHECK_REFRESHES, (list) => list.find((x) => x.id === s.id)?.lastSessionCheckAt !== s.lastSessionCheckAt, s.id);
+      // The supplier's small status is asked until the check has finished, then the supplier is read once; only its row changes.
+      void watch(`session:${s.id}`, CHECK_READS, () => api.suppliers.status(s.id), (st) => st.checkedAt !== s.lastSessionCheckAt)
+        .then(async (finished) => finished && replace(await api.suppliers.get(s.id)))
+        .catch(() => {})
+        .finally(() => stopWaiting(s.id));
     });
   const remove = async (s: Supplier) => {
     await api.suppliers.remove(s.id);
@@ -237,7 +225,7 @@ export function SuppliersPage({ api }: { api: Api }) {
       className: "text-right",
       cell: (s) => (
         <div className="flex items-center justify-end gap-2">
-          {s.sessionStatus === "connected" ? (
+          {!s.needsLogin ? null : s.sessionStatus === "connected" ? (
             <Button variant="outline" size="sm" loading={checkingId === s.id} aria-label={`Check connection ${s.name}`} onClick={() => void check(s)}>
               Check connection
             </Button>

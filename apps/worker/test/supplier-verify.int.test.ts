@@ -2,12 +2,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { randomBytes } from "node:crypto";
 import { Writable } from "node:stream";
 import { startTestDb, type TestDb } from "@stock-monitor/db/test-harness";
-import { createNotificationRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
+import { createCheckRunRepository, createMappingRepository, createNotificationRepository, createRecipeRepository, createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
 import { createAuditWriter } from "@stock-monitor/audit";
-import { createBrowserClient } from "@stock-monitor/browser-client";
+import { createBrowserClient, type BrowserClient, type LoginCallOutcome, type LoginRequest } from "@stock-monitor/browser-client";
 import { createFakeBrowserService, FAKE_CONTROL_TOKEN, type FakeBrowserService } from "@stock-monitor/browser-client/testing";
 import { createLogger } from "@stock-monitor/shared";
-import { sealSessionState, unsealSessionState } from "@stock-monitor/supplier-session";
+import { sealCredentials, sealSessionState, unsealSessionState } from "@stock-monitor/supplier-session";
 import { createSupplierVerifyHandler, verifySupplierSession, type SupplierVerifyDeps } from "../src/supplier-verify.js";
 
 let t: TestDb;
@@ -27,6 +27,8 @@ const notes = () => createNotificationRepository(t.appDb);
 const deps = (over: Partial<SupplierVerifyDeps> = {}): SupplierVerifyDeps => ({
   suppliers: suppliers(),
   supplierSessions: sessions(),
+  supplierCredentials: createSupplierCredentialsRepository(t.appDb),
+  mappings: createMappingRepository(t.appDb),
   notifications: notes(),
   audit: createAuditWriter(t.appDb),
   browser: createBrowserClient({ baseUrl: fake.url, token: FAKE_CONTROL_TOKEN, timeoutMs: 2000 }),
@@ -135,6 +137,22 @@ describe("a session that works", () => {
     expect(await notes().listOpen()).toEqual([]);
     // The browser was given the page, the owner's login address, and the real saved session.
     expect(verifies()[0]?.body).toEqual({ url: "https://shop.acme.example/account", loginUrl: "https://shop.acme.example/login", state });
+  });
+
+  it("asks for the stealth browser in the session check of a stealth supplier, and only then", async () => {
+    await verifySupplierSession(deps(), acme);
+    expect(verifies()[0]?.body).not.toHaveProperty("stealth");
+    await suppliers().setPermission(acme, { status: "granted", note: null });
+    const on = await suppliers().setAutoLogin(acme, { stealth: true });
+    if (!on.ok) throw new Error("setup");
+    await verifySupplierSession(deps(), acme);
+    expect(verifies().at(-1)?.body).toMatchObject({ stealth: true });
+  });
+
+  it("sends the supplier's logged-in marker with the check", async () => {
+    await suppliers().setAutoLogin(acme, { loggedInMarker: "Log out" });
+    await verifySupplierSession(deps(), acme);
+    expect(verifies()[0]?.body).toMatchObject({ loggedInMarker: "Log out" });
   });
 
   it("leaves an owner's pause in place", async () => {
@@ -268,5 +286,242 @@ describe("the job", () => {
       JSON.stringify(await sessions().facts(acme)),
     ].join("\n");
     for (const secret of [COOKIE, STORAGE]) expect(everything, secret).not.toContain(secret);
+  });
+});
+
+describe("a supplier with automatic login", () => {
+  const NEW = { cookies: [{ name: "session", value: "NEW-LOGIN", domain: "shop.acme.example", path: "/" }], origins: [] };
+  const logins: LoginRequest[] = [];
+  let answer: LoginCallOutcome = { ok: true, outcome: { result: "ok", state: NEW } };
+  const withLogin = (): BrowserClient => ({
+    ...createBrowserClient({ baseUrl: fake.url, token: FAKE_CONTROL_TOKEN, timeoutMs: 2000 }),
+    async login(r: LoginRequest): Promise<LoginCallOutcome> {
+      logins.push(r);
+      return answer;
+    },
+  });
+  beforeEach(async () => {
+    logins.length = 0;
+    answer = { ok: true, outcome: { result: "ok", state: NEW } };
+    await suppliers().setPermission(acme, { status: "granted", note: null });
+    await createSupplierCredentialsRepository(t.appDb).save(acme, sealCredentials({ username: "u", password: "p" }, key, "v1"));
+    const on = await suppliers().setAutoLogin(acme, { autoLogin: true });
+    if (!on.ok) throw new Error("setup");
+    // Checked a moment ago: "Check login" logs in anyway.
+    await sessions().markVerified(acme);
+  });
+
+  it("logs in first, forced, and reports that login instead of a plain session check", async () => {
+    fake.behaviour.verifyResult = "login_required";
+    expect(await verifySupplierSession(deps({ browser: withLogin() }), acme, { login: true })).toEqual({ kind: "ok" });
+    expect(logins).toHaveLength(1);
+    expect(logins[0]).toMatchObject({ checkUrl: "https://shop.acme.example/account" });
+    expect(verifies()).toHaveLength(0);
+    expect(await supplier(acme)).toMatchObject({ sessionStatus: "connected", lastAutoLoginResult: "ok" });
+    expect(unsealSessionState((await sessions().getSealed(acme))!, key)).toEqual(NEW);
+    expect(await notes().listOpen()).toEqual([]);
+    expect((await audit()).map((a) => a.details.result)).toEqual(["ok"]);
+  });
+
+  it("a failed login keeps the notice the login raised", async () => {
+    answer = { ok: true, outcome: { result: "wrong_password" } as never };
+    expect(await verifySupplierSession(deps({ browser: withLogin() }), acme, { login: true })).toEqual({ kind: "needs_attention", result: "login_required" });
+    expect(verifies()).toHaveLength(0);
+    expect((await notes().listOpen()).map((n) => n.reason)).toEqual(["wrong_password"]);
+  });
+
+  it("a login that could not reach the supplier says unreachable and marks nothing", async () => {
+    answer = { ok: true, outcome: { result: "unreachable" } };
+    expect(await verifySupplierSession(deps({ browser: withLogin() }), acme, { login: true })).toEqual({ kind: "unreachable" });
+    expect(verifies()).toHaveLength(0);
+    expect((await supplier(acme)).sessionStatus).toBe("connected");
+    expect(await notes().listOpen()).toEqual([]);
+  });
+
+  it("does a plain session check after a live-window login: only the Check login button logs in", async () => {
+    // A code or puzzle supplier would fail a forced login seconds after the owner fixed it by hand.
+    expect(await verifySupplierSession(deps({ browser: withLogin() }), acme)).toEqual({ kind: "ok" });
+    expect(logins).toHaveLength(0);
+    expect(verifies()).toHaveLength(1);
+    expect(await notes().listOpen()).toEqual([]);
+  });
+
+  it("the job logs in only when it carries login: true", async () => {
+    const handle = createSupplierVerifyHandler(deps({ browser: withLogin() }));
+    await handle({ supplierId: acme });
+    expect(logins).toHaveLength(0);
+    await handle({ supplierId: acme, login: true });
+    expect(logins).toHaveLength(1);
+  });
+
+  it("a keep-alive visit that finds the session gone logs in once, forced, and ends ok", async () => {
+    fake.behaviour.verifyResult = "login_required";
+    expect(await verifySupplierSession(deps({ browser: withLogin() }), acme, { keepAlive: true })).toEqual({ kind: "ok" });
+    expect(verifies()).toHaveLength(1);
+    expect(logins).toHaveLength(1);
+    expect(await supplier(acme)).toMatchObject({ sessionStatus: "connected", enabled: true });
+    expect(unsealSessionState((await sessions().getSealed(acme))!, key)).toEqual(NEW);
+    expect(await notes().listOpen()).toEqual([]);
+    expect((await audit()).map((a) => a.details)).toEqual([{ result: "ok", httpStatus: 200, keepAlive: true }]);
+  });
+
+  it("a keep-alive visit whose login fails keeps the notice the login raised", async () => {
+    fake.behaviour.verifyResult = "login_required";
+    answer = { ok: true, outcome: { result: "wrong_password" } as never };
+    expect(await verifySupplierSession(deps({ browser: withLogin() }), acme, { keepAlive: true })).toEqual({ kind: "needs_attention", result: "login_required" });
+    expect(logins).toHaveLength(1);
+    expect((await notes().listOpen()).map((n) => n.reason)).toEqual(["wrong_password"]);
+  });
+
+  it("a keep-alive visit with a working session does not log in", async () => {
+    expect(await verifySupplierSession(deps({ browser: withLogin() }), acme, { keepAlive: true })).toEqual({ kind: "ok" });
+    expect(logins).toHaveLength(0);
+  });
+
+  it("does a plain session check when automatic login is paused, or skipped", async () => {
+    await t.pool.query("update suppliers set auto_login_paused_reason = 'too_many_failures' where id = $1", [acme]);
+    expect(await verifySupplierSession(deps({ browser: withLogin() }), acme, { login: true })).toEqual({ kind: "ok" });
+    await t.pool.query("update suppliers set auto_login_paused_reason = null where id = $1", [acme]);
+    await createSupplierCredentialsRepository(t.appDb).remove(acme);
+    expect(await verifySupplierSession(deps({ browser: withLogin() }), acme, { login: true })).toEqual({ kind: "ok" });
+    expect(logins).toHaveLength(0);
+    expect(verifies()).toHaveLength(2);
+  });
+});
+
+describe("a keep-alive visit with hand login", () => {
+  beforeEach(async () => {
+    await suppliers().setPermission(acme, { status: "granted", note: null });
+  });
+
+  it("keeps a working session: it is marked checked and the audit says keep-alive", async () => {
+    expect(await verifySupplierSession(deps(), acme, { keepAlive: true })).toEqual({ kind: "ok" });
+    expect(verifies()).toHaveLength(1);
+    expect((await sessions().facts(acme))!.lastVerifiedAt).not.toBeNull();
+    expect((await audit()).map((a) => a.details)).toEqual([{ result: "ok", httpStatus: 200, keepAlive: true }]);
+  });
+
+  it("raises the usual notice when the supplier logged the session out", async () => {
+    fake.behaviour.verifyResult = "login_required";
+    expect(await verifySupplierSession(deps(), acme, { keepAlive: true })).toEqual({ kind: "needs_attention", result: "login_required" });
+    expect(await supplier(acme)).toMatchObject({ sessionStatus: "needs_reconnect" });
+    expect((await notes().listOpen()).map((n) => n.reason)).toEqual(["login_required"]);
+  });
+
+  it("marks nothing for an unclear page", async () => {
+    fake.behaviour.verifyResult = "unknown";
+    expect(await verifySupplierSession(deps(), acme, { keepAlive: true })).toEqual({ kind: "unclear" });
+    expect(await supplier(acme)).toMatchObject({ sessionStatus: "connected", enabled: true });
+    expect(await notes().listOpen()).toEqual([]);
+  });
+
+  it("does not visit a supplier paused or refused after the visit was queued", async () => {
+    await suppliers().setPermission(acme, { status: "granted", note: null });
+    await suppliers().pause(acme);
+    expect(await verifySupplierSession(deps(), acme, { keepAlive: true })).toEqual({ kind: "skipped", reason: "not_checked" });
+    await suppliers().resume(acme);
+    await suppliers().setPermission(acme, { status: "not_granted", note: null });
+    expect(await verifySupplierSession(deps(), acme, { keepAlive: true })).toEqual({ kind: "skipped", reason: "not_checked" });
+    expect(verifies()).toHaveLength(0);
+  });
+
+  it("the job passes the keep-alive flag through", async () => {
+    fake.behaviour.verifyResult = "unknown";
+    await createSupplierVerifyHandler(deps())({ supplierId: acme, keepAlive: true });
+    expect(await supplier(acme)).toMatchObject({ sessionStatus: "connected" });
+  });
+});
+
+describe("the check after a hand login", () => {
+  const runs = () => createCheckRunRepository(t.appDb);
+  let queued: { name: string; payload: unknown; options?: unknown }[] = [];
+  const rerunDeps = () => deps({ rerun: { checkRuns: runs(), recipes: createRecipeRepository(t.appDb), queue: { enqueue: async (name: string, payload: unknown, options?: unknown) => void queued.push({ name, payload, options }) } as never } });
+  const NOW = Date.now();
+  const H = 3600_000;
+  const auditRerun = async () => (await t.pool.query("select details from audit_events where action = 'supplier.rerun_queued'")).rows.map((r) => r.details);
+
+  beforeEach(async () => {
+    queued = [];
+    await suppliers().setPermission(acme, { status: "granted", note: null });
+    const recipe = await createRecipeRepository(t.appDb).create(acme, { pageChecks: [{ type: "text", text: "Tee" }], inStock: [], outOfStock: [] });
+    await createRecipeRepository(t.appDb).activate(recipe.id);
+    await t.pool.query("insert into shopify_variants (variant_id, product_id, product_title, variant_title, options, sku, inventory_item_id, tracked, inventory_policy) values ('v1', 'p1', 'Tee', 'v1', '[]', 'v1', 'v1', true, 'DENY') on conflict do nothing");
+    await createMappingRepository(t.appDb).create({ variantId: "v1", supplierId: acme, url: "https://shop.acme.example/p", note: null });
+  });
+  const stoppedRun = async (outcome: "stopped" | "finished", reason: string | null) => {
+    const run = (await runs().start(acme, "manual", 1))!;
+    await runs().end(run.id, outcome, reason);
+  };
+
+  it("moves the next check to now when automatic checks are on and the last run stopped for a puzzle", async () => {
+    await suppliers().setSchedule(acme, { intervalMinutes: 1440, window: null, nextCheckAt: new Date(NOW + 3 * H) });
+    await stoppedRun("stopped", "captcha");
+    expect(await verifySupplierSession(rerunDeps(), acme, { afterLogin: true })).toEqual({ kind: "ok" });
+    expect((await supplier(acme)).nextCheckAt!.getTime()).toBeLessThanOrEqual(Date.now());
+    expect(queued).toEqual([]);
+    expect(await auditRerun()).toEqual([{ how: "schedule" }]);
+  });
+
+  it("starts a run at once when automatic checks are off", async () => {
+    await stoppedRun("stopped", "login_required");
+    await verifySupplierSession(rerunDeps(), acme, { afterLogin: true });
+    const run = await runs().current(acme);
+    expect(run).toMatchObject({ trigger: "manual", outcome: "running", linksTotal: 1 });
+    expect(queued).toEqual([{ name: "extraction.checks", payload: { supplierId: acme, runId: run!.id }, options: expect.objectContaining({ retryLimit: 0 }) }]);
+    expect(await auditRerun()).toEqual([{ how: "started", runId: run!.id }]);
+  });
+
+  it.each([["finished", null], ["stopped", "unreachable"]] as const)("does nothing when the last run was %s %s", async (outcome, reason) => {
+    await stoppedRun(outcome, reason);
+    await verifySupplierSession(rerunDeps(), acme, { afterLogin: true });
+    expect(await runs().current(acme)).toBeNull();
+    expect(queued).toEqual([]);
+  });
+
+  it("does not start a second run while one is going", async () => {
+    await stoppedRun("stopped", "blocked");
+    const going = (await runs().start(acme, "manual", 1))!;
+    await verifySupplierSession(rerunDeps(), acme, { afterLogin: true });
+    expect((await runs().current(acme))!.id).toBe(going.id);
+    expect(queued).toEqual([]);
+  });
+
+  it("does not start a run the stock gate refuses (no stock rules)", async () => {
+    await stoppedRun("stopped", "login_required");
+    await t.pool.query("update stock_recipes set active = false where supplier_id = $1", [acme]);
+    await verifySupplierSession(rerunDeps(), acme, { afterLogin: true });
+    expect(await runs().current(acme)).toBeNull();
+    expect(queued).toEqual([]);
+  });
+
+  it("does not re-run when the check still finds a login page", async () => {
+    await stoppedRun("stopped", "login_required");
+    fake.behaviour.verifyResult = "login_required";
+    await verifySupplierSession(rerunDeps(), acme, { afterLogin: true });
+    expect(await runs().current(acme)).toBeNull();
+  });
+
+  it("an ordinary check never re-runs", async () => {
+    await stoppedRun("stopped", "login_required");
+    await verifySupplierSession(rerunDeps(), acme);
+    expect(await runs().current(acme)).toBeNull();
+    expect(queued).toEqual([]);
+  });
+
+  it("the job passes the after-login flag through", async () => {
+    await stoppedRun("stopped", "login_required");
+    await createSupplierVerifyHandler(rerunDeps())({ supplierId: acme, afterLogin: true });
+    expect(await runs().current(acme)).not.toBeNull();
+  });
+});
+
+describe("a supplier that needs no login", () => {
+  it("is never session-checked, even with an old session kept, and nothing about it changes", async () => {
+    await suppliers().setNeedsLogin(acme, false);
+    expect(await verifySupplierSession(deps(), acme)).toEqual({ kind: "skipped", reason: "no_login" });
+    expect(await verifySupplierSession(deps(), acme, { early: true })).toEqual({ kind: "skipped", reason: "no_login" });
+    expect(verifies()).toHaveLength(0);
+    expect(await supplier(acme)).toMatchObject({ sessionStatus: "connected", enabled: true });
+    expect(await notes().listOpen()).toEqual([]);
   });
 });

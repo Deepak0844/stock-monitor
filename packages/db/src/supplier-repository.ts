@@ -1,10 +1,13 @@
-import { and, asc, count, eq, ilike, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, eq, ilike, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
-import { suppliers } from "./schema.js";
+import type { LoginSelectors } from "@stock-monitor/supplier-session";
+import { notifications, supplierCredentials, suppliers } from "./schema.js";
 
 export type SupplierRecord = {
   id: string;
   name: string;
+  /** The supplier name Shopify uses, when it differs from `name`. null: products match on `name`. */
+  shopifyName: string | null;
   websiteUrl: string;
   loginUrl: string | null;
   checkIntervalMinutes: number;
@@ -25,20 +28,37 @@ export type SupplierRecord = {
   nextCheckAt: Date | null;
   /** The run an early session check was queued for, so each run gets at most one. */
   sessionPrecheckFor: Date | null;
+  keepAliveMinutes: number | null;
+  keepAliveNextAt: Date | null;
   failureCount: number;
+  autoLogin: boolean;
+  stealth: boolean;
+  /** False: the product pages show stock without a login, so checks use no session, login or keep-alive. */
+  needsLogin: boolean;
+  loginSelectors: LoginSelectors | null;
+  /** Text that only shows when logged in. Set, a page without it counts as logged out. */
+  loggedInMarker: string | null;
+  autoLoginFailures: number;
+  /** Where login-code emails come from, when not the website's domain. null: the website's domain. */
+  codeEmailFrom: string | null;
+  autoLoginPausedReason: "wrong_password" | "account_locked" | "too_many_failures" | null;
+  lastAutoLoginAt: Date | null;
+  lastAutoLoginResult: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
 
-export type SupplierInput = { name: string; websiteUrl: string; loginUrl: string | null; checkIntervalMinutes: number };
+/** `shopifyName`: the supplier name Shopify uses, when it differs from `name`. Left out or null: products match on `name`. */
+export type SupplierInput = { name: string; websiteUrl: string; loginUrl: string | null; checkIntervalMinutes: number; shopifyName?: string | null };
 export type SupplierPatch = Partial<SupplierInput>;
-export type SupplierWrite = { ok: true; supplier: SupplierRecord } | { ok: false; reason: "name_taken" | "not_found" };
+export type SupplierWrite = { ok: true; supplier: SupplierRecord } | { ok: false; reason: "name_taken" | "shopify_name_taken" | "not_found" };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const UNIQUE_VIOLATION = "23505";
 
 /** What the owner sees for a supplier. Paused wins, except when the app paused it because the login needs attention. */
-export type SupplierStatusFilter = "connected" | "needs_reconnect" | "blocked" | "paused" | "not_connected";
+/** `no_login`: a supplier whose pages need no login. The session statuses only count suppliers that need one. */
+export type SupplierStatusFilter = "connected" | "needs_reconnect" | "blocked" | "paused" | "not_connected" | "no_login";
 export type SupplierPageQuery = { page: number; pageSize: number; search?: string; status?: SupplierStatusFilter };
 
 // In LIKE, backslash is the escape character in PostgreSQL. Escape it and the two wildcards.
@@ -50,6 +70,22 @@ const showsAsPaused = sql`(not ${suppliers.enabled} and ${suppliers.pausedReason
 const isNameTaken = (error: unknown) => {
   const e = error as { code?: string; cause?: { code?: string } };
   return (e?.code ?? e?.cause?.code) === UNIQUE_VIOLATION;
+};
+/** Which name clashed: the match name (name in Shopify, else the app name) has its own index. */
+const takenReason = (error: unknown): "name_taken" | "shopify_name_taken" => {
+  const e = error as { constraint?: string; cause?: { constraint?: string } };
+  return (e?.constraint ?? e?.cause?.constraint) === "suppliers_match_name_unique" ? "shopify_name_taken" : "name_taken";
+};
+
+/**
+ * What the owner's fix for a paused automatic login sets (saving the password again, or Resume): the count and pause reset,
+ * and a pause the app made because the session needed attention lifted. A pause the owner made is not.
+ */
+export const liftAutoLoginPause = {
+  autoLoginFailures: 0,
+  autoLoginPausedReason: null,
+  enabled: sql`case when ${suppliers.pausedReason} = 'session' then true else ${suppliers.enabled} end`,
+  pausedReason: sql`case when ${suppliers.pausedReason} = 'session' then null else ${suppliers.pausedReason} end`,
 };
 
 export function createSupplierRepository<S extends Record<string, unknown>>(db: NodePgDatabase<S>) {
@@ -79,7 +115,8 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
       const where = and(
         like ? or(ilike(suppliers.name, like), ilike(suppliers.websiteUrl, like)) : undefined,
         query.status === "paused" ? showsAsPaused : undefined,
-        query.status && query.status !== "paused" ? and(sql`not ${showsAsPaused}`, eq(suppliers.sessionStatus, query.status)) : undefined,
+        query.status === "no_login" ? and(sql`not ${showsAsPaused}`, sql`not ${suppliers.needsLogin}`) : undefined,
+        query.status && query.status !== "paused" && query.status !== "no_login" ? and(sql`not ${showsAsPaused}`, suppliers.needsLogin, eq(suppliers.sessionStatus, query.status)) : undefined,
       );
       const items = (await db
         .select()
@@ -97,7 +134,7 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
         const [row] = await db.insert(suppliers).values(input).returning();
         return { ok: true, supplier: row as SupplierRecord };
       } catch (error) {
-        if (isNameTaken(error)) return { ok: false, reason: "name_taken" };
+        if (isNameTaken(error)) return { ok: false, reason: takenReason(error) };
         throw error;
       }
     },
@@ -107,7 +144,7 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
         const row = await set(id, patch);
         return row ? { ok: true, supplier: row } : { ok: false, reason: "not_found" };
       } catch (error) {
-        if (isNameTaken(error)) return { ok: false, reason: "name_taken" };
+        if (isNameTaken(error)) return { ok: false, reason: takenReason(error) };
         throw error;
       }
     },
@@ -120,11 +157,13 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
 
     /**
      * A login has just been saved. The supplier is connected, and a pause the app made because the
-     * session needed attention is lifted. A pause the owner made is not.
+     * session needed attention is lifted. A pause the owner made is not. The owner's own login also resets automatic login.
      */
     markConnected: (id: string) =>
       set(id, {
         sessionStatus: "connected",
+        autoLoginFailures: 0,
+        autoLoginPausedReason: null,
         enabled: sql`case when ${suppliers.pausedReason} = 'session' then true else ${suppliers.enabled} end`,
         pausedReason: sql`case when ${suppliers.pausedReason} = 'session' then null else ${suppliers.pausedReason} end`,
       }),
@@ -157,21 +196,112 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
         automationPermission: input.status,
         permissionNote: input.note,
         permissionSetAt: sql`now()`,
+        // Both need permission, so losing it turns them off in the same statement.
+        ...(input.status !== "granted" ? { autoLogin: false, stealth: false } : {}),
         ...(input.pauseSeconds !== undefined ? { checkPauseSeconds: input.pauseSeconds } : {}),
       }),
+
+    /** Changes the automatic login settings. Turning it on needs `granted` permission and saved credentials. */
+    async setAutoLogin(
+      id: string,
+      patch: { autoLogin?: boolean; stealth?: boolean; loginSelectors?: LoginSelectors | null; loggedInMarker?: string | null; codeEmailFrom?: string | null },
+    ): Promise<SupplierWrite | { ok: false; reason: "not_granted" | "no_credentials" }> {
+      const current = await one(id);
+      if (!current) return { ok: false, reason: "not_found" };
+      if (patch.autoLogin || patch.stealth) {
+        if (current.automationPermission !== "granted") return { ok: false, reason: "not_granted" };
+      }
+      if (patch.autoLogin) {
+        const [row] = await db.select({ id: supplierCredentials.supplierId }).from(supplierCredentials).where(eq(supplierCredentials.supplierId, id)).limit(1);
+        if (!row) return { ok: false, reason: "no_credentials" };
+      }
+      const row = await set(id, {
+        ...(patch.autoLogin !== undefined ? { autoLogin: patch.autoLogin } : {}),
+        ...(patch.stealth !== undefined ? { stealth: patch.stealth } : {}),
+        ...(patch.loginSelectors !== undefined ? { loginSelectors: patch.loginSelectors } : {}),
+        ...(patch.loggedInMarker !== undefined ? { loggedInMarker: patch.loggedInMarker } : {}),
+        ...(patch.codeEmailFrom !== undefined ? { codeEmailFrom: patch.codeEmailFrom } : {}),
+      });
+      return row ? { ok: true, supplier: row } : { ok: false, reason: "not_found" };
+    },
+
+    /** Records one automatic login attempt and what it means for the failure count and the pause. */
+    async recordAutoLogin(
+      id: string,
+      result: string,
+      outcome: "reset" | "failed" | "pause_wrong_password" | "pause_account_locked" | "unchanged",
+    ): Promise<SupplierRecord> {
+      const failures = suppliers.autoLoginFailures;
+      const values = {
+        lastAutoLoginAt: sql`now()`,
+        lastAutoLoginResult: result,
+        ...(outcome === "reset" ? { autoLoginFailures: 0 } : {}),
+        ...(outcome === "failed"
+          ? {
+              autoLoginFailures: sql`${failures} + 1`,
+              autoLoginPausedReason: sql`case when ${failures} + 1 >= 2 then 'too_many_failures' else ${suppliers.autoLoginPausedReason} end`,
+            }
+          : {}),
+        ...(outcome === "pause_wrong_password" ? { autoLoginFailures: sql`${failures} + 1`, autoLoginPausedReason: "wrong_password" } : {}),
+        ...(outcome === "pause_account_locked" ? { autoLoginFailures: sql`${failures} + 1`, autoLoginPausedReason: "account_locked" } : {}),
+      };
+      const row = await set(id, values);
+      if (!row) throw new Error("supplier not found");
+      return row;
+    },
+
+    /** The owner lifts an automatic login pause, and a pause the app made because the session needed attention. */
+    async resumeAutoLogin(id: string): Promise<boolean> {
+      return (await set(id, liftAutoLoginPause)) !== null;
+    },
 
     /** The region label stock checks look for on this supplier's pages. null clears it. */
     setRegion: (id: string, region: string | null) => set(id, { defaultRegion: region }),
 
     /** Sets or turns off automatic checks. Resets the failure count. */
-    setSchedule: (id: string, input: { intervalMinutes: number | null; window: { start: string; end: string } | null; nextCheckAt: Date | null }) =>
+    /** `keepAliveMinutes` left out keeps the keep-alive as it is; given, it also clears the next keep-alive time. */
+    setSchedule: (id: string, input: { intervalMinutes: number | null; window: { start: string; end: string } | null; nextCheckAt: Date | null; keepAliveMinutes?: number | null }) =>
       set(id, {
         scheduleIntervalMinutes: input.intervalMinutes,
         scheduleWindowStart: input.window?.start ?? null,
         scheduleWindowEnd: input.window?.end ?? null,
         nextCheckAt: input.nextCheckAt,
         failureCount: 0,
+        ...(input.keepAliveMinutes !== undefined ? { keepAliveMinutes: input.keepAliveMinutes, keepAliveNextAt: null } : {}),
       }),
+
+    /** When the next keep-alive visit is due. */
+    async setKeepAliveNext(id: string, at: Date): Promise<void> {
+      await set(id, { keepAliveNextAt: at });
+    },
+
+    /** Suppliers with keep-alive turned on. A supplier that needs no login has nothing to keep alive. */
+    async keepingAlive(): Promise<SupplierRecord[]> {
+      return (await db.select().from(suppliers).where(sql`${suppliers.keepAliveMinutes} is not null and ${suppliers.needsLogin}`)) as SupplierRecord[];
+    },
+
+    /**
+     * Whether the supplier's pages need a login. Turning it off keeps the saved session and login, so turning it on restores
+     * them. It also lifts a pause the app made because the login needed attention, and resolves that notice: with no login
+     * there is nothing left to fix. A pause the owner made stays.
+     */
+    async setNeedsLogin(id: string, needsLogin: boolean): Promise<SupplierRecord | null> {
+      if (needsLogin) return set(id, { needsLogin });
+      const row = await set(id, {
+        needsLogin,
+        enabled: sql`case when ${suppliers.pausedReason} = 'session' then true else ${suppliers.enabled} end`,
+        pausedReason: sql`case when ${suppliers.pausedReason} = 'session' then null else ${suppliers.pausedReason} end`,
+        // A public page can be read gently but sooner: the app's default pause of 10 s becomes 3 s. A pause the owner set stays.
+        checkPauseSeconds: sql`case when ${suppliers.checkPauseSeconds} = 10 then 3 else ${suppliers.checkPauseSeconds} end`,
+      });
+      if (row) {
+        await db
+          .update(notifications)
+          .set({ resolvedAt: sql`now()` as unknown as Date })
+          .where(and(eq(notifications.kind, "supplier_needs_reconnect"), eq(notifications.supplierId, id), isNull(notifications.resolvedAt)));
+      }
+      return row;
+    },
 
     /** The next check time and failure count, written when a run ends. */
     async recordRunEnd(id: string, input: { nextCheckAt: Date; failureCount: number }): Promise<void> {

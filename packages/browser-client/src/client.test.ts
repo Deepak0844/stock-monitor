@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, afterEach } from "vitest";
 import { createBrowserClient } from "./client.js";
 import { createFakeBrowserService, FAKE_CONTROL_TOKEN, type FakeBrowserService } from "../test/fake-browser-service.js";
 
@@ -16,7 +16,7 @@ afterAll(async () => {
 });
 beforeEach(() => {
   fake.requests.length = 0;
-  Object.assign(fake.behaviour, { open: "ok", finish: "ok", cancel: "ok", verify: "ok", verifyResult: "ok", checkPage: "ok", capture: "ok", state: { cookies: [], origins: [] }, refreshed: undefined, vncPassword: "Ab3dE6gH", delayMs: 0 });
+  Object.assign(fake.behaviour, { open: "ok", finish: "ok", cancel: "ok", verify: "ok", verifyResult: "ok", checkPage: "ok", capture: "ok", quickRead: "missing", quickOffers: [], state: { cookies: [], origins: [] }, refreshed: undefined, vncPassword: "Ab3dE6gH", delayMs: 0 });
 });
 
 describe("the refreshed session after a check", () => {
@@ -46,6 +46,11 @@ describe("openSession", () => {
     const r = await client().openSession("https://shop.acme.example/login");
     expect(r).toMatchObject({ ok: true, id: expect.stringMatching(/^[0-9a-f-]{36}$/), expiresAt: expect.any(String), vncPassword: "Ab3dE6gH" });
     expect(fake.requests[0]).toMatchObject({ method: "POST", path: "/sessions", auth: `Bearer ${FAKE_CONTROL_TOKEN}`, body: { url: "https://shop.acme.example/login" } });
+  });
+  it("asks for a stealth window only when stealth is on", async () => {
+    await client().openSession("https://a.example/", { stealth: true });
+    await client().openSession("https://a.example/", { stealth: false });
+    expect(fake.requests.map((r) => r.body)).toEqual([{ url: "https://a.example/", stealth: true }, { url: "https://a.example/" }]);
   });
   it("works whether or not the base address ends with a slash, and leaves out a password that is not sent", async () => {
     fake.behaviour.vncPassword = undefined;
@@ -131,6 +136,41 @@ describe("verify", () => {
     expect("loginUrl" in (fake.requests[1]?.body as Record<string, unknown>)).toBe(false);
   });
 
+  it("asks for a quick read of a public page and keeps only well-formed offers", async () => {
+    fake.behaviour.quickRead = "ok";
+    fake.behaviour.quickOffers = [{ availability: "InStock", url: null, sku: "A-1", name: null }, { availability: 7 }];
+    const r = await client().quickRead({ url: "https://a.example/p" });
+    expect(fake.requests.at(-1)).toMatchObject({ method: "POST", path: "/quick-read", body: { url: "https://a.example/p", publicPage: true } });
+    expect(r).toMatchObject({ ok: true, result: "ok", status: 200, offers: [{ availability: "InStock", url: null, sku: "A-1", name: null }], blockedRequests: 0 });
+  });
+
+  it("says failed for a service without quick reads or a failed read, and unavailable when nothing answers", async () => {
+    fake.behaviour.quickRead = "missing";
+    expect(await client().quickRead({ url: "https://a.example/p" })).toEqual({ ok: false, reason: "failed" });
+    fake.behaviour.quickRead = "fail";
+    expect(await client().quickRead({ url: "https://a.example/p" })).toEqual({ ok: false, reason: "failed" });
+    expect(await client({ baseUrl: "http://127.0.0.1:1" }).quickRead({ url: "https://a.example/p" })).toEqual({ ok: false, reason: "unavailable" });
+  });
+
+  it("says the page is public on check-page and capture when asked, and leaves it out otherwise", async () => {
+    const url = "https://a.example/";
+    await client().checkPage({ url, state, publicPage: true });
+    await client().capture({ url, state, publicPage: true });
+    await client().capture({ url, state });
+    expect(fake.requests.map((r) => (r.body as Record<string, unknown>).publicPage)).toEqual([true, true, undefined]);
+  });
+
+  it("sends the logged-in marker on verify, check-page and capture when there is one, and leaves it out when there is not", async () => {
+    const url = "https://a.example/";
+    await client().verify({ url, state, loggedInMarker: "Log out" });
+    await client().checkPage({ url, state, loggedInMarker: "Log out" });
+    await client().capture({ url, state, loggedInMarker: "Log out" });
+    await client().verify({ url, state });
+    const bodies = fake.requests.map((r) => r.body as Record<string, unknown>);
+    expect(bodies.slice(0, 3).map((b) => b.loggedInMarker)).toEqual(["Log out", "Log out", "Log out"]);
+    expect("loggedInMarker" in bodies[3]!).toBe(false);
+  });
+
   it.each(["ok", "login_required", "captcha", "blocked", "unreachable", "unknown"])("passes the answer %s through", async (result) => {
     fake.behaviour.verifyResult = result;
     expect(await client().verify({ url: "https://a.example/", state })).toMatchObject({ ok: true, result });
@@ -202,6 +242,23 @@ describe("capture", () => {
     expect((fake.requests[0]?.body as Record<string, unknown>).picture).toBeUndefined();
   });
 
+  let original: typeof fake.behaviour.description;
+  beforeEach(() => void (original = fake.behaviour.description));
+  afterEach(() => void (fake.behaviour.description = original));
+
+  it("keeps the page's built-in offers, and gives none when the service sent none", async () => {
+    const offer = { availability: "InStock", url: "https://shop.acme.example/p?variant=1", sku: "A-1", name: "500 ml" };
+    fake.behaviour.description = { ...fake.behaviour.description, offers: [offer, { availability: 5 }, "junk"] };
+    expect(await client().capture({ url: "https://shop.acme.example/p", state })).toMatchObject({ ok: true, description: { offers: [offer] } });
+    fake.behaviour.description = { sections: [], buttons: [] };
+    expect(await client().capture({ url: "https://shop.acme.example/p", state })).toMatchObject({ ok: true, description: { offers: [] } });
+  });
+
+  it("says failed when the offers are not a list", async () => {
+    fake.behaviour.description = { sections: [], buttons: [], offers: "InStock" };
+    expect(await client().capture({ url: "https://shop.acme.example/p", state })).toEqual({ ok: false, reason: "failed" });
+  });
+
   it("asks for a picture and gets the bytes back", async () => {
     const r = await client().capture({ url: "https://shop.acme.example/p", state, picture: true });
     expect(fake.requests[0]?.body).toMatchObject({ picture: true });
@@ -219,5 +276,73 @@ describe("capture", () => {
   it("never puts the session in an error", async () => {
     fake.behaviour.capture = "fail";
     expect(JSON.stringify(await client().capture({ url: "https://a.example/", state }))).not.toContain(COOKIE);
+  });
+});
+
+describe("login", () => {
+  const request = { loginUrl: "https://shop.acme.example/login", checkUrl: "https://shop.acme.example/a", username: "u", password: "p", stealth: false };
+  const session = { cookies: [], origins: [] };
+  const withReply = (status: number, json: unknown) =>
+    createBrowserClient({ baseUrl: "http://x.test", token: "t", fetchImpl: (async () => new Response(JSON.stringify(json), { status })) as typeof fetch });
+
+  it("maps a 200 to the outcome, keeping the session on ok", async () => {
+    expect(await withReply(200, { result: "ok", state: session }).login(request)).toEqual({ ok: true, outcome: { result: "ok", state: session } });
+  });
+  it("drops the session unless the result is ok", async () => {
+    expect(await withReply(200, { result: "captcha", state: session }).login(request)).toEqual({ ok: true, outcome: { result: "captcha" } });
+  });
+  it("drops a state that is not a session", async () => {
+    expect(await withReply(200, { result: "ok", state: { cookies: "x" } }).login(request)).toEqual({ ok: true, outcome: { result: "ok" } });
+  });
+  it("says unavailable on a network error", async () => {
+    const c = createBrowserClient({
+      baseUrl: "http://x.test",
+      token: "t",
+      fetchImpl: (async () => {
+        throw new Error("down");
+      }) as typeof fetch,
+    });
+    expect(await c.login(request)).toEqual({ ok: false, reason: "unavailable" });
+  });
+  it("says failed on a result it does not know, or a non-200", async () => {
+    expect(await withReply(200, { result: "weird" }).login(request)).toEqual({ ok: false, reason: "failed" });
+    expect(await withReply(500, { error: "login_failed" }).login(request)).toEqual({ ok: false, reason: "failed" });
+  });
+  it("says not_supported when the service has no login (it is not in profile mode)", async () => {
+    expect(await withReply(404, { error: "not_found" }).login(request)).toEqual({ ok: false, reason: "not_supported" });
+  });
+  it("passes code_needed and its hold through, and refuses one without a hold", async () => {
+    const holdId = "0a1b2c3d-0000-4000-8000-000000000000";
+    expect(await withReply(200, { result: "code_needed", holdId }).login({ ...request, codeWanted: true })).toEqual({ ok: true, outcome: { result: "code_needed", holdId } });
+    expect(await withReply(200, { result: "code_needed" }).login({ ...request, codeWanted: true })).toEqual({ ok: false, reason: "failed" });
+  });
+  it("sends the code to the hold and reads the final outcome; a gone hold is failed", async () => {
+    const seen: { url: string; body: unknown }[] = [];
+    const c = (status: number, json: unknown) =>
+      createBrowserClient({ baseUrl: "http://x.test", token: "t", fetchImpl: (async (url: string, init: RequestInit) => (seen.push({ url, body: init.body ? JSON.parse(String(init.body)) : undefined }), new Response(JSON.stringify(json), { status }))) as unknown as typeof fetch });
+    expect(await c(200, { result: "ok", state: session }).sendCode("h-1", "482913")).toEqual({ ok: true, outcome: { result: "ok", state: session } });
+    expect(seen[0]).toEqual({ url: "http://x.test/login/h-1/code", body: { code: "482913" } });
+    expect(await c(404, { error: "not_found" }).sendCode("h-1", "482913")).toEqual({ ok: false, reason: "failed" });
+  });
+  it("cancels a hold and never throws", async () => {
+    const urls: string[] = [];
+    const ok = createBrowserClient({ baseUrl: "http://x.test", token: "t", fetchImpl: (async (url: string) => (urls.push(url), new Response(null, { status: 204 }))) as unknown as typeof fetch });
+    await ok.cancelCode("h-2");
+    expect(urls).toEqual(["http://x.test/login/h-2/cancel"]);
+    const down = createBrowserClient({ baseUrl: "http://x.test", token: "t", fetchImpl: (async () => { throw new Error("down"); }) as typeof fetch });
+    await expect(down.cancelCode("h-2")).resolves.toBeUndefined();
+  });
+  it("waits for a login by its own limit, not the page limit", async () => {
+    // Answers after 200 ms, unless the call gave up first.
+    const slow = (async (_url: string, init: RequestInit) => {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, 200);
+        init.signal?.addEventListener("abort", () => (clearTimeout(timer), reject(new Error("aborted"))));
+      });
+      return new Response(JSON.stringify({ result: "captcha" }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const c = (over: { loginTimeoutMs?: number; pageTimeoutMs?: number }) => createBrowserClient({ baseUrl: "http://x.test", token: "t", fetchImpl: slow, ...over });
+    expect(await c({ pageTimeoutMs: 50, loginTimeoutMs: 1_000 }).login(request)).toEqual({ ok: true, outcome: { result: "captcha" } });
+    expect(await c({ pageTimeoutMs: 1_000, loginTimeoutMs: 50 }).login(request)).toEqual({ ok: false, reason: "unavailable" });
   });
 });

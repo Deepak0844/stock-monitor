@@ -2,10 +2,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { randomBytes } from "node:crypto";
 import { Writable } from "node:stream";
 import { startTestDb, type TestDb } from "@stock-monitor/db/test-harness";
-import { createProposalRepository, createCheckRunRepository, createMappingRepository, createRecipeRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
+import { createNotificationRepository, createProposalRepository, createCheckRunRepository, createMappingRepository, createRecipeRepository, createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
 import { createAuditWriter } from "@stock-monitor/audit";
 import { createLogger } from "@stock-monitor/shared";
-import { sealSessionState } from "@stock-monitor/supplier-session";
+import { sealCredentials, sealSessionState } from "@stock-monitor/supplier-session";
 import { reapStaleRuns, runTick, type TickDeps } from "../src/scheduling-tick.js";
 
 let t: TestDb;
@@ -234,10 +234,196 @@ describe("the early login check before a run", () => {
     expect(early()).toEqual([]);
   });
 
+  it("skips a supplier with automatic login on, since its run logs in by itself, and checks it again once that login is paused", async () => {
+    const id = await ready("Acme", -90);
+    await createSupplierCredentialsRepository(t.appDb).save(id, sealCredentials({ username: "u", password: "p" }, key, "v1"));
+    const on = await suppliers().setAutoLogin(id, { autoLogin: true });
+    if (!on.ok) throw new Error("setup");
+    await runTick(deps());
+    expect(early()).toEqual([]);
+    await t.pool.query("update suppliers set auto_login_paused_reason = 'too_many_failures' where id = $1", [id]);
+    await runTick(deps());
+    expect(early()).toEqual([{ name: "supplier.session.verify", payload: { supplierId: id, early: true }, options: { retryLimit: 0 } }]);
+  });
+
   it("does not check a supplier the stock gate refuses", async () => {
     const id = await ready("Acme", -90);
     await suppliers().markNeedsAttention(id, "needs_reconnect");
     await runTick(deps());
     expect(early()).toEqual([]);
+  });
+});
+
+describe("keep login alive", () => {
+  const visits = () => enqueued.filter((e) => e.name === "supplier.session.verify");
+  /** Ready, its run 10 hours away (no run, no early check), keep-alive every 30 minutes. */
+  async function keeping(name: string) {
+    const id = await ready(name, -600);
+    await suppliers().setSchedule(id, { intervalMinutes: 1440, window: { start: "07:00", end: "22:00" }, nextCheckAt: new Date(now.getTime() + 600 * MIN), keepAliveMinutes: 30 });
+    return id;
+  }
+
+  it("queues one visit, writes the next visit time first, and does not queue again on the next tick", async () => {
+    const id = await keeping("Acme");
+    await runTick(deps());
+    expect(visits()).toEqual([{ name: "supplier.session.verify", payload: { supplierId: id, keepAlive: true }, options: { retryLimit: 0 } }]);
+    const next = (await suppliers().get(id))!.keepAliveNextAt!;
+    expect(next.getTime()).toBeGreaterThanOrEqual(now.getTime() + 27 * MIN);
+    expect(next.getTime()).toBeLessThanOrEqual(now.getTime() + 33 * MIN);
+    now = new Date(now.getTime() + MIN);
+    await runTick(deps());
+    expect(visits()).toHaveLength(1);
+  });
+
+  it("keeps the next visit time even when the visit cannot be queued", async () => {
+    const id = await keeping("Acme");
+    enqueueFails = true;
+    await runTick(deps());
+    expect((await suppliers().get(id))!.keepAliveNextAt).not.toBeNull();
+  });
+
+  it("does not visit a supplier with keep-alive off", async () => {
+    await ready("Acme", -600);
+    await runTick(deps());
+    expect(visits()).toEqual([]);
+  });
+
+  it("does not visit a paused supplier, one waiting for a new login, or one outside its hours", async () => {
+    const paused = await keeping("Paused");
+    await suppliers().pause(paused);
+    const waiting = await keeping("Waiting");
+    await suppliers().markNeedsAttention(waiting, "needs_reconnect");
+    const night = await keeping("Night");
+    await suppliers().setSchedule(night, { intervalMinutes: 1440, window: { start: "11:00", end: "22:00" }, nextCheckAt: new Date(now.getTime() + 600 * MIN) });
+    await runTick(deps());
+    expect(visits()).toEqual([]);
+  });
+
+  it("does not visit a supplier while a run is checking it", async () => {
+    const id = await keeping("Acme");
+    await runs().start(id, "manual", 1);
+    await runTick(deps());
+    expect(visits()).toEqual([]);
+  });
+
+  it("does not visit a supplier whose early login check was queued on this tick", async () => {
+    const id = await keeping("Acme");
+    await suppliers().setSchedule(id, { intervalMinutes: 1440, window: { start: "07:00", end: "22:00" }, nextCheckAt: new Date(now.getTime() + 90 * MIN) });
+    await runTick(deps());
+    expect(visits()).toEqual([{ name: "supplier.session.verify", payload: { supplierId: id, early: true }, options: { retryLimit: 0 } }]);
+  });
+
+  it("does not visit a supplier whose run is due within 5 minutes: the visit would still hold its browser profile", async () => {
+    const id = await keeping("Acme");
+    await createSupplierCredentialsRepository(t.appDb).save(id, sealCredentials({ username: "u", password: "p" }, key, "v1"));
+    if (!(await suppliers().setAutoLogin(id, { autoLogin: true })).ok) throw new Error("setup");
+    await suppliers().setSchedule(id, { intervalMinutes: 1440, window: { start: "07:00", end: "22:00" }, nextCheckAt: new Date(now.getTime() + 3 * MIN) });
+    await runTick(deps());
+    expect(visits()).toEqual([]);
+    await suppliers().setSchedule(id, { intervalMinutes: 1440, window: { start: "07:00", end: "22:00" }, nextCheckAt: new Date(now.getTime() + 10 * MIN) });
+    await runTick(deps());
+    expect(visits()).toHaveLength(1);
+  });
+
+  it("does not visit a supplier whose run starts on this tick", async () => {
+    const id = await keeping("Acme");
+    await suppliers().setSchedule(id, { intervalMinutes: 1440, window: { start: "07:00", end: "22:00" }, nextCheckAt: new Date(now.getTime() - MIN) });
+    await runTick(deps());
+    expect(enqueued.map((e) => e.name)).toEqual(["extraction.checks"]);
+  });
+});
+
+describe("login alert emails", () => {
+  let mails: { subject: string; text: string }[] = [];
+  let sendFails = false;
+  const send = async (m: { subject: string; text: string }) => {
+    if (sendFails) throw Object.assign(new Error("Invalid login: 535"), { code: "EAUTH" });
+    mails.push(m);
+  };
+  const notes = () => createNotificationRepository(t.appDb);
+  const alerts = () => ({ notifications: notes(), send, appOrigin: "https://stock.example.com" });
+  beforeEach(() => {
+    mails = [];
+    sendFails = false;
+  });
+  const needsLogin = async (name: string) => {
+    const r = await suppliers().create({ name, websiteUrl: `https://${name.toLowerCase()}.example/`, loginUrl: null, checkIntervalMinutes: 60 });
+    if (!r.ok) throw new Error("setup");
+    await notes().raise({ kind: "supplier_needs_reconnect", supplierId: r.supplier.id, message: `${name} needs you to log in again.`, reason: "login_required" });
+    return r.supplier.id;
+  };
+
+  it("emails a login notice once over two ticks, with the supplier's name and link", async () => {
+    const id = await needsLogin("Acme");
+    await runTick(deps({ alerts: alerts() }));
+    await runTick(deps({ alerts: alerts() }));
+    expect(mails).toEqual([{ subject: "Acme needs you to log in", text: `Acme needs you to log in again.\n\nLog in here: https://stock.example.com/suppliers/${id}/connect\n\nSent by Stock Monitor.` }]);
+  });
+
+  it("never emails a changed-pages notice", async () => {
+    const id = await ready("Acme", -600);
+    await notes().raise({ kind: "recipe_needs_review", supplierId: id, message: "Acme's pages changed.", reason: "page_changed" });
+    await runTick(deps({ alerts: alerts() }));
+    expect(mails).toEqual([]);
+  });
+
+  it("tries again on the next tick when Gmail refuses, and the tick still finishes", async () => {
+    await needsLogin("Acme");
+    sendFails = true;
+    await expect(runTick(deps({ alerts: alerts() }))).resolves.toBeDefined();
+    expect(mails).toEqual([]);
+    sendFails = false;
+    await runTick(deps({ alerts: alerts() }));
+    expect(mails).toHaveLength(1);
+  });
+
+  it("does not email a notice that closed before the tick", async () => {
+    const id = await needsLogin("Acme");
+    await notes().resolve("supplier_needs_reconnect", id);
+    await runTick(deps({ alerts: alerts() }));
+    expect(mails).toEqual([]);
+  });
+
+  it("sends at most 10 a tick", async () => {
+    for (let i = 0; i < 12; i++) await needsLogin(`S${i}`);
+    await runTick(deps({ alerts: alerts() }));
+    expect(mails).toHaveLength(10);
+    await runTick(deps({ alerts: alerts() }));
+    expect(mails).toHaveLength(12);
+  });
+
+  it("still finishes the tick when the notices cannot be read", async () => {
+    const id = await ready("Acme", 5);
+    const broken = { ...notes(), unemailedLogin: async () => { throw new Error("db blip"); } };
+    const result = await runTick(deps({ alerts: { notifications: broken, send, appOrigin: undefined } }));
+    expect(result.started).toEqual([id]);
+  });
+
+  it("sends nothing when alerts are off", async () => {
+    await needsLogin("Acme");
+    await runTick(deps());
+    expect(mails).toEqual([]);
+  });
+});
+
+describe("a supplier that needs no login", () => {
+  const noLogin = async (id: string) => {
+    await createSupplierSessionRepository(t.appDb).remove(id);
+    await suppliers().markNotConnected(id);
+    await suppliers().setNeedsLogin(id, false);
+  };
+  const verifies = () => enqueued.filter((e) => e.name === "supplier.session.verify");
+
+  it("starts its due run with no saved login", async () => {
+    const id = await ready("Acme");
+    await noLogin(id);
+    expect((await runTick(deps())).started).toEqual([id]);
+  });
+
+  it("never gets an early login check before a run", async () => {
+    const id = await ready("Acme", -90);
+    await noLogin(id);
+    await runTick(deps());
+    expect(verifies()).toEqual([]);
   });
 });

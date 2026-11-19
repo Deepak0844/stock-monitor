@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { History, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
+import { Download, History, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import { isStale } from "@stock-monitor/scheduling";
 import { Badge } from "@/components/ui/badge.js";
 import { Button } from "@/components/ui/button.js";
 import { Card } from "@/components/ui/card.js";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu.js";
 import { Input, Select } from "@/components/ui/input.js";
-import type { Api, LinkStatus, Mapping, Observation, Supplier, UnmappedList } from "../api.js";
+import type { Api, CheckRun, LinkStatus, Mapping, Observation, StartedRun, StockFilter, Supplier, UnmappedList } from "../api.js";
 import { ConfirmDialog } from "../components/ConfirmDialog.js";
 import { DataTable, type Column } from "../components/DataTable.js";
 import { EmptyState } from "../components/EmptyState.js";
@@ -15,22 +15,28 @@ import { Notice } from "../components/Notice.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { Pager } from "../components/Pager.js";
 import { suggestionLine } from "../components/proposalWords.js";
-import { ANSWER_TONE, reasonWords, stockSentence } from "../components/stockWords.js";
+import { runSummary } from "../components/scheduleWords.js";
+import { ANSWER_TONE, ANSWER_WORDS, reasonWords, stockSentence } from "../components/stockWords.js";
 import { badgeVariant } from "../components/tone.js";
 import { formatDay, formatWhen } from "../format.js";
 import { useListParams } from "../lib/useListParams.js";
+import { useWatch } from "../lib/useWatch.js";
 import { Link } from "../router.js";
 import { useTitle } from "../useTitle.js";
 import { toast } from "../lib/toast.js";
 
 const SHOW_UNMAPPED = 50;
 const SEARCH_DELAY_MS = 300;
-// A check finishes some moments after it is asked for (a login-browser check takes up to half a minute), so the list is read again.
-const CHECK_REFRESH_MS = 4000;
-const CHECK_REFRESHES = 12;
-// A whole supplier run takes as long as its pauses, so it is followed longer and stops after this many unchanged reads.
-const RUN_REFRESHES = 60;
-const STILL_POLLS = 3;
+// A check finishes some moments after it is asked for (a login can take a minute), so that one link is read again for up to 2 minutes.
+const CHECK_READS = 40;
+const STOCK_OPTIONS: { value: StockFilter; words: string }[] = [
+  { value: "in_stock", words: ANSWER_WORDS.in_stock },
+  { value: "out_of_stock", words: ANSWER_WORDS.out_of_stock },
+  { value: "cannot_tell", words: ANSWER_WORDS.cannot_tell },
+  { value: "none", words: "No stock check yet" },
+];
+// A whole supplier run is followed through its own small status, not by reading the list again.
+const RUN_POLL_MS = 3000;
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong. Please try again.");
 const where = (url: string) => {
@@ -58,7 +64,8 @@ export function MappingsPage({ api }: { api: Api }) {
   const { page, pageSize, search, set } = params;
   const supplierId = params.filters.supplier ?? "";
   const status = (LINK_STATUS_OPTIONS.some((o) => o.value === params.filters.status) ? params.filters.status : "") as LinkStatus | "";
-  const filtered = supplierId !== "" || status !== "" || search !== "";
+  const stock = (STOCK_OPTIONS.some((o) => o.value === params.filters.stock) ? params.filters.stock : "") as StockFilter | "";
+  const filtered = supplierId !== "" || status !== "" || stock !== "" || search !== "";
 
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [data, setData] = useState<{ items: Mapping[]; total: number } | null>(null);
@@ -76,9 +83,6 @@ export function MappingsPage({ api }: { api: Api }) {
   const stopWaiting = (key?: string) => key && setWaiting((w) => (w.has(key) ? new Set([...w].filter((x) => x !== key)) : w));
   const [history, setHistory] = useState<{ mapping: Mapping; items: Observation[] } | null>(null);
   const vq = useDelayed(variantSearch);
-  const query = { supplierId: supplierId || undefined, status: status || undefined, search: search || undefined, page, pageSize };
-  const queryRef = useRef(query);
-  queryRef.current = query;
   const latestCall = useRef(0);
 
   useEffect(() => {
@@ -90,7 +94,7 @@ export function MappingsPage({ api }: { api: Api }) {
     setLoading(true);
     setLoadError(null);
     api.mappings
-      .page({ supplierId: supplierId || undefined, status: status || undefined, search: search || undefined, page, pageSize })
+      .page({ supplierId: supplierId || undefined, status: status || undefined, stock: stock || undefined, search: search || undefined, page, pageSize })
       .then((result) => {
         if (mine !== latestCall.current) return;
         setData({ items: result.items, total: result.total });
@@ -101,7 +105,7 @@ export function MappingsPage({ api }: { api: Api }) {
         setLoadError(message(e));
         setLoading(false);
       });
-  }, [api, supplierId, status, search, page, pageSize]);
+  }, [api, supplierId, status, stock, search, page, pageSize]);
   useEffect(load, [load]);
 
   // The search box waits for a pause in typing, then goes to the address. A change made elsewhere, such as clearing, comes back in.
@@ -112,28 +116,47 @@ export function MappingsPage({ api }: { api: Api }) {
   }, [q, search, set]);
   useEffect(() => setQ(search), [search]);
 
-  // A check finishes some moments after it is asked for, so the page is read again until the answer shows. It stops as soon as it
-  // does, and never sets the list again when nothing changed (which would also re-read the unmapped variants).
-  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const latest = useRef<Mapping[] | null>(null);
-  latest.current = data?.items ?? null;
-  useEffect(() => () => void (refreshTimer.current && clearTimeout(refreshTimer.current)), []);
-  /** `finished` says when the answer has shown. Without it (a whole supplier run) it stops once the list has changed and then sat still. */
-  const refreshSoon = (times: number, finished?: (list: Mapping[]) => boolean, sawChange = false, still = 0, key?: string) => {
-    if (refreshTimer.current) clearTimeout(refreshTimer.current);
-    refreshTimer.current = setTimeout(() => {
-      api.mappings
-        .page(queryRef.current)
-        .then((result) => {
-          const changed = JSON.stringify(result.items) !== JSON.stringify(latest.current);
-          if (changed) setData({ items: result.items, total: result.total });
-          const stop = finished ? finished(result.items) : sawChange && !changed && still + 1 >= STILL_POLLS;
-          if (!stop && times > 1) refreshSoon(times - 1, finished, sawChange || changed, changed ? 0 : still + 1, key);
-          else stopWaiting(key);
-        })
-        .catch(() => stopWaiting(key));
-    }, CHECK_REFRESH_MS);
+  // A check of one link is followed through the link's small status. Once it says the check finished, that link is read once and
+  // only its row changes.
+  const watch = useWatch();
+  const replaceRow = (m: Mapping) => setData((d) => d && { ...d, items: d.items.map((x) => (x.id === m.id ? m : x)) });
+  const follow = async (key: string, m: Mapping, finished: (s: { linkCheckedAt: string | null; stockCheckedAt: string | null }) => boolean) => {
+    try {
+      if (await watch(key, CHECK_READS, () => api.mappings.status(m.id), finished)) replaceRow(await api.mappings.get(m.id));
+    } catch {
+      // The row keeps what it showed; the next page load brings the answer.
+    } finally {
+      stopWaiting(key);
+    }
   };
+
+  // The chosen supplier's whole run: one going when the page opens or the supplier is chosen, or one just started here.
+  const [wholeRun, setWholeRun] = useState<CheckRun | null>(null);
+  const running = wholeRun?.outcome === "running";
+  useEffect(() => {
+    setWholeRun(null);
+    if (!supplierId) return;
+    let live = true;
+    api.schedule
+      .currentRun(supplierId)
+      .then((r) => live && setWholeRun((cur) => cur ?? r))
+      .catch(() => {});
+    return () => void (live = false);
+  }, [api, supplierId]);
+  // While it runs, its status is asked for every few seconds. When it ends the list is read once, for the new answers.
+  useEffect(() => {
+    if (!wholeRun || wholeRun.outcome !== "running") return;
+    const timer = setTimeout(() => {
+      api.schedule
+        .run(wholeRun.id)
+        .then((next) => {
+          setWholeRun((cur) => (cur?.id === next.id ? next : cur));
+          if (next.outcome !== "running") load();
+        })
+        .catch(() => setWholeRun((cur) => (cur?.id === wholeRun.id ? { ...cur } : cur))); // a new object asks again after the pause
+    }, RUN_POLL_MS);
+    return () => clearTimeout(timer);
+  }, [api, wholeRun, load]);
 
   useEffect(() => {
     api.mappings.unmapped(vq || undefined).then(setUnmapped).catch(() => setUnmapped(null));
@@ -162,7 +185,7 @@ export function MappingsPage({ api }: { api: Api }) {
         stopWaiting(`link:${m.id}`);
         throw e;
       }
-      refreshSoon(CHECK_REFRESHES, (list) => list.find((x) => x.id === m.id)?.lastLinkCheckAt !== m.lastLinkCheckAt, false, 0, `link:${m.id}`);
+      void follow(`link:${m.id}`, m, (s) => s.linkCheckedAt !== m.lastLinkCheckAt);
       toast(`A check of ${m.productTitle} (${m.variantTitle}) has started. Its status will update in a moment.`);
     });
   const checkStock = (m: Mapping) =>
@@ -174,22 +197,22 @@ export function MappingsPage({ api }: { api: Api }) {
         stopWaiting(`stock:${m.id}`);
         throw e;
       }
-      refreshSoon(CHECK_REFRESHES, (list) => list.find((x) => x.id === m.id)?.latestStock?.observedAt !== m.latestStock?.observedAt, false, 0, `stock:${m.id}`);
+      void follow(`stock:${m.id}`, m, (s) => s.stockCheckedAt !== (m.latestStock?.observedAt ?? null));
       toast(`A stock check of ${m.productTitle} (${m.variantTitle}) has started. The answer will appear here in a moment.`);
     });
   const supplier = suppliers.find((s) => s.id === supplierId);
+  /** Starts a whole supplier run and follows it in the progress bar. */
+  const startRun = (key: string, s: Supplier, start: () => Promise<StartedRun>, words: (links: string) => string) =>
+    run(key, async () => {
+      const { links, runId } = await start();
+      const now = new Date().toISOString();
+      setWholeRun({ id: runId, supplierId: s.id, trigger: "manual", kind: key === "all-links" ? "links" : "stock", startedAt: now, endedAt: null, linksTotal: links, linksDone: 0, inStock: 0, outOfStock: 0, cannotTell: 0, outcome: "running", stopReason: null });
+      toast(words(`${links} ${links === 1 ? "link" : "links"}`));
+    });
   const checkAllStock = (s: Supplier) =>
-    run("all-stock", async () => {
-      const n = await api.stock.checkSupplier(s.id);
-      refreshSoon(RUN_REFRESHES);
-      toast(`Checking stock for ${n} ${n === 1 ? "link" : "links"} for ${s.name}, one page at a time. Answers will appear as they finish.`);
-    });
+    startRun("all-stock", s, () => api.stock.checkSupplier(s.id), (n) => `Checking stock for ${n} for ${s.name}, one page at a time. The answers appear when the run ends.`);
   const checkAll = (s: Supplier) =>
-    run("all-links", async () => {
-      const n = await api.mappings.checkSupplierLinks(s.id);
-      refreshSoon(RUN_REFRESHES);
-      toast(`Checking ${n} ${n === 1 ? "link" : "links"} for ${s.name}, one page at a time. Statuses will update as they finish.`);
-    });
+    startRun("all-links", s, () => api.mappings.checkSupplierLinks(s.id), (n) => `Checking ${n} for ${s.name}, one page at a time. The statuses update when the run ends.`);
   const toggleHistory = (m: Mapping) =>
     run(`history:${m.id}`, async () => {
       if (history?.mapping.id === m.id) return setHistory(null);
@@ -366,18 +389,27 @@ export function MappingsPage({ api }: { api: Api }) {
                 </option>
               ))}
             </Select>
+            <Select aria-label="Stock answer" value={stock} onChange={(e) => set({ stock: e.target.value || undefined })}>
+              <option value="">Any stock answer</option>
+              {STOCK_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.words}
+                </option>
+              ))}
+            </Select>
             {supplier && (
               <>
-                <Button variant="outline" disabled={busy} loading={busyKey === "all-links"} onClick={() => void checkAll(supplier)}>
+                <Button variant="outline" disabled={busy || running} loading={busyKey === "all-links"} onClick={() => void checkAll(supplier)}>
                   Check all links for {supplier.name}
                 </Button>
-                <Button variant="outline" disabled={busy} loading={busyKey === "all-stock"} onClick={() => void checkAllStock(supplier)}>
+                <Button variant="outline" disabled={busy || running} loading={busyKey === "all-stock"} onClick={() => void checkAllStock(supplier)}>
                   Check all stock for {supplier.name}
                 </Button>
               </>
             )}
           </div>
         )}
+        {supplier && wholeRun && <RunProgress run={wholeRun} supplierName={supplier.name} />}
         <DataTable
           label="Links"
           columns={columns}
@@ -410,7 +442,7 @@ export function MappingsPage({ api }: { api: Api }) {
               <EmptyState
                 title="No links match those filters."
                 action={
-                  <Button variant="outline" onClick={() => set({ search: undefined, supplier: undefined, status: undefined })}>
+                  <Button variant="outline" onClick={() => set({ search: undefined, supplier: undefined, status: undefined, stock: undefined })}>
                     Clear filters
                   </Button>
                 }
@@ -431,7 +463,8 @@ export function MappingsPage({ api }: { api: Api }) {
               {history.items.map((o) => (
                 <li key={o.id} className="border-b border-border pb-2 last:border-b-0">
                   <strong>{stockSentence(o, history.mapping.region)}</strong> · {formatWhen(o.observedAt)}
-                  {o.recipeVersion !== null ? ` · rules version ${o.recipeVersion}` : ""}
+                  {o.recipeVersion === 0 ? " · built-in data, not confirmed yet, so not sent to Shopify" : o.recipeVersion !== null ? ` · rules version ${o.recipeVersion}` : ""}
+                  {o.readBy === "quick" ? " · Read quickly" : o.readBy === "browser" ? " · Read with the browser" : ""}
                   {reasonWords(o.reason) && o.reason !== "not_listed" ? ` · ${reasonWords(o.reason)}` : ""}
                 </li>
               ))}
@@ -449,9 +482,17 @@ export function MappingsPage({ api }: { api: Api }) {
             <p className="text-sm text-muted-foreground">Every variant has a link.</p>
           ) : (
             <>
-              <p className="mb-3 text-sm">
-                {unmapped.unmapped} of {unmapped.total} variants are not mapped
-              </p>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm">
+                  {unmapped.unmapped} of {unmapped.total} variants are not mapped
+                </p>
+                <Button variant="outline" size="sm" asChild>
+                  <a href={`/api/variants/unmapped.csv${vq ? `?${new URLSearchParams({ search: vq })}` : ""}`} download>
+                    <Download aria-hidden="true" />
+                    Download CSV
+                  </a>
+                </Button>
+              </div>
               <Input id="variant-search" type="search" aria-label="Search variants with no link" placeholder="Search variants with no link" autoComplete="off" className="mb-3 max-w-md" value={variantSearch} onChange={(e) => setVariantSearch(e.target.value)} />
               <ul className="flex flex-col">
                 {unmapped.items.slice(0, SHOW_UNMAPPED).map((v) => (
@@ -486,5 +527,25 @@ export function MappingsPage({ api }: { api: Api }) {
         />
       )}
     </>
+  );
+}
+
+/** How far the chosen supplier's whole run is, or how it ended. */
+function RunProgress({ run, supplierName }: { run: CheckRun; supplierName: string }) {
+  const what = `${run.kind === "links" ? "Link check" : "Stock check"} for ${supplierName}`;
+  const share = run.linksTotal > 0 ? run.linksDone / run.linksTotal : 0;
+  const tone = run.outcome === "running" || run.outcome === "finished" ? "text-muted-foreground" : "text-danger";
+  return (
+    <div className="border-b border-border p-4" role="status" aria-live="polite">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm">
+        <span className="font-semibold">{what}</span>
+        <span className={tone}>{runSummary(run)}</span>
+      </div>
+      {run.outcome === "running" && (
+        <div role="progressbar" aria-label={what} aria-valuemin={0} aria-valuemax={run.linksTotal} aria-valuenow={run.linksDone} className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
+          <div className="h-full w-full origin-left rounded-full bg-primary transition-transform duration-500 motion-reduce:transition-none" style={{ transform: `scaleX(${share})` }} />
+        </div>
+      )}
+    </div>
   );
 }

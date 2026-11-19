@@ -63,7 +63,7 @@ const makeReady = async () => {
 };
 
 describe("every schedule route needs a signed-in owner", () => {
-  it.each([["PUT", `/api/suppliers/x/schedule`], ["GET", "/api/schedule"], ["GET", "/api/suppliers/x/runs"], ["GET", "/api/suppliers/x/runs/current"]])("%s %s returns 401", async (method, url) => {
+  it.each([["PUT", `/api/suppliers/x/schedule`], ["GET", "/api/schedule"], ["GET", "/api/suppliers/x/runs"], ["GET", "/api/suppliers/x/runs/current"], ["GET", "/api/check-runs/x"]])("%s %s returns 401", async (method, url) => {
     expect((await call(method as "GET", url, undefined, false)).status).toBe(401);
   });
 });
@@ -115,6 +115,28 @@ describe("PUT /api/suppliers/:id/schedule", () => {
     expect(r.status).toBe(400);
     expect(r.body.error.code).toBe("invalid_schedule");
     expect((await suppliers().get(acme))?.scheduleIntervalMinutes).toBeNull();
+  });
+
+  describe("keep login alive", () => {
+    it("stores the keep-alive, shows it on the supplier, and audits it", async () => {
+      const r = await call("PUT", `/api/suppliers/${acme}/schedule`, { intervalMinutes: 1440, window: day, keepAliveMinutes: 30 });
+      expect(r.status).toBe(200);
+      expect(r.body.supplier).toMatchObject({ keepAliveMinutes: 30, keepAliveNextAt: null });
+      const audit = await t.pool.query("select details from audit_events where action = 'supplier.schedule_set'");
+      expect(audit.rows[0].details).toEqual({ intervalMinutes: 1440, window: day, keepAliveMinutes: 30 });
+    });
+
+    it("leaves it as it is when the body does not say, and turns it off with null", async () => {
+      await call("PUT", `/api/suppliers/${acme}/schedule`, { intervalMinutes: 1440, window: day, keepAliveMinutes: 30 });
+      expect((await call("PUT", `/api/suppliers/${acme}/schedule`, { intervalMinutes: 360, window: day })).body.supplier.keepAliveMinutes).toBe(30);
+      expect((await call("PUT", `/api/suppliers/${acme}/schedule`, { intervalMinutes: 360, window: day, keepAliveMinutes: null })).body.supplier.keepAliveMinutes).toBeNull();
+    });
+
+    it.each([[20], ["30"], [true]])("refuses %j", async (keepAliveMinutes) => {
+      const r = await call("PUT", `/api/suppliers/${acme}/schedule`, { intervalMinutes: 60, window: null, keepAliveMinutes });
+      expect(r.status).toBe(400);
+      expect((await suppliers().get(acme))?.keepAliveMinutes).toBeNull();
+    });
   });
 
   it("says plainly when the supplier does not exist", async () => {
@@ -178,5 +200,34 @@ describe("run history", () => {
   it("says plainly when the supplier is unknown, and has no current run when none is going", async () => {
     expect((await call("GET", "/api/suppliers/00000000-0000-4000-8000-000000000000/runs")).status).toBe(404);
     expect((await call("GET", `/api/suppliers/${acme}/runs/current`)).body).toEqual({ run: null });
+  });
+
+  it("reads one run by its id, also after it ended, and is a plain 404 for an unknown one", async () => {
+    const a = (await runs().start(acme, "manual", 3, "links"))!;
+    await runs().progress(a.id, { linksDone: 2, inStock: 0, outOfStock: 0, cannotTell: 0 });
+    expect((await call("GET", `/api/check-runs/${a.id}`)).body.run).toMatchObject({ id: a.id, kind: "links", linksDone: 2, outcome: "running" });
+    await runs().end(a.id, "finished", null);
+    expect((await call("GET", `/api/check-runs/${a.id}`)).body.run).toMatchObject({ outcome: "finished" });
+    expect((await call("GET", "/api/check-runs/00000000-0000-4000-8000-000000000000")).status).toBe(404);
+  });
+});
+
+describe("a supplier that needs no login, with no rules turned on", () => {
+  it("is waiting for its next run, not refused for missing rules", async () => {
+    await makeReady();
+    await call("PUT", `/api/suppliers/${acme}/schedule`, { intervalMinutes: 1440, window: null });
+    await t.pool.query("update stock_recipes set active = false");
+    await suppliers().setNeedsLogin(acme, false);
+    const [row] = (await call("GET", "/api/schedule")).body.schedule;
+    expect(row.status).toEqual({ state: "waiting" });
+  });
+});
+
+describe("checks every 15 or 30 minutes", () => {
+  it("are accepted, and other intervals are still refused", async () => {
+    await makeReady();
+    expect((await call("PUT", `/api/suppliers/${acme}/schedule`, { intervalMinutes: 15, window: null })).status).toBe(200);
+    expect((await call("PUT", `/api/suppliers/${acme}/schedule`, { intervalMinutes: 30, window: null })).status).toBe(200);
+    expect((await call("PUT", `/api/suppliers/${acme}/schedule`, { intervalMinutes: 20, window: null })).status).toBe(400);
   });
 });

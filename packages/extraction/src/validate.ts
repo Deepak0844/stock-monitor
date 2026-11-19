@@ -56,9 +56,9 @@ function ruleList(input: unknown, list: string): StockRule[] {
 export function validateRecipe(input: unknown): RecipeCheck {
   try {
     if (!isObject(input)) return fail("A recipe is a set of rules. Check the rules and try again.");
-    only(input, ["pageChecks", "inStock", "outOfStock", "quantity", "region"], "a recipe");
+    only(input, ["pageChecks", "inStock", "outOfStock", "quantity", "region", "builtIn"], "a recipe");
     const pageChecks = ruleList(input.pageChecks, "Page checks");
-    if (pageChecks.length === 0) return fail("Add at least one page check, so the app can tell when the page changes.");
+    if (pageChecks.length === 0 && input.builtIn === undefined) return fail("Add at least one page check, so the app can tell when the page changes.");
     const recipe: Recipe = { pageChecks, inStock: ruleList(input.inStock, "In-stock rules"), outOfStock: ruleList(input.outOfStock, "Out-of-stock rules") };
     if (input.quantity !== undefined) {
       if (!isObject(input.quantity)) return fail("The quantity rule needs a label.");
@@ -71,6 +71,13 @@ export function validateRecipe(input: unknown): RecipeCheck {
       only(input.region, ["under"], "the region rule");
       if (input.region.under === undefined) return fail("The region rule needs the heading of the region table.");
       recipe.region = { under: words(input.region.under, "region table heading") };
+    }
+    if (input.builtIn !== undefined) {
+      if (!isObject(input.builtIn)) return fail("The built-in data setting needs a choice for pre-order and back-order.");
+      only(input.builtIn, ["waiting"], "the built-in data setting");
+      const waiting = input.builtIn.waiting;
+      if (waiting !== "in_stock" && waiting !== "out_of_stock" && waiting !== "cannot_tell") return fail("Choose how pre-order and back-order count: in stock, out of stock or cannot tell.");
+      recipe.builtIn = { waiting };
     }
     return { ok: true, recipe };
   } catch (error) {

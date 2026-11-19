@@ -16,6 +16,22 @@ const setup = (supplier = aSupplier(), over: Parameters<typeof fakeApi>[0] = {},
 };
 
 describe("Automatic checks panel", () => {
+  it("offers keep login alive: off, or every 15, 30, 45, 60 or 120 minutes, and sends the choice", async () => {
+    const { api, user } = setup();
+    const keep = await screen.findByLabelText("Keep login alive");
+    expect(keep).toHaveValue("off");
+    expect([...(keep as HTMLSelectElement).options].map((o) => o.value)).toEqual(["off", "15", "30", "45", "60", "120"]);
+    expect(screen.getByText(/so it does not log you out\. Only inside the hours above\./)).toBeInTheDocument();
+    await user.selectOptions(keep, "30");
+    await user.click(screen.getByRole("button", { name: "Save automatic checks" }));
+    expect(api.schedule.set).toHaveBeenCalledWith(aSupplier().id, { intervalMinutes: null, window: { start: "07:00", end: "22:00" }, keepAliveMinutes: 30 });
+  });
+
+  it("shows the saved keep-alive", async () => {
+    setup(aSupplier({ keepAliveMinutes: 45 }));
+    expect(await screen.findByLabelText("Keep login alive")).toHaveValue("45");
+  });
+
   it("starts off, with the quiet hours filled in with the default 07:00 to 22:00", async () => {
     setup();
     expect(await screen.findByLabelText("How often")).toHaveValue("off");
@@ -28,7 +44,7 @@ describe("Automatic checks panel", () => {
     const { api, user } = setup();
     await user.selectOptions(await screen.findByLabelText("How often"), "1440");
     await user.click(screen.getByRole("button", { name: "Save automatic checks" }));
-    expect(api.schedule.set).toHaveBeenCalledWith(aSupplier().id, { intervalMinutes: 1440, window: { start: "07:00", end: "22:00" } });
+    expect(api.schedule.set).toHaveBeenCalledWith(aSupplier().id, { intervalMinutes: 1440, window: { start: "07:00", end: "22:00" }, keepAliveMinutes: null });
     expect(await screen.findByText("Automatic checks saved.")).toBeInTheDocument();
   });
 
@@ -38,7 +54,7 @@ describe("Automatic checks panel", () => {
     await user.click(screen.getByLabelText("Any time of day"));
     expect(screen.getByLabelText("From")).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "Save automatic checks" }));
-    expect(api.schedule.set).toHaveBeenCalledWith(aSupplier().id, { intervalMinutes: 360, window: null });
+    expect(api.schedule.set).toHaveBeenCalledWith(aSupplier().id, { intervalMinutes: 360, window: null, keepAliveMinutes: null });
   });
 
   it("shows the saved settings of a supplier that is on, and sends off as null", async () => {
@@ -50,7 +66,7 @@ describe("Automatic checks panel", () => {
     expect(await screen.findByText(/Next check:/)).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("How often"), "off");
     await user.click(screen.getByRole("button", { name: "Save automatic checks" }));
-    expect(api.schedule.set).toHaveBeenCalledWith(supplier.id, { intervalMinutes: null, window: { start: "08:00", end: "20:00" } });
+    expect(api.schedule.set).toHaveBeenCalledWith(supplier.id, { intervalMinutes: null, window: { start: "08:00", end: "20:00" }, keepAliveMinutes: null });
   });
 
   it("shows any time of day ticked for a supplier that is on with no window", async () => {
@@ -95,5 +111,18 @@ describe("Automatic checks panel", () => {
   it("says plainly when there are no runs yet", async () => {
     setup();
     expect(await screen.findByText("No checks have run yet.")).toBeInTheDocument();
+  });
+});
+
+describe("checks every 15 or 30 minutes", () => {
+  it("offers both, and saves 15 minutes", async () => {
+    const api = fakeApi();
+    render(<SchedulePanel api={api} supplier={aSupplier()} />);
+    const often = await screen.findByLabelText("How often");
+    expect([...(often as HTMLSelectElement).options].map((o) => o.text)).toEqual(expect.arrayContaining(["Every 15 minutes", "Every 30 minutes"]));
+    const user = userEvent.setup();
+    await user.selectOptions(often, "15");
+    await user.click(screen.getByRole("button", { name: "Save automatic checks" }));
+    expect(api.schedule.set).toHaveBeenCalledWith(aSupplier().id, expect.objectContaining({ intervalMinutes: 15 }));
   });
 });

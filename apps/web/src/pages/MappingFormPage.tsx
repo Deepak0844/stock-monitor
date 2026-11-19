@@ -10,11 +10,11 @@ import { PageHeader } from "../components/PageHeader.js";
 import { Link, navigate } from "../router.js";
 import { useTitle } from "../useTitle.js";
 
-type Field = "variant" | "supplier" | "url" | "note" | "region";
+type Field = "variant" | "supplier" | "url" | "note" | "region" | "supplierOption";
 type Errors = Partial<Record<Field, string>>;
 type Load = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; mapping: Mapping | null };
 
-const ORDER: Field[] = ["variant", "supplier", "url", "note", "region"];
+const ORDER: Field[] = ["variant", "supplier", "url", "note", "region", "supplierOption"];
 const FIELD_OF_CODE: Record<string, Field> = {
   variant_not_found: "variant",
   already_mapped: "variant",
@@ -23,6 +23,7 @@ const FIELD_OF_CODE: Record<string, Field> = {
   wrong_site: "url",
   invalid_note: "note",
   invalid_region: "region",
+  invalid_supplier_option: "supplierOption",
 };
 const message = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong. Please try again.");
 
@@ -86,6 +87,7 @@ function MappingForm({ api, mapping }: { api: Api; mapping: Mapping | null }) {
   const [url, setUrl] = useState(mapping?.url ?? "");
   const [note, setNote] = useState(mapping?.note ?? "");
   const [region, setRegion] = useState(mapping?.region ?? "");
+  const [supplierOption, setSupplierOption] = useState(mapping?.supplierOption ?? "");
   const [find, setFind] = useState("");
   const [variants, setVariants] = useState<UnmappedVariant[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -98,6 +100,7 @@ function MappingForm({ api, mapping }: { api: Api; mapping: Mapping | null }) {
     url: useRef<HTMLInputElement>(null),
     note: useRef<HTMLInputElement>(null),
     region: useRef<HTMLInputElement>(null),
+    supplierOption: useRef<HTMLInputElement>(null),
   };
 
   useEffect(() => {
@@ -131,13 +134,14 @@ function MappingForm({ api, mapping }: { api: Api; mapping: Mapping | null }) {
     setSaving(true);
     try {
       if (mapping) {
-        const patch: { url?: string; note?: string | null; region?: string | null } = {};
+        const patch: { url?: string; note?: string | null; region?: string | null; supplierOption?: string | null } = {};
         if (trimmed !== mapping.url) patch.url = trimmed;
         if ((note.trim() || null) !== mapping.note) patch.note = note.trim() || null;
         if ((region.trim() || null) !== mapping.region) patch.region = region.trim() || null;
+        if ((supplierOption.trim() || null) !== mapping.supplierOption) patch.supplierOption = supplierOption.trim() || null;
         if (Object.keys(patch).length > 0) await api.mappings.update(mapping.id, patch);
       } else {
-        await api.mappings.create({ variantId, supplierId, url: trimmed, note: note.trim() || null, ...(region.trim() ? { region: region.trim() } : {}) });
+        await api.mappings.create({ variantId, supplierId, url: trimmed, note: note.trim() || null, ...(region.trim() ? { region: region.trim() } : {}), ...(supplierOption.trim() ? { supplierOption: supplierOption.trim() } : {}) });
       }
       navigate("/mappings");
     } catch (error) {
@@ -212,6 +216,22 @@ function MappingForm({ api, mapping }: { api: Api; mapping: Mapping | null }) {
         hint="For suppliers that list stock by region: the region's name as the supplier writes it. Left empty, the supplier's default region is used."
       >
         <Input id="region" ref={refs.region as React.RefObject<HTMLInputElement>} type="text" autoComplete="off" value={region} onChange={(e) => setRegion(e.target.value)} {...described("region")} />
+      </Field>
+      <Field
+        id="supplierOption"
+        label="Option on the supplier's page (optional)"
+        error={errors.supplierOption}
+        hint="Only needed when the supplier's page lists several sizes or colours with different stock. Copy the option name or the supplier's SKU from the saved page."
+      >
+        <Input
+          id="supplierOption"
+          ref={refs.supplierOption as React.RefObject<HTMLInputElement>}
+          type="text"
+          autoComplete="off"
+          value={supplierOption}
+          onChange={(e) => setSupplierOption(e.target.value)}
+          {...described("supplierOption")}
+        />
       </Field>
 
       {formError && (

@@ -201,3 +201,18 @@ describe("the live window is as guarded as a check", () => {
     expect(service.loginPage()).toBeNull();
   });
 });
+
+describe("stealth in the controlled window", () => {
+  it("opens the window as usual and says in the log that stealth needs the plain window", async () => {
+    const logs: string[] = [];
+    const svc = await startBrowserService({ ...options(), log: (line) => logs.push(line) });
+    try {
+      const res = await call(svc, "POST", "/sessions", { url: `${site.url}/login`, stealth: true });
+      expect(res.status).toBe(201);
+      expect(logs).toContain("stealth ignored: the live window needs LOGIN_WINDOW_MODE=plain");
+      await call(svc, "DELETE", `/sessions/${((await res.json()) as { id: string }).id}`);
+    } finally {
+      await svc.close();
+    }
+  });
+});

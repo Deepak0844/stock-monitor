@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyPage, type PageFacts } from "./classify.js";
+import { classifyPage, explainPage, type PageFacts } from "./classify.js";
 import { fixtures } from "../test/fixtures.js";
 
 describe("classifyPage on saved example pages", () => {
@@ -75,5 +75,53 @@ describe("classifyPage details", () => {
   it("ignores warning wording buried in a long page, but not in the title", () => {
     expect(classifyPage(at({ text: `${"Acme wholesale catalogue. ".repeat(200)} access denied` }))).toBe("ok");
     expect(classifyPage(at({ title: "Access denied", text: "Acme wholesale catalogue. ".repeat(200) }))).toBe("blocked");
+  });
+});
+
+describe("classifyPage for a supplier whose pages need no login", () => {
+  const at = (over: Partial<NonNullable<PageFacts["page"]>>, extra: Partial<PageFacts> = {}): PageFacts => ({
+    requestedUrl: "https://shop.acme.example/p/tee",
+    page: { finalUrl: "https://shop.acme.example/p/tee", status: 200, title: "Blue Tee", text: `Blue Tee. Please log in to see prices. ${"Soft cotton. ".repeat(30)}`, hasPasswordField: false, hasChallengeWidget: false, ...over },
+    ...extra,
+  });
+
+  it("does not take login wording on a public page as a login wall", () => {
+    expect(classifyPage(at({}))).toBe("login_required");
+    expect(classifyPage(at({}, { publicPage: true }))).toBe("ok");
+  });
+
+  it("still knows a real login page: a password box, a login address, a login title, or 401", () => {
+    expect(classifyPage(at({ hasPasswordField: true }, { publicPage: true }))).toBe("login_required");
+    expect(classifyPage(at({ finalUrl: "https://shop.acme.example/account/login" }, { publicPage: true }))).toBe("login_required");
+    expect(classifyPage(at({ title: "Please log in" }, { publicPage: true }))).toBe("login_required");
+    expect(classifyPage(at({ status: 401 }, { publicPage: true }))).toBe("login_required");
+  });
+});
+
+describe("classifyPage with a logged-in marker", () => {
+  const at = (over: Partial<NonNullable<PageFacts["page"]>>, extra: Partial<PageFacts> = {}): PageFacts => ({
+    requestedUrl: "https://shop.acme.example/a",
+    page: { finalUrl: "https://shop.acme.example/a", status: 200, title: "Acme", text: "Acme wholesale catalogue. ".repeat(30), hasPasswordField: false, hasChallengeWidget: false, ...over },
+    ...extra,
+  });
+
+  it("calls a page that looks ok, but lacks the marker, a login page", () => {
+    expect(explainPage(at({}, { loggedInMarker: "Log out" }))).toEqual({ result: "login_required", signal: "marker_missing" });
+  });
+
+  it("finds the marker whatever its case and spacing", () => {
+    const text = `${"Acme wholesale catalogue. ".repeat(30)} LOG\n   OUT`;
+    expect(explainPage(at({ text }, { loggedInMarker: "  log  out " }))).toEqual({ result: "ok", signal: "looks_real" });
+  });
+
+  it("checks the other rules first: a puzzle page with a marker set is still a puzzle", () => {
+    expect(classifyPage(at({ hasChallengeWidget: true }, { loggedInMarker: "Log out" }))).toBe("captcha");
+    expect(classifyPage(at({ status: 429 }, { loggedInMarker: "Log out" }))).toBe("blocked");
+    expect(classifyPage(at({ text: "short" }, { loggedInMarker: "Log out" }))).toBe("unknown");
+  });
+
+  it("changes nothing when no marker is set", () => {
+    expect(explainPage(at({}))).toEqual({ result: "ok", signal: "looks_real" });
+    expect(explainPage(at({}, { loggedInMarker: "" }))).toEqual({ result: "ok", signal: "looks_real" });
   });
 });

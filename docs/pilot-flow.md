@@ -35,13 +35,27 @@ The supplier's terms decide whether automatic checks are allowed. This is your c
 
 ## Phase 3. Add the supplier and log in
 
+**Suppliers without a login.** Many suppliers show stock on their product pages to anyone. Open a product page in a private
+window, press View Source (⌘⌥U on a Mac, Ctrl+U elsewhere) and search for `availability`. If you find
+`"availability": "https://schema.org/InStock"` (or `OutOfStock` on a sold-out product), the supplier needs no login: add it,
+open its **Edit** page and turn **Needs a login** off. Skip steps 2 to 6 below. The app then checks it with no saved login,
+no automatic login and no keep-alive, and the supplier list shows **No login needed**. Keep it on if the supplier hides stock
+until you log in. Turning it off also lifts a pause the app made because the login needed attention.
+
+Such a supplier needs no Stock rules to start: it is checked from its built-in stock data at once. Those answers show on
+**Links** but are **not sent to Shopify** until you confirm them: on **Stock rules**, label one in-stock and one out-of-stock
+saved page, test, save and turn the version on.
+
 1. Open **Suppliers**, then **Add supplier**.
-   - **Name:** use exactly the name your Shopify export holds for this supplier (see Phase 4). Capitals do not matter.
+   - **Name:** how you want to see the supplier in the app.
+   - **Name in Shopify (optional):** the supplier name your Shopify products use (`custom.supplier_name`, and the supplier
+     column of a Shopify export). Leave it empty if it is the same as **Name**. Products are matched by this name when it is
+     filled in, else by **Name**. Capitals and spaces do not matter, and no two suppliers may share the name they match on.
    - **Website address:** the supplier's site, starting with `https://`.
    - **Login address:** only if the login page is somewhere else.
    - Save.
 2. On the supplier's row press **Connect**. A live window opens, showing the supplier's real site.
-3. Log in yourself, as you normally would. Solve any puzzle or code. Click inside the window to type. To paste a password, use **Paste text**, then **Send to the window**, click the field, press Ctrl+V.
+3. Log in yourself, as you normally would. Solve any puzzle or code. Click inside the window to type. Ctrl+V (⌘V on a Mac) in the window pastes what you copied on your computer, and copying in the window copies to your computer. If your browser blocks that, a **Paste text** box appears: put the text in it, press **Send to the window**, click the field, press Ctrl+V. On a phone, press **Keyboard** to type.
 4. When you see you are logged in, press **I'm logged in**. You have 15 minutes. Cancel or timeout saves nothing.
 5. The supplier must show **Connected** after a few seconds. Press **Check connection** to confirm.
    - **Blocked:** the supplier's bot protection refused the automatic check. The app will not retry it. Options: ask the supplier for a feed, or leave it paused.
@@ -170,16 +184,56 @@ How a rule matches:
 - **Button rule:** matches when any button's label **contains** your words. Optionally the button must be **Enabled** or **Disabled**. **Either** ignores that.
 - **Only under this heading (optional):** limits the rule to one part of the page. The app finds the **first** heading that contains your words, then looks at that section and the sub-sections below it, up to the next heading of the same or higher level. If no heading matches, the rule finds nothing.
 
+### Quick reads, retries and the pause
+
+For a supplier that needs no login, a stock check first downloads only the page's HTML (no browser, about a second, almost
+no memory) and reads its built-in stock data. When that gives a clear In stock or Out of stock, that is the answer. In every
+other case (the site refused the download or answered slowly, the page has no built-in data, the options are unclear, it
+looks like a login page, or your rules need page checks or a region) the same page is checked with the browser, as before.
+Nothing has to be set up. A supplier with **Hide automation (stealth)** on is always checked with the browser. The link's
+history says **Read quickly** or **Read with the browser**.
+
+A page that cannot be loaded at all (no answer, a timeout, a server error) is tried **3 times**, waiting 5 then 15 seconds,
+before its answer is **Cannot tell**. A login page, a puzzle or a block is never retried.
+
+Turning **Needs a login** off starts the pause between pages at **3 seconds** (if you had not changed it from 10). The pause
+keeps the supplier's site from seeing a burst of requests; 2-3 seconds is a good value for public pages. If a supplier starts
+refusing checks, raise it again.
+
+Automatic checks can now run **every 15 or 30 minutes** as well.
+
+### Built-in stock data
+
+Most shops put each product's stock in data built into the page for search engines (schema.org `availability`). With
+**Use the stock data built into the supplier's pages** on (the default for a new supplier's first rules), the app reads that
+first:
+
+- `InStock`, `LimitedAvailability`, `OnlineOnly`: **In stock**.
+- `OutOfStock`, `SoldOut`, `Discontinued`: **Out of stock**.
+- `PreOrder`, `PreSale`, `BackOrder`, `MadeToOrder`: what you choose in **Pre-order and back-order count as** (Out of stock by default).
+- Anything else: not clear, so your word rules decide.
+
+If the data is missing or unclear, your word rules (below) decide. With no word rules, a page without built-in data is
+**Cannot tell** ("page changed"). Page checks are optional while built-in data is on.
+
+A page can list several options (sizes, colours) with different stock. The app picks the option whose address matches the
+link's `?variant=` value. If the link has no `?variant=`, set **Option on the supplier's page** on the link (the option name
+or the supplier's SKU, as the saved page lists them). Without a clear match the answer is **Cannot tell**, never a guess.
+
+Saved pages captured before this feature have no built-in data: capture them again. To turn on rules that use built-in data,
+label at least one in-stock and one out-of-stock saved page, so data that never changes cannot pass.
+
 How the answer is decided, in this order:
 
 1. **Page checks.** Every one must match. If any is missing, the answer is **Cannot tell** ("page changed").
 2. **Region** (only if you turned it on and a region is set): the answer comes from the region's number. See example 4.
-3. **In stock when / Out of stock when:** any one rule in a list matching counts.
+3. **Built-in data** (only if it is on): a clear value answers. See "Built-in stock data" above.
+4. **In stock when / Out of stock when:** any one rule in a list matching counts.
    - Only in-stock matches: **In stock**.
    - Only out-of-stock matches: **Out of stock**.
    - Both match: **Cannot tell** ("rules disagree").
    - Neither matches: **Cannot tell**, unless a quantity was read. Then a number above 0 means In stock and 0 means Out of stock.
-4. **Quantity** is a cross-check. If the words say in stock but the number is 0 (or the reverse), the answer is **Cannot tell** ("quantity and wording disagree").
+5. **Quantity** is a cross-check. If the words say in stock but the number is 0 (or the reverse), the answer is **Cannot tell** ("quantity and wording disagree").
 
 So the app says In stock or Out of stock only when the rules agree clearly. Everything else is Cannot tell, and Cannot tell is never turned into a stock change.
 
@@ -332,6 +386,6 @@ What happens:
 ## Rules to keep during the pilot
 
 - Check the terms and record **Allowed** before anything is visited.
-- Never ask the app to solve a puzzle or hide that it is a program. It does neither.
+- Never ask the app to solve a puzzle. It never does. It does not hide that it is a program unless you switch on **Hide automation (stealth)** for a supplier that refuses the normal login. Use that switch only where the terms allow it: a supplier whose terms forbid automated access can ban the account whether or not it is hidden.
 - Start with one supplier and one link, then a few, then all.
 - Never put supplier names or addresses in files that go into the repository.

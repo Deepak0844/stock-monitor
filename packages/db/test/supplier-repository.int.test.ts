@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { startTestDb, type TestDb } from "./harness.js";
 import { createSupplierRepository, type SupplierInput } from "../src/supplier-repository.js";
+import { createNotificationRepository } from "../src/notification-repository.js";
+import { createSupplierCredentialsRepository } from "../src/supplier-credentials-repository.js";
 
 let t: TestDb;
 // Runs as the restricted app role, like the API.
@@ -196,5 +198,212 @@ describe("supplier repository: early session check", () => {
     const forRun = new Date("2026-11-13T10:15:30.123Z");
     await repo().markPrecheckQueued(s.id, forRun);
     expect((await repo().get(s.id))?.sessionPrecheckFor).toEqual(forRun);
+  });
+});
+
+describe("supplier repository: automatic login", () => {
+  const creds = { ciphertext: "c", iv: "i", tag: "t", keyId: "k" };
+  const grant = (id: string) => repo().setPermission(id, { status: "granted", note: null });
+  const save = (id: string) => createSupplierCredentialsRepository(t.appDb).save(id, creds);
+
+  it("needs permission, then credentials, to turn auto login on", async () => {
+    const s = await made();
+    expect(await repo().setAutoLogin(s.id, { autoLogin: true })).toEqual({ ok: false, reason: "not_granted" });
+    await grant(s.id);
+    expect(await repo().setAutoLogin(s.id, { autoLogin: true })).toEqual({ ok: false, reason: "no_credentials" });
+    await save(s.id);
+    const r = await repo().setAutoLogin(s.id, { autoLogin: true, stealth: true, loginSelectors: { username: "#u" } });
+    expect(r).toMatchObject({ ok: true, supplier: { autoLogin: true, stealth: true, loginSelectors: { username: "#u" } } });
+  });
+
+  it("saves and clears the logged-in marker, which needs no permission, and keeps it to 1 to 200 characters", async () => {
+    const s = await made();
+    expect(s.loggedInMarker).toBeNull();
+    expect(await repo().setAutoLogin(s.id, { loggedInMarker: "Log out" })).toMatchObject({ ok: true, supplier: { loggedInMarker: "Log out" } });
+    expect((await repo().get(s.id))?.loggedInMarker).toBe("Log out");
+    expect(await repo().setAutoLogin(s.id, { loggedInMarker: null })).toMatchObject({ ok: true, supplier: { loggedInMarker: null } });
+    await expect(t.pool.query("update suppliers set logged_in_marker = '' where id = $1", [s.id])).rejects.toThrow(/suppliers_logged_in_marker/);
+    await expect(t.pool.query("update suppliers set logged_in_marker = repeat('m', 201) where id = $1", [s.id])).rejects.toThrow(/suppliers_logged_in_marker/);
+  });
+
+  it("pauses after two failed logins in a row", async () => {
+    const s = await made();
+    expect((await repo().recordAutoLogin(s.id, "captcha", "failed")).autoLoginPausedReason).toBeNull();
+    const r = await repo().recordAutoLogin(s.id, "captcha", "failed");
+    expect(r).toMatchObject({ autoLoginFailures: 2, autoLoginPausedReason: "too_many_failures", lastAutoLoginResult: "captcha" });
+    expect(r.lastAutoLoginAt).toBeInstanceOf(Date);
+  });
+
+  it("pauses at once for a wrong password or a locked account", async () => {
+    const a = await made();
+    expect((await repo().recordAutoLogin(a.id, "wrong_password", "pause_wrong_password")).autoLoginPausedReason).toBe("wrong_password");
+    const b = await made(globex);
+    expect((await repo().recordAutoLogin(b.id, "account_locked", "pause_account_locked")).autoLoginPausedReason).toBe("account_locked");
+  });
+
+  it("reset zeroes failures and unchanged keeps them", async () => {
+    const s = await made();
+    await repo().recordAutoLogin(s.id, "captcha", "failed");
+    expect((await repo().recordAutoLogin(s.id, "unreachable", "unchanged")).autoLoginFailures).toBe(1);
+    expect((await repo().recordAutoLogin(s.id, "ok", "reset")).autoLoginFailures).toBe(0);
+  });
+
+  it("resume clears failures and pause", async () => {
+    const s = await made();
+    await repo().recordAutoLogin(s.id, "wrong_password", "pause_wrong_password");
+    expect(await repo().resumeAutoLogin(s.id)).toBe(true);
+    expect(await repo().get(s.id)).toMatchObject({ autoLoginFailures: 0, autoLoginPausedReason: null });
+  });
+
+  it("resume also lifts a pause the app made because the session needed attention", async () => {
+    const s = await made();
+    await repo().recordAutoLogin(s.id, "wrong_password", "pause_wrong_password");
+    await repo().markNeedsAttention(s.id, "needs_reconnect");
+    expect(await repo().resumeAutoLogin(s.id)).toBe(true);
+    expect(await repo().get(s.id)).toMatchObject({ enabled: true, pausedReason: null, sessionStatus: "needs_reconnect" });
+  });
+
+  it("resume leaves a pause the owner made", async () => {
+    const s = await made();
+    await repo().recordAutoLogin(s.id, "wrong_password", "pause_wrong_password");
+    await repo().pause(s.id);
+    expect(await repo().resumeAutoLogin(s.id)).toBe(true);
+    expect(await repo().get(s.id)).toMatchObject({ enabled: false, pausedReason: "owner", autoLoginPausedReason: null });
+  });
+
+  it("a live-window login (markConnected) clears the failures and the pause", async () => {
+    const s = await made();
+    await repo().recordAutoLogin(s.id, "wrong_password", "pause_wrong_password");
+    await repo().markConnected(s.id);
+    expect(await repo().get(s.id)).toMatchObject({ autoLoginFailures: 0, autoLoginPausedReason: null });
+  });
+
+  it("a plain session check (markVerified) keeps a wrong password pause", async () => {
+    const s = await made();
+    await repo().recordAutoLogin(s.id, "wrong_password", "pause_wrong_password");
+    await repo().markVerified(s.id);
+    expect(await repo().get(s.id)).toMatchObject({ autoLoginFailures: 1, autoLoginPausedReason: "wrong_password" });
+  });
+
+  it("turns auto login and stealth off when permission is revoked", async () => {
+    const s = await made();
+    await grant(s.id);
+    await save(s.id);
+    await repo().setAutoLogin(s.id, { autoLogin: true, stealth: true });
+    await repo().setPermission(s.id, { status: "not_granted", note: null });
+    expect(await repo().get(s.id)).toMatchObject({ autoLogin: false, stealth: false });
+  });
+});
+
+describe("supplier repository: keep login alive", () => {
+  it("stores the keep-alive interval with the schedule, keeps it when left out, and lists the suppliers that have it", async () => {
+    const s = await made();
+    const set = await repo().setSchedule(s.id, { intervalMinutes: null, window: null, nextCheckAt: null, keepAliveMinutes: 30 });
+    expect(set).toMatchObject({ keepAliveMinutes: 30, keepAliveNextAt: null });
+    await repo().setKeepAliveNext(s.id, new Date("2026-11-18T10:00:00Z"));
+    expect((await repo().get(s.id))?.keepAliveNextAt).toEqual(new Date("2026-11-18T10:00:00Z"));
+    const again = await repo().setSchedule(s.id, { intervalMinutes: 60, window: null, nextCheckAt: null });
+    expect(again).toMatchObject({ keepAliveMinutes: 30, keepAliveNextAt: new Date("2026-11-18T10:00:00Z") });
+    expect((await repo().keepingAlive()).map((x) => x.id)).toEqual([s.id]);
+    await repo().setSchedule(s.id, { intervalMinutes: 60, window: null, nextCheckAt: null, keepAliveMinutes: null });
+    expect(await repo().keepingAlive()).toEqual([]);
+  });
+
+  it("refuses an interval that is not one of the choices", async () => {
+    const s = await made();
+    await expect(repo().setSchedule(s.id, { intervalMinutes: null, window: null, nextCheckAt: null, keepAliveMinutes: 20 })).rejects.toThrow();
+  });
+});
+
+describe("supplier repository: needs a login", () => {
+  it("a new supplier needs a login", async () => expect((await made()).needsLogin).toBe(true));
+
+  it("needs-login can be turned off and on again", async () => {
+    const s = await made();
+    expect((await repo().setNeedsLogin(s.id, false))?.needsLogin).toBe(false);
+    expect((await repo().get(s.id))?.needsLogin).toBe(false);
+    expect((await repo().setNeedsLogin(s.id, true))?.needsLogin).toBe(true);
+  });
+
+  it("keep-alive never lists a supplier that needs no login", async () => {
+    const s = await made();
+    await repo().setSchedule(s.id, { intervalMinutes: null, window: null, nextCheckAt: null, keepAliveMinutes: 30 });
+    await repo().setNeedsLogin(s.id, false);
+    expect(await repo().keepingAlive()).toEqual([]);
+  });
+});
+
+describe("supplier repository: turning the login off", () => {
+  const notes = () => createNotificationRepository(t.appDb);
+  it("lifts a pause the app made for the login, and resolves its notice", async () => {
+    const s = await made();
+    await repo().markNeedsAttention(s.id, "needs_reconnect");
+    await notes().raise({ kind: "supplier_needs_reconnect", supplierId: s.id, message: "Log in again.", reason: "login_required" });
+    expect(await repo().setNeedsLogin(s.id, false)).toMatchObject({ needsLogin: false, enabled: true, pausedReason: null });
+    expect((await notes().listOpen()).filter((n) => n.supplierId === s.id)).toEqual([]);
+  });
+
+  it("keeps a pause the owner made", async () => {
+    const s = await made();
+    await repo().pause(s.id);
+    expect(await repo().setNeedsLogin(s.id, false)).toMatchObject({ enabled: false, pausedReason: "owner" });
+  });
+
+  it("turning the login on again changes no pause", async () => {
+    const s = await made();
+    await repo().setNeedsLogin(s.id, false);
+    await repo().pause(s.id);
+    expect(await repo().setNeedsLogin(s.id, true)).toMatchObject({ needsLogin: true, enabled: false, pausedReason: "owner" });
+  });
+
+  it("filters suppliers that need no login apart from the not connected ones", async () => {
+    const a = await made();
+    const g = await made(globex);
+    await repo().setNeedsLogin(g.id, false);
+    expect((await repo().page({ page: 1, pageSize: 10, status: "not_connected" })).items.map((s) => s.id)).toEqual([a.id]);
+    expect((await repo().page({ page: 1, pageSize: 10, status: "no_login" })).items.map((s) => s.id)).toEqual([g.id]);
+    await repo().pause(g.id);
+    expect((await repo().page({ page: 1, pageSize: 10, status: "no_login" })).items).toEqual([]);
+    expect((await repo().page({ page: 1, pageSize: 10, status: "paused" })).items.map((s) => s.id)).toEqual([g.id]);
+  });
+});
+
+describe("supplier repository: quick checks", () => {
+  it("accepts checks every 15 or 30 minutes, and still refuses other intervals", async () => {
+    const s = await made();
+    expect(await repo().setSchedule(s.id, { intervalMinutes: 15, window: null, nextCheckAt: null })).toMatchObject({ scheduleIntervalMinutes: 15 });
+    expect(await repo().setSchedule(s.id, { intervalMinutes: 30, window: null, nextCheckAt: null })).toMatchObject({ scheduleIntervalMinutes: 30 });
+    await expect(repo().setSchedule(s.id, { intervalMinutes: 20, window: null, nextCheckAt: null })).rejects.toThrow();
+  });
+
+  it("turning the login off starts the pause at 3 seconds, but keeps a pause the owner set", async () => {
+    const s = await made();
+    expect((await repo().setNeedsLogin(s.id, false))?.checkPauseSeconds).toBe(3);
+    expect((await repo().setNeedsLogin(s.id, true))?.checkPauseSeconds).toBe(3);
+    const g = await made(globex);
+    await t.pool.query("update suppliers set check_pause_seconds = 7 where id = $1", [g.id]);
+    expect((await repo().setNeedsLogin(g.id, false))?.checkPauseSeconds).toBe(7);
+  });
+});
+
+describe("supplier repository: name in Shopify", () => {
+  it("keeps an optional name in Shopify, and clears it", async () => {
+    const s = await made();
+    expect(s.shopifyName).toBeNull();
+    const set = await repo().update(s.id, { shopifyName: "Acme Trading Ltd" });
+    expect(set.ok && set.supplier.shopifyName).toBe("Acme Trading Ltd");
+    const cleared = await repo().update(s.id, { shopifyName: null });
+    expect(cleared.ok && cleared.supplier.shopifyName).toBeNull();
+    const created = await repo().create({ ...globex, shopifyName: "Globex Trading" });
+    expect(created.ok && created.supplier.shopifyName).toBe("Globex Trading");
+  });
+
+  it("refuses two suppliers with the same name for matching, whichever field it comes from", async () => {
+    const a = await made(); // "Acme Supply"
+    const g = await made(globex);
+    expect(await repo().update(g.id, { shopifyName: "acme supply" })).toEqual({ ok: false, reason: "shopify_name_taken" });
+    await repo().update(a.id, { shopifyName: "Acme Wholesale" });
+    expect((await repo().update(g.id, { shopifyName: "ACME WHOLESALE" })).ok).toBe(false);
+    expect((await repo().update(g.id, { shopifyName: "Acme Supply" })).ok).toBe(true); // Acme's match name is now "Acme Wholesale"
   });
 });

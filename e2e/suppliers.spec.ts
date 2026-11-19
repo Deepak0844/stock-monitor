@@ -29,7 +29,7 @@ async function openSuppliers(page: Page) {
 }
 
 async function addSupplier(page: Page, name: string, website = "https://shop.acme.example/") {
-  await page.getByLabel("Name").fill(name);
+  await page.getByLabel("Name", { exact: true }).fill(name);
   await page.getByLabel("Website address").fill(website);
   await page.getByRole("button", { name: "Add supplier" }).click();
 }
@@ -73,8 +73,8 @@ test("the Suppliers page starts empty, then an owner can add, edit, pause, resum
   await expect(page.getByRole("row", { name: /Acme Supply/ })).toContainText("Not connected");
 
   await rowMenu(page, "Acme Supply", "Edit");
-  await expect(page.getByLabel("Name")).toHaveValue("Acme Supply");
-  await page.getByLabel("Name").fill("Acme Ltd");
+  await expect(page.getByLabel("Name", { exact: true })).toHaveValue("Acme Supply");
+  await page.getByLabel("Name", { exact: true }).fill("Acme Ltd");
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect(page.getByRole("row", { name: /Acme Ltd/ })).toBeVisible();
 
@@ -112,14 +112,14 @@ test("each problem with a supplier is explained in plain words beside its own fi
   await expect(page).toHaveURL(/\/suppliers\/new$/);
 
   await page.getByLabel("Website address").fill("https://ok.example/");
-  await page.getByLabel("Name").fill("First");
+  await page.getByLabel("Name", { exact: true }).fill("First");
   await page.getByRole("button", { name: "Add supplier" }).click();
   await expect(page.getByRole("row", { name: /First/ })).toBeVisible();
 
   await page.goto("/suppliers/new");
   await addSupplier(page, "first", "https://other.example/");
   await expect(page.getByText("You already have a supplier with that name.")).toBeVisible();
-  await expect(page.getByLabel("Name")).toBeFocused();
+  await expect(page.getByLabel("Name", { exact: true })).toBeFocused();
 });
 
 test("an address for a supplier that does not exist says so, with a way back", async ({ page }) => {
@@ -145,7 +145,7 @@ test("the supplier screens pass the accessibility scan in light and dark, and ne
     await expect(page.getByText("Enter a name for the supplier.")).toBeVisible();
     await scan(page, `${scheme} form, with messages`);
 
-    await page.getByLabel("Name").fill("Acme Supply");
+    await page.getByLabel("Name", { exact: true }).fill("Acme Supply");
     await page.getByLabel("Website address").fill("https://shop.acme.example/");
     await page.getByRole("button", { name: "Add supplier" }).click();
     await expect(page.getByRole("row", { name: /Acme Supply/ })).toBeVisible(); // saved, so going on cannot cancel it
@@ -163,7 +163,7 @@ test("the supplier screens pass the accessibility scan in light and dark, and ne
     await page.getByRole("button", { name: "Cancel" }).click();
 
     await rowMenu(page, "Acme Supply", "Edit");
-    await expect(page.getByLabel("Name")).toHaveValue("Acme Supply");
+    await expect(page.getByLabel("Name", { exact: true })).toHaveValue("Acme Supply");
     await scan(page, `${scheme} form, editing`);
 
     for (const path of ["/suppliers", "/suppliers/new"]) {
@@ -276,11 +276,22 @@ test("pressing I'm logged in with nothing to save says so, and Try again opens a
   await expect(liveCanvas(page)).toBeVisible({ timeout: 20_000 });
 });
 
+/** Makes the browser refuse to read the clipboard, as when the owner said no, then presses Ctrl+V in the window. That shows the Paste text box. */
+async function blockPaste(page: Page) {
+  await page.evaluate(() => {
+    navigator.clipboard.readText = () => Promise.reject(new DOMException("blocked", "NotAllowedError"));
+  });
+  await liveCanvas(page).click();
+  await page.keyboard.press("ControlOrMeta+V");
+}
+
 test("text can be sent to the window, and is cleared from the box afterwards", async ({ page }) => {
   await signIn(page);
   const supplier = await addViaApi(page);
   await page.goto(supplier.url);
   await expect(liveCanvas(page)).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByLabel("Paste text")).toHaveCount(0);
+  await blockPaste(page);
   await page.getByLabel("Paste text").fill("pasted-from-manager");
   await page.getByRole("button", { name: "Send to the window" }).click();
   await expect(page.getByText(/Sent\. Now click the field in the window and press Ctrl\+V\./)).toBeVisible();
@@ -511,6 +522,7 @@ test("no session, token or screen password is in any page, response, console mes
   await snapshot();
   const token = frames[0] ?? "";
   expect(token).toMatch(/^[0-9a-f]{64}$/);
+  await blockPaste(page);
   await page.getByLabel("Paste text").fill("typed-secret-1234");
   await page.getByRole("button", { name: "Send to the window" }).click();
   await snapshot();

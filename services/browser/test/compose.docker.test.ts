@@ -64,7 +64,7 @@ type Service = {
   cap_drop?: string[];
   cap_add?: string[];
   read_only?: boolean;
-  volumes?: { type: string; source?: string }[];
+  volumes?: { type: string; source?: string; target?: string }[];
   environment?: Record<string, string>;
   mem_limit?: string | number;
   pids_limit?: number;
@@ -151,11 +151,15 @@ describe("the resolved configuration", () => {
     expect(b.ipc ?? "private").not.toBe("host"); // the host's shared memory is not opened to it
   });
 
-  it("limits memory and processes, and mounts no host folder or volume", () => {
+  it("limits memory and processes, mounts no host folder, and keeps only the browser profiles on a volume", () => {
     const b = config.services.browser!;
     expect(Number(b.mem_limit)).toBeGreaterThan(0);
     expect(b.pids_limit).toBeGreaterThan(0);
-    expect((b.volumes ?? []).filter((v) => v.type === "bind" || v.type === "volume")).toEqual([]);
+    expect((b.volumes ?? []).filter((v) => v.type === "bind")).toEqual([]);
+    expect((b.volumes ?? []).map(({ type, source, target }) => ({ type, source, target }))).toEqual([
+      { type: "volume", source: "browser-profiles", target: "/data/profiles" },
+    ]);
+    expect(b.environment?.PROFILE_DIR).toBe("/data/profiles");
   });
 
   it("gives the browser service the control token and no database credentials or encryption key", () => {

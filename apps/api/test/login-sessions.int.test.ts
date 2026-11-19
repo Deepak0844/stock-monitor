@@ -121,6 +121,13 @@ describe("starting a login", () => {
     expect(fake.requests[0]).toMatchObject({ method: "POST", path: "/sessions", auth: `Bearer ${FAKE_CONTROL_TOKEN}`, body: { url: "https://shop.acme.example/login" } });
   });
 
+  it("asks for a stealth window when the supplier has stealth on", async () => {
+    await supplierRepo().setPermission(acme, { status: "granted", note: null });
+    expect(await supplierRepo().setAutoLogin(acme, { stealth: true })).toMatchObject({ ok: true });
+    await start();
+    expect(fake.requests[0]?.body).toEqual({ url: "https://shop.acme.example/login", stealth: true });
+  });
+
   it("falls back to the website address when there is no login address", async () => {
     await start(globex);
     expect(fake.requests[0]?.body).toEqual({ url: "https://globex.example/" });
@@ -412,11 +419,11 @@ describe("deleting a supplier that has a login open", () => {
 });
 
 describe("the first check after a login, and checking by hand", () => {
-  it("queues a check of the supplier when a login is finished, carrying only the supplier's id", async () => {
+  it("queues a check of the supplier when a login is finished, carrying only the supplier's id and the after-login flag", async () => {
     fake.behaviour.state = sessionState;
     const { id } = await start();
     await call("POST", `/api/login-sessions/${id}/finish`);
-    expect(queued).toEqual([{ name: "supplier.session.verify", payload: { supplierId: acme } }]);
+    expect(queued).toEqual([{ name: "supplier.session.verify", payload: { supplierId: acme, afterLogin: true } }]);
     expect(JSON.stringify(queued)).not.toMatch(new RegExp(`${COOKIE}|${STORAGE}`));
   });
 
@@ -443,7 +450,8 @@ describe("the first check after a login, and checking by hand", () => {
     const r = await call("POST", `/api/suppliers/${acme}/check-session`);
     expect(r.status).toBe(202);
     expect(r.body).toEqual({ queued: true });
-    expect(queued).toEqual([{ name: "supplier.session.verify", payload: { supplierId: acme } }]);
+    // Only the owner's Check login button asks the worker to log in automatically.
+    expect(queued).toEqual([{ name: "supplier.session.verify", payload: { supplierId: acme, login: true } }]);
     expect(await audit("supplier.session_check_requested")).toEqual([expect.objectContaining({ actor_user_id: userId, entity_id: acme })]);
   });
 

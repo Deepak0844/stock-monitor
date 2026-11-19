@@ -82,6 +82,8 @@ export type ShopifyApi = {
 export type Supplier = {
   id: string;
   name: string;
+  /** The supplier name Shopify uses, when it differs from `name`. null: products match on `name`. */
+  shopifyName: string | null;
   websiteUrl: string;
   loginUrl: string | null;
   checkIntervalMinutes: number;
@@ -89,6 +91,8 @@ export type Supplier = {
   scheduleIntervalMinutes: number | null;
   scheduleWindowStart: string | null;
   scheduleWindowEnd: string | null;
+  /** Keep login alive: minutes between visits, null = off. */
+  keepAliveMinutes: number | null;
   nextCheckAt: string | null;
   enabled: boolean;
   sessionStatus: "not_connected" | "connected" | "needs_reconnect" | "blocked";
@@ -103,15 +107,37 @@ export type Supplier = {
   checkPauseSeconds: number;
   /** The region label stock checks look for on this supplier's pages, unless a link has its own. */
   defaultRegion: string | null;
+  /** False: the supplier's pages show stock without logging in, so checks use no login at all. */
+  needsLogin: boolean;
+  /** Log in for the owner before each check, with the saved username and password. */
+  autoLogin: boolean;
+  stealth: boolean;
+  /** The owner's own selectors for the login page. Only the keys that were set. */
+  loginSelectors: LoginSelectors | null;
+  /** Text that only shows when logged in. Set, a page without it counts as logged out. */
+  loggedInMarker: string | null;
+  /** Where this supplier's login-code emails come from, when not its website's domain. */
+  codeEmailFrom: string | null;
+  /** When a password was saved, never the password. */
+  credentialsSavedAt: string | null;
+  lastAutoLoginAt: string | null;
+  lastAutoLoginResult: AutoLoginResult | null;
+  autoLoginPausedReason: "wrong_password" | "account_locked" | "too_many_failures" | null;
   createdAt: string;
   updatedAt: string;
 };
+
+export type LoginSelectors = { open?: string; account?: string; username?: string; password?: string; submit?: string };
+export type AutoLoginResult = "ok" | "captcha" | "code_required" | "wrong_password" | "account_locked" | "blocked" | "form_not_found" | "unreachable" | "unknown";
+export type CredentialsInput = { username: string; password: string; account?: string };
 
 /** One run of checks for one supplier. Counts and a fixed stop code only. */
 export type CheckRun = {
   id: string;
   supplierId: string;
   trigger: "scheduled" | "manual";
+  /** `links` runs only check that each link still works, so their stock counts stay 0. */
+  kind: "stock" | "links";
   startedAt: string;
   endedAt: string | null;
   linksTotal: number;
@@ -122,6 +148,8 @@ export type CheckRun = {
   outcome: "running" | "finished" | "stopped" | "failed";
   stopReason: string | null;
 };
+/** A whole-supplier run that has just been started: how many links, and the run to follow. */
+export type StartedRun = { links: number; runId: string };
 export type ScheduleWindow = { start: string; end: string } | null;
 export type ScheduleStatus = { state: "off" | "waiting" | "running" } | { state: "not_checked"; reason: string; message: string };
 /** What the schedule is doing for one supplier. */
@@ -136,21 +164,28 @@ export type ScheduleRow = {
 };
 export type ScheduleApi = {
   overview(): Promise<ScheduleRow[]>;
-  /** Turns automatic checks on (an interval from the list) or off (null), with the quiet-hours window or null for all day. */
-  set(supplierId: string, input: { intervalMinutes: number | null; window: ScheduleWindow }): Promise<Supplier>;
+  /** Turns automatic checks on (an interval from the list) or off (null), with the quiet-hours window or null for all day, and keep-alive (null = off). */
+  set(supplierId: string, input: { intervalMinutes: number | null; window: ScheduleWindow; keepAliveMinutes: number | null }): Promise<Supplier>;
   runs(supplierId: string): Promise<CheckRun[]>;
+  /** The supplier's run that is going now, of either kind, or null. */
+  currentRun(supplierId: string): Promise<CheckRun | null>;
+  /** One run by its id: how far it is, or how it ended. */
+  run(runId: string): Promise<CheckRun>;
 };
 
 export type PermissionInput = { status: Supplier["automationPermission"]; note: string | null; pauseSeconds?: number };
 
-export type SupplierInput = { name: string; websiteUrl: string; loginUrl: string | null };
+/** `shopifyName`: the supplier name Shopify uses, when it differs from `name`. */
+export type SupplierInput = { name: string; websiteUrl: string; loginUrl: string | null; shopifyName?: string | null };
 
-export type SupplierStatusFilter = "connected" | "needs_reconnect" | "blocked" | "paused" | "not_connected";
+export type SupplierStatusFilter = "connected" | "needs_reconnect" | "blocked" | "paused" | "not_connected" | "no_login";
 export type SuppliersApi = {
   list(): Promise<Supplier[]>;
   /** One page, searched and filtered on the server. */
   page(query: { page: number; pageSize: number; search?: string; status?: SupplierStatusFilter }): Promise<Page<Supplier>>;
   get(id: string): Promise<Supplier>;
+  /** Only when the last connection check finished, to follow a check cheaply. */
+  status(id: string): Promise<{ checkedAt: string | null }>;
   create(input: SupplierInput): Promise<Supplier>;
   /** Only the fields given are changed. */
   update(id: string, patch: Partial<SupplierInput>): Promise<Supplier>;
@@ -161,8 +196,19 @@ export type SuppliersApi = {
   checkSession(id: string): Promise<void>;
   /** The region stock checks look for. null clears it. */
   setRegion(id: string, region: string | null): Promise<Supplier>;
+  /** Whether the supplier's pages need a login. */
+  setNeedsLogin(id: string, needsLogin: boolean): Promise<Supplier>;
   /** Records whether the supplier allows automatic checks, and the pause between pages. */
   setPermission(id: string, input: PermissionInput): Promise<Supplier>;
+  /** Saves the supplier login. The server seals it and never returns it. */
+  saveCredentials(id: string, input: CredentialsInput): Promise<{ savedAt: string }>;
+  removeCredentials(id: string): Promise<void>;
+  /** Turns automatic login on or off, and/or sets the login page selectors (null clears them). */
+  setAutoLogin(id: string, patch: { autoLogin?: boolean; stealth?: boolean; loginSelectors?: LoginSelectors | null; loggedInMarker?: string | null; codeEmailFrom?: string | null }): Promise<Supplier>;
+  /** Asks for one test login. The answer arrives later, as the last automatic login. */
+  testAutoLogin(id: string): Promise<void>;
+  /** Clears the pause after a failed automatic login. */
+  resumeAutoLogin(id: string): Promise<void>;
 };
 
 export type LinkStatus = "not_checked" | "works" | "never_worked" | "page_missing" | "moved" | "looks_different" | "needs_login" | "could_not_check";
@@ -176,6 +222,8 @@ export type Mapping = {
   note: string | null;
   /** The region to look for on this page. null means the supplier's default region. */
   region: string | null;
+  /** The supplier's own option name or SKU, for a page that lists several options. null: none. */
+  supplierOption: string | null;
   enabled: boolean;
   linkStatus: LinkStatus;
   lastLinkCheckAt: string | null;
@@ -198,9 +246,20 @@ export type Mapping = {
 };
 
 export type StockAnswer = "in_stock" | "out_of_stock" | "cannot_tell";
-export type StockReason = "page_changed" | "both_matched" | "neither_matched" | "quantity_text_disagree" | "not_listed" | "check_failed" | "page_missing" | "never_worked";
+export type StockReason =
+  | "page_changed"
+  | "both_matched"
+  | "neither_matched"
+  | "quantity_text_disagree"
+  | "not_listed"
+  | "check_failed"
+  | "page_missing"
+  | "never_worked"
+  | "variant_unclear"
+  | "built_in_unclear";
 export type LatestStock = { answer: StockAnswer; reason: StockReason | null; quantity: number | null; matchedText: string | null; observedAt: string };
-export type Observation = LatestStock & { id: number; quantityMismatch: boolean; recipeVersion: number | null; checkResult: string };
+/** `readBy`: how the page was read (`quick`: its HTML, no browser), or null for an answer from before it was recorded. */
+export type Observation = LatestStock & { id: number; quantityMismatch: boolean; recipeVersion: number | null; checkResult: string; readBy?: "quick" | "browser" | null };
 
 /** One saved page, without its text or picture. */
 export type Capture = {
@@ -224,7 +283,13 @@ export type PageDescription = {
   pageClass: string;
   sections: { heading: string | null; level: number; lines: string[] }[];
   buttons: { label: string; enabled: boolean; section: string | null }[];
+  /** The offers in the page's built-in product data. Missing on pages saved before it was read. */
+  offers?: Offer[];
 };
+/** One offer from a page's built-in product data (schema.org): its availability, address, SKU and name. */
+export type Offer = { availability: string; url: string | null; sku: string | null; name: string | null };
+/** How pre-order and back-order count when built-in data is on. */
+export type Waiting = "in_stock" | "out_of_stock" | "cannot_tell";
 export type CaptureDetail = Capture & { description: PageDescription | null };
 
 export type StockRule = { type: "text"; text: string; under?: string } | { type: "button"; label: string; enabled?: boolean; under?: string };
@@ -234,9 +299,11 @@ export type Recipe = {
   outOfStock: StockRule[];
   quantity?: { label: string; under?: string };
   region?: { under: string };
+  /** Present means on: the page's built-in stock data answers first, the word rules only when it is missing or unclear. */
+  builtIn?: { waiting: Waiting };
 };
 export type RecipeVersion = { id: string; supplierId: string; version: number; rules: Recipe; active: boolean; createdAt: string; activatedAt: string | null };
-export type ExampleResult = { id: string; name: string; expected: StockAnswer; passed: boolean; got: { answer: StockAnswer; reason: StockReason | null; quantity: number | null; matchedText: string | null } };
+export type ExampleResult = { id: string; name: string; expected: StockAnswer; passed: boolean; got: { answer: StockAnswer; reason: StockReason | null; quantity: number | null; matchedText: string | null; decidedBy?: "built_in" | "rules" | null } };
 export type RecipeTest = { results: ExampleResult[]; passed: boolean };
 
 export type CapturesApi = {
@@ -262,11 +329,13 @@ export type RecipesApi = {
 export type StockApi = {
   checkLink(mappingId: string): Promise<void>;
   /** Asks for a stock check of all of a supplier's links. Returns how many are queued. */
-  checkSupplier(supplierId: string): Promise<number>;
+  checkSupplier(supplierId: string): Promise<StartedRun>;
   observations(mappingId: string): Promise<Observation[]>;
 };
-export type MappingFilter = { supplierId?: string; status?: LinkStatus; search?: string };
-export type MappingInput = { variantId: string; supplierId: string; url: string; note?: string | null; region?: string | null };
+/** A link's latest stock answer, or `none` for no stock check yet. */
+export type StockFilter = StockAnswer | "none";
+export type MappingFilter = { supplierId?: string; status?: LinkStatus; stock?: StockFilter; search?: string };
+export type MappingInput = { variantId: string; supplierId: string; url: string; note?: string | null; region?: string | null; supplierOption?: string | null };
 export type UnmappedVariant = { variantId: string; productTitle: string; variantTitle: string; sku: string | null };
 export type UnmappedList = { total: number; unmapped: number; items: UnmappedVariant[] };
 
@@ -292,13 +361,15 @@ export type MappingsApi = {
   /** One page, filtered on the server. */
   page(query: MappingFilter & { page: number; pageSize: number }): Promise<Page<Mapping>>;
   get(id: string): Promise<Mapping>;
+  /** Only when the last link and stock checks finished, to follow a check cheaply. */
+  status(id: string): Promise<{ linkCheckedAt: string | null; stockCheckedAt: string | null }>;
   create(input: MappingInput): Promise<Mapping>;
-  update(id: string, patch: { url?: string; note?: string | null; region?: string | null; enabled?: boolean }): Promise<Mapping>;
+  update(id: string, patch: { url?: string; note?: string | null; region?: string | null; supplierOption?: string | null; enabled?: boolean }): Promise<Mapping>;
   remove(id: string): Promise<void>;
   /** Asks for a check of one link. The answer arrives later, as the link's status. */
   checkLink(id: string): Promise<void>;
   /** Asks for a check of all of a supplier's links. Returns how many are queued. */
-  checkSupplierLinks(supplierId: string): Promise<number>;
+  checkSupplierLinks(supplierId: string): Promise<StartedRun>;
   unmapped(search?: string): Promise<UnmappedList>;
   /** The file is the text of the CSV the owner chose. Nothing is saved. */
   importColumns(file: string): Promise<ImportColumns>;
@@ -461,6 +532,12 @@ async function request<T>(path: string, init: { method: string; json?: unknown; 
   }
 }
 
+/** For answers with no body we need (204, or 202 with a small body we do not read). */
+async function done(path: string, init: { method: string; json?: unknown }): Promise<void> {
+  const res = await send(path, init);
+  if (!res.ok) throw await failure(res);
+}
+
 const shopify: ShopifyApi = {
   async getConnection() {
     return (await request<{ connection: ShopifyConnection | null }>("/api/shopify/connection", { method: "GET" })).connection;
@@ -504,6 +581,7 @@ const suppliers: SuppliersApi = {
     return request<Page<Supplier>>(`/api/suppliers?${params}`, { method: "GET" });
   },
   get: (id) => supplier(`/api/suppliers/${encodeURIComponent(id)}`, { method: "GET" }),
+  status: (id) => request(`/api/suppliers/${encodeURIComponent(id)}/status`, { method: "GET" }),
   create: (input) => supplier("/api/suppliers", { method: "POST", json: input }),
   update: (id, patch) => supplier(`/api/suppliers/${encodeURIComponent(id)}`, { method: "PATCH", json: patch }),
   async remove(id) {
@@ -515,7 +593,13 @@ const suppliers: SuppliersApi = {
     await request(`/api/suppliers/${encodeURIComponent(id)}/check-session`, { method: "POST" });
   },
   setRegion: (id, region) => supplier(`/api/suppliers/${encodeURIComponent(id)}/region`, { method: "PATCH", json: { region } }),
+  setNeedsLogin: (id, needsLogin) => supplier(`/api/suppliers/${encodeURIComponent(id)}`, { method: "PATCH", json: { needsLogin } }),
   setPermission: (id, input) => supplier(`/api/suppliers/${encodeURIComponent(id)}/permission`, { method: "PATCH", json: input }),
+  saveCredentials: (id, input) => request(`/api/suppliers/${encodeURIComponent(id)}/credentials`, { method: "PUT", json: input }),
+  removeCredentials: (id) => done(`/api/suppliers/${encodeURIComponent(id)}/credentials`, { method: "DELETE" }),
+  setAutoLogin: (id, patch) => supplier(`/api/suppliers/${encodeURIComponent(id)}`, { method: "PATCH", json: patch }),
+  testAutoLogin: (id) => done(`/api/suppliers/${encodeURIComponent(id)}/auto-login/test`, { method: "POST" }),
+  resumeAutoLogin: (id) => done(`/api/suppliers/${encodeURIComponent(id)}/auto-login/resume`, { method: "POST" }),
 };
 
 const enc = encodeURIComponent;
@@ -526,6 +610,12 @@ const schedule: ScheduleApi = {
   set: (supplierId, input) => supplier(`/api/suppliers/${enc(supplierId)}/schedule`, { method: "PUT", json: input }),
   async runs(supplierId) {
     return (await request<{ runs: CheckRun[] }>(`/api/suppliers/${enc(supplierId)}/runs`, { method: "GET" })).runs;
+  },
+  async currentRun(supplierId) {
+    return (await request<{ run: CheckRun | null }>(`/api/suppliers/${enc(supplierId)}/runs/current`, { method: "GET" })).run;
+  },
+  async run(runId) {
+    return (await request<{ run: CheckRun }>(`/api/check-runs/${enc(runId)}`, { method: "GET" })).run;
   },
 };
 const captures: CapturesApi = {
@@ -566,7 +656,8 @@ const stock: StockApi = {
     await request(`/api/mappings/${enc(mappingId)}/check-stock`, { method: "POST" });
   },
   async checkSupplier(supplierId) {
-    return (await request<{ links: number }>(`/api/suppliers/${enc(supplierId)}/check-stock`, { method: "POST" })).links;
+    const { links, runId } = await request<StartedRun>(`/api/suppliers/${enc(supplierId)}/check-stock`, { method: "POST" });
+    return { links, runId };
   },
   async observations(mappingId) {
     return (await request<{ observations: Observation[] }>(`/api/mappings/${enc(mappingId)}/observations`, { method: "GET" })).observations;
@@ -584,6 +675,7 @@ const mappings: MappingsApi = {
     const params = new URLSearchParams();
     if (filter.supplierId) params.set("supplierId", filter.supplierId);
     if (filter.status) params.set("status", filter.status);
+    if (filter.stock) params.set("stock", filter.stock);
     if (filter.search) params.set("search", filter.search);
     params.set("page", String(page));
     params.set("pageSize", String(pageSize));
@@ -593,6 +685,7 @@ const mappings: MappingsApi = {
   async get(id) {
     return (await request<{ mapping: Mapping }>(`/api/mappings/${enc(id)}`, { method: "GET" })).mapping;
   },
+  status: (id) => request(`/api/mappings/${enc(id)}/status`, { method: "GET" }),
   async create(input) {
     return (await request<{ mapping: Mapping }>("/api/mappings", { method: "POST", json: input })).mapping;
   },
@@ -606,7 +699,8 @@ const mappings: MappingsApi = {
     await request(`/api/mappings/${enc(id)}/check-link`, { method: "POST" });
   },
   async checkSupplierLinks(supplierId) {
-    return (await request<{ links: number }>(`/api/suppliers/${enc(supplierId)}/check-links`, { method: "POST" })).links;
+    const { links, runId } = await request<StartedRun>(`/api/suppliers/${enc(supplierId)}/check-links`, { method: "POST" });
+    return { links, runId };
   },
   unmapped: (search) => request(`/api/variants?${new URLSearchParams({ mapped: "false", ...(search ? { search } : {}) })}`, { method: "GET" }),
   importColumns: (file) => request("/api/mappings/import/columns", { method: "POST", csv: file }),

@@ -122,6 +122,47 @@ test("the owner captures pages, labels examples, builds rules, is stopped by a f
   await expect(page.getByRole("list", { name: "Versions" })).toContainText("Turned on");
 });
 
+test("a supplier that needs no login is checked from its built-in stock data, with no rules typed", async ({ page }) => {
+  const offer = (availability: string) => ({ availability: `https://schema.org/${availability}`, url: null, sku: null, name: null });
+  await signIn(page);
+
+  // The supplier's pages show stock without a login.
+  await page.goto("/suppliers");
+  await rowMenu(page, "Acme Supply", "Edit");
+  await page.getByRole("switch", { name: "Needs a login" }).click();
+  await expect(page.getByText("Checked without logging in")).toBeVisible();
+  await expect(page.getByRole("switch", { name: "Automatic login" })).toHaveCount(0);
+  await page.goto("/suppliers");
+  await expect(row(page, /Acme Supply/)).toContainText("No login needed");
+
+  // Two saved pages: one the built-in data says is in stock, one it says is out of stock.
+  await control.browser({ description: { ...inStock, offers: [offer("InStock")] } });
+  await openRules(page);
+  await captureAndLabel(page, "In stock page", "in_stock");
+  await page.getByRole("list", { name: "Saved pages" }).getByRole("button", { name: /In stock page/ }).click(); // on a phone this opens the page
+  await expect(page.getByText("Built-in data: In stock")).toBeVisible();
+  await control.browser({ description: { ...inStock, offers: [offer("OutOfStock")] } });
+  await captureAndLabel(page, "Out of stock page", "out_of_stock");
+
+  // A new supplier's rules start with built-in data on: no words to type.
+  await expect(page.getByRole("switch", { name: "Use the stock data built into the supplier's pages" })).toBeChecked();
+  await page.getByRole("button", { name: "Test all examples" }).click();
+  await expect(page.getByText("All examples give the answer you expect.")).toBeVisible();
+  await expect(page.getByRole("list", { name: "Test results" })).toContainText("Decided by built-in data.");
+  await page.getByRole("button", { name: "Save version" }).click();
+  await expect(page.getByText(/Saved as version 1/)).toBeVisible();
+  await page.getByRole("button", { name: "Turn on version 1" }).click();
+  await expect(page.getByText(/Version 1 is turned on/)).toBeVisible();
+  await scan(page, "stock rules with built-in data");
+  await noSideScroll(page, "stock rules with built-in data");
+
+  // The page still has an Add to cart button, but the built-in data says out of stock, and it decides.
+  await page.goto("/mappings");
+  const link = /Blue Tee.*Size 1/;
+  await row(page, link).getByRole("button", { name: /^Check stock/ }).click();
+  await expectCell(page, link, "Out of stock");
+});
+
 test("a stock check shows in stock, out of stock and cannot tell, never calling a changed page or a puzzle out of stock", async ({ page }) => {
   await control.seedRecipe(RULES);
   await signIn(page);

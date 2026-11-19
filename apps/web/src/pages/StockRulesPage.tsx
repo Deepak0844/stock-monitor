@@ -103,8 +103,14 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
     await loadVersions();
   };
 
-  const labelled = captures.filter((c) => c.status === "ready" && c.expectedAnswer !== null).length;
+  const labelledPages = captures.filter((c) => c.status === "ready" && c.expectedAnswer !== null);
+  const labelled = labelledPages.length;
+  const bothLabelled = labelledPages.some((c) => c.expectedAnswer === "in_stock") && labelledPages.some((c) => c.expectedAnswer === "out_of_stock");
   const turnOnBlock = labelled === 0 ? "Label at least one saved page with the answer you expect." : test && !test.passed ? "Some examples do not give the answer you expect. Fix the rules and test again." : null;
+  // Built-in data that never changes would pass on in-stock pages alone, so a version that uses it needs both answers labelled.
+  const BOTH_NEEDED = "Label at least one in-stock and one out-of-stock saved page.";
+  const turnOnBlockFor = (v: RecipeVersion) => turnOnBlock ?? (v.rules.builtIn && !bothLabelled ? BOTH_NEEDED : null);
+  const versionNote = turnOnBlock ?? (versions?.some((v) => !v.active && v.rules.builtIn) && !bothLabelled ? BOTH_NEEDED : null);
   const failing = test ? test.results.filter((r) => !r.passed).length : 0;
 
   if (loadError) {
@@ -131,6 +137,7 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
           {" "}You expected {ANSWER_WORDS[r.expected]}, the rules said {ANSWER_WORDS[r.got.answer]}. {reasonWords(r.got.reason) ?? ""}
         </>
       )}
+      {r.got.decidedBy && <> {r.got.decidedBy === "built_in" ? "Decided by built-in data." : "Decided by your rules."}</>}
     </li>
   );
 
@@ -146,6 +153,11 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
         {error && (
           <Notice kind="error" role="alert">
             {error}
+          </Notice>
+        )}
+        {supplier && !supplier.needsLogin && versions !== null && !versions.some((v) => v.active) && (
+          <Notice kind="info">
+            This supplier needs no login, so it is already checked from its built-in stock data. Answers show on the Links page but are not sent to Shopify until you label one in-stock and one out-of-stock saved page and turn on a version.
           </Notice>
         )}
 
@@ -209,9 +221,9 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
             <p className="text-sm text-muted-foreground">No versions yet. Save the rules above to make version 1.</p>
           ) : (
             <>
-              {turnOnBlock && <p className="text-sm text-muted-foreground">{turnOnBlock}</p>}
+              {versionNote && <p className="text-sm text-muted-foreground">{versionNote}</p>}
               <div className="-mx-6 -mb-6">
-                <VersionList key={versions.map((v) => v.id).join()} versions={versions} busy={busy !== null} turnOnBlock={turnOnBlock} onTurnOn={(v) => void turnOn(v)} onEdit={editAsNew} onDelete={deleteVersion} />
+                <VersionList key={versions.map((v) => v.id).join()} versions={versions} busy={busy !== null} turnOnBlock={turnOnBlockFor} onTurnOn={(v) => void turnOn(v)} onEdit={editAsNew} onDelete={deleteVersion} />
               </div>
             </>
           )}

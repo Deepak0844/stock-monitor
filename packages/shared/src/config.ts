@@ -25,6 +25,10 @@ const schema = z.object({
   // Which product metafields hold the supplier's name and the supplier's page address (the SPU), as namespace.key.
   SHOPIFY_SUPPLIER_NAME_METAFIELD: z.string().regex(METAFIELD_NAME, "must be namespace.key, for example custom.supplier_name").default("custom.supplier_name"),
   SHOPIFY_SPU_METAFIELD: z.string().regex(METAFIELD_NAME, "must be namespace.key, for example custom.spu").default("custom.spu"),
+  // Login alert emails, sent through Gmail SMTP from the supplier-only Gmail. All three or none.
+  ALERT_EMAIL_FROM: z.email().optional(),
+  ALERT_EMAIL_APP_PASSWORD: z.string().min(1).optional(),
+  ALERT_EMAIL_TO: z.email().optional(),
   // The owner's timezone (an IANA name such as Asia/Kolkata): automatic checks keep to the quiet-hours window in this zone.
   APP_TIMEZONE: z
     .string()
@@ -65,11 +69,14 @@ export type Config = {
   shopifySupplierNameMetafield: string;
   /** namespace.key of the product metafield holding the supplier's page address (the SPU). */
   shopifySpuMetafield: string;
+  /** Login alert emails through Gmail SMTP. Undefined: alerts are off. */
+  alertEmail: { from: string; appPassword: string; to: string } | undefined;
 };
 
 // An env file with `NAME=` and nothing after it sets the variable to an empty string. For a setting that is optional,
 // that means "not set", not "set to nothing".
-const BLANK_MEANS_UNSET = ["APP_ORIGIN", "BROWSER_SERVICE_URL", "BROWSER_CONTROL_TOKEN", "BROWSER_VNC_PORT", "SHOPIFY_BASE_URL_OVERRIDE", "APP_TIMEZONE", "SHOPIFY_SUPPLIER_NAME_METAFIELD", "SHOPIFY_SPU_METAFIELD"];
+const BLANK_MEANS_UNSET = ["APP_ORIGIN", "BROWSER_SERVICE_URL", "BROWSER_CONTROL_TOKEN", "BROWSER_VNC_PORT", "SHOPIFY_BASE_URL_OVERRIDE", "APP_TIMEZONE", "SHOPIFY_SUPPLIER_NAME_METAFIELD", "SHOPIFY_SPU_METAFIELD", "ALERT_EMAIL_FROM", "ALERT_EMAIL_APP_PASSWORD", "ALERT_EMAIL_TO"];
+const ALERT_SETTINGS = ["ALERT_EMAIL_FROM", "ALERT_EMAIL_APP_PASSWORD", "ALERT_EMAIL_TO"] as const;
 
 export function loadConfig(input: Record<string, string | undefined>): Config {
   const env = Object.fromEntries(Object.entries(input).filter(([name, value]) => !(value === "" && BLANK_MEANS_UNSET.includes(name))));
@@ -91,6 +98,10 @@ export function loadConfig(input: Record<string, string | undefined>): Config {
   if (c.BROWSER_CONTROL_TOKEN && !c.BROWSER_SERVICE_URL) {
     throw new Error("Invalid configuration:\nBROWSER_SERVICE_URL: required when BROWSER_CONTROL_TOKEN is set");
   }
+  const missing = ALERT_SETTINGS.filter((name) => !c[name]);
+  if (missing.length > 0 && missing.length < ALERT_SETTINGS.length) {
+    throw new Error(`Invalid configuration:\n${missing.map((name) => `${name}: required when the other email alert settings are set`).join("\n")}`);
+  }
   return {
     nodeEnv: c.NODE_ENV,
     databaseUrl: c.DATABASE_URL,
@@ -108,5 +119,7 @@ export function loadConfig(input: Record<string, string | undefined>): Config {
     timezone: c.APP_TIMEZONE,
     shopifySupplierNameMetafield: c.SHOPIFY_SUPPLIER_NAME_METAFIELD,
     shopifySpuMetafield: c.SHOPIFY_SPU_METAFIELD,
+    // Google shows an app password in groups of four with spaces; the spaces are not part of it.
+    alertEmail: c.ALERT_EMAIL_FROM && c.ALERT_EMAIL_APP_PASSWORD && c.ALERT_EMAIL_TO ? { from: c.ALERT_EMAIL_FROM, appPassword: c.ALERT_EMAIL_APP_PASSWORD.replace(/\s+/g, ""), to: c.ALERT_EMAIL_TO } : undefined,
   };
 }

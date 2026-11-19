@@ -49,6 +49,16 @@ describe("check runs", () => {
     expect((await runs().recent(acme, 10))[0]?.endedAt).toBeInstanceOf(Date);
   });
 
+  it("a links run blocks a stock run, is read by id, and stays out of the stock history", async () => {
+    const r = (await runs().start(acme, "manual", 2, "links"))!;
+    expect(r).toMatchObject({ kind: "links", outcome: "running" });
+    expect(await runs().start(acme, "manual", 2)).toBeNull();
+    await runs().end(r.id, "finished", null);
+    expect(await runs().get(r.id)).toMatchObject({ kind: "links", outcome: "finished" });
+    expect(await runs().get("not-an-id")).toBeNull();
+    expect(await runs().recent(acme, 10)).toEqual([]);
+  });
+
   it("stops every running run with a reason", async () => {
     await runs().start(acme, "scheduled", 1);
     await runs().start(globex, "scheduled", 1);

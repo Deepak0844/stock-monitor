@@ -4,6 +4,10 @@ export type PageFacts = {
   requestedUrl: string;
   /** The owner's login address for this supplier, if they gave one. */
   loginUrl?: string;
+  /** Text that only shows when logged in, like "Log out". When set, an otherwise good page without it is a login page. */
+  loggedInMarker?: string;
+  /** The supplier's pages need no login: wording about logging in (for example "log in to see prices") is not a login wall. */
+  publicPage?: boolean;
   page: {
     /** The address after any redirects. */
     finalUrl: string;
@@ -92,7 +96,7 @@ export function explainPage(facts: PageFacts): { result: PageClass; signal: stri
   } catch {
     return { result: "unknown", signal: "bad_address" };
   }
-  const login = status === 401 ? "status_401" : page.hasPasswordField ? "password_field" : loginAddress ? "login_address" : matches(LOGIN_WORDS, title) ? "login_words_title" : matches(LOGIN_WORDS, text) ? "login_words_text" : null;
+  const login = status === 401 ? "status_401" : page.hasPasswordField ? "password_field" : loginAddress ? "login_address" : matches(LOGIN_WORDS, title) ? "login_words_title" : !facts.publicPage && matches(LOGIN_WORDS, text) ? "login_words_text" : null;
   if (login) return { result: "login_required", signal: login };
 
   // Everything below is about whether this really is the working page.
@@ -107,5 +111,8 @@ export function explainPage(facts: PageFacts): { result: PageClass; signal: stri
   if (!sameSite) return { result: "unknown", signal: "other_site" };
   if (text.length < MIN_CONTENT) return { result: "unknown", signal: "too_little_text" };
   if (says(ERROR_WORDS)) return { result: "unknown", signal: "error_words" };
+  // Some suppliers show the product page to everyone and only hide stock and prices when logged out.
+  const marker = normalise(facts.loggedInMarker ?? "");
+  if (marker && !text.includes(marker)) return { result: "login_required", signal: "marker_missing" };
   return { result: "ok", signal: "looks_real" };
 }

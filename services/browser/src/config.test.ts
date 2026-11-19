@@ -19,8 +19,16 @@ describe("loadConfig", () => {
       loginWindowMode: "controlled",
       verifyMode: "headless",
       language: undefined,
+      timezone: undefined,
       loginProfile: "fresh",
+      profileDir: undefined,
     });
+  });
+
+  it("keeps the kept profiles in PROFILE_DIR when it is set, and refuses a relative path", () => {
+    expect(loadConfig({ ...base, PROFILE_DIR: "/data/profiles" }).profileDir).toBe("/data/profiles");
+    expect(loadConfig({ ...base, PROFILE_DIR: "" }).profileDir).toBeUndefined();
+    expect(() => loadConfig({ ...base, PROFILE_DIR: "profiles/x" })).toThrow("PROFILE_DIR must be an absolute path.");
   });
   it.each([[undefined], [""], ["short"], ["x".repeat(31)]])(
     "refuses a control token of %j",
@@ -109,6 +117,13 @@ describe("loadConfig", () => {
     });
     it.each([["english"], ["en_IN"], ["en-"], ["--no-sandbox"]])("refuses the language %j", (v) => {
       expect(() => loadConfig({ ...base, BROWSER_LANGUAGE: v })).toThrow(/BROWSER_LANGUAGE/);
+    });
+    it("reads the timezone for the stealth browser, and treats blank as not set", () => {
+      expect(loadConfig({ ...base, TZ: "Asia/Kolkata" }).timezone).toBe("Asia/Kolkata");
+      expect(loadConfig({ ...base, TZ: "" }).timezone).toBeUndefined();
+      // the container default, and every other name for it, is not the owner's own timezone
+      for (const utc of ["UTC", "Etc/UTC", "Etc/UCT", "UCT", "Zulu", "Etc/Zulu", "GMT", "Etc/GMT", "Etc/Universal", "Universal"]) expect(loadConfig({ ...base, TZ: utc }).timezone, utc).toBeUndefined();
+      expect(loadConfig(base).timezone).toBeUndefined();
     });
     it("accepts a real timezone and refuses an invented one, because Chromium would quietly use UTC", () => {
       expect(() => loadConfig({ ...base, TZ: "Asia/Kolkata" })).not.toThrow();
