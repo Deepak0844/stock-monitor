@@ -17,6 +17,8 @@ export type FakeVariant = {
   /** The product's supplier-name and supplier-page-address metafields. Missing or null means the product has none. */
   supplierName?: string | null;
   supplierUrl?: string | null;
+  /** The product's status. Missing means ACTIVE. */
+  status?: "ACTIVE" | "DRAFT" | "ARCHIVED" | "UNLISTED";
   /** location id to available quantity. A location that is missing means "not stocked there". */
   stock: Record<string, number>;
 };
@@ -89,7 +91,10 @@ export function createFakeCatalog(init: { locations: FakeLocation[]; variants: F
         return { body: { errors: [{ message: "internal", extensions: { code: "INTERNAL_SERVER_ERROR" } }] } };
       }
       const locationId = request.variables?.locationId as string;
-      const { slice, pageInfo } = paged(variants, first, after);
+      // Shopify's search syntax: product_status:active keeps only variants of active products.
+      const activeOnly = /product_status:active\b/.test(request.query);
+      const list = activeOnly ? variants.filter((v) => (v.status ?? "ACTIVE") === "ACTIVE") : variants;
+      const { slice, pageInfo } = paged(list, first, after);
       const nodes = slice.map((v) => ({
         id: v.id,
         title: v.title,
