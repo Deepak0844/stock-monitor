@@ -5,6 +5,8 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { TooltipProvider, Tip } from "./ui/tooltip.js";
 import { When } from "./When.js";
 import { CopyButton } from "./CopyButton.js";
+import { FilterChips } from "./FilterChips.js";
+import { userEvent } from "@testing-library/user-event";
 
 afterEach(() => {
   cleanup();
@@ -55,5 +57,36 @@ describe("CopyButton", () => {
     withTips(<CopyButton value="OSB-L" label="SKU" />);
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Copy SKU" })));
     expect(screen.getByText("Couldn't copy")).toBeInTheDocument();
+  });
+});
+
+describe("FilterChips", () => {
+  it("shows nothing when no filter is set", () => {
+    const { container } = render(<FilterChips chips={[]} onClearAll={vi.fn()} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("names each filter, removes one, and clears them all", async () => {
+    const removeSupplier = vi.fn();
+    const clearAll = vi.fn();
+    render(
+      <FilterChips
+        chips={[
+          { key: "supplier", label: "Supplier", value: "Northline", onRemove: removeSupplier },
+          { key: "stock", label: "Stock", value: "Out of stock", onRemove: vi.fn() },
+        ]}
+        onClearAll={clearAll}
+      />,
+    );
+    expect(screen.getByText("Northline")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Remove Supplier filter" }));
+    expect(removeSupplier).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole("button", { name: "Clear all" }));
+    expect(clearAll).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers Clear all only when there are two or more filters", () => {
+    render(<FilterChips chips={[{ key: "q", label: "Search", value: "oak", onRemove: vi.fn() }]} onClearAll={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "Clear all" })).not.toBeInTheDocument();
   });
 });
