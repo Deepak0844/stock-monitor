@@ -16,6 +16,7 @@ import { SuppliersPage } from "./pages/SuppliersPage.js";
 import { SettingsShopifyPage } from "./pages/SettingsShopifyPage.js";
 import { LoginPage } from "./pages/LoginPage.js";
 import { AppShell } from "./shell/AppShell.js";
+import { TooltipProvider } from "@/components/ui/tooltip.js";
 import { setWaiting } from "./tabTitle.js";
 import { useNotifications } from "./shell/useNotifications.js";
 import { usePath } from "./router.js";
@@ -44,7 +45,10 @@ export function App({ api = realApi }: { api?: Api }) {
   const reloadNotifications = notifications.reload;
   // How many suggestions are waiting, for the menu. Read again whenever the owner moves to another page.
   const refreshCount = useCallback(() => {
-    api.proposals.count().then(setProposalCount).catch(() => {});
+    api.proposals
+      .count()
+      .then(setProposalCount)
+      .catch(() => {});
     reloadNotifications();
   }, [api, reloadNotifications]);
   useEffect(() => {
@@ -53,13 +57,20 @@ export function App({ api = realApi }: { api?: Api }) {
 
   // The browser tab shows the waiting count, and its icon a dot while anything needs the owner.
   const attention = notifications.items.length;
-  useEffect(() => setWaiting(signedIn ? proposalCount : 0, signedIn && attention > 0), [signedIn, proposalCount, attention]);
+  useEffect(
+    () => setWaiting(signedIn ? proposalCount : 0, signedIn && attention > 0),
+    [signedIn, proposalCount, attention],
+  );
 
   // The schedule, for the check status in the sidebar. Read when signed in and every minute after.
   const [schedule, setSchedule] = useState<ScheduleRow[] | null>(null);
   useEffect(() => {
     if (!signedIn) return;
-    const load = () => void api.schedule.overview().then(setSchedule).catch(() => {});
+    const load = () =>
+      void api.schedule
+        .overview()
+        .then(setSchedule)
+        .catch(() => {});
     load();
     const timer = window.setInterval(() => !document.hidden && load(), SCHEDULE_POLL_MS);
     return () => window.clearInterval(timer);
@@ -69,7 +80,9 @@ export function App({ api = realApi }: { api?: Api }) {
     setState({ kind: "loading" });
     api
       .getMe()
-      .then((owner) => setState(owner ? { kind: "signedIn", email: owner.email } : { kind: "signedOut" }))
+      .then((owner) =>
+        setState(owner ? { kind: "signedIn", email: owner.email } : { kind: "signedOut" }),
+      )
       .catch((e: unknown) => setState({ kind: "error", message: messageOf(e) }));
   }, [api]);
 
@@ -115,48 +128,50 @@ export function App({ api = realApi }: { api?: Api }) {
   }
 
   return (
-    <AppShell
-      email={state.email}
-      proposalCount={proposalCount}
-      attentionCount={notifications.items.length}
-      schedule={schedule}
-      notifications={notifications}
-      onSignOut={() =>
-        api
-          .logout()
-          .then(() => setState({ kind: "signedOut" }))
-          .catch((e: unknown) => setState({ kind: "error", message: messageOf(e) }))
-      }
-    >
-      {path === "/" ? (
-        <DashboardPage api={api} />
-      ) : path === "/products" ? (
-        <ProductsPage api={api} />
-      ) : path === "/proposals" ? (
-        <ProposalsPage api={api} onChange={refreshCount} />
-      ) : path === "/suppliers" ? (
-        <SuppliersPage api={api} />
-      ) : path === "/suppliers/new" ? (
-        <SupplierFormPage api={api} />
-      ) : path === "/mappings" ? (
-        <MappingsPage api={api} />
-      ) : path === "/mappings/new" ? (
-        <MappingFormPage api={api} />
-      ) : path === "/mappings/import" ? (
-        <ImportMappingsPage api={api} />
-      ) : mappingEditId ? (
-        <MappingFormPage key={mappingEditId} api={api} id={mappingEditId} />
-      ) : rulesId ? (
-        <StockRulesPage key={rulesId} api={api} supplierId={rulesId} />
-      ) : connectId ? (
-        <ConnectSupplierPage key={connectId} api={api} supplierId={connectId} />
-      ) : editId ? (
-        <SupplierFormPage key={editId} api={api} id={editId} />
-      ) : path === "/settings" || path === "/settings/shopify" ? (
-        <SettingsShopifyPage api={api} />
-      ) : (
-        <NotFoundPage />
-      )}
-    </AppShell>
+    <TooltipProvider delayDuration={400}>
+      <AppShell
+        email={state.email}
+        proposalCount={proposalCount}
+        attentionCount={notifications.items.length}
+        schedule={schedule}
+        notifications={notifications}
+        onSignOut={() =>
+          api
+            .logout()
+            .then(() => setState({ kind: "signedOut" }))
+            .catch((e: unknown) => setState({ kind: "error", message: messageOf(e) }))
+        }
+      >
+        {path === "/" ? (
+          <DashboardPage api={api} />
+        ) : path === "/products" ? (
+          <ProductsPage api={api} />
+        ) : path === "/proposals" ? (
+          <ProposalsPage api={api} onChange={refreshCount} />
+        ) : path === "/suppliers" ? (
+          <SuppliersPage api={api} />
+        ) : path === "/suppliers/new" ? (
+          <SupplierFormPage api={api} />
+        ) : path === "/mappings" ? (
+          <MappingsPage api={api} />
+        ) : path === "/mappings/new" ? (
+          <MappingFormPage api={api} />
+        ) : path === "/mappings/import" ? (
+          <ImportMappingsPage api={api} />
+        ) : mappingEditId ? (
+          <MappingFormPage key={mappingEditId} api={api} id={mappingEditId} />
+        ) : rulesId ? (
+          <StockRulesPage key={rulesId} api={api} supplierId={rulesId} />
+        ) : connectId ? (
+          <ConnectSupplierPage key={connectId} api={api} supplierId={connectId} />
+        ) : editId ? (
+          <SupplierFormPage key={editId} api={api} id={editId} />
+        ) : path === "/settings" || path === "/settings/shopify" ? (
+          <SettingsShopifyPage api={api} />
+        ) : (
+          <NotFoundPage />
+        )}
+      </AppShell>
+    </TooltipProvider>
   );
 }

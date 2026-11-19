@@ -6,6 +6,12 @@ import { Toaster } from "../components/ui/toaster.js";
 import { clearToasts } from "../lib/toast.js";
 
 if (typeof document !== "undefined") {
+  // jsdom has no ResizeObserver; Radix tooltips and popovers measure with it. Nothing is ever resized in a test.
+  globalThis.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const host = document.createElement("div");
   host.id = "toast-host";
