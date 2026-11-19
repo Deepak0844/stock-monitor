@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
 import type { createCheckRunRepository, createImportPreviewRepository, createMappingRepository, createObservationRepository, createProposalRepository, ObservationRecord, createSupplierRepository, createSupplierSessionRepository, MappingRow } from "@stock-monitor/db";
+import { isCheckable } from "@stock-monitor/db";
 import type { Queue } from "@stock-monitor/queue";
 import { runExpirySeconds } from "@stock-monitor/scheduling";
 import { isUnavailableCandidate, sameSite, toCsv, whyNotChecked } from "@stock-monitor/mapping";
@@ -258,7 +259,7 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
 
   app.post<{ Params: { id: string } }>("/api/suppliers/:id/check-links", async (request, reply) => {
     const supplier = await readySupplier(request.params.id);
-    const links = (await mappings.forSupplier(supplier.id)).filter((m) => m.enabled).length;
+    const links = (await mappings.forSupplier(supplier.id)).filter(isCheckable).length;
     if (links === 0) throw new AppError(409, "no_links", "This supplier has no links to check yet.");
     // The run record shows the owner how far it got, and stops it running beside another run for the same supplier.
     const run = await checkRuns.start(supplier.id, "manual", links, "links");

@@ -5,6 +5,7 @@ import type {
   createCaptureRepository, createCheckRunRepository, createMappingRepository, createNotificationRepository, createObservationRepository, createRecipeRepository,
   createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository, MappingRow, SupplierRecord,
 } from "@stock-monitor/db";
+import { isCheckable } from "@stock-monitor/db";
 import { BUILT_IN_DEFAULT, BUILT_IN_DEFAULT_VERSION, decide, isSupplierWideChange, validateRecipe, type Answer, type Decision, type PageDescription, type Reason, type Recipe } from "@stock-monitor/extraction";
 import { decideLinkStatus, isSupplierWide, whyNotChecked, type CheckGateReason, type LinkStatus, type Observation } from "@stock-monitor/mapping";
 import { unsealSessionState } from "@stock-monitor/supplier-session";
@@ -288,7 +289,7 @@ export function createStockChecker(deps: StockCheckDeps) {
     // A job left queued over a restart: its run was already ended, and a newer run may be going. It must not visit anything.
     if (!(await checkRuns.isRunning(runId))) return { kind: "skipped", reason: "run_ended" };
     await captures.purge(RETENTION_DAYS);
-    const links = (await mappings.forSupplier(supplierId)).filter((m) => m.enabled);
+    const links = (await mappings.forSupplier(supplierId)).filter(isCheckable);
     const visits: Visit[] = [];
     const counts = { linksDone: 0, inStock: 0, outOfStock: 0, cannotTell: 0 };
     let stopped: StopReason | null = null;

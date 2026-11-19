@@ -4,6 +4,7 @@ import type { BrowserClient } from "@stock-monitor/browser-client";
 import type {
   createCheckRunRepository, createMappingRepository, createNotificationRepository, createSupplierCredentialsRepository, createSupplierRepository, createSupplierSessionRepository, LinkCheckResult, MappingRow, SupplierRecord,
 } from "@stock-monitor/db";
+import { isCheckable } from "@stock-monitor/db";
 import { decideLinkStatus, isSupplierWide, whyNotChecked, type CheckGateReason, type LinkState, type LinkStatus, type Observation } from "@stock-monitor/mapping";
 import { unsealSessionState } from "@stock-monitor/supplier-session";
 import { EMPTY_STATE, loginFields } from "./supplier-visit.js";
@@ -157,7 +158,7 @@ export function createLinkChecker(deps: LinkCheckDeps) {
     }
     // A job left queued over a restart: its run was already ended. It must not visit anything.
     if (runId && !(await checkRuns.isRunning(runId))) return { kind: "skipped", reason: "run_ended" };
-    const links = (await mappings.forSupplier(supplierId)).filter((m) => m.enabled);
+    const links = (await mappings.forSupplier(supplierId)).filter(isCheckable);
     const seen: { mapping: MappingRow; observation: Observation }[] = [];
     const checkUrl = loginCheckUrl(first.supplier, links);
     // A failed automatic login already told the owner, and ends the run.

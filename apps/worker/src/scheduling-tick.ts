@@ -1,6 +1,7 @@
 import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
 import type { createCheckRunRepository, createMappingRepository, createNotificationRepository, createProposalRepository, createRecipeRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
+import { isCheckable } from "@stock-monitor/db";
 import type { Queue } from "@stock-monitor/queue";
 import { keepAliveDue, needsSessionPrecheck, pickDue, runExpirySeconds } from "@stock-monitor/scheduling";
 import { whyNotChecked } from "@stock-monitor/mapping";
@@ -71,7 +72,7 @@ export async function runTick(deps: TickDeps): Promise<{ started: string[]; skip
   const running = going.length;
   const started: string[] = [];
   for (const id of pickDue(candidates, now, running, MAX_RUNS_AT_ONCE, deps.timezone)) {
-    const links = (await mappings.forSupplier(id)).filter((m) => m.enabled).length;
+    const links = (await mappings.forSupplier(id)).filter(isCheckable).length;
     const run = await checkRuns.start(id, "scheduled", links);
     if (!run) continue; // another tick or the owner's button got there first
     const pause = candidates.find((c) => c.id === id)?.pause ?? 10;

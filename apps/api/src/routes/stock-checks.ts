@@ -2,6 +2,7 @@ import type { FastifyInstance, RawReplyDefaultExpression, RawRequestDefaultExpre
 import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
 import type { createCheckRunRepository, createMappingRepository, createObservationRepository, createRecipeRepository, createSupplierRepository, createSupplierSessionRepository } from "@stock-monitor/db";
+import { isCheckable } from "@stock-monitor/db";
 import { whyNotChecked } from "@stock-monitor/mapping";
 import type { Queue } from "@stock-monitor/queue";
 import { runExpirySeconds } from "@stock-monitor/scheduling";
@@ -55,7 +56,7 @@ export function registerStockCheckRoutes(app: App, deps: StockCheckRoutesDeps, a
 
   app.post<{ Params: { id: string } }>("/api/suppliers/:id/check-stock", async (request, reply) => {
     const supplier = await readySupplier(request.params.id);
-    const links = (await mappings.forSupplier(supplier.id)).filter((m) => m.enabled).length;
+    const links = (await mappings.forSupplier(supplier.id)).filter(isCheckable).length;
     if (links === 0) throw new AppError(409, "no_links", "This supplier has no links to check yet.");
     // The run record is what stops two runs for one supplier: the database refuses a second one that is running.
     const run = await checkRuns.start(supplier.id, "manual", links);
