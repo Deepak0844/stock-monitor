@@ -36,6 +36,8 @@
        --good:#4ade80; --bad:#fb923c; --warn:#facc15; --neutral:#4a4b46; --btn:#ecebe4; --btn-fg:#121311; --inb:#64655f; --hover:#1c1d1a; --soft:#1c1d1a;
        --badsoft:#2a1d12; --goodsoft:#132018; --focus:#93c5fd; --shadow:0 12px 32px -10px rgba(0,0,0,.7); --win:#0a0a09; }
 
+  body.dark[data-night="b"] .s { --bg:#1b1c1a; --side:#161715; --card:#232421; --rule:#33342f; --rule2:#282925; --hover:#262724; --soft:#262724; --inb:#6e6f69; --win:#121311; }
+  body.dark[data-night="c"] .s { --bg:#242522; --side:#1d1e1b; --card:#2d2e2a; --rule:#3d3e39; --rule2:#32332e; --hover:#30312d; --soft:#30312d; --inb:#787973; --muted:#a8a9a2; --win:#161715; }
   .s { background: var(--bg); color: var(--ink); font-family: "IBM Plex Sans", sans-serif; font-size: 14px; line-height: 1.45; position: relative; }
   .s.desk { width: 1200px; display: grid; grid-template-columns: 224px 1fr; min-height: 760px; }
   .s.phone { width: 390px; font-size: 16px; min-height: 780px; display: flex; flex-direction: column; }
@@ -231,12 +233,13 @@
   .swatch div.t { padding: 8px 10px; }
 </style>
 </head>
-<body data-paper="a">
+<body data-paper="c" data-night="a">
 <div class="page">
   <div class="bar">
     <b>UI corrections · preview</b>
     <div class="grp"><span>Theme</span><button data-theme="light" aria-pressed="true">Light</button><button data-theme="dark">Dark</button></div>
-    <div class="grp"><span>Light mode brightness (6)</span><button data-paper="a" aria-pressed="true">A · Today</button><button data-paper="b">B · Soft paper</button><button data-paper="c">C · Stone</button></div>
+    <div class="grp"><span>Light mode brightness (6)</span><button data-paper="a">A · Today</button><button data-paper="b">B · Soft paper</button><button data-paper="c" aria-pressed="true">C · Stone ✓</button></div>
+    <div class="grp"><span>Dark mode brightness</span><button data-night="a" aria-pressed="true">A · Today</button><button data-night="b">B · Charcoal</button><button data-night="c">C · Graphite</button></div>
     <div class="toc"><a href="#s1">1 Supplier form</a><a href="#s2">2 Stock rules</a><a href="#s4">4 Top bar</a><a href="#s5">5 Live window</a><a href="#s6">6 Brightness</a><a href="#s7">7 Notifications</a><a href="#s8">8 Phone</a></div>
   </div>
 
@@ -410,12 +413,18 @@
     </div></div></div></div>
 
   <!-- ============ 6 ============ -->
-  <h2 class="sec" id="s6">6 · Light mode brightness</h2>
+  <h2 class="sec" id="s6">6 · Brightness, light and dark</h2>
   <p class="why">Use the <b>Light mode brightness</b> buttons at the top: every preview on this page changes. A is today's near-white. B "Soft paper" is a warm off-white, a little darker. C "Stone" is darker still, with fields and panels a shade lighter than the page so they stand out. Text contrast is checked to pass in all three. Dark mode does not change.</p>
   <div class="swatches">
     <div class="swatch"><div class="c"><i style="background:#f4f3ee"></i><i style="background:#fbfbf8;flex:3"></i><i style="background:#fff"></i></div><div class="t"><b>A · Today</b><br>page #fbfbf8</div></div>
     <div class="swatch"><div class="c"><i style="background:#ebeae3"></i><i style="background:#f5f4ef;flex:3"></i><i style="background:#fbfaf6"></i></div><div class="t"><b>B · Soft paper</b><br>page #f5f4ef</div></div>
-    <div class="swatch"><div class="c"><i style="background:#e6e5df"></i><i style="background:#efeee9;flex:3"></i><i style="background:#f8f7f3"></i></div><div class="t"><b>C · Stone</b><br>page #efeee9</div></div>
+    <div class="swatch"><div class="c"><i style="background:#e6e5df"></i><i style="background:#efeee9;flex:3"></i><i style="background:#f8f7f3"></i></div><div class="t"><b>C · Stone</b> ✓ your pick<br>page #efeee9</div></div>
+  </div>
+  <p class="why" style="margin-top:18px"><b>Dark mode</b>: use the <b>Dark mode brightness</b> buttons at the top (they switch the page to dark). A is today's near-black. B "Charcoal" is a step lighter. C "Graphite" is a soft dark grey. Lines, fields and panels get lighter with each step so they still stand out, and text stays readable.</p>
+  <div class="swatches">
+    <div class="swatch"><div class="c"><i style="background:#0c0d0b"></i><i style="background:#121311;flex:3"></i><i style="background:#181916"></i></div><div class="t"><b>A · Today</b><br>page #121311</div></div>
+    <div class="swatch"><div class="c"><i style="background:#161715"></i><i style="background:#1b1c1a;flex:3"></i><i style="background:#232421"></i></div><div class="t"><b>B · Charcoal</b><br>page #1b1c1a</div></div>
+    <div class="swatch"><div class="c"><i style="background:#1d1e1b"></i><i style="background:#242522;flex:3"></i><i style="background:#2d2e2a"></i></div><div class="t"><b>C · Graphite</b><br>page #242522</div></div>
   </div>
 
   <!-- ============ 7 ============ -->
@@ -530,6 +539,7 @@
     document.querySelectorAll(`button[${attr}]`).forEach((x) => x.setAttribute("aria-pressed", String(x === b))); apply(b.getAttribute(attr)); }));
   press("data-theme", (v) => document.body.classList.toggle("dark", v === "dark"));
   press("data-paper", (v) => (document.body.dataset.paper = v));
+  press("data-night", (v) => { document.body.dataset.night = v; document.body.classList.add("dark"); document.querySelectorAll("button[data-theme]").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.theme === "dark"))); });
 </script>
 </body>
 </html>
