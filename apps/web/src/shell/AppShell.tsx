@@ -12,7 +12,6 @@ import { CheckStatus } from "./CheckStatus.js";
 import { MoreSheet } from "./MoreSheet.js";
 import { NAV, countLabel } from "./nav.js";
 import { NotificationBell } from "./NotificationBell.js";
-import { ThemeToggle } from "./ThemeToggle.js";
 import { AccountMenu } from "./AccountMenu.js";
 import type { NotificationsState } from "./useNotifications.js";
 
@@ -127,7 +126,6 @@ export function AppShell({
           </div>
           <div className="flex items-center gap-1">
             <NotificationBell state={notifications} />
-            {wide && <ThemeToggle />}
             <span aria-hidden="true" className="mx-1.5 h-5 w-px bg-border max-lg:hidden" />
             <AccountMenu email={email} onSignOut={onSignOut} compact={!wide} />
           </div>

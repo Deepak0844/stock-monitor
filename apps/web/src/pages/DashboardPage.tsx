@@ -79,9 +79,16 @@ function Split({ parts, className }: { parts: [string, number][]; className?: st
   );
 }
 
-const seeLink = (to: string, label: string) => (
-  <Button variant="link" size="sm" className="px-0" asChild>
-    <Link to={to}>{label}</Link>
+const seeLink = (to: string, label: string, name?: string) => (
+  <Button
+    variant="link"
+    size="sm"
+    className="h-auto min-h-10 whitespace-normal px-0 text-left lg:min-h-7"
+    asChild
+  >
+    <Link to={to} aria-label={name}>
+      {label}
+    </Link>
   </Button>
 );
 
@@ -348,6 +355,7 @@ export function DashboardPage({ api }: { api: Api }) {
               ? list.some((s) => s.needsLogin && s.sessionStatus === "needs_reconnect")
                 ? seeLink(
                     "/suppliers?status=needs_reconnect",
+                    "See suppliers",
                     "See suppliers that need reconnecting",
                   )
                 : seeLink("/suppliers", "See suppliers")

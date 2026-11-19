@@ -6,7 +6,6 @@ import type { ScheduleRow } from "../api.js";
 import { Link } from "../router.js";
 import { CheckStatus } from "./CheckStatus.js";
 import { NAV } from "./nav.js";
-import { ThemeToggle } from "./ThemeToggle.js";
 
 type Props = {
   open: boolean;
@@ -53,10 +52,6 @@ export function MoreSheet({ open, onClose, email, onSignOut, schedule, returnFoc
             </li>
           ))}
         </ul>
-        <div className="flex items-center justify-between gap-3 px-4 py-3">
-          <span className="text-sm text-muted-foreground">Theme</span>
-          <ThemeToggle />
-        </div>
         <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-3">
           <span className="min-w-0 truncate text-sm text-muted-foreground">{email}</span>
           <Button variant="outline" onClick={onSignOut}>

@@ -67,20 +67,18 @@ describe("DashboardPage", () => {
   it("says a check is running now", async () => {
     setup({
       schedule: {
-        overview: vi
-          .fn()
-          .mockResolvedValue([
-            {
-              supplierId: "a",
-              status: { state: "running" },
-              intervalMinutes: 60,
-              window: null,
-              nextCheckAt: null,
-              run: null,
-              lastRun: null,
-              recent: { total: 0, finished: 0, failed: 0, stopped: 0, streak: null },
-            },
-          ]),
+        overview: vi.fn().mockResolvedValue([
+          {
+            supplierId: "a",
+            status: { state: "running" },
+            intervalMinutes: 60,
+            window: null,
+            nextCheckAt: null,
+            run: null,
+            lastRun: null,
+            recent: { total: 0, finished: 0, failed: 0, stopped: 0, streak: null },
+          },
+        ]),
       },
     });
     await screen.findByText("Nothing needs your attention.");
@@ -101,15 +99,13 @@ describe("DashboardPage", () => {
   it("shows a change that was not applied, with a link to Proposals", async () => {
     setup({
       notifications: {
-        list: vi
-          .fn()
-          .mockResolvedValue([
-            aNotification({
-              kind: "proposal_needs_attention",
-              message:
-                "A stock change was not applied because Shopify's number changed. Open Proposals to refresh it.",
-            }),
-          ]),
+        list: vi.fn().mockResolvedValue([
+          aNotification({
+            kind: "proposal_needs_attention",
+            message:
+              "A stock change was not applied because Shopify's number changed. Open Proposals to refresh it.",
+          }),
+        ]),
       },
     });
     expect(await screen.findByText(/A stock change was not applied/)).toBeInTheDocument();
@@ -306,9 +302,10 @@ describe("links to the lists behind the numbers", () => {
       ]);
     setup({ suppliers: { list } });
     const c = within(card("Supplier connections"));
-    expect(
-      await c.findByRole("link", { name: "See suppliers that need reconnecting" }),
-    ).toHaveAttribute("href", "/suppliers?status=needs_reconnect");
+    const link = await c.findByRole("link", { name: "See suppliers that need reconnecting" });
+    expect(link).toHaveAttribute("href", "/suppliers?status=needs_reconnect");
+    // Short on screen, so it never runs into the next box; the full words are its name.
+    expect(link.textContent).toBe("See suppliers");
   });
 
   it("sends Supplier connections to all suppliers when none need attention", async () => {
@@ -343,15 +340,13 @@ describe("stock rules on the dashboard", () => {
   it("a changed-pages notification links to the stock rules, not to Reconnect", async () => {
     setup({
       notifications: {
-        list: vi
-          .fn()
-          .mockResolvedValue([
-            aNotification({
-              kind: "recipe_needs_review",
-              reason: "page_changed",
-              message: "Acme Supply's pages changed. Review its stock rules.",
-            }),
-          ]),
+        list: vi.fn().mockResolvedValue([
+          aNotification({
+            kind: "recipe_needs_review",
+            reason: "page_changed",
+            message: "Acme Supply's pages changed. Review its stock rules.",
+          }),
+        ]),
       },
     });
     expect(
@@ -448,17 +443,15 @@ describe("direction D dashboard", () => {
     setup({
       suppliers: { list: vi.fn().mockResolvedValue([northline, harbour]) },
       schedule: {
-        overview: vi
-          .fn()
-          .mockResolvedValue([
-            row(northline.id, {
-              recent: { total: 24, finished: 24, failed: 0, stopped: 0, streak: null },
-            }),
-            row(harbour.id, {
-              recent: streak,
-              status: { state: "not_checked", reason: "needs_reconnect", message: "Reconnect" },
-            }),
-          ]),
+        overview: vi.fn().mockResolvedValue([
+          row(northline.id, {
+            recent: { total: 24, finished: 24, failed: 0, stopped: 0, streak: null },
+          }),
+          row(harbour.id, {
+            recent: streak,
+            status: { state: "not_checked", reason: "needs_reconnect", message: "Reconnect" },
+          }),
+        ]),
       },
     });
     const list = await screen.findByRole("region", { name: "Suppliers · recent checks" });
@@ -477,15 +470,13 @@ describe("direction D dashboard", () => {
     const { api, user } = setup({
       proposals: {
         count: vi.fn().mockResolvedValue(12),
-        openPage: vi
-          .fn()
-          .mockResolvedValue({
-            items,
-            total: 12,
-            page: 1,
-            pageSize: 5,
-            writePermission: { state: "ready", message: "ok" },
-          }),
+        openPage: vi.fn().mockResolvedValue({
+          items,
+          total: 12,
+          page: 1,
+          pageSize: 5,
+          writePermission: { state: "ready", message: "ok" },
+        }),
       },
     });
     const waiting = await screen.findByRole("region", { name: "Waiting for approval" });

@@ -1,4 +1,4 @@
-import { ChevronDown, LogOut, Monitor, Moon, Settings, Sun, UserRound } from "lucide-react";
+import { ChevronDown, LogOut, Monitor, Moon, Sun, UserRound } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -73,10 +73,6 @@ export function AccountMenu({
         <DropdownMenuItem onSelect={() => navigate("/settings/account")}>
           <UserRound aria-hidden="true" />
           Account settings
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => navigate("/settings/appearance")}>
-          <Settings aria-hidden="true" />
-          Appearance
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={onSignOut}>

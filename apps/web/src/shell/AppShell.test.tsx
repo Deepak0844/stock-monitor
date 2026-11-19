@@ -168,7 +168,7 @@ describe("AppShell", () => {
     expect(onSignOut).toHaveBeenCalledTimes(1);
   });
 
-  it("shows the owner's initials on the Account button, and its menu offers the three themes and the settings pages", async () => {
+  it("shows the owner's initials on the Account button, and its menu offers the three themes and Account settings", async () => {
     const { user } = setup();
     expect(screen.getByRole("button", { name: "Account" })).toHaveTextContent("OW");
     await user.click(screen.getByRole("button", { name: "Account" }));
@@ -179,7 +179,6 @@ describe("AppShell", () => {
         .map((i) => i.textContent),
     ).toEqual(["Light", "Dark", "Same as device"]);
     expect(within(menu).getByRole("menuitem", { name: "Account settings" })).toBeInTheDocument();
-    expect(within(menu).getByRole("menuitem", { name: "Appearance" })).toBeInTheDocument();
     await user.click(within(menu).getByRole("menuitemradio", { name: "Dark" }));
     expect(document.documentElement.classList.contains("dark")).toBe(true);
     await user.click(screen.getByRole("button", { name: "Account" }));
@@ -220,17 +219,12 @@ describe("AppShell top bar", () => {
     expect(screen.getByRole("button", { name: "Notifications, none unread" })).toBeInTheDocument();
   });
 
-  it("has a theme button whose name stays the same and whose pressed state says which theme is on", async () => {
+  it("has one place to change the theme: the Account menu, not a separate button or an Appearance item", async () => {
     const { user } = setup();
-    const button = screen.getByRole("button", { name: "Dark theme" });
-    const before = button.getAttribute("aria-pressed");
-    expect(["true", "false"]).toContain(before);
-    await user.click(button);
-    expect(screen.getByRole("button", { name: "Dark theme" })).toHaveAttribute(
-      "aria-pressed",
-      before === "true" ? "false" : "true",
-    );
-    expect(document.documentElement.classList.contains("dark")).toBe(before !== "true");
+    expect(screen.queryByRole("button", { name: "Dark theme" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Account" }));
+    expect(screen.getAllByRole("menuitemradio")).toHaveLength(3);
+    expect(screen.queryByRole("menuitem", { name: "Appearance" })).toBeNull();
     document.documentElement.classList.remove("dark", "light");
   });
 });
