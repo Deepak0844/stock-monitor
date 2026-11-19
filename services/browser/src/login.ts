@@ -2,6 +2,7 @@
 // Runs on a page of the supplier's persistent profile. The username and password are typed into the page and nowhere else.
 import type { Frame, Locator, Page } from "playwright";
 import { classifyPage, type LoginSelectors, type PageClass, type SessionState } from "@stock-monitor/supplier-session";
+import { guessSubmit } from "./login-guess.js";
 import { NAME_SHIM } from "./page-shim.js";
 import { CHALLENGE_WIDGET, MAX_TEXT } from "./verify.js";
 
@@ -848,5 +849,6 @@ async function nextButton(page: Page, frame: Frame, field: Locator, override: st
     const el = await visible(frame.getByRole(role, { name: named }));
     if (el) return el;
   }
-  return findButton(page, named);
+  // Wording that is not on the list: the control is guessed from what it says, never one that talks about something else.
+  return (await findButton(page, named)) ?? guessSubmit(frame, field);
 }
