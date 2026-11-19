@@ -64,7 +64,9 @@ export type VariantItem = {
 export type VariantPage = { items: VariantItem[]; total: number; page: number; pageSize: number };
 /** One page of a list, with how many there are in all. */
 export type Page<T> = { items: T[]; total: number; page: number; pageSize: number };
-export type VariantQuery = { page: number; pageSize: number; search?: string; warningsOnly?: boolean };
+/** A list's sort: a column key the server knows, and which way. */
+export type Sort = { sort?: string; dir?: "asc" | "desc" };
+export type VariantQuery = { page: number; pageSize: number; search?: string; warningsOnly?: boolean } & Sort;
 
 export type ShopifyApi = {
   getConnection(): Promise<ShopifyConnection | null>;
@@ -377,7 +379,7 @@ export type ImportResult = { created: number; updated: number; unchanged: number
 export type MappingsApi = {
   list(filter?: MappingFilter): Promise<Mapping[]>;
   /** One page, filtered on the server. */
-  page(query: MappingFilter & { page: number; pageSize: number }): Promise<Page<Mapping>>;
+  page(query: MappingFilter & { page: number; pageSize: number } & Sort): Promise<Page<Mapping>>;
   get(id: string): Promise<Mapping>;
   /** Only when the last link and stock checks finished, to follow a check cheaply. */
   status(id: string): Promise<{ linkCheckedAt: string | null; stockCheckedAt: string | null }>;
@@ -471,7 +473,7 @@ export type ProposalsApi = {
   /** Suggestions waiting for the owner, and ones approved and waiting for Shopify. */
   open(): Promise<{ proposals: Proposal[]; writePermission: WritePermission }>;
   /** One page of the suggestions waiting for the owner, and ones approved and waiting for Shopify. */
-  openPage(query: { page: number; pageSize: number; supplierId?: string }): Promise<Page<Proposal> & { writePermission: WritePermission }>;
+  openPage(query: { page: number; pageSize: number; supplierId?: string } & Sort): Promise<Page<Proposal> & { writePermission: WritePermission }>;
   history(page: number, pageSize?: number, supplierId?: string): Promise<{ proposals: Proposal[]; hasMore: boolean; total: number; page: number; pageSize: number }>;
   count(): Promise<number>;
   /** How many suggestions wait for the owner, per supplier id. Suppliers with none are left out. */
@@ -546,6 +548,13 @@ async function failure(res: Response): Promise<ApiError> {
   }
 }
 
+/** Adds a sort to a list's address, when there is one. */
+function addSort(params: URLSearchParams, { sort, dir }: Sort): void {
+  if (!sort) return;
+  params.set("sort", sort);
+  params.set("dir", dir ?? "asc");
+}
+
 async function request<T>(path: string, init: { method: string; json?: unknown; csv?: string; keepalive?: boolean }): Promise<T> {
   const res = await send(path, init);
   if (!res.ok) throw await failure(res);
@@ -584,6 +593,7 @@ const shopify: ShopifyApi = {
     const params = new URLSearchParams({ page: String(query.page), pageSize: String(query.pageSize) });
     if (query.search) params.set("search", query.search);
     if (query.warningsOnly) params.set("warningsOnly", "true");
+    addSort(params, query);
     return request(`/api/shopify/variants?${params}`, { method: "GET" });
   },
   async getSync() {
@@ -707,6 +717,7 @@ const mappings: MappingsApi = {
     if (filter.search) params.set("search", filter.search);
     params.set("page", String(page));
     params.set("pageSize", String(pageSize));
+    addSort(params, filter);
     const body = await request<{ mappings: Mapping[]; total: number; page: number; pageSize: number }>(`/api/mappings?${params}`, { method: "GET" });
     return { items: body.mappings, total: body.total, page: body.page, pageSize: body.pageSize };
   },
@@ -751,8 +762,9 @@ const notifications: NotificationsApi = {
 
 const proposals: ProposalsApi = {
   open: () => request("/api/proposals?tab=open", { method: "GET" }),
-  async openPage({ page, pageSize, supplierId }) {
+  async openPage({ page, pageSize, supplierId, sort, dir }) {
     const params = new URLSearchParams({ tab: "open", page: String(page), pageSize: String(pageSize) });
+    addSort(params, { sort, dir });
     if (supplierId) params.set("supplierId", supplierId);
     const body = await request<{ proposals: Proposal[]; total: number; page: number; pageSize: number; writePermission: WritePermission }>(
       `/api/proposals?${params}`,

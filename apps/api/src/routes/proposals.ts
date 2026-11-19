@@ -3,6 +3,7 @@ import type { Logger } from "pino";
 import { z } from "zod";
 import type { createAuditWriter } from "@stock-monitor/audit";
 import type { createNotificationRepository, createProposalRepository, createShopifyRepository, ProposalView } from "@stock-monitor/db";
+import { PROPOSAL_SORTS } from "@stock-monitor/db";
 import { MAX_QUANTITY, validateQuantity } from "@stock-monitor/proposals";
 import type { Queue } from "@stock-monitor/queue";
 import { AppError } from "../errors.js";
@@ -33,6 +34,8 @@ const listQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
   supplierId: z.string().uuid().optional(),
+  sort: z.enum(PROPOSAL_SORTS).optional(),
+  dir: z.enum(["asc", "desc"]).optional(),
 });
 
 /** What the screen may see of a suggestion. Never the idempotency key, who decided, or the attempt count. */
@@ -94,7 +97,7 @@ export function registerProposalRoutes(app: App, deps: ProposalRoutesDeps, audit
   app.get("/api/proposals", async (request) => {
     const query = listQuery.safeParse(request.query);
     if (!query.success) throw new AppError(400, "bad_request", "The request was not valid.");
-    const { tab, page, pageSize, supplierId } = query.data;
+    const { tab, page, pageSize, supplierId, sort, dir } = query.data;
     const permission = await writePermission();
     if (tab === "open") {
       // With no `page` this lists every open suggestion, as before.
@@ -102,7 +105,7 @@ export function registerProposalRoutes(app: App, deps: ProposalRoutesDeps, audit
         const all = (await proposals.open()).map(present);
         return { proposals: all, total: all.length, writePermission: permission };
       }
-      const { items, total } = await proposals.openPage(pageSize, (page - 1) * pageSize, supplierId);
+      const { items, total } = await proposals.openPage(pageSize, (page - 1) * pageSize, supplierId, sort ? { sort, dir: dir ?? "asc" } : undefined);
       return { proposals: items.map(present), total, page, pageSize, writePermission: permission };
     }
     const rows = await proposals.history(pageSize + 1, (page - 1) * pageSize, supplierId);

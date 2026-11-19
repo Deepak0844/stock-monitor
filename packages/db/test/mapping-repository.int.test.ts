@@ -228,6 +228,39 @@ describe("mappings: page", () => {
     expect(await maps().page({ page: 4, pageSize: 10 })).toMatchObject({ rows: [], total: 1 });
   });
 
+  it("sorts by supplier, newest name first when asked, and keeps pages apart when names are equal", async () => {
+    for (const v of ["v1", "v2", "v3"]) await link(v);
+    await addVariant("s-1", "S5");
+    await link("s-1", globex);
+    const desc = await maps().page({ page: 1, pageSize: 10, sort: "supplier", dir: "desc" });
+    expect(desc.rows[0]!.supplierName).toBe("Globex");
+    expect((await maps().page({ page: 1, pageSize: 10, sort: "supplier", dir: "asc" })).rows[0]!.supplierName).toBe("Acme");
+    const one = await maps().page({ page: 1, pageSize: 2, sort: "supplier", dir: "asc" });
+    const two = await maps().page({ page: 2, pageSize: 2, sort: "supplier", dir: "asc" });
+    const ids = [...one.rows, ...two.rows].map((r) => r.id);
+    expect(new Set(ids).size).toBe(4);
+  });
+
+  it("sorts by last checked with never-checked links last, both ways", async () => {
+    const a = await link("v1");
+    const b = await link("v2");
+    await link("v3");
+    const check = (id: string, at: string) =>
+      maps().recordCheck(id, { status: "works", lastWorkedAt: new Date(at), workedTitle: null, workedHeading: null, missingChecks: 0, firstMissingAt: null, checkedAt: new Date(at) });
+    if (!a.ok || !b.ok) throw new Error("setup");
+    await check(a.mapping.id, "2026-11-19T08:00:00Z");
+    await check(b.mapping.id, "2026-11-19T09:00:00Z");
+    const asc = (await maps().page({ page: 1, pageSize: 10, sort: "lastChecked", dir: "asc" })).rows.map((r) => r.variantId);
+    const desc = (await maps().page({ page: 1, pageSize: 10, sort: "lastChecked", dir: "desc" })).rows.map((r) => r.variantId);
+    expect(asc).toEqual(["v1", "v2", "v3"]);
+    expect(desc).toEqual(["v2", "v1", "v3"]);
+  });
+
+  it("sorts by product the other way when asked", async () => {
+    for (const v of ["v1", "v2", "v3"]) await link(v);
+    expect((await maps().page({ page: 1, pageSize: 10, sort: "product", dir: "desc" })).rows.map((r) => r.variantId)).toEqual(["v3", "v2", "v1"]);
+  });
+
   it("applies the supplier and search filters to the total too, and treats a bad supplier id as no match", async () => {
     await link("v1");
     await link("v2", globex);

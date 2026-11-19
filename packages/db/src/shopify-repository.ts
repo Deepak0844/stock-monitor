@@ -242,7 +242,7 @@ export function createShopifyRepository<S extends Record<string, unknown>>(db: N
       return new Map(rows.map((r) => [r.id, { inventoryItemId: r.inventoryItemId, available: r.available, tracked: r.tracked, removed: r.removedAt !== null }]));
     },
 
-    async listVariants(opts: { page: number; pageSize: number; search?: string; warningsOnly?: boolean }): Promise<VariantPage> {
+    async listVariants(opts: { page: number; pageSize: number; search?: string; warningsOnly?: boolean; dir?: "asc" | "desc" }): Promise<VariantPage> {
       const conditions: (SQL | undefined)[] = [isNull(shopifyVariants.removedAt)];
       if (opts.search) {
         const pattern = likePattern(opts.search);
@@ -268,9 +268,9 @@ export function createShopifyRepository<S extends Record<string, unknown>>(db: N
         .from(shopifyVariants)
         .where(where)
         .orderBy(
-          asc(sql`lower(${shopifyVariants.productTitle})`),
-          asc(sql`lower(${shopifyVariants.variantTitle})`),
-          asc(shopifyVariants.variantId),
+          ...(opts.dir === "desc"
+            ? [desc(sql`lower(${shopifyVariants.productTitle})`), desc(sql`lower(${shopifyVariants.variantTitle})`), desc(shopifyVariants.variantId)]
+            : [asc(sql`lower(${shopifyVariants.productTitle})`), asc(sql`lower(${shopifyVariants.variantTitle})`), asc(shopifyVariants.variantId)]),
         )
         .limit(opts.pageSize)
         .offset((opts.page - 1) * opts.pageSize);

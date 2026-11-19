@@ -147,6 +147,12 @@ describe("listing", () => {
       expect((await call("GET", `/api/proposals?tab=history&supplierId=${bolt}`)).body.total).toBe(0);
     });
 
+    it("refuses an unknown sort or direction with a plain 400, and accepts a known one", async () => {
+      expect((await call("GET", "/api/proposals?tab=open&page=1&sort=price")).status).toBe(400);
+      expect((await call("GET", "/api/proposals?tab=open&page=1&sort=supplier&dir=sideways")).status).toBe(400);
+      expect((await call("GET", "/api/proposals?tab=open&page=1&sort=supplier&dir=desc")).status).toBe(200);
+    });
+
     it("refuses a supplier id that is not a UUID", async () => {
       expect((await call("GET", "/api/proposals?tab=open&page=1&supplierId=nope")).status).toBe(400);
     });

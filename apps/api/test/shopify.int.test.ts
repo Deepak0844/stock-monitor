@@ -444,6 +444,9 @@ describe("GET /api/shopify/variants", () => {
     await save([base(1, { productTitle: "Gloves" }), base(2, { productTitle: "Gloves", tracked: false }), base(3, { productTitle: "Hose" })]);
     expect(at((await call(app(), "GET", "/api/shopify/variants?search=glove")).body, "total")).toBe(2);
     expect(at((await call(app(), "GET", "/api/shopify/variants?warningsOnly=true")).body, "total")).toBe(1);
+    const zToA = (await call(app(), "GET", "/api/shopify/variants?sort=product&dir=desc")).body;
+    expect((at(zToA, "items") as { productTitle: string }[])[0]!.productTitle).toBe("Hose");
+    expect((await call(app(), "GET", "/api/shopify/variants?sort=price")).status).toBe(400);
     const page = (await call(app(), "GET", "/api/shopify/variants?pageSize=2&page=2")).body;
     expect(at(page, "items")).toHaveLength(1);
     expect(at(page, "total")).toBe(3);
