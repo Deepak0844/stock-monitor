@@ -16,6 +16,7 @@ supplier's product pages: HTTP 200 and the built-in availability present, the sa
   answer; otherwise the same page gets today's full browser check. Automatic, no setting.
 - Each answer records how it was read ("Read quickly" or "Read with the browser"), shown in the link's history.
 - Automatic checks can run every **15** or **30** minutes, beside today's choices.
+- A page that could not be loaded is tried **3 times** in all before its answer is "cannot tell" (owner's choice).
 
 ## Non-goals
 
@@ -114,7 +115,23 @@ visit). A missing page (404, a "not found" title) and a move to another site sti
 - The worker log line `stock check finished` gains `readBy`, and a fallback logs its fixed reason code
   (`quick_read: fallback (<reason>)`, e.g. `blocked`, `no_offers`, `variant_unclear`, `not_ok`), never the page.
 
-### 5. Every 15 or 30 minutes
+### 5. Three tries for a page that could not be loaded
+
+- In every stock check (one link, or a whole run), the **browser** visit of a page is tried up to **3 times** in all when it
+  could not load the page: the visit's result is `unreachable` (a timeout, no answer, a 5xx), or the browser service did not
+  answer (`service_unavailable`). The waits between tries are **5 s, then 15 s** (through the worker's `sleep`, so tests are
+  instant).
+- Never retried: a login page, a puzzle, a block, an unclear page (`unknown`), or any page that loaded. Retrying those would
+  look like an attack, or would not change the answer.
+- The quick read is not retried: falling back to the browser is already its second try.
+- After the last try the page is handled as today: "cannot tell", and three such pages in a row still end the run and back off.
+- Each retry logs `stock check: retry <n> (<result>)`, never the address. The supplier's pause between pages comes after the
+  last try, as today.
+- The run's expiry budget (`runExpirySeconds`) grows by the worst case of two retries per page (20 s of waits plus two page
+  timeouts), so a run with retries is never cut off as stale.
+- Link checks ("Check all links") are not changed.
+
+### 6. Every 15 or 30 minutes
 
 - `INTERVALS` in `packages/scheduling` becomes `[15, 30, 60, 180, 360, 720, 1440]`; migration `0023` widens
   `suppliers_schedule_interval` to match.
@@ -135,7 +152,9 @@ visit). A missing page (404, a "not found" title) and a move to another site sti
   password box, a challenge widget, 401/403/429 classify as today; `publicPage` other than true is refused.
 - Worker: quick answer used (one `/quick-read`, no `/capture`); fallback to `/capture` on not ok, blocked, no offers, unclear
   options, page checks present, region on; a supplier that needs a login never calls `/quick-read`; `read_by` stored.
-- Scheduling: 15 and 30 accepted end to end; refused values still refused.
+- Scheduling: 15 and 30 accepted end to end; refused values still refused; `runExpirySeconds` covers retries.
+- Retries: an unreachable page that loads on the 2nd or 3rd try gives its real answer, with waits 5 s and 15 s; three failures
+  give "cannot tell"; login, puzzle, block and unknown are tried once; a quick read is never retried.
 - Web: history wording; the two new schedule choices.
 
 ## Left to the builder
@@ -152,5 +171,6 @@ visit). A missing page (404, a "not found" title) and a move to another site sti
 - Quick reads give link status no title or heading, so they never make a link "looks different"; the browser still does.
 - No quick read for a supplier with stealth on.
 - The pause between pages applies after quick reads too.
+- Retries wait 5 s, then 15 s, and only for pages that could not be loaded; stock checks only, not link checks.
 - Fallback after 10 s for a slow site (the owner asked what happens: the browser check then runs, with its own 20 s, and an
   unreachable page is "cannot tell", never out of stock).
