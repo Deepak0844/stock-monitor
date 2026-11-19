@@ -22,6 +22,10 @@ What is left for the MVP:
 - Release: merge `develop` into `master` (PR #122).
 - README (PR #124), open for review.
 
+Login guessing (branch `feature/login-guess`, 2026-11-19): automatic login now guesses a login button or opener from what it
+says when the wording is not on the exact list, and never takes Register, Forgot password, a social login or Log out. Next:
+"Check login page", a list for the owner to pick a control when the guess is wrong.
+
 Decided against (do not bring them up again unless something changes):
 
 - A contact User-Agent and reading robots.txt crawl-delay. The owner sets the pause per supplier by hand.
