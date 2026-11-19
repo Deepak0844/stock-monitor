@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Browser, BrowserContextOptions } from "playwright";
 import { explainPage, looksLikeNotFound, type SessionState } from "@stock-monitor/supplier-session";
+import { offersFrom, type PageOffer } from "./offers.js";
 import { NAME_SHIM } from "./page-shim.js";
 import type { GuardProxy } from "./proxy.js";
 import { CHALLENGE_WIDGET, MAX_TEXT, withFreshState, type BlockTracker, type CheckPageOutcome, type VerifyOptions } from "./verify.js";
@@ -9,14 +10,13 @@ export type CaptureRequest = { url: string; loginUrl?: string; loggedInMarker?: 
 /** What the browser was showing, as words: headings with the lines under them, and the buttons. Never raw HTML. */
 export type PageSections = { heading: string | null; level: number; lines: string[] }[];
 export type PageButtons = { label: string; enabled: boolean; section: string | null }[];
-/** One offer from the page's built-in product data (schema.org). The same shape as the extraction package's `Offer`. */
-export type PageOffer = { availability: string; url: string | null; sku: string | null; name: string | null };
+export type { PageOffer } from "./offers.js";
 export type CaptureOutcome = CheckPageOutcome & { description: { sections: PageSections; buttons: PageButtons; offers: PageOffer[] }; picture: string | null };
 export type CaptureOptions = VerifyOptions & { proxy: GuardProxy };
 
 const DEFAULT_TIMEOUT_MS = 20_000;
 const MAX_FIELD = 200;
-const LIMITS = { maxLines: 5000, maxLine: 2000, maxButtons: 500, maxBytes: 200_000, maxOffers: 100, maxOfferField: 200, maxNodes: 2000, maxScript: 1_000_000 };
+const LIMITS = { maxLines: 5000, maxLine: 2000, maxButtons: 500, maxBytes: 200_000, maxOffers: 100, maxOfferField: 200, maxScript: 1_000_000, maxScripts: 2_000_000 };
 const MAX_PICTURE_BYTES = 1_000_000;
 const short = (text: string | null | undefined) => (text ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_FIELD) || null;
 const withoutQuery = (address: string): string | null => {
@@ -74,65 +74,21 @@ const describePage = (arg: { limits: typeof LIMITS; challenge: string }) => {
         const style = getComputedStyle(el);
         return el.getAttribute("data-size") !== "invisible" && box.width >= 50 && box.height >= 30 && style.visibility !== "hidden" && style.display !== "none" && Number(style.opacity) > 0.1 && box.bottom > 0 && box.right > 0;
       });
-  // The page's built-in product data. Bounded: at most maxNodes values looked at per script, maxOffers kept, each field cut short.
-  type Offer = { availability: string; url: string | null; sku: string | null; name: string | null };
-  type Context = { url: string | null; sku: string | null; name: string | null };
-  const offers: Offer[] = [];
-  let nodes = 0;
-  const field = (v: unknown): string | null => (typeof v === "string" || typeof v === "number" ? oneLine(String(v)).slice(0, limits.maxOfferField) || null : null);
-  const address = (v: unknown): string | null => {
-    const raw = field(v);
-    if (!raw) return null;
-    try {
-      return new URL(raw, location.href).href.slice(0, limits.maxOfferField);
-    } catch {
-      return null;
-    }
-  };
-  const valueName = (v: string) => (v.trim().split(/[/:]/).pop() ?? "").trim().slice(0, limits.maxOfferField);
-  const types = (o: Record<string, unknown>): string[] => (Array.isArray(o["@type"]) ? o["@type"] : [o["@type"]]).filter((t): t is string => typeof t === "string").map(valueName);
-  const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-  function addOffer(o: Record<string, unknown>, ctx: Context) {
-    const availability = field(o.availability);
-    if (!availability || offers.length >= limits.maxOffers) return;
-    offers.push({ availability: valueName(availability), url: address(o.url) ?? ctx.url, sku: field(o.sku) ?? ctx.sku, name: field(o.name) ?? ctx.name });
-  }
-  function walkOffers(v: unknown, ctx: Context) {
-    if (++nodes > limits.maxNodes) return;
-    if (Array.isArray(v)) return v.forEach((x) => walkOffers(x, ctx));
-    if (!isObject(v)) return;
-    if (v.offers !== undefined) walkOffers(v.offers, ctx); // an AggregateOffer that lists its offers
-    addOffer(v, ctx);
-  }
-  function walk(v: unknown, ctx: Context) {
-    if (++nodes > limits.maxNodes || offers.length >= limits.maxOffers) return;
-    if (Array.isArray(v)) return v.forEach((x) => walk(x, ctx));
-    if (!isObject(v)) return;
-    const t = types(v);
-    if (t.includes("Product") || t.includes("ProductGroup")) {
-      const own = { url: address(v.url) ?? ctx.url, sku: field(v.sku) ?? ctx.sku, name: field(v.name) ?? ctx.name };
-      if (v.offers !== undefined) walkOffers(v.offers, own);
-      if (v.hasVariant !== undefined) walk(v.hasVariant, own);
-      return;
-    }
-    if (t.includes("Offer") || t.includes("AggregateOffer")) return walkOffers(v, ctx);
-    for (const value of Object.values(v)) if (typeof value === "object") walk(value, ctx);
-  }
-  const none: Context = { url: null, sku: null, name: null };
+  // The page's built-in product data, as raw text: the offers are read from it outside the page (`offersFrom`), the same way
+  // a quick read reads them. Bounded: a script over maxScript characters is left out, and no more than maxScripts in all.
+  const ldScripts: string[] = [];
+  let scriptChars = 0;
   for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
-    nodes = 0; // each script gets its own budget, so a huge one cannot starve the product's own
     const text = script.textContent ?? "";
-    if (text.length > limits.maxScript) continue; // never parse a giant blob
-    try {
-      walk(JSON.parse(text), none);
-    } catch {
-      // Broken built-in data is no built-in data.
-    }
+    if (text.length > limits.maxScript || scriptChars + text.length > limits.maxScripts) continue;
+    ldScripts.push(text);
+    scriptChars += text.length;
   }
+  const microdata: string[] = [];
   for (const el of document.querySelectorAll("[itemprop=availability]")) {
-    if (offers.length >= limits.maxOffers) break;
-    const value = el.getAttribute("href") ?? el.getAttribute("content");
-    if (value) addOffer({ availability: value }, none);
+    if (microdata.length >= limits.maxOffers) break;
+    const value = (el.getAttribute("href") ?? el.getAttribute("content") ?? "").slice(0, limits.maxOfferField);
+    if (value) microdata.push(value);
   }
 
   for (const el of document.querySelectorAll("textarea,select,input:not([type=submit]):not([type=button])")) (el as HTMLElement).style.display = "none";
@@ -164,7 +120,8 @@ const describePage = (arg: { limits: typeof LIMITS; challenge: string }) => {
     text: all.join("\n").slice(0, 20_000),
     sections,
     buttons,
-    offers,
+    ldScripts,
+    microdata,
     hasPasswordField,
     hasChallengeWidget,
   };
@@ -253,7 +210,7 @@ export async function capturePageIn(page: import("playwright").Page, request: Ca
     heading,
     softNotFound: looksLikeNotFound({ title, heading }),
     signal,
-    description: { sections: seen.sections, buttons: seen.buttons, offers: seen.offers },
+    description: { sections: seen.sections, buttons: seen.buttons, offers: offersFrom(seen.ldScripts, seen.microdata, page.url()) },
     picture,
   };
 }
