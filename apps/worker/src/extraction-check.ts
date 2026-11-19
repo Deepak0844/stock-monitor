@@ -14,7 +14,7 @@ import { saveRefreshedSession } from "./session-refresh.js";
 import { backoffMs, nextCheckAt } from "@stock-monitor/scheduling";
 import { ensureLoggedIn, loginCheckUrl, type AutoLoginDeps } from "./auto-login.js";
 import { toState } from "./mapping-link-check.js";
-import { raiseNeedsAttention } from "./supplier-verify.js";
+import { raiseNeedsAttention, type StopReason } from "./needs-attention.js";
 
 export type StockCheckDeps = {
   /** Reads emailed login codes for automatic login. */
@@ -43,8 +43,6 @@ export type StockCheckDeps = {
 };
 
 export type SkipReason = CheckGateReason | "no_mapping" | "no_supplier" | "link_off" | "no_recipe" | "run_ended";
-/** Why a run ended before every link was looked at. */
-export type StopReason = "login_required" | "captcha" | "blocked" | "unreachable" | "supplier_not_ready";
 export type StockOutcome = { kind: "skipped"; reason: SkipReason } | { kind: "checked"; answer: Answer; reason: Reason | null };
 export type StockRunOutcome =
   | { kind: "skipped"; reason: SkipReason }

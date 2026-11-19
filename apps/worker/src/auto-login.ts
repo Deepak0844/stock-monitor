@@ -5,10 +5,9 @@ import type {
 } from "@stock-monitor/db";
 import { insideWindow } from "@stock-monitor/scheduling";
 import { sealSessionState, unsealCredentials, type SessionState } from "@stock-monitor/supplier-session";
-import type { StopReason } from "./extraction-check.js";
 import type { SessionRefreshDeps } from "./session-refresh.js";
 import { waitForCode, type MailSource } from "./code-reader.js";
-import { raiseNeedsAttention, type AttentionReason } from "./supplier-verify.js";
+import { raiseNeedsAttention, type AttentionReason, type StopReason } from "./needs-attention.js";
 
 /** A session checked this recently is used as it is, unless the caller forces a login. */
 export const AUTO_LOGIN_FRESH_MINUTES = 10;
