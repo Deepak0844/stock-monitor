@@ -3,13 +3,11 @@ import { Button } from "@/components/ui/button.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
 import type { Api, ConnectionCheck, ShopifyConnection, ShopifyDetails } from "../api.js";
 import { Notice } from "../components/Notice.js";
-import { PageHeader } from "../components/PageHeader.js";
 import { Panel } from "../components/Panel.js";
 import { useTitle } from "../useTitle.js";
 import { ConnectionCard } from "./settings/ConnectionCard.js";
 import { LocationCard } from "./settings/LocationCard.js";
 import { ShopifyConnectForm } from "./settings/ShopifyConnectForm.js";
-import { ProposalSettingsCard } from "./settings/ProposalSettingsCard.js";
 import { SyncCard } from "./settings/SyncCard.js";
 
 type Load =
@@ -50,9 +48,7 @@ export function SettingsShopifyPage({ api }: { api: Api }) {
 
   return (
     <>
-      <PageHeader title="Settings" description="Your Shopify store and how stock suggestions work." />
-
-      <div className="flex max-w-3xl flex-col gap-6">
+      <div className="flex flex-col">
         {load.kind === "loading" && (
           <>
             <p role="status" className="sr-only">
@@ -108,7 +104,6 @@ export function SettingsShopifyPage({ api }: { api: Api }) {
               />
             )}
             <SyncCard api={api} connection={load.connection} onFinished={refresh} />
-            <ProposalSettingsCard api={api} />
           </>
         )}
       </div>

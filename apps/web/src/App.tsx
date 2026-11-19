@@ -14,6 +14,10 @@ import { StockRulesPage } from "./pages/StockRulesPage.js";
 import { SupplierFormPage } from "./pages/SupplierFormPage.js";
 import { SuppliersPage } from "./pages/SuppliersPage.js";
 import { SettingsShopifyPage } from "./pages/SettingsShopifyPage.js";
+import { AccountPage } from "./pages/settings/AccountPage.js";
+import { AppearancePage } from "./pages/settings/AppearancePage.js";
+import { SettingsLayout } from "./pages/settings/SettingsLayout.js";
+import { SuggestionsPage } from "./pages/settings/SuggestionsPage.js";
 import { LoginPage } from "./pages/LoginPage.js";
 import { AppShell } from "./shell/AppShell.js";
 import { TooltipProvider } from "@/components/ui/tooltip.js";
@@ -127,6 +131,12 @@ export function App({ api = realApi }: { api?: Api }) {
     );
   }
 
+  const signOut = () =>
+    api
+      .logout()
+      .then(() => setState({ kind: "signedOut" }))
+      .catch((e: unknown) => setState({ kind: "error", message: messageOf(e) }));
+
   return (
     <TooltipProvider delayDuration={400}>
       <AppShell
@@ -135,12 +145,7 @@ export function App({ api = realApi }: { api?: Api }) {
         attentionCount={notifications.items.length}
         schedule={schedule}
         notifications={notifications}
-        onSignOut={() =>
-          api
-            .logout()
-            .then(() => setState({ kind: "signedOut" }))
-            .catch((e: unknown) => setState({ kind: "error", message: messageOf(e) }))
-        }
+        onSignOut={signOut}
       >
         {path === "/" ? (
           <DashboardPage api={api} />
@@ -167,7 +172,21 @@ export function App({ api = realApi }: { api?: Api }) {
         ) : editId ? (
           <SupplierFormPage key={editId} api={api} id={editId} />
         ) : path === "/settings" || path === "/settings/shopify" ? (
-          <SettingsShopifyPage api={api} />
+          <SettingsLayout current="shopify">
+            <SettingsShopifyPage api={api} />
+          </SettingsLayout>
+        ) : path === "/settings/suggestions" ? (
+          <SettingsLayout current="suggestions">
+            <SuggestionsPage api={api} />
+          </SettingsLayout>
+        ) : path === "/settings/appearance" ? (
+          <SettingsLayout current="appearance">
+            <AppearancePage />
+          </SettingsLayout>
+        ) : path === "/settings/account" ? (
+          <SettingsLayout current="account">
+            <AccountPage email={state.email} onSignOut={signOut} />
+          </SettingsLayout>
         ) : (
           <NotFoundPage />
         )}

@@ -21,7 +21,11 @@ export function crumbsForPath(path: string): Crumb[] {
   if (/^\/mappings\/[^/]+\/edit$/.test(path)) return [HOME, LINKS, { label: "Edit link" }];
   if (path === "/products") return [HOME, { label: "Products" }];
   if (path === "/proposals") return [HOME, { label: "Proposals" }];
-  if (path === "/settings" || path === "/settings/shopify") return [HOME, { label: "Settings", to: "/settings/shopify" }, { label: "Shopify" }];
+  const SETTINGS = { label: "Settings", to: "/settings/shopify" };
+  if (path === "/settings" || path === "/settings/shopify") return [HOME, SETTINGS, { label: "Shopify" }];
+  if (path === "/settings/suggestions") return [HOME, SETTINGS, { label: "Stock suggestions" }];
+  if (path === "/settings/appearance") return [HOME, SETTINGS, { label: "Appearance" }];
+  if (path === "/settings/account") return [HOME, SETTINGS, { label: "Account" }];
   return [HOME, { label: "Page not found" }];
 }
 
