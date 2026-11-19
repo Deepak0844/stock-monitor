@@ -16,7 +16,7 @@ afterAll(async () => {
 });
 beforeEach(() => {
   fake.requests.length = 0;
-  Object.assign(fake.behaviour, { open: "ok", finish: "ok", cancel: "ok", verify: "ok", verifyResult: "ok", checkPage: "ok", capture: "ok", state: { cookies: [], origins: [] }, refreshed: undefined, vncPassword: "Ab3dE6gH", delayMs: 0 });
+  Object.assign(fake.behaviour, { open: "ok", finish: "ok", cancel: "ok", verify: "ok", verifyResult: "ok", checkPage: "ok", capture: "ok", quickRead: "missing", quickOffers: [], state: { cookies: [], origins: [] }, refreshed: undefined, vncPassword: "Ab3dE6gH", delayMs: 0 });
 });
 
 describe("the refreshed session after a check", () => {
@@ -134,6 +134,22 @@ describe("verify", () => {
     await client().verify({ url: "https://a.example/", state });
     expect((fake.requests[0]?.body as Record<string, unknown>).loginUrl).toBe("https://a.example/login");
     expect("loginUrl" in (fake.requests[1]?.body as Record<string, unknown>)).toBe(false);
+  });
+
+  it("asks for a quick read of a public page and keeps only well-formed offers", async () => {
+    fake.behaviour.quickRead = "ok";
+    fake.behaviour.quickOffers = [{ availability: "InStock", url: null, sku: "A-1", name: null }, { availability: 7 }];
+    const r = await client().quickRead({ url: "https://a.example/p" });
+    expect(fake.requests.at(-1)).toMatchObject({ method: "POST", path: "/quick-read", body: { url: "https://a.example/p", publicPage: true } });
+    expect(r).toMatchObject({ ok: true, result: "ok", status: 200, offers: [{ availability: "InStock", url: null, sku: "A-1", name: null }], blockedRequests: 0 });
+  });
+
+  it("says failed for a service without quick reads or a failed read, and unavailable when nothing answers", async () => {
+    fake.behaviour.quickRead = "missing";
+    expect(await client().quickRead({ url: "https://a.example/p" })).toEqual({ ok: false, reason: "failed" });
+    fake.behaviour.quickRead = "fail";
+    expect(await client().quickRead({ url: "https://a.example/p" })).toEqual({ ok: false, reason: "failed" });
+    expect(await client({ baseUrl: "http://127.0.0.1:1" }).quickRead({ url: "https://a.example/p" })).toEqual({ ok: false, reason: "unavailable" });
   });
 
   it("says the page is public on check-page and capture when asked, and leaves it out otherwise", async () => {

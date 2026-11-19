@@ -162,6 +162,13 @@
       "when": 1795043680258,
       "tag": "0022_built_in_stock",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1795050206486,
+      "tag": "0023_quick_read",
+      "breakpoints": true
     }
   ]
 }

@@ -4,6 +4,8 @@ import { formatWhen } from "../format.js";
 /** The choices for how often, in the owner's words. null is off. */
 export const INTERVAL_CHOICES: { minutes: number | null; words: string }[] = [
   { minutes: null, words: "Off" },
+  { minutes: 15, words: "Every 15 minutes" },
+  { minutes: 30, words: "Every 30 minutes" },
   { minutes: 60, words: "Every hour" },
   { minutes: 180, words: "Every 3 hours" },
   { minutes: 360, words: "Every 6 hours" },

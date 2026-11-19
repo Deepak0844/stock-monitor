@@ -367,3 +367,21 @@ describe("supplier repository: turning the login off", () => {
     expect((await repo().page({ page: 1, pageSize: 10, status: "paused" })).items.map((s) => s.id)).toEqual([g.id]);
   });
 });
+
+describe("supplier repository: quick checks", () => {
+  it("accepts checks every 15 or 30 minutes, and still refuses other intervals", async () => {
+    const s = await made();
+    expect(await repo().setSchedule(s.id, { intervalMinutes: 15, window: null, nextCheckAt: null })).toMatchObject({ scheduleIntervalMinutes: 15 });
+    expect(await repo().setSchedule(s.id, { intervalMinutes: 30, window: null, nextCheckAt: null })).toMatchObject({ scheduleIntervalMinutes: 30 });
+    await expect(repo().setSchedule(s.id, { intervalMinutes: 20, window: null, nextCheckAt: null })).rejects.toThrow();
+  });
+
+  it("turning the login off starts the pause at 3 seconds, but keeps a pause the owner set", async () => {
+    const s = await made();
+    expect((await repo().setNeedsLogin(s.id, false))?.checkPauseSeconds).toBe(3);
+    expect((await repo().setNeedsLogin(s.id, true))?.checkPauseSeconds).toBe(3);
+    const g = await made(globex);
+    await t.pool.query("update suppliers set check_pause_seconds = 7 where id = $1", [g.id]);
+    expect((await repo().setNeedsLogin(g.id, false))?.checkPauseSeconds).toBe(7);
+  });
+});

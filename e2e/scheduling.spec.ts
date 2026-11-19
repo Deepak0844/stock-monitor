@@ -133,6 +133,14 @@ test("a supplier that is not recorded as allowed is not checked, and the screen 
   await expectRow(page, /Not being checked.*recorded permission/);
 });
 
+test("the owner can check a supplier every 15 minutes", async ({ page }) => {
+  await signIn(page);
+  await turnOn(page, "15");
+  await page.reload();
+  await expect(page.getByLabel("How often")).toHaveValue("15");
+  await expectRow(page, /Every 15 minutes/);
+});
+
 test("the quiet hours start at 07:00 to 22:00 and an end time equal to the start is refused", async ({ page }) => {
   await signIn(page);
   await page.goto("/suppliers");

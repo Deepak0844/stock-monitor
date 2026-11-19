@@ -181,6 +181,24 @@ How a rule matches:
 - **Button rule:** matches when any button's label **contains** your words. Optionally the button must be **Enabled** or **Disabled**. **Either** ignores that.
 - **Only under this heading (optional):** limits the rule to one part of the page. The app finds the **first** heading that contains your words, then looks at that section and the sub-sections below it, up to the next heading of the same or higher level. If no heading matches, the rule finds nothing.
 
+### Quick reads, retries and the pause
+
+For a supplier that needs no login, a stock check first downloads only the page's HTML (no browser, about a second, almost
+no memory) and reads its built-in stock data. When that gives a clear In stock or Out of stock, that is the answer. In every
+other case (the site refused the download or answered slowly, the page has no built-in data, the options are unclear, it
+looks like a login page, or your rules need page checks or a region) the same page is checked with the browser, as before.
+Nothing has to be set up. A supplier with **Hide automation (stealth)** on is always checked with the browser. The link's
+history says **Read quickly** or **Read with the browser**.
+
+A page that cannot be loaded at all (no answer, a timeout, a server error) is tried **3 times**, waiting 5 then 15 seconds,
+before its answer is **Cannot tell**. A login page, a puzzle or a block is never retried.
+
+Turning **Needs a login** off starts the pause between pages at **3 seconds** (if you had not changed it from 10). The pause
+keeps the supplier's site from seeing a burst of requests; 2-3 seconds is a good value for public pages. If a supplier starts
+refusing checks, raise it again.
+
+Automatic checks can now run **every 15 or 30 minutes** as well.
+
 ### Built-in stock data
 
 Most shops put each product's stock in data built into the page for search engines (schema.org `availability`). With

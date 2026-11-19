@@ -1,4 +1,4 @@
-export const INTERVALS = [60, 180, 360, 720, 1440] as const;
+export const INTERVALS = [15, 30, 60, 180, 360, 720, 1440] as const;
 export const DEFAULT_INTERVAL = 1440;
 export type Window = { start: string; end: string } | null; // "HH:MM" local time, null = all day
 export const DEFAULT_WINDOW = { start: "07:00", end: "22:00" } as const;
@@ -48,9 +48,12 @@ export function backoffMs(failureCount: number, pauseSeconds: number): number {
   return Math.max(step * MINUTE, pauseSeconds * 1000);
 }
 
+const STALE_FLOOR_MINUTES = 120;
+
 export function isStale(lastCheckedAt: Date | null, intervalMinutes: number | null, now: Date): boolean {
   if (!lastCheckedAt || !intervalMinutes) return false;
-  return now.getTime() - lastCheckedAt.getTime() > 2 * intervalMinutes * MINUTE;
+  // At least 2 hours: a whole run on a 15-minute schedule can take longer than two intervals without anything being wrong.
+  return now.getTime() - lastCheckedAt.getTime() > Math.max(2 * intervalMinutes, STALE_FLOOR_MINUTES) * MINUTE;
 }
 
 export type DueCandidate = { id: string; nextCheckAt: Date; window: Window };

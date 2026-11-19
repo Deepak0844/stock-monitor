@@ -8,7 +8,7 @@ import type {
 import { BUILT_IN_DEFAULT, BUILT_IN_DEFAULT_VERSION, decide, isSupplierWideChange, validateRecipe, type Answer, type Decision, type PageDescription, type Reason, type Recipe } from "@stock-monitor/extraction";
 import { decideLinkStatus, isSupplierWide, whyNotChecked, type CheckGateReason, type LinkStatus, type Observation } from "@stock-monitor/mapping";
 import { unsealSessionState } from "@stock-monitor/supplier-session";
-import { EMPTY_STATE, loginFields } from "./supplier-visit.js";
+import { EMPTY_STATE, loginFields, quickEligible } from "./supplier-visit.js";
 import { saveRefreshedSession } from "./session-refresh.js";
 import { backoffMs, nextCheckAt } from "@stock-monitor/scheduling";
 import { ensureLoggedIn, loginCheckUrl, type AutoLoginDeps } from "./auto-login.js";
@@ -51,7 +51,11 @@ export type StockRunOutcome =
   | { kind: "failed" };
 
 type Active = { recipe: Recipe; version: number };
-type Visit = { mapping: MappingRow; obs: Observation; page: PageDescription | null; picture: Buffer | null; checkResult: string; decision: Decision; linkTrial: LinkStatus };
+/** `readBy`: how the page was read, or null when it was never opened. */
+type Visit = { mapping: MappingRow; obs: Observation; page: PageDescription | null; picture: Buffer | null; checkResult: string; decision: Decision; linkTrial: LinkStatus; readBy: "quick" | "browser" | null };
+// A page that could not be loaded is tried three times in all, waiting this long before the 2nd and the 3rd try.
+const RETRY_WAITS_MS = [5000, 15000];
+const RETRY_RESULTS = new Set(["unreachable", "service_unavailable"]);
 
 const FAILED_VISIT = new Set(["login_required", "captcha", "blocked", "unreachable"]);
 // The visit's result that ends a run at once, and the one that ends it after this many pages in a row.
@@ -92,7 +96,46 @@ export function createStockChecker(deps: StockCheckDeps) {
 
   const gate = (supplierId: string) => stockGate(deps, supplierId);
 
+  /**
+   * One page: a quick read first when the page can be answered without the browser, else (or when the quick read is not
+   * clear) the browser, tried up to three times when it could not load the page at all.
+   */
   async function visit(supplier: SupplierRecord, mapping: MappingRow, recipe: Recipe): Promise<Visit> {
+    if (quickEligible(supplier, recipe)) {
+      const quick = await quickVisit(supplier, mapping, recipe);
+      if (quick) return quick;
+    }
+    for (let attempt = 1; ; attempt++) {
+      const v = await browserVisit(supplier, mapping, recipe);
+      if (attempt > RETRY_WAITS_MS.length || !RETRY_RESULTS.has(v.checkResult)) return v;
+      logger.info({ mappingId: mapping.id }, `stock check: retry ${attempt} (${v.checkResult})`);
+      await sleep(RETRY_WAITS_MS[attempt - 1] as number);
+    }
+  }
+
+  /** The answer from the page's HTML alone, or null when only the browser can say: then the reason is logged, never the page. */
+  async function quickVisit(supplier: SupplierRecord, mapping: MappingRow, recipe: Recipe): Promise<Visit | null> {
+    const fallback = (reason: string) => {
+      logger.info({ mappingId: mapping.id }, `quick_read: fallback (${reason})`);
+      return null;
+    };
+    const q = await browser.quickRead({ url: mapping.url });
+    if (!q.ok) return fallback("unavailable");
+    if (q.blockedRequests > 0) return fallback("blocked");
+    if (q.result !== "ok") return fallback("not_ok");
+    if (q.offers.length === 0) return fallback("no_offers");
+    // No title or heading: a script can change a title in the browser, so a quick read never compares them with the worked ones.
+    const obs: Observation = { result: q.result, status: q.status, finalUrl: q.finalUrl, title: null, heading: null, softNotFound: q.softNotFound };
+    const trial = decideLinkStatus(toState(mapping), obs, { requestedUrl: mapping.url, homeUrl: supplier.websiteUrl, now: now(), supplierWide: false }).status;
+    if (trial === "page_missing" || trial === "never_worked") return fallback(trial);
+    const page: PageDescription = { url: q.finalUrl ?? mapping.url, title: "", status: q.status, pageClass: q.result, sections: [], buttons: [], offers: q.offers };
+    const region = (mapping.region ?? supplier.defaultRegion) || null;
+    const decision = decide(page, recipe, region, { url: mapping.url, option: mapping.supplierOption });
+    if (decision.decidedBy !== "built_in") return fallback(decision.reason ?? "not_clear");
+    return { mapping, obs, page, picture: null, checkResult: q.result, decision, linkTrial: trial, readBy: "quick" };
+  }
+
+  async function browserVisit(supplier: SupplierRecord, mapping: MappingRow, recipe: Recipe): Promise<Visit> {
     // A supplier that needs no login is visited with no session, no login address and no logged-in marker.
     const sealed = supplier.needsLogin ? await supplierSessions.getSealed(supplier.id) : null;
     let state;
@@ -106,7 +149,7 @@ export function createStockChecker(deps: StockCheckDeps) {
       if (outcome) logger.warn({ mappingId: mapping.id }, "stock check could not run: the browser service did not answer");
       const obs: Observation = { result: "service_unavailable", status: null, finalUrl: null, title: null, heading: null, softNotFound: false };
       const trial = decideLinkStatus(toState(mapping), obs, { requestedUrl: mapping.url, homeUrl: supplier.websiteUrl, now: now(), supplierWide: false });
-      return { mapping, obs, page: null, picture: null, checkResult: state ? "service_unavailable" : "session_unreadable", decision: tell("check_failed"), linkTrial: trial.status };
+      return { mapping, obs, page: null, picture: null, checkResult: state ? "service_unavailable" : "session_unreadable", decision: tell("check_failed"), linkTrial: trial.status, readBy: null };
     }
     // Each page loads the session again, so the next page in a run uses the one kept here.
     if (sealed && state && outcome.result === "ok") await saveRefreshedSession(deps, supplier.id, { sealed, state }, outcome.state);
@@ -129,7 +172,7 @@ export function createStockChecker(deps: StockCheckDeps) {
         : trial === "never_worked"
           ? tell("never_worked")
           : decide(page, recipe, region, { url: mapping.url, option: mapping.supplierOption });
-    return { mapping, obs, page, picture: outcome.picture, checkResult: outcome.result, decision, linkTrial: trial };
+    return { mapping, obs, page, picture: outcome.picture, checkResult: outcome.result, decision, linkTrial: trial, readBy: "browser" };
   }
 
   /** A page not opened because the automatic login before it failed: cannot tell, as a failed visit would be. */
@@ -137,7 +180,7 @@ export function createStockChecker(deps: StockCheckDeps) {
     const result = stop === "supplier_not_ready" ? "unreachable" : stop;
     const obs: Observation = { result, status: null, finalUrl: null, title: null, heading: null, softNotFound: false };
     const trial = decideLinkStatus(toState(mapping), obs, { requestedUrl: mapping.url, homeUrl: supplier.websiteUrl, now: now(), supplierWide: false }).status;
-    return { mapping, obs, page: null, picture: null, checkResult: result, decision: tell("check_failed"), linkTrial: trial };
+    return { mapping, obs, page: null, picture: null, checkResult: result, decision: tell("check_failed"), linkTrial: trial, readBy: null };
   }
 
   /** Saves what a visit found: the link status, the kept capture when the page changed, and the observation. */
@@ -158,7 +201,9 @@ export function createStockChecker(deps: StockCheckDeps) {
       recipeVersion: version,
       checkResult: v.checkResult,
       captureId,
+      readBy: v.readBy,
     });
+    logger.info({ mappingId: v.mapping.id, readBy: v.readBy }, "stock page read");
     await audit.record({ action: "mapping.stock_checked", entityType: "mapping", entityId: v.mapping.id, details: { answer: v.decision.answer, reason: v.decision.reason } });
   }
 

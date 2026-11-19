@@ -187,6 +187,15 @@ describe("observations", () => {
     expect(latest?.observedAt).toEqual(own?.observedAt);
   });
 
+  it("records how the page was read: quickly, with the browser, or not at all", async () => {
+    await observations().append(row({ readBy: "quick" }));
+    expect((await observations().listFor(link, 1))[0]?.readBy).toBe("quick");
+    expect((await observations().latestByMapping()).get(link)?.readBy).toBe("quick");
+    await observations().append(row());
+    expect((await observations().listFor(link, 1))[0]?.readBy).toBeNull();
+    await expect(observations().append(row({ readBy: "other" as never }))).rejects.toThrow();
+  });
+
   it("is append only for the app role: no update and no delete", async () => {
     await observations().append(row());
     await expect(t.appPool.query("update stock_observations set answer = 'out_of_stock'")).rejects.toThrow(/permission denied/);

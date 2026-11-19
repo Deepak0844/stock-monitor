@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { backoffMs, runExpirySeconds, insideWindow, intoWindow, isStale, keepAliveDue, KEEP_ALIVE_CHOICES, needsSessionPrecheck, nextCheckAt, pickDue, SESSION_CHECK_LEAD_MINUTES } from "./schedule.js";
+import { backoffMs, INTERVALS, runExpirySeconds, insideWindow, intoWindow, isStale, keepAliveDue, KEEP_ALIVE_CHOICES, needsSessionPrecheck, nextCheckAt, pickDue, SESSION_CHECK_LEAD_MINUTES } from "./schedule.js";
 
 const KOLKATA = "Asia/Kolkata"; // UTC+5:30, no daylight saving
 const day = { start: "07:00", end: "22:00" };
@@ -135,5 +135,22 @@ describe("keepAliveDue", () => {
   });
   it("offers 15, 30, 45, 60 and 120 minutes", () => {
     expect(KEEP_ALIVE_CHOICES).toEqual([15, 30, 45, 60, 120]);
+  });
+});
+
+describe("quick checks", () => {
+  const at = new Date("2026-11-19T10:00:00Z");
+  const after = (minutes: number) => new Date(at.getTime() + minutes * 60_000);
+  it("offers checks every 15 and 30 minutes", () => {
+    expect(INTERVALS).toEqual([15, 30, 60, 180, 360, 720, 1440]);
+  });
+  it("flags a link as not checked recently only after at least 2 hours, so a long run on a short schedule is not flagged", () => {
+    expect(isStale(at, 15, after(61))).toBe(false);
+    expect(isStale(at, 15, after(121))).toBe(true);
+    expect(isStale(at, 1440, after(2881))).toBe(true);
+    expect(isStale(at, 1440, after(2879))).toBe(false);
+  });
+  it("gives a run time for three tries of each page: 3 page loads of 20 s and 20 s of waits", () => {
+    expect(runExpirySeconds(10, 3)).toBeGreaterThanOrEqual(10 * (3 + 3 * 20 + 20));
   });
 });

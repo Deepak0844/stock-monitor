@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import { createControlServer, type CaptureFn, type CheckPageFn, type LoginFn, type SessionsApi, type VerifyFn } from "./server.js";
+import { createControlServer, type CaptureFn, type CheckPageFn, type LoginFn, type QuickReadFn, type SessionsApi, type VerifyFn } from "./server.js";
 
 const TOKEN = "t".repeat(40);
 const MARKER = "SESSION-COOKIE-MARKER-4c1e";
@@ -13,6 +13,7 @@ let base: string;
 let verify: ReturnType<typeof vi.fn<VerifyFn>>;
 let checkPage: ReturnType<typeof vi.fn<CheckPageFn>>;
 let capture: ReturnType<typeof vi.fn<CaptureFn>>;
+let quickRead: ReturnType<typeof vi.fn<QuickReadFn>>;
 let sessions: { [K in keyof SessionsApi]: ReturnType<typeof vi.fn<SessionsApi[K]>> };
 const ID = "11111111-1111-4111-8111-111111111111";
 const logs: string[] = [];
@@ -27,7 +28,8 @@ beforeEach(async () => {
     finish: vi.fn<SessionsApi["finish"]>().mockResolvedValue(state),
     cancel: vi.fn<SessionsApi["cancel"]>().mockResolvedValue(true),
   };
-  server = createControlServer({ token: TOKEN, verify, checkPage, capture, sessions, log: (line) => logs.push(line), maxBodyBytes: 100_000 });
+  quickRead = vi.fn<QuickReadFn>().mockResolvedValue({ result: "ok", status: 200, finalUrl: "https://shop.acme.example/p", softNotFound: false, offers: [{ availability: "InStock", url: null, sku: null, name: null }], signal: "looks_real", blocked: false });
+  server = createControlServer({ token: TOKEN, verify, checkPage, capture, quickRead, sessions, log: (line) => logs.push(line), maxBodyBytes: 100_000 });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
@@ -463,5 +465,37 @@ describe("a login that waits for an emailed code", () => {
   it("is 404 for an unknown hold, and refuses codeWanted that is not true", async () => {
     expect((await post("/login/00000000-0000-4000-8000-000000000000/code", { code: "482913" })).status).toBe(404);
     expect((await post("/login", { ...good, codeWanted: false })).status).toBe(400);
+  });
+});
+
+describe("POST /quick-read", () => {
+  const call = (payload: unknown, token: string | null = TOKEN) =>
+    fetch(`${base}/quick-read`, { method: "POST", headers: { "content-type": "application/json", ...(token === null ? {} : { authorization: `Bearer ${token}` }) }, body: JSON.stringify(payload) });
+
+  it("needs the control token", async () => {
+    expect((await call({ url: "https://shop.acme.example/p", publicPage: true }, null)).status).toBe(401);
+    expect(quickRead).not.toHaveBeenCalled();
+  });
+
+  it("reads only a public page at a web address", async () => {
+    expect((await call({ url: "https://shop.acme.example/p" })).status).toBe(400);
+    expect((await call({ url: "https://shop.acme.example/p", publicPage: "yes" })).status).toBe(400);
+    expect((await call({ url: "ftp://x.test", publicPage: true })).status).toBe(400);
+    expect(quickRead).not.toHaveBeenCalled();
+  });
+
+  it("answers with what the page was and its offers, and logs the rule, never the address", async () => {
+    const res = await call({ url: "https://shop.acme.example/p?secret=1", publicPage: true });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ result: "ok", offers: [{ availability: "InStock" }] });
+    expect(quickRead).toHaveBeenCalledWith({ url: "https://shop.acme.example/p?secret=1" });
+    expect(logs).toContain("quick-read: ok (looks_real) http=200");
+    expect(logs.join("\n")).not.toMatch(/shop\.acme|secret/);
+  });
+
+  it("says it failed, by name only, when the read throws", async () => {
+    quickRead.mockRejectedValueOnce(new TypeError("boom https://shop.acme.example/p"));
+    expect((await call({ url: "https://shop.acme.example/p", publicPage: true })).status).toBe(500);
+    expect(logs).toContain("quick-read failed: TypeError");
   });
 });

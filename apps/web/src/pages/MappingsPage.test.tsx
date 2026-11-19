@@ -450,6 +450,20 @@ describe("stock answers", () => {
     expect(items[1]).toHaveTextContent("Out of stock");
   });
 
+  it("says how each answer was read: quickly, with the browser, or neither for old answers", async () => {
+    const observations = vi.fn().mockResolvedValue([
+      { id: 3, ...stock({ answer: "in_stock" }), quantityMismatch: false, recipeVersion: 2, checkResult: "ok", readBy: "quick" },
+      { id: 2, ...stock({ answer: "in_stock" }), quantityMismatch: false, recipeVersion: 2, checkResult: "ok", readBy: "browser" },
+      { id: 1, ...stock({ answer: "in_stock" }), quantityMismatch: false, recipeVersion: 2, checkResult: "ok", readBy: null },
+    ]);
+    const { user } = setup([blue], { stock: { observations } });
+    await user.click(within(await openMenu(user, "Blue Tee Large")).getByRole("menuitem", { name: "History" }));
+    const items = within(await screen.findByRole("list", { name: "Stock history for Blue Tee Large" })).getAllByRole("listitem");
+    expect(items[0]).toHaveTextContent("Read quickly");
+    expect(items[1]).toHaveTextContent("Read with the browser");
+    expect(items[2]).not.toHaveTextContent(/Read (quickly|with the browser)/);
+  });
+
   it("says when an answer came from built-in data the owner has not confirmed yet", async () => {
     const observations = vi.fn().mockResolvedValue([{ id: 3, ...stock({ answer: "out_of_stock" }), quantityMismatch: false, recipeVersion: 0, checkResult: "ok" }]);
     const { user } = setup([blue], { stock: { observations } });
