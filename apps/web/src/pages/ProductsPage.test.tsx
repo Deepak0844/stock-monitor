@@ -259,3 +259,34 @@ describe("supplier fields from Shopify", () => {
     expect(within(rows[2]!).getByText("No supplier in Shopify")).toBeInTheDocument();
   });
 });
+
+describe("direction D products", () => {
+  it("marks a stock of 0 in the needs-you colour, with the number in words beside nothing else", async () => {
+    setup(async () => aPage([aVariant(1, { productTitle: "Enamel Mug", available: 0 })]));
+    const row = (await screen.findByText("Enamel Mug")).closest("tr")!;
+    expect(within(row).getByText("0")).toHaveAttribute("data-tone", "bad");
+  });
+
+  it("offers a copy button for each SKU", async () => {
+    setup(async () => aPage([aVariant(1, { sku: "GLV-L" })]));
+    await screen.findByText("GLV-L");
+    expect(screen.getByRole("button", { name: "Copy SKU" })).toBeInTheDocument();
+  });
+
+  it("sorts by product both ways from its heading, through the address", async () => {
+    const { variantsSpy, user } = setup(async () => aPage(some(2)));
+    await screen.findByText("Product 1");
+    await user.click(screen.getByRole("button", { name: /^Product/ }));
+    await waitFor(() => expect(variantsSpy).toHaveBeenLastCalledWith(expect.objectContaining({ sort: "product", dir: "asc" })));
+    await user.click(screen.getByRole("button", { name: /^Product/ }));
+    await waitFor(() => expect(variantsSpy).toHaveBeenLastCalledWith(expect.objectContaining({ sort: "product", dir: "desc" })));
+    expect(new URLSearchParams(window.location.search).get("dir")).toBe("desc");
+  });
+
+  it("shows the needs-attention filter as a chip that removes it", async () => {
+    window.history.replaceState(null, "", "/products?attention=1");
+    const { user } = setup(async () => aPage(some(1)));
+    await user.click(await screen.findByRole("button", { name: "Remove Show filter" }));
+    await waitFor(() => expect(window.location.search).toBe(""));
+  });
+});

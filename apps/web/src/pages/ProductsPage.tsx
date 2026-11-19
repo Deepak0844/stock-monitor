@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.js";
-import { Card } from "@/components/ui/card.js";
 import { Input } from "@/components/ui/input.js";
 import type { Api, ShopifyConnection, VariantPage, VariantItem } from "../api.js";
 import { DataTable, type Column } from "../components/DataTable.js";
+import { CopyButton } from "../components/CopyButton.js";
+import { FilterChips } from "../components/FilterChips.js";
+import { RowsSwitch } from "../components/RowsSwitch.js";
 import { EmptyState } from "../components/EmptyState.js";
 import { IconAlert } from "../components/icons.js";
 import { PageHeader } from "../components/PageHeader.js";
@@ -20,9 +22,20 @@ function variantName(v: VariantItem) {
 }
 
 const columns: Column<VariantItem>[] = [
-  { header: "Product", cell: (v) => <span className="font-semibold">{v.productTitle}</span> },
+  { header: "Product", sortKey: "product", cell: (v) => <span className="font-semibold">{v.productTitle}</span> },
   { header: "Variant", cell: (v) => variantName(v) },
-  { header: "SKU", cell: (v) => v.sku ?? <span className="text-muted-foreground">No SKU</span> },
+  {
+    header: "SKU",
+    cell: (v) =>
+      v.sku ? (
+        <span className="inline-flex items-center gap-1">
+          <span className="font-mono">{v.sku}</span>
+          <CopyButton value={v.sku} label="SKU" />
+        </span>
+      ) : (
+        <span className="text-muted-foreground">No SKU</span>
+      ),
+  },
   {
     header: "Supplier",
     cell: (v) =>
@@ -43,7 +56,18 @@ const columns: Column<VariantItem>[] = [
         <span className="text-muted-foreground">No supplier in Shopify</span>
       ),
   },
-  { header: "Available", className: "tabular-nums", cell: (v) => (v.available === null ? <span className="text-muted-foreground">Not stocked here</span> : v.available) },
+  {
+    header: "Available",
+    className: "font-mono",
+    cell: (v) =>
+      v.available === null ? (
+        <span className="font-sans text-muted-foreground">Not stocked here</span>
+      ) : (
+        <span data-tone={v.available === 0 ? "bad" : undefined} className={v.available === 0 ? "font-semibold text-bad" : undefined}>
+          {v.available}
+        </span>
+      ),
+  },
   {
     header: "Notes",
     cell: (v) =>
@@ -70,7 +94,7 @@ const columns: Column<VariantItem>[] = [
 export function ProductsPage({ api }: { api: Api }) {
   useTitle("Products");
   const params = useListParams({ pageSize: 25 });
-  const { page, pageSize, search, set } = params;
+  const { page, pageSize, search, sort, dir, set } = params;
   const attention = params.filters.attention === "1";
   const filtering = search !== "" || attention;
 
@@ -91,7 +115,7 @@ export function ProductsPage({ api }: { api: Api }) {
     setLoading(true);
     setError(null);
     api.shopify
-      .variants({ page, pageSize, search: search || undefined, warningsOnly: attention })
+      .variants({ page, pageSize, search: search || undefined, warningsOnly: attention, ...(sort ? { sort, dir } : {}) })
       .then((result) => {
         if (id !== latest.current) return; // a newer request has taken over
         setData(result);
@@ -102,7 +126,7 @@ export function ProductsPage({ api }: { api: Api }) {
         setError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
         setLoading(false);
       });
-  }, [api, page, pageSize, search, attention]);
+  }, [api, page, pageSize, search, attention, sort, dir]);
   useEffect(load, [load]);
 
   // The search box waits for a pause in typing, then goes to the address. A change made elsewhere, such as clearing, comes back in.
@@ -131,7 +155,7 @@ export function ProductsPage({ api }: { api: Api }) {
       )}
 
       {nothingImported ? (
-        <Card>
+        <div>
           <EmptyState
             title={connection ? "No products have been imported yet. Sync from Shopify in Settings." : "No products yet. Connect Shopify in Settings."}
             action={
@@ -140,10 +164,10 @@ export function ProductsPage({ api }: { api: Api }) {
               </Button>
             }
           />
-        </Card>
+        </div>
       ) : (
-        <Card className="overflow-hidden">
-          <div className="flex flex-wrap items-center gap-4 border-b border-border p-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-4 border-b border-border pb-3">
             <Input
               id="product-search"
               type="search"
@@ -158,10 +182,22 @@ export function ProductsPage({ api }: { api: Api }) {
               <input type="checkbox" className="size-4 accent-primary" checked={attention} onChange={(e) => set({ attention: e.target.checked ? "1" : undefined })} />
               Show only items that need attention
             </label>
+            <span className="ml-auto">
+              <RowsSwitch />
+            </span>
           </div>
+          <FilterChips
+            chips={[
+              ...(search ? [{ key: "search", label: "Search", value: `"${search}"`, onRemove: () => set({ search: undefined }) }] : []),
+              ...(attention ? [{ key: "attention", label: "Show", value: "Needs attention", onRemove: () => set({ attention: undefined }) }] : []),
+            ]}
+            onClearAll={() => set({ search: undefined, attention: undefined })}
+          />
           <DataTable
             label="Products from Shopify"
             columns={columns}
+            sort={sort ? { key: sort, dir } : null}
+            onSort={(key) => set({ sort: key, dir: sort === key && dir === "asc" ? "desc" : "asc" })}
             rows={rows}
             rowKey={(v) => v.variantId}
             loading={loading}
@@ -182,7 +218,7 @@ export function ProductsPage({ api }: { api: Api }) {
             }
           />
           {data !== null && data.total > 0 && !error && <Pager page={page} pageSize={pageSize} total={data.total} onPage={(n) => set({ page: n })} onPageSize={(n) => set({ pageSize: n })} />}
-        </Card>
+        </div>
       )}
     </>
   );
