@@ -27,7 +27,7 @@ export const emptyDraft = (): Draft => ({
   builtIn: { on: true, waiting: "out_of_stock" },
 });
 
-const fromRule = (r: StockRule): RuleDraft =>
+export const fromRule = (r: StockRule): RuleDraft =>
   r.type === "text"
     ? { type: "text", words: r.text, enabled: "", under: r.under ?? "" }
     : { type: "button", words: r.label, enabled: r.enabled === undefined ? "" : r.enabled ? "true" : "false", under: r.under ?? "" };

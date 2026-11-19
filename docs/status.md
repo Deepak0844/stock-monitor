@@ -22,6 +22,10 @@ What is left for the MVP:
 - Release: merge `develop` into `master` (PR #122).
 - README (PR #124), open for review.
 
+Rule suggestions (branch `feature/rule-suggestions`, 2026-11-19): a "Suggest rules" button on the Stock rules page proposes
+page checks, in-stock and out-of-stock rules from the labelled saved pages, with the evidence for each. Next: login field
+detect-and-confirm, because detection fails on many suppliers.
+
 Decided against (do not bring them up again unless something changes):
 
 - A contact User-Agent and reading robots.txt crawl-delay. The owner sets the pause per supplier by hand.
