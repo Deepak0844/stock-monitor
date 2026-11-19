@@ -22,6 +22,12 @@ type Props = {
   noMatch(q: string): string;
   onChange(id: string | null): void;
   className?: string;
+  /** For a form: the field's id, so its <label for> names the dropdown and the form can focus it on an error. */
+  id?: string;
+  /** For a form, where the label sits above: show only the value inside the field. */
+  hideLabel?: boolean;
+  invalid?: boolean;
+  describedBy?: string;
 };
 
 const SEARCH_DELAY_MS = 300;
@@ -40,7 +46,7 @@ function marked(text: string, q: string): ReactNode {
 }
 
 /** A dropdown with a search box, for lists that can be long: suppliers and variants. Arrow keys move, Enter picks, Esc closes. */
-export function SearchSelect({ label, value, valueLabel, options, search, allOption, placeholder, noMatch, onChange, className }: Props) {
+export function SearchSelect({ label, value, valueLabel, options, search, allOption, placeholder, noMatch, onChange, className, id: fieldId, hideLabel, invalid, describedBy }: Props) {
   const id = useId();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -99,14 +105,17 @@ export function SearchSelect({ label, value, valueLabel, options, search, allOpt
       <P.Trigger asChild>
         <button
           type="button"
+          id={fieldId}
           aria-haspopup="listbox"
+          aria-invalid={invalid || undefined}
+          aria-describedby={describedBy}
           className={cn(
             "inline-flex h-11 min-w-56 cursor-pointer items-center justify-between gap-2 rounded-md border border-input bg-background px-3 text-left text-base focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring aria-expanded:border-foreground lg:h-8 lg:text-sm",
             className,
           )}
         >
           <span className="min-w-0 truncate">
-            <span className="text-muted-foreground">{label}: </span>
+            {!hideLabel && <span className="text-muted-foreground">{label}: </span>}
             {shown}
           </span>
           <ChevronDown aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />

@@ -56,6 +56,7 @@ export function SupplierFormPage({ api, id }: { api: Api; id?: string }) {
   return (
     <>
       <PageHeader
+        back={{ to: "/suppliers", label: "Back to suppliers" }}
         title={editing ? "Edit supplier" : "Add supplier"}
         description={editing ? "Change how this supplier is checked." : "Add a supplier website you want to check for stock."}
       />

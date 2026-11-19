@@ -131,6 +131,7 @@ export function ConnectSupplierPage({ api, supplierId, liveWindow: Window = Live
   return (
     <>
       <PageHeader
+        back={{ to: "/suppliers", label: "Back to suppliers" }}
         title={name ? `${again ? "Reconnect" : "Connect"} ${name}` : "Connect supplier"}
         description="Log in as you normally would. Solve any puzzle or code. Then press I'm logged in."
       />

@@ -157,6 +157,7 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
   return (
     <>
       <PageHeader
+        back={{ to: "/suppliers", label: "Back to suppliers" }}
         title="Stock rules"
         description="Teach the app how this supplier's pages show stock. The app reads the words on the page, never the picture. When it cannot tell, it says so and never guesses out of stock."
       />

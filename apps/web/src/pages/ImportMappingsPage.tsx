@@ -64,7 +64,7 @@ export function ImportMappingsPage({ api }: { api: Api }) {
   const list = "flex flex-col gap-1 text-sm";
   return (
     <>
-      <PageHeader title="Import links" description="Upload the file from Shopify's Products > Export. Nothing is saved until you have seen the preview and confirmed it." />
+      <PageHeader back={{ to: "/mappings", label: "Back to links" }} title="Import links" description="Upload the file from Shopify's Products > Export. Nothing is saved until you have seen the preview and confirmed it." />
       <div className="flex max-w-3xl flex-col gap-6">
         {error && (
           <Notice kind="error" role="alert">
