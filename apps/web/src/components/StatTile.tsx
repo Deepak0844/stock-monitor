@@ -5,7 +5,7 @@ import { Link } from "../router.js";
 
 /** A row of number tiles with a thin rule between each. Two across on a phone, as many as given on a wide screen. */
 export function StatRow({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn("mb-6 grid grid-cols-2 gap-px border-y border-border bg-border lg:auto-cols-fr lg:grid-flow-col", className)}>{children}</div>;
+  return <div className={cn("mb-6 grid grid-cols-2 gap-px border-y border-border bg-border lg:auto-cols-fr lg:grid-flow-col max-lg:[&>*:last-child:nth-child(odd)]:col-span-2", className)}>{children}</div>;
 }
 
 type Props = { label: string; value: number | null; to?: string; tone?: "default" | "warning"; selected?: boolean };

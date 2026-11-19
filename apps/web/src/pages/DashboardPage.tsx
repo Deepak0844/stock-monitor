@@ -359,7 +359,7 @@ export function DashboardPage({ api }: { api: Api }) {
         )}
       </section>
 
-      <div className="mb-8 grid grid-cols-2 gap-px border-y border-border bg-border lg:grid-cols-5">
+      <div className="mb-8 grid grid-cols-2 gap-px border-y border-border bg-border lg:grid-cols-5 max-lg:[&>*:last-child:nth-child(odd)]:col-span-2">
         <SummaryCard
           title="Supplier connections"
           state={stateOf(suppliers)}
