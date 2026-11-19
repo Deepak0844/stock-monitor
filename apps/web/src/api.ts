@@ -383,7 +383,8 @@ export type MappingsApi = {
   status(id: string): Promise<{ linkCheckedAt: string | null; stockCheckedAt: string | null }>;
   create(input: MappingInput): Promise<Mapping>;
   update(id: string, patch: { url?: string; note?: string | null; region?: string | null; supplierOption?: string | null; enabled?: boolean }): Promise<Mapping>;
-  remove(id: string): Promise<void>;
+  /** `keepalive` sends it even while the page is closing (a delayed delete with Undo). */
+  remove(id: string, opts?: { keepalive?: boolean }): Promise<void>;
   /** Asks for a check of one link. The answer arrives later, as the link's status. */
   checkLink(id: string): Promise<void>;
   /** Asks for a check of all of a supplier's links. Returns how many are queued. */
@@ -477,7 +478,8 @@ export type ProposalsApi = {
   waitingBySupplier(): Promise<Record<string, number>>;
   /** Approves one suggestion. Pass a number to change it first. */
   approve(id: string, quantity?: number): Promise<Proposal>;
-  reject(id: string): Promise<Proposal>;
+  /** `keepalive` sends it even while the page is closing (a delayed reject with Undo). */
+  reject(id: string, opts?: { keepalive?: boolean }): Promise<Proposal>;
   /** After a conflict, a failure or an expiry: read Shopify's numbers again. A new suggestion appears if one still applies. */
   refresh(id: string): Promise<void>;
   settings(): Promise<{ settings: ProposalSettings; writePermission: WritePermission }>;
@@ -516,11 +518,13 @@ export class ApiError extends Error {
 const NETWORK_MESSAGE = "Can't reach the server. Check your connection and try again.";
 const GENERIC_MESSAGE = "Something went wrong. Please try again.";
 
-async function send(path: string, init: { method: string; json?: unknown; csv?: string }): Promise<Response> {
+async function send(path: string, init: { method: string; json?: unknown; csv?: string; keepalive?: boolean }): Promise<Response> {
   try {
     return await fetch(path, {
       method: init.method,
       credentials: "same-origin",
+      // A reject or delete sent while the page closes must still arrive.
+      ...(init.keepalive ? { keepalive: true } : {}),
       // Only declare a JSON body when there is one, or the server rejects the empty body.
       ...(init.csv !== undefined
         ? { headers: { "content-type": "text/csv" }, body: init.csv }
@@ -542,7 +546,7 @@ async function failure(res: Response): Promise<ApiError> {
   }
 }
 
-async function request<T>(path: string, init: { method: string; json?: unknown; csv?: string }): Promise<T> {
+async function request<T>(path: string, init: { method: string; json?: unknown; csv?: string; keepalive?: boolean }): Promise<T> {
   const res = await send(path, init);
   if (!res.ok) throw await failure(res);
   try {
@@ -716,8 +720,8 @@ const mappings: MappingsApi = {
   async update(id, patch) {
     return (await request<{ mapping: Mapping }>(`/api/mappings/${enc(id)}`, { method: "PATCH", json: patch })).mapping;
   },
-  async remove(id) {
-    await request(`/api/mappings/${enc(id)}`, { method: "DELETE" });
+  async remove(id, opts) {
+    await request(`/api/mappings/${enc(id)}`, { method: "DELETE", keepalive: opts?.keepalive });
   },
   async checkLink(id) {
     await request(`/api/mappings/${enc(id)}/check-link`, { method: "POST" });
@@ -771,8 +775,8 @@ const proposals: ProposalsApi = {
   async approve(id, quantity) {
     return (await request<{ proposal: Proposal }>(`/api/proposals/${enc(id)}/approve`, { method: "POST", json: quantity === undefined ? {} : { quantity } })).proposal;
   },
-  async reject(id) {
-    return (await request<{ proposal: Proposal }>(`/api/proposals/${enc(id)}/reject`, { method: "POST", json: {} })).proposal;
+  async reject(id, opts) {
+    return (await request<{ proposal: Proposal }>(`/api/proposals/${enc(id)}/reject`, { method: "POST", json: {}, keepalive: opts?.keepalive })).proposal;
   },
   async refresh(id) {
     await request(`/api/proposals/${enc(id)}/refresh`, { method: "POST", json: {} });
