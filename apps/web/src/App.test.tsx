@@ -25,7 +25,7 @@ describe("App", () => {
     render(<App api={fakeApi({ getMe: vi.fn().mockResolvedValue({ email: "owner@example.com" }) })} />);
     expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Account" }));
-    expect(screen.getByText("owner@example.com")).toBeInTheDocument();
+    expect(within(screen.getByRole("menu")).getByText("owner@example.com")).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Sign out" })).toBeInTheDocument();
   });
 

@@ -11,6 +11,8 @@ import { Breadcrumbs, CrumbsContext, crumbsForPath, type Crumb } from "./Breadcr
 import { NotificationBell } from "./NotificationBell.js";
 import { ThemeToggle } from "./ThemeToggle.js";
 import type { NotificationsState } from "./useNotifications.js";
+import type { ScheduleRow } from "../api.js";
+import { CheckStatus } from "./CheckStatus.js";
 
 type Props = {
   email: string;
@@ -21,6 +23,8 @@ type Props = {
   proposalCount?: number;
   /** Open notices (reconnect, review rules). Shown beside Dashboard when above 0. */
   attentionCount?: number;
+  /** The schedule overview, for the check status at the foot of the sidebar. null while it loads. */
+  schedule?: ScheduleRow[] | null;
 };
 
 type NavItem = { label: string; icon: ReactNode; to: string; current: (path: string) => boolean; count?: "proposals" | "attention" };
@@ -34,7 +38,7 @@ const NAV: NavItem[] = [
   { label: "Settings", icon: <IconSettings />, to: "/settings/shopify", current: (p) => p.startsWith("/settings") },
 ];
 
-export function AppShell({ email, onSignOut, children, notifications, proposalCount, attentionCount }: Props) {
+export function AppShell({ email, onSignOut, children, notifications, proposalCount, attentionCount, schedule = null }: Props) {
   const [open, setOpen] = useState(false);
   const [crumbs, setCrumbs] = useState<Crumb[] | null>(null);
   const path = usePath();
@@ -71,7 +75,7 @@ export function AppShell({ email, onSignOut, children, notifications, proposalCo
   }, [open]);
 
   return (
-    <div className="min-h-screen bg-background text-foreground lg:grid lg:grid-cols-[16rem_minmax(0,1fr)]">
+    <div className="min-h-screen bg-background text-foreground lg:grid lg:grid-cols-[14rem_minmax(0,1fr)]">
       <a
         href="#main"
         className="absolute left-2 top-2 z-[60] -translate-y-24 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground focus:translate-y-0"
@@ -84,15 +88,15 @@ export function AppShell({ email, onSignOut, children, notifications, proposalCo
       <aside
         data-open={open}
         className={cn(
-          "fixed inset-y-0 left-0 z-40 flex w-64 flex-col bg-sidebar text-sidebar-foreground transition-transform lg:sticky lg:top-0 lg:h-screen lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-border bg-sidebar text-sidebar-foreground transition-transform lg:sticky lg:top-0 lg:h-screen lg:w-56 lg:translate-x-0",
           open ? "translate-x-0" : "-translate-x-full max-lg:invisible",
         )}
       >
-        <div className="px-5 py-5 text-foreground">
+        <div className="px-4 py-5 text-foreground">
           <Logo />
         </div>
-        <nav ref={nav} id="main-nav" aria-label="Main" className="flex-1 overflow-y-auto px-3">
-          <ul className="flex flex-col gap-1">
+        <nav ref={nav} id="main-nav" aria-label="Main" className="flex-1 overflow-y-auto">
+          <ul className="flex flex-col">
             {NAV.map((item) => {
               const isCurrent = item.current(path);
               const n = item.count === "proposals" ? proposalCount : item.count === "attention" ? attentionCount : 0;
@@ -103,14 +107,14 @@ export function AppShell({ email, onSignOut, children, notifications, proposalCo
                     aria-current={isCurrent ? "page" : undefined}
                     aria-label={n ? `${item.label}, ${n} ${item.count === "proposals" ? "waiting" : n === 1 ? "needs attention" : "need attention"}` : undefined}
                     className={cn(
-                      "relative flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium hover:bg-hover hover:text-foreground [&_svg]:size-[1.15rem] [&_svg]:shrink-0",
-                      isCurrent && "bg-sidebar-active font-semibold text-foreground before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-foreground",
+                      "relative flex min-h-11 items-center gap-3 px-4 text-sm font-medium hover:bg-hover hover:text-foreground lg:min-h-9 lg:text-[0.8125rem] [&_svg]:size-4 [&_svg]:shrink-0",
+                      isCurrent && "bg-sidebar-active font-semibold text-foreground shadow-[inset_2px_0_0_var(--foreground)]",
                     )}
                   >
                     {item.icon}
                     {item.label}
                     {n ? (
-                      <span data-count aria-hidden="true" className="ml-auto grid min-w-5 place-items-center rounded-full bg-accent px-1.5 text-xs font-bold leading-5 text-accent-foreground">
+                      <span data-count aria-hidden="true" className="ml-auto font-mono text-xs font-medium text-bad">
                         {n}
                       </span>
                     ) : null}
@@ -120,6 +124,10 @@ export function AppShell({ email, onSignOut, children, notifications, proposalCo
             })}
           </ul>
         </nav>
+        <CheckStatus rows={schedule} />
+        <p className="truncate border-t border-border px-4 py-3 text-[0.8125rem] text-muted-foreground" title={email}>
+          {email}
+        </p>
       </aside>
 
       <Toaster />

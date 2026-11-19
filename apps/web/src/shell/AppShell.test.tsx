@@ -117,7 +117,7 @@ describe("AppShell", () => {
   it("shows who is signed in and signs out on request", async () => {
     const { onSignOut, user } = setup();
     await user.click(screen.getByRole("button", { name: "Account" }));
-    expect(screen.getByText("owner@example.com")).toBeInTheDocument();
+    expect(within(screen.getByRole("menu")).getByText("owner@example.com")).toBeInTheDocument();
     await user.click(screen.getByRole("menuitem", { name: "Sign out" }));
     expect(onSignOut).toHaveBeenCalledTimes(1);
   });

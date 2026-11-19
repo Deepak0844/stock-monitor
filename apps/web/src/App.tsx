@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
-import { api as realApi, type Api } from "./api.js";
+import { api as realApi, type Api, type ScheduleRow } from "./api.js";
 import { DashboardPage } from "./pages/DashboardPage.js";
 import { NotFoundPage } from "./pages/NotFoundPage.js";
 import { ProposalsPage } from "./pages/ProposalsPage.js";
@@ -25,6 +25,7 @@ type State =
   | { kind: "signedIn"; email: string }
   | { kind: "error"; message: string };
 
+const SCHEDULE_POLL_MS = 60_000;
 const messageOf = (e: unknown) =>
   e instanceof Error ? e.message : "Something went wrong. Please try again.";
 
@@ -48,6 +49,16 @@ export function App({ api = realApi }: { api?: Api }) {
   useEffect(() => {
     if (signedIn) refreshCount();
   }, [signedIn, path, refreshCount]);
+
+  // The schedule, for the check status in the sidebar. Read when signed in and every minute after.
+  const [schedule, setSchedule] = useState<ScheduleRow[] | null>(null);
+  useEffect(() => {
+    if (!signedIn) return;
+    const load = () => void api.schedule.overview().then(setSchedule).catch(() => {});
+    load();
+    const timer = window.setInterval(() => !document.hidden && load(), SCHEDULE_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [api, signedIn]);
 
   const checkSession = useCallback(() => {
     setState({ kind: "loading" });
@@ -103,6 +114,7 @@ export function App({ api = realApi }: { api?: Api }) {
       email={state.email}
       proposalCount={proposalCount}
       attentionCount={notifications.items.length}
+      schedule={schedule}
       notifications={notifications}
       onSignOut={() =>
         api
