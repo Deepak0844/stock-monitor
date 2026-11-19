@@ -97,4 +97,67 @@ describe("NotificationBell", () => {
       await screen.findByRole("button", { name: "Notifications, 1 unread" }),
     ).toBeInTheDocument();
   });
+
+  it("says how to fix each kind, right in the message", async () => {
+    const { user } = setup([
+      unread("a"),
+      unread("b", {
+        kind: "recipe_needs_review",
+        reason: "page_changed",
+        message: "Acme Supply's pages changed. Review its stock rules.",
+      }),
+      unread("c", {
+        kind: "proposal_needs_attention",
+        reason: "unknown",
+        message: "A suggestion for Acme Supply needs you.",
+      }),
+    ]);
+    await user.click(await screen.findByRole("button", { name: "Notifications, 3 unread" }));
+    const panel = screen.getByRole("dialog", { name: "Notifications" });
+    expect(
+      within(panel).getByRole("link", { name: /needs you to log in again.*Log in again/ }),
+    ).toHaveAttribute("href", "/suppliers/11111111-1111-4111-8111-111111111111/connect");
+    expect(
+      within(panel).getByRole("link", { name: /pages changed.*Review stock rules/ }),
+    ).toBeInTheDocument();
+    expect(
+      within(panel).getByRole("link", { name: /needs you\..*See suggestions/ }),
+    ).toHaveAttribute("href", "/proposals");
+    expect(within(panel).getByText("Checks wait until you log in.")).toBeInTheDocument();
+  });
+
+  it("groups messages into Today and Earlier", async () => {
+    const today = new Date().toISOString();
+    const { user } = setup([
+      unread("a", { createdAt: today }),
+      aNotification({
+        id: "b",
+        readAt: today,
+        createdAt: "2026-01-02T10:00:00.000Z",
+        message: "Old news.",
+      }),
+    ]);
+    await user.click(await screen.findByRole("button", { name: "Notifications, 1 unread" }));
+    const panel = screen.getByRole("dialog", { name: "Notifications" });
+    const groups = within(panel).getAllByRole("list");
+    expect(groups.map((g) => g.getAttribute("aria-label"))).toEqual(["Today", "Earlier"]);
+    expect(within(groups[1]!).getByText("Old news.")).toBeInTheDocument();
+  });
+
+  it("shows only the unread ones under Unread", async () => {
+    const { user } = setup([
+      unread("a"),
+      aNotification({ id: "b", readAt: "2026-11-10T09:00:00.000Z", message: "Old news." }),
+    ]);
+    await user.click(await screen.findByRole("button", { name: "Notifications, 1 unread" }));
+    const panel = screen.getByRole("dialog", { name: "Notifications" });
+    expect(within(panel).getByText("Old news.")).toBeInTheDocument();
+    await user.click(within(panel).getByRole("button", { name: "Unread · 1" }));
+    expect(within(panel).getByRole("button", { name: "Unread · 1" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(within(panel).queryByText("Old news.")).toBeNull();
+    expect(within(panel).getByText(/needs you to log in again/)).toBeInTheDocument();
+  });
 });
