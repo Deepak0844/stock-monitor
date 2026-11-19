@@ -6,6 +6,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { cn } from "@/lib/utils.js";
 import { useWide } from "@/lib/useWide.js";
 import { Logo } from "../components/Logo.js";
+import { OfflineBar } from "../components/OfflineBar.js";
 import { Link, usePath } from "../router.js";
 import type { ScheduleRow } from "../api.js";
 import { BottomTabs } from "./BottomTabs.js";
@@ -131,6 +132,7 @@ export function AppShell({ email, onSignOut, children, notifications, proposalCo
             </>
           )}
         </header>
+        <OfflineBar />
         <CrumbsContext.Provider value={setCrumbs}>
           <main id="main" tabIndex={-1} ref={mainRef} className={cn("mx-auto w-full max-w-7xl px-4 py-6 outline-none sm:px-6", !wide && "pb-24")}>
             {children}
