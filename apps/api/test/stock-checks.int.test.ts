@@ -202,6 +202,10 @@ describe("reading the answers", () => {
     expect(Object.keys(body)).toEqual(["linkCheckedAt", "stockCheckedAt"]);
     expect(body.linkCheckedAt).toBe("2026-11-11T08:00:00.000Z");
     expect(body.stockCheckedAt).toBe((await call("GET", `/api/mappings/${linkId}`)).body.mapping.latestStock.observedAt);
+    // The Links page compares the status with the row the list gave it, so both must write the times alike.
+    const listed = (await call("GET", "/api/mappings")).body.mappings.find((m: { id: string }) => m.id === linkId);
+    expect(listed.latestStock.observedAt).toBe(body.stockCheckedAt);
+    expect(listed.lastLinkCheckAt).toBe(body.linkCheckedAt);
     expect((await call("GET", "/api/mappings/00000000-0000-4000-8000-000000000000/status")).status).toBe(404);
   });
 
