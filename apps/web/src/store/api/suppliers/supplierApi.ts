@@ -22,7 +22,7 @@ export const supplierKeys = {
 const isPage = (data: unknown): data is Page<Supplier> => typeof data === "object" && data !== null && "items" in data;
 
 /** The server answered with a supplier: show that answer wherever the supplier is cached. */
-function changed(client: QueryClient, next: Supplier) {
+export function supplierChanged(client: QueryClient, next: Supplier) {
   client.setQueryData(supplierKeys.detail(next.id), next);
   const swap = (s: Supplier) => (s.id === next.id ? next : s);
   client.setQueriesData<Supplier[] | Page<Supplier>>({ queryKey: supplierKeys.lists() }, (data) =>
@@ -65,14 +65,14 @@ const createSupplierMutation = (api: Api, client: QueryClient) =>
 const updateSupplierMutation = (api: Api, client: QueryClient) =>
   mutationOptions({
     mutationFn: ({ id, patch }: { id: string; patch: Partial<SupplierInput> }) => api.suppliers.update(id, patch),
-    onSuccess: (next) => changed(client, next),
+    onSuccess: (next) => supplierChanged(client, next),
   });
 
 const setSupplierEnabledMutation = (api: Api, client: QueryClient) =>
   mutationOptions({
     mutationFn: ({ supplier, enabled }: { supplier: Supplier; enabled: boolean }) =>
       enabled ? api.suppliers.resume(supplier.id) : api.suppliers.pause(supplier.id),
-    onSuccess: (next) => changed(client, next),
+    onSuccess: (next) => supplierChanged(client, next),
   });
 
 const removeSupplierMutation = (api: Api, client: QueryClient) =>
@@ -138,7 +138,7 @@ export function useCheckSupplierSessionMutation() {
 /** Shows a supplier the server sent back outside these hooks (such as after a finished check) wherever it is cached. */
 export function useSupplierChanged() {
   const client = useQueryClient();
-  return (next: Supplier) => changed(client, next);
+  return (next: Supplier) => supplierChanged(client, next);
 }
 
 /** A card changed a supplier: read it again now, and the lists when they are next shown. */
