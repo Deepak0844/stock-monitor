@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
+import { renderWithStore } from "../test/renderWithStore.js";
 import { userEvent } from "@testing-library/user-event";
 import { useNotifications } from "./useNotifications.js";
 import { NotificationBell } from "./NotificationBell.js";
@@ -11,8 +12,9 @@ import type { Api } from "../api.js";
 beforeEach(() => window.history.replaceState(null, "", "/"));
 afterEach(cleanup);
 
-function Harness({ api }: { api: Api }) {
-  const state = useNotifications(api, true);
+// The api is read by renderWithStore from this prop.
+function Harness(_props: { api: Api }) {
+  const state = useNotifications(true);
   return <NotificationBell state={state} />;
 }
 const unread = (id: string, over = {}) => aNotification({ id, readAt: null, ...over });
@@ -29,7 +31,7 @@ const setup = (
   const markRead = vi.fn().mockResolvedValue(undefined);
   const markAllRead = vi.fn().mockResolvedValue(undefined);
   const api = fakeApi({ notifications: { list, markRead, markAllRead } });
-  render(<Harness api={api} />);
+  renderWithStore(<Harness api={api} />);
   return { list, markRead, markAllRead, user: userEvent.setup() };
 };
 
@@ -88,7 +90,7 @@ describe("NotificationBell", () => {
     const api = fakeApi({
       notifications: { list, markRead: vi.fn().mockRejectedValue(new Error("down")) },
     });
-    render(<Harness api={api} />);
+    renderWithStore(<Harness api={api} />);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Notifications, 1 unread" }));
     await user.click(screen.getByRole("link", { name: /needs you to log in again/ }));

@@ -1,4 +1,4 @@
-import type { ReactElement } from "react";
+import type { ReactElement, ReactNode } from "react";
 import { notifyManager, QueryClient } from "@tanstack/react-query";
 import { render, type RenderResult } from "@testing-library/react";
 import type { Api } from "../api.js";
@@ -24,4 +24,16 @@ export function renderWithStore(ui: ReactElement, { api = apiOf(ui) }: { api?: A
     </StoreProvider>,
   );
   return { ...result, client };
+}
+
+/** A wrapper for renderHook: a new, empty cache and the given api. */
+export function storeWrapper(api: Api) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return (
+      <StoreProvider api={api} client={client}>
+        {children}
+      </StoreProvider>
+    );
+  };
 }
