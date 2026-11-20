@@ -25,7 +25,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createQueryClient } from "./store/api/api.js";
 import { proposalKeys, useGetProposalCountQuery } from "./store/api/proposals/proposalApi.js";
 import { useGetScheduleOverviewQuery } from "./store/api/schedule/scheduleApi.js";
-import { useGetMeQuery, useLoginMutation, useLogoutMutation } from "./store/api/auth/authApi.js";
+import { useCheckSessionAgain, useGetMeQuery, useLoginMutation, useLogoutMutation } from "./store/api/auth/authApi.js";
 import { StoreProvider } from "./store/StoreProvider.js";
 import { setWaiting } from "./tabTitle.js";
 import { useNotifications } from "./shell/useNotifications.js";
@@ -67,7 +67,8 @@ function AppRoutes({ api }: { api: Api }) {
           ? { kind: "error", message: messageOf(me.error) }
           : { kind: "loading" };
   const login = useLoginMutation();
-  const logout = useLogoutMutation();
+  const logout = useLogoutMutation({ onSignedOut: () => redirect("/login") });
+  const checkSessionAgain = useCheckSessionAgain();
   const queryClient = useQueryClient();
   const path = usePath();
   const editId = /^\/suppliers\/([^/]+)\/edit$/.exec(path)?.[1];
@@ -100,7 +101,7 @@ function AppRoutes({ api }: { api: Api }) {
 
   const checkSession = () => {
     setFailure(null);
-    void me.refetch();
+    void checkSessionAgain();
   };
 
   // Signed out, every address shows the sign-in page at /login, remembering where the owner was going. Signed in, /login moves
@@ -153,10 +154,7 @@ function AppRoutes({ api }: { api: Api }) {
 
   // Signing out empties the cache, so nothing from this session is shown afterwards.
   const signOut = () =>
-    logout
-      .mutateAsync()
-      .then(() => redirect("/login"))
-      .catch((e: unknown) => setFailure(messageOf(e)));
+    logout.mutateAsync().catch((e: unknown) => setFailure(messageOf(e)));
 
   return (
     <TooltipProvider delayDuration={400}>

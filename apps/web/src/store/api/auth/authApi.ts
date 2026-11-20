@@ -34,10 +34,12 @@ const loginMutation = (api: Api, client: QueryClient) =>
     onSuccess: (owner) => client.setQueryData<Owner | null>(authKeys.me(), owner),
   });
 
-const logoutMutation = (api: Api, client: QueryClient) =>
+const logoutMutation = (api: Api, client: QueryClient, onSignedOut?: () => void) =>
   mutationOptions({
     mutationFn: () => api.logout(),
     onSuccess: () => {
+      // First the page moves (for example to /login), so the app never sees "nobody signed in" on the old address.
+      onSignedOut?.();
       // Nothing cached for this session is shown after signing out. Who is signed in is kept, and set to nobody, so the app
       // watching it moves to the sign-in page.
       client.removeQueries({ predicate: (q) => q.queryKey[0] !== AUTH });
@@ -57,6 +59,13 @@ export function useLoginMutation() {
   return useMutation(loginMutation(useApi(), useQueryClient()));
 }
 
-export function useLogoutMutation() {
-  return useMutation(logoutMutation(useApi(), useQueryClient()));
+/** `onSignedOut` runs once the server has ended the session, just before the cache says nobody is signed in. */
+export function useLogoutMutation({ onSignedOut }: { onSignedOut?: () => void } = {}) {
+  return useMutation(logoutMutation(useApi(), useQueryClient(), onSignedOut));
+}
+
+/** Checks the session afresh: what was cached is dropped first, so the app shows loading until the server answers. */
+export function useCheckSessionAgain() {
+  const client = useQueryClient();
+  return () => client.resetQueries({ queryKey: authKeys.me() });
 }
