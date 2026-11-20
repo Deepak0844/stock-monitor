@@ -18,6 +18,15 @@ export const shopifyKeys = {
   variants: (query: VariantQuery) => pageKey(SHOPIFY, query),
 };
 
+/** Writes a new connection into the cache. A read already on its way is stopped first, so its older answer cannot replace it. */
+async function setConnection(
+  client: QueryClient,
+  next: ShopifyConnection | null | ((c: ShopifyConnection | null | undefined) => ShopifyConnection | null | undefined),
+) {
+  await client.cancelQueries({ queryKey: shopifyKeys.connection() });
+  client.setQueryData<ShopifyConnection | null>(shopifyKeys.connection(), next);
+}
+
 // ---------------------------------------------------------------------------
 // Endpoint definitions.
 // ---------------------------------------------------------------------------
@@ -45,8 +54,8 @@ const getShopifyVariantsQuery = (api: Api, query: VariantQuery) =>
 const connectShopifyMutation = (api: Api, client: QueryClient) =>
   mutationOptions({
     mutationFn: (details: ShopifyDetails) => api.shopify.connect(details),
-    onSuccess: (result) => {
-      client.setQueryData(shopifyKeys.connection(), result.connection);
+    onSuccess: async (result) => {
+      await setConnection(client, result.connection);
       // Possibly another store: its locations and products are read again.
       void client.invalidateQueries({ queryKey: shopifyKeys.locations() });
       void client.invalidateQueries({ queryKey: shopifyKeys.lists() });
@@ -56,8 +65,8 @@ const connectShopifyMutation = (api: Api, client: QueryClient) =>
 const disconnectShopifyMutation = (api: Api, client: QueryClient) =>
   mutationOptions({
     mutationFn: () => api.shopify.disconnect(),
-    onSuccess: () => {
-      client.setQueryData<ShopifyConnection | null>(shopifyKeys.connection(), null);
+    onSuccess: async () => {
+      await setConnection(client, null);
       client.removeQueries({ queryKey: shopifyKeys.locations() });
       void client.invalidateQueries({ queryKey: shopifyKeys.lists() });
     },
@@ -66,10 +75,8 @@ const disconnectShopifyMutation = (api: Api, client: QueryClient) =>
 const chooseShopifyLocationMutation = (api: Api, client: QueryClient) =>
   mutationOptions({
     mutationFn: (id: string) => api.shopify.chooseLocation(id),
-    onSuccess: (location) => {
-      client.setQueryData<ShopifyConnection | null>(shopifyKeys.connection(), (c) =>
-        c ? { ...c, locationId: location.id, locationName: location.name } : c,
-      );
+    onSuccess: async (location) => {
+      await setConnection(client, (c) => (c ? { ...c, locationId: location.id, locationName: location.name } : c));
       // Stock numbers are read from the chosen location.
       void client.invalidateQueries({ queryKey: shopifyKeys.lists() });
     },

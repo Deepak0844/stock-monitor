@@ -101,4 +101,27 @@ describe("Shopify in the cache", () => {
     await vi.waitFor(() => expect(getConnection).toHaveBeenCalledTimes(2));
     expect(client.getQueryState(shopifyKeys.variants(variants))?.isInvalidated).toBe(true);
   });
+
+  it("keeps a chosen location when a read of the connection that started earlier comes back after it", async () => {
+    let answerLate: (v: unknown) => void = () => {};
+    const getConnection = vi
+      .fn()
+      .mockResolvedValueOnce(aConnection())
+      .mockImplementationOnce(() => new Promise((resolve) => (answerLate = resolve)))
+      .mockResolvedValue(aConnection({ locationId: "l2", locationName: "Warehouse" }));
+    const { client } = renderWithStore(
+      <>
+        <Connection name="a" />
+        <Actions />
+      </>,
+      { api: fakeApi({ shopify: { getConnection, chooseLocation: vi.fn().mockResolvedValue({ id: "l2", name: "Warehouse" }) } }) },
+    );
+    await screen.findByText("a: acme.myshopify.com at no location");
+    void client.refetchQueries({ queryKey: shopifyKeys.connection() }); // a read on its way, such as after a sync
+    await vi.waitFor(() => expect(getConnection).toHaveBeenCalledTimes(2));
+    await act(() => choose!.mutateAsync("l2"));
+    await act(async () => answerLate(aConnection())); // the old answer, without the location
+    expect(await screen.findByText("a: acme.myshopify.com at Warehouse")).toBeInTheDocument();
+    expect(screen.queryByText("a: acme.myshopify.com at no location")).toBeNull();
+  });
 });

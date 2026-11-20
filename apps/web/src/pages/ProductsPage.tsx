@@ -106,9 +106,10 @@ export function ProductsPage() {
   const attention = params.filters.attention === "1";
   const filtering = search !== "" || attention;
 
-  // A connection that cannot be read counts as none, so the page still says what to do.
+  // A connection that cannot be read at first counts as none, so the page still says what to do. A later failed read keeps it.
   const connectionQuery = useGetShopifyConnectionQuery();
-  const connection: ShopifyConnection | null | undefined = connectionQuery.isError ? null : connectionQuery.data;
+  const connection: ShopifyConnection | null | undefined =
+    connectionQuery.data !== undefined ? connectionQuery.data : connectionQuery.isError ? null : undefined;
   const [q, setQ] = useState(search);
   // The previous page stays on screen, dimmed, while the next one loads, so the page does not jump.
   const variants = useGetShopifyVariantsQuery({

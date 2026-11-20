@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { ApiError, type VariantPage, type VariantQuery } from "../api.js";
 import { aConnection, aPage, aVariant, fakeApi } from "../test/fake-api.js";
 import { renderWithStore } from "../test/renderWithStore.js";
+import { shopifyKeys } from "../store/api/shopify/shopifyApi.js";
 import { ProductsPage } from "./ProductsPage.js";
 
 beforeEach(() => window.history.replaceState(null, "", "/products"));
@@ -23,8 +24,8 @@ const setup = (
   const api = fakeApi({
     shopify: { variants: variantsSpy, getConnection: vi.fn().mockResolvedValue(connection) },
   });
-  renderWithStore(<ProductsPage />, { api });
-  return { variantsSpy, api, user: userEvent.setup() };
+  const { client } = renderWithStore(<ProductsPage />, { api });
+  return { variantsSpy, api, client, user: userEvent.setup() };
 };
 
 const some = (n: number) => Array.from({ length: n }, (_, i) => aVariant(i + 1));
@@ -405,5 +406,16 @@ describe("direction D products", () => {
     const { user } = setup(async () => aPage(some(1)));
     await user.click(await screen.findByRole("button", { name: "Remove Show filter" }));
     await waitFor(() => expect(window.location.search).toBe(""));
+  });
+});
+
+describe("a failed read of the connection in the background", () => {
+  it("still says where stock is read from", async () => {
+    const { api, client } = setup(async () => aPage([]));
+    expect(await screen.findByText("Stock shown is available at Shop floor.")).toBeInTheDocument();
+    vi.mocked(api.shopify.getConnection).mockRejectedValue(new ApiError("Can't reach the server.", 0));
+    await act(() => client.invalidateQueries({ queryKey: shopifyKeys.connection() }));
+    await waitFor(() => expect(api.shopify.getConnection).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("Stock shown is available at Shop floor.")).toBeInTheDocument();
   });
 });
