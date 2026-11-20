@@ -32,17 +32,34 @@ const isTab = (tab: "open" | "history") => (query: Query) => (query.queryKey[2] 
 const openLists = { queryKey: proposalKeys.lists(), predicate: isTab("open") };
 
 /** A suggestion was approved or rejected: show the server's answer in every cached list and refresh the counts. */
-function decided(client: QueryClient, next: Proposal) {
+async function decided(client: QueryClient, next: Proposal) {
   const stays = next.state === "open" || next.state === "approved";
+  // A read already on its way would bring back the list from before this decision: stop it now and read again after.
+  const onTheirWay = client
+    .getQueryCache()
+    .findAll(openLists)
+    .filter((q) => q.state.fetchStatus === "fetching" && q.state.data !== undefined)
+    .map((q) => q.queryKey);
+  await Promise.all(onTheirWay.map((queryKey) => client.cancelQueries({ queryKey, exact: true })));
+  const holding = new Set(
+    client
+      .getQueriesData<OpenPage>(openLists)
+      .filter(([, page]) => page?.items.some((p) => p.id === next.id))
+      .map(([key]) => JSON.stringify(key)),
+  );
   client.setQueriesData<OpenPage>(openLists, (page) => {
     if (!page?.items.some((p) => p.id === next.id)) return page;
     return stays
       ? { ...page, items: page.items.map((p) => (p.id === next.id ? next : p)) }
       : { ...page, items: page.items.filter((p) => p.id !== next.id), total: page.total - 1 };
   });
-  // A page whose last row was just decided, while more are waiting: read it again to show the next ones.
-  for (const [key, page] of client.getQueriesData<OpenPage>(openLists))
+  for (const [key, page] of client.getQueriesData<OpenPage>(openLists)) {
+    // A page whose last row was just decided, while more are waiting: read it again to show the next ones.
     if (page && page.items.length === 0 && page.total > 0) void client.invalidateQueries({ queryKey: key, exact: true });
+    // Other pages and filters move up by one after a reject: read them again when they are next shown.
+    else if (!stays && !holding.has(JSON.stringify(key))) void client.invalidateQueries({ queryKey: key, exact: true, refetchType: "none" });
+  }
+  for (const queryKey of onTheirWay) void client.invalidateQueries({ queryKey, exact: true });
   // The decided one now belongs in History.
   void client.invalidateQueries({ queryKey: proposalKeys.lists(), predicate: isTab("history") });
   void client.invalidateQueries({ queryKey: proposalKeys.counts() });
@@ -156,7 +173,7 @@ export function useRejectProposalMutation() {
 /** Shows in the cache a decision sent straight to the server, such as a reject sent while the page closes. */
 export function useProposalDecided() {
   const client = useQueryClient();
-  return (next: Proposal) => decided(client, next);
+  return (next: Proposal) => void decided(client, next);
 }
 
 export function useRefreshProposalMutation() {

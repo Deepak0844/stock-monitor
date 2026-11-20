@@ -128,6 +128,39 @@ describe("proposal lists in the cache", () => {
     expect(await screen.findByText("count: 1")).toBeInTheDocument();
   });
 
+  it("marks other cached pages out of date after a reject, so their totals and rows are read again", async () => {
+    const { client } = renderWithStore(<Actions />, { api: fakeApi({ proposals: { reject: vi.fn().mockResolvedValue(aProposal({ state: "rejected" })) } }) });
+    const page1 = proposalKeys.open({ page: 1, pageSize: 10 });
+    const page2 = proposalKeys.open({ page: 2, pageSize: 10 });
+    client.setQueryData(page1, pageOf([aProposal()], 11));
+    client.setQueryData(page2, pageOf([aProposal({ id: "p11" })], 11));
+    await act(() => reject!.mutateAsync({ id: "p1" }));
+    expect(client.getQueryState(page2)?.isInvalidated).toBe(true);
+  });
+
+  it("keeps a decision when a read that started before it comes back afterwards", async () => {
+    let answerLate: (v: unknown) => void = () => {};
+    const openPage = vi
+      .fn()
+      .mockResolvedValueOnce(pageOf([aProposal()]))
+      .mockImplementationOnce(() => new Promise((resolve) => (answerLate = resolve)))
+      .mockResolvedValue(pageOf([aProposal({ state: "approved" })]));
+    const { client } = renderWithStore(
+      <>
+        <OpenList name="a" />
+        <Actions />
+      </>,
+      { api: fakeApi({ proposals: { openPage, approve: vi.fn().mockResolvedValue(aProposal({ state: "approved" })) } }) },
+    );
+    await screen.findByText("a: p1=open of 1");
+    void client.refetchQueries({ queryKey: proposalKeys.lists() }); // a re-read on its way
+    await waitFor(() => expect(openPage).toHaveBeenCalledTimes(2));
+    await act(() => approve!.mutateAsync({ id: "p1" }));
+    await act(async () => answerLate(pageOf([aProposal()]))); // the old answer arrives late
+    expect(await screen.findByText("a: p1=approved of 1")).toBeInTheDocument();
+    expect(screen.queryByText("a: p1=open of 1")).toBeNull();
+  });
+
   it("marks past suggestions out of date after a decision, so History reads them again", async () => {
     const { client } = renderWithStore(<Actions />, { api: fakeApi({ proposals: { approve: vi.fn().mockResolvedValue(aProposal({ state: "approved" })) } }) });
     const key = proposalKeys.history({ page: 1, pageSize: 10 });
