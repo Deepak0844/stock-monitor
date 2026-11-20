@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api.js";
 import { aLoginSession, aSupplier, fakeApi } from "../test/fake-api.js";
 import { renderWithStore } from "../test/renderWithStore.js";
+import { supplierKeys } from "../store/api/suppliers/supplierApi.js";
 import { ConnectSupplierPage } from "./ConnectSupplierPage.js";
 
 const TOKEN = "e".repeat(64);
@@ -154,11 +155,14 @@ describe("finishing", () => {
   });
 
   it("saves the login, then says the supplier is connected, with a way back", async () => {
-    const { api, user } = setup();
+    const { api, user, client } = setup();
+    client.setQueryData(supplierKeys.list(), [aSupplier()]);
     await connect();
     await user.click(screen.getByRole("button", { name: "I'm logged in" }));
     expect(api.loginSessions.finish).toHaveBeenCalledWith(login.id);
     expect(await screen.findByText("Acme Supply is connected.")).toBeInTheDocument();
+    // Supplier lists cached elsewhere show it connected next time.
+    expect(client.getQueryState(supplierKeys.list())?.isInvalidated).toBe(true);
     expect(screen.getByRole("link", { name: "Back to suppliers" })).toHaveAttribute(
       "href",
       "/suppliers",

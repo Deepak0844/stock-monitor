@@ -133,7 +133,7 @@ export function SuppliersPage({ api }: { api: Api }) {
   const data = supplierPage.data ? { items: supplierPage.data.items, total: supplierPage.data.total } : null;
   // Loading while the first read or a new page is on its way; the rows shown stay until the next ones arrive.
   const loading = supplierPage.isPlaceholderData || (supplierPage.isFetching && !supplierPage.data);
-  const loadError = supplierPage.isError && !supplierPage.isFetching ? message(supplierPage.error) : null;
+  const loadError = supplierPage.isError && !supplierPage.isFetching && !supplierPage.data ? message(supplierPage.error) : null;
   const load = () => void supplierPage.refetch();
   // Every supplier, for the summary tiles. If it cannot be read the tiles are left out.
   const all = useGetSupplierListQuery().data ?? null;

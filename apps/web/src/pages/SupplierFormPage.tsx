@@ -142,7 +142,7 @@ export function SupplierFormPage({ api, id }: { api: Api; id?: string }) {
               id="part-region"
               className="scroll-mt-16 border-t border-border py-7 first:border-t-0 first:pt-2 [&_h2]:text-base [&_h2]:font-semibold lg:[&_h2]:text-[0.9375rem] [&_legend]:text-base [&_legend]:font-semibold lg:[&_legend]:text-[0.9375rem]"
             >
-              <RegionPanel api={api} supplier={load.supplier} />
+              <RegionPanel api={api} supplier={load.supplier} onSaved={reload} />
             </section>
             <section
               id="part-checks"

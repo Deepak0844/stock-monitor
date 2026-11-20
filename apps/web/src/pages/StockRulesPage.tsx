@@ -35,7 +35,8 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
   useTitle("Stock rules");
   const supplierQuery = useGetSupplierQuery(supplierId);
   const supplier = supplierQuery.data ?? null;
-  const loadError = supplierQuery.isError ? message(supplierQuery.error) : null;
+  // Only a first read that failed replaces the page; a failed read in the background keeps what is shown.
+  const loadError = supplierQuery.isError && !supplierQuery.data ? message(supplierQuery.error) : null;
   const [links, setLinks] = useState<Mapping[]>([]);
   const [captures, setCaptures] = useState<Capture[]>([]);
   const [versions, setVersions] = useState<RecipeVersion[] | null>(null);

@@ -117,8 +117,8 @@ function MappingForm({ api, mapping }: { api: Api; mapping: Mapping | null }) {
   };
 
   useEffect(() => {
-    if (supplierList.error) setFormError(message(supplierList.error));
-  }, [supplierList.error]);
+    if (supplierList.error && !supplierList.data) setFormError(message(supplierList.error));
+  }, [supplierList.error, supplierList.data]);
   // The first variants with no link, so a variant chosen from the Map button shows by name.
   useEffect(() => {
     if (mapping) return;
