@@ -26,6 +26,7 @@ import {
   useSetSupplierEnabledMutation,
   useSupplierChanged,
 } from "../store/api/suppliers/supplierApi.js";
+import { useGetScheduleOverviewQuery } from "../store/api/schedule/scheduleApi.js";
 import { ConfirmDialog } from "../components/ConfirmDialog.js";
 import { DataTable, type Column } from "../components/DataTable.js";
 import { EmptyState } from "../components/EmptyState.js";
@@ -58,6 +59,7 @@ const STATUSES: { value: SupplierStatusFilter; label: string }[] = [
 ];
 // While a run is going, its progress is read again this often.
 const PROGRESS_REFRESH_MS = 5000;
+const NO_ROWS: ScheduleRow[] = [];
 
 const message = (e: unknown) =>
   e instanceof Error ? e.message : "Something went wrong. Please try again.";
@@ -141,7 +143,12 @@ export function SuppliersPage({ api }: { api: Api }) {
   const checkSession = useCheckSupplierSessionMutation();
   const removeSupplier = useRemoveSupplierMutation();
   const replace = useSupplierChanged();
-  const [schedule, setSchedule] = useState<ScheduleRow[]>([]);
+  // The schedule and any run's progress, read again every few seconds for as long as a run is going. A failure only leaves the
+  // column as it was: the suppliers themselves still show.
+  const schedule =
+    useGetScheduleOverviewQuery({
+      refetchEvery: (rows) => (rows?.some((r) => r.status.state === "running") ? PROGRESS_REFRESH_MS : false),
+    }).data ?? NO_ROWS;
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<Supplier | null>(null);
   const [checkingId, setCheckingId] = useState<string | null>(null);
@@ -160,27 +167,6 @@ export function SuppliersPage({ api }: { api: Api }) {
   }, [q, search, set]);
   useEffect(() => setQ(search), [search]);
 
-  // The schedule and any run's progress. Read once, and again every few seconds for as long as a run is going. A failure only
-  // leaves the column as it was: the suppliers themselves still show.
-  useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const read = () =>
-      api.schedule
-        .overview()
-        .then((rows) => {
-          if (cancelled) return;
-          setSchedule(rows);
-          if (rows.some((r) => r.status.state === "running"))
-            timer = setTimeout(read, PROGRESS_REFRESH_MS);
-        })
-        .catch(() => {});
-    void read();
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [api]);
 
   async function act(work: () => Promise<void>) {
     setActionError(null);
