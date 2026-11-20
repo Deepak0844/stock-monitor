@@ -69,9 +69,9 @@ it("the dark theme for the system setting matches the dark theme chosen by hand"
   expect(block(":root:not(.light)")).toEqual(themes.dark);
 });
 
-it("uses the owner's chosen brightness: Stone in light, Charcoal in dark, with fields and panels a shade lighter than the page", () => {
-  expect(themes.light.background).toBe("#efeee9");
-  expect(themes.light.card).toBe("#f8f7f3");
+it("uses the owner's chosen brightness: white in light, Charcoal in dark", () => {
+  expect(themes.light.background).toBe("#ffffff");
+  expect(themes.light.card).toBe("#ffffff");
   expect(themes.light.sidebar).toBe("#e6e5df");
   expect(themes.dark.background).toBe("#1b1c1a");
   expect(themes.dark.card).toBe("#232421");
