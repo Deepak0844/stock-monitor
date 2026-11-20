@@ -39,10 +39,12 @@ const message = (e: unknown) => (e instanceof Error ? e.message : "Something wen
 export function MappingFormPage({ id }: { id?: string }) {
   const editing = id !== undefined;
   useTitle(editing ? "Edit link" : "Add link");
-  const mappingQuery = useGetMappingQuery(id ?? "", { enabled: editing });
+  // The form starts from a fresh read, never from an older copy in the cache; if that read fails, the copy is used.
+  const mappingQuery = useGetMappingQuery(id ?? "", { enabled: editing, fresh: true });
+  const settled = mappingQuery.isFetchedAfterMount || (mappingQuery.isError && !mappingQuery.isFetching);
   const load: Load = !editing
     ? { kind: "ready", mapping: null }
-    : mappingQuery.data
+    : mappingQuery.data && settled
       ? { kind: "ready", mapping: mappingQuery.data }
       : mappingQuery.isError
         ? { kind: "error", message: message(mappingQuery.error) }

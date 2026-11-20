@@ -29,7 +29,14 @@ export const mappingKeys = {
 const isPage = (data: unknown): data is Page<Mapping> => typeof data === "object" && data !== null && "items" in data;
 
 /** The server answered with a link: show that answer wherever the link is cached. */
-function mappingChanged(client: QueryClient, next: Mapping) {
+async function mappingChanged(client: QueryClient, next: Mapping) {
+  // A list read already on its way would bring back the row from before this answer: stop it now and read again after.
+  const onTheirWay = client
+    .getQueryCache()
+    .findAll({ queryKey: mappingKeys.lists() })
+    .filter((q) => q.state.fetchStatus === "fetching" && q.state.data !== undefined)
+    .map((q) => q.queryKey);
+  await Promise.all(onTheirWay.map((queryKey) => client.cancelQueries({ queryKey, exact: true })));
   client.setQueryData(mappingKeys.detail(next.id), next);
   const swap = (m: Mapping) => (m.id === next.id ? next : m);
   client.setQueriesData<Mapping[] | Page<Mapping>>({ queryKey: mappingKeys.lists() }, (data) =>
@@ -37,10 +44,14 @@ function mappingChanged(client: QueryClient, next: Mapping) {
   );
   // A filtered page may no longer hold it: read the lists again when they are next shown.
   void client.invalidateQueries({ queryKey: mappingKeys.lists(), refetchType: "none" });
+  for (const queryKey of onTheirWay) void client.invalidateQueries({ queryKey, exact: true });
 }
 
 /** Links were added or deleted: the lists on screen and the variants without a link are read again, and Products when next shown. */
 function mappingsAddedOrRemoved(client: QueryClient) {
+  // Lists not on screen are dropped, so opening one later shows loading rather than an old answer such as "no links yet".
+  client.removeQueries({ queryKey: mappingKeys.lists(), type: "inactive" });
+  client.removeQueries({ queryKey: mappingKeys.unmappedAll(), type: "inactive" });
   void client.invalidateQueries({ queryKey: mappingKeys.lists() });
   void client.invalidateQueries({ queryKey: mappingKeys.unmappedAll() });
   void client.invalidateQueries({ queryKey: shopifyKeys.lists(), refetchType: "none" });
@@ -79,6 +90,8 @@ const getUnmappedQuery = (api: Api, search?: string) =>
   queryOptions({
     queryKey: mappingKeys.unmapped(search),
     queryFn: () => api.mappings.unmapped(search || undefined),
+    // What was shown stays while a new search is on its way, so the search box beside it stays put.
+    placeholderData: keepPreviousData,
   });
 
 const createMappingMutation = (api: Api, client: QueryClient) =>
@@ -90,8 +103,8 @@ const createMappingMutation = (api: Api, client: QueryClient) =>
 const updateMappingMutation = (api: Api, client: QueryClient) =>
   mutationOptions({
     mutationFn: ({ id, patch }: { id: string; patch: MappingPatch }) => api.mappings.update(id, patch),
-    onSuccess: (next) => {
-      mappingChanged(client, next);
+    onSuccess: async (next) => {
+      await mappingChanged(client, next);
       void client.invalidateQueries({ queryKey: shopifyKeys.lists(), refetchType: "none" });
     },
   });
@@ -131,8 +144,9 @@ export function useGetMappingPageQuery(query: MappingPageQuery) {
   return useQuery(getMappingPageQuery(useApi(), query));
 }
 
-export function useGetMappingQuery(id: string, { enabled = true }: { enabled?: boolean } = {}) {
-  return useQuery({ ...getMappingQuery(useApi(), id), enabled });
+/** `fresh` reads it again on every opening, for a form that must start from what is saved now. */
+export function useGetMappingQuery(id: string, { enabled = true, fresh = false }: { enabled?: boolean; fresh?: boolean } = {}) {
+  return useQuery({ ...getMappingQuery(useApi(), id), enabled, ...(fresh ? { refetchOnMount: "always" as const } : {}) });
 }
 
 export function useGetUnmappedQuery(search?: string, { enabled = true }: { enabled?: boolean } = {}) {
@@ -174,7 +188,7 @@ export function useImportMappingsMutation() {
 /** Shows a link the server sent back outside these hooks (such as after a finished check) wherever it is cached. */
 export function useMappingChanged() {
   const client = useQueryClient();
-  return (next: Mapping) => mappingChanged(client, next);
+  return (next: Mapping) => void mappingChanged(client, next);
 }
 
 /** Shows in the cache a delete sent straight to the server, such as one sent while the page closes. */

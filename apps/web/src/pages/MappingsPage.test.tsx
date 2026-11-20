@@ -908,3 +908,17 @@ describe("answers that are out of date", () => {
     expect(screen.queryByText("Not checked recently")).toBeNull();
   });
 });
+
+describe("the variants panel while a search is on its way", () => {
+  it("keeps the search box, and what it showed, until the answer arrives", async () => {
+    const unmapped = vi
+      .fn()
+      .mockResolvedValueOnce({ total: 340, unmapped: 212, items: [] })
+      .mockReturnValue(new Promise(() => {}));
+    const { user } = setup([blue], { mappings: { unmapped } });
+    const box = await screen.findByLabelText("Search variants with no link");
+    await user.type(box, "green");
+    await waitFor(() => expect(unmapped).toHaveBeenLastCalledWith("green"));
+    expect(screen.getByLabelText("Search variants with no link")).toHaveValue("green");
+  });
+});

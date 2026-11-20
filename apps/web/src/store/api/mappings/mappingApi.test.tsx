@@ -116,8 +116,32 @@ describe("links in the cache", () => {
     client.setQueryData(mappingKeys.unmapped(), { total: 1, unmapped: 1, items: [] });
     client.setQueryData(variantsPage, { items: [], total: 0, page: 1, pageSize: 25 });
     await act(() => create!.mutateAsync({ variantId: "v1", supplierId: "s1", url: "https://a.example/new" }));
-    expect(client.getQueryState(mappingKeys.page(pageQuery))?.isInvalidated).toBe(true);
-    expect(client.getQueryState(mappingKeys.unmapped())?.isInvalidated).toBe(true);
+    // Lists not on screen are dropped, so opening them shows loading, not the old "no links yet".
+    expect(client.getQueryState(mappingKeys.page(pageQuery))).toBeUndefined();
+    expect(client.getQueryState(mappingKeys.unmapped())).toBeUndefined();
     expect(client.getQueryState(variantsPage)?.isInvalidated).toBe(true);
+  });
+
+  it("keeps a finished check's row when a page read that started earlier comes back after it", async () => {
+    let answerLate: (v: unknown) => void = () => {};
+    const page = vi
+      .fn()
+      .mockResolvedValueOnce({ items: [a, b], total: 2, page: 1, pageSize: 10 })
+      .mockImplementationOnce(() => new Promise((resolve) => (answerLate = resolve)))
+      .mockResolvedValue({ items: [{ ...a, url: "https://a.example/checked" }, b], total: 2, page: 1, pageSize: 10 });
+    const { client } = renderWithStore(
+      <>
+        <PageOf />
+        <Actions />
+      </>,
+      { api: fakeApi({ mappings: { page } }) },
+    );
+    await screen.findByText("page: https://a.example/1,https://a.example/2 of 2");
+    void client.refetchQueries({ queryKey: mappingKeys.lists() }); // a read on its way
+    await vi.waitFor(() => expect(page).toHaveBeenCalledTimes(2));
+    await act(async () => changed!({ ...a, url: "https://a.example/checked" }));
+    await act(async () => answerLate({ items: [a, b], total: 2, page: 1, pageSize: 10 })); // the old answer
+    expect(await screen.findByText("page: https://a.example/checked,https://a.example/2 of 2")).toBeInTheDocument();
+    expect(screen.queryByText("page: https://a.example/1,https://a.example/2 of 2")).toBeNull();
   });
 });
