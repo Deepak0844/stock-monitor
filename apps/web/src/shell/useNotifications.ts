@@ -30,7 +30,8 @@ export function useNotifications(enabled: boolean): NotificationsState {
   const { refetch } = list;
   const { mutateAsync: markOneAsync } = markOne;
   const { mutateAsync: markAllAsync } = markAll;
-  const reload = useCallback(() => void refetch(), [refetch]);
+  // Joins a read already on its way instead of starting another.
+  const reload = useCallback(() => void refetch({ cancelRefetch: false }), [refetch]);
   const markRead = useCallback((id: string) => markOneAsync(id).catch(() => {}), [markOneAsync]);
   const markAllRead = useCallback(() => markAllAsync().catch(() => {}), [markAllAsync]);
   return {

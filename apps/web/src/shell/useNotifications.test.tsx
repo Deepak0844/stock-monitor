@@ -53,4 +53,20 @@ describe("useNotifications", () => {
     await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(result.current.unread).toBe(1));
   });
+
+  it("marked read while the first list is still on its way: finishes loading and shows the mark", async () => {
+    let answerFirst!: (rows: ReturnType<typeof aNotification>[]) => void;
+    const unread = aNotification({ id: "n1", readAt: null });
+    const list = vi
+      .fn()
+      .mockReturnValueOnce(new Promise((resolve) => (answerFirst = resolve)))
+      .mockResolvedValue([{ ...unread, readAt: "2026-11-11T10:00:00.000Z" }]);
+    const { result } = renderHook(() => useNotifications(true), { wrapper: storeWrapper(fakeApi({ notifications: { list } })) });
+    expect(result.current.loading).toBe(true);
+    const marking = act(async () => void (await result.current.markRead("n1")));
+    await act(async () => answerFirst([unread])); // the first answer, asked for before the mark
+    await marking;
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await waitFor(() => expect(result.current.unread).toBe(0));
+  });
 });

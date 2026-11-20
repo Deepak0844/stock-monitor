@@ -17,16 +17,24 @@ export const notificationKeys = {
 export const NOTIFICATION_POLL_MS = 30_000;
 
 /**
- * Marks some notifications read at once in the cache. A read already on its way is stopped first: its answer was asked for
- * before this change and could show them unread again.
+ * Marks some notifications read at once in the cache, and says whether there was a list to mark. A read already on its way is
+ * stopped first: its answer was asked for before this change and could show them unread again. While the first list is still
+ * on its way there is nothing to mark, so that read is left to finish and the list is read again once the mark is saved.
  */
-async function markInCache(client: QueryClient, isMarked: (n: AppNotification) => boolean) {
+async function markInCache(client: QueryClient, isMarked: (n: AppNotification) => boolean): Promise<{ marked: boolean }> {
+  if (client.getQueryData(notificationKeys.list()) === undefined) return { marked: false };
   await client.cancelQueries({ queryKey: notificationKeys.list() });
   const now = new Date().toISOString();
   client.setQueryData<AppNotification[]>(notificationKeys.list(), (rows) =>
     rows?.map((n) => (n.readAt === null && isMarked(n) ? { ...n, readAt: now } : n)),
   );
+  return { marked: true };
 }
+
+/** Saving failed, or there was no list to mark yet: read the list again so it shows what is true. */
+const readAgainUnlessMarked = (client: QueryClient) => (_data: unknown, error: Error | null, _vars: unknown, result: { marked: boolean } | undefined) => {
+  if (error || !result?.marked) void client.invalidateQueries({ queryKey: notificationKeys.list() });
+};
 
 // ---------------------------------------------------------------------------
 // Endpoint definitions.
@@ -44,15 +52,14 @@ const markNotificationReadMutation = (api: Api, client: QueryClient) =>
   mutationOptions({
     mutationFn: (id: string) => api.notifications.markRead(id),
     onMutate: (id) => markInCache(client, (n) => n.id === id),
-    // Saving failed: read the list again so it shows what is true.
-    onError: () => client.invalidateQueries({ queryKey: notificationKeys.list() }),
+    onSettled: readAgainUnlessMarked(client),
   });
 
 const markAllNotificationsReadMutation = (api: Api, client: QueryClient) =>
   mutationOptions({
     mutationFn: () => api.notifications.markAllRead(),
     onMutate: () => markInCache(client, () => true),
-    onError: () => client.invalidateQueries({ queryKey: notificationKeys.list() }),
+    onSettled: readAgainUnlessMarked(client),
   });
 
 // ---------------------------------------------------------------------------
