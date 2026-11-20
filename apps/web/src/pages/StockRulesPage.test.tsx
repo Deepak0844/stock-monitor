@@ -855,3 +855,46 @@ describe("a failed read in the background", () => {
     expect(screen.getByText(/Stock rules/i, { selector: "h1" })).toBeInTheDocument();
   });
 });
+
+describe("a capture that takes a while", () => {
+  it("keeps reading the list while the capture is pending, even when nothing has changed yet", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    try {
+      const pending = aCapture({ id: "a", name: "Pending one", status: "pending", hasPicture: false });
+      const list = vi.fn().mockResolvedValue([pending]);
+      setup({ captures: { list } });
+      await screen.findAllByText("Capturing…");
+      for (let i = 0; i < 3; i++) await act(async () => void (await vi.advanceTimersByTimeAsync(3_100)));
+      expect(list.mock.calls.length).toBeGreaterThanOrEqual(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says so when reading the list again fails", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    try {
+      const pending = aCapture({ id: "a", name: "Pending one", status: "pending", hasPicture: false });
+      const list = vi.fn().mockResolvedValueOnce([pending]).mockRejectedValue(new ApiError("Can't reach the server.", 0));
+      setup({ captures: { list } });
+      await screen.findAllByText("Capturing…");
+      await act(async () => void (await vi.advanceTimersByTimeAsync(3_100)));
+      expect(await screen.findByText("Can't reach the server.")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reads the list once after asking for a capture", async () => {
+    const list = vi.fn().mockResolvedValue([]);
+    const { api, user } = setup({ captures: { list } });
+    await screen.findByRole("option", { name: /Blue Tee/ });
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+    await user.selectOptions(screen.getByLabelText("Link to capture"), aMapping().id);
+    await user.click(screen.getByRole("button", { name: "Capture" }));
+    expect(await screen.findByText(/Capturing the page/)).toBeInTheDocument();
+    expect(api.captures.request).toHaveBeenCalled();
+    await act(async () => void (await new Promise((r) => setTimeout(r, 50))));
+    expect(list).toHaveBeenCalledTimes(2);
+  });
+});

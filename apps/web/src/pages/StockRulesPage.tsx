@@ -65,9 +65,15 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
   const polls = useRef(0);
   const rulesRef = useRef<HTMLDivElement>(null);
 
-  // Joins a read already on its way instead of starting another.
-  const { refetch: refetchCaptures } = captureList;
-  const loadCaptures = useCallback(() => refetchCaptures({ cancelRefetch: false }).then(() => {}), [refetchCaptures]);
+  // Joins a read already on its way instead of starting another. A read that fails says so, as before.
+  const { refetch: refetchCaptures, dataUpdatedAt: capturesReadAt } = captureList;
+  const loadCaptures = useCallback(
+    () =>
+      refetchCaptures({ cancelRefetch: false }).then((r) => {
+        if (r.isError) setError(message(r.error));
+      }),
+    [refetchCaptures],
+  );
   // A list that cannot be read at first says so, as before; a failed read later keeps what is shown.
   const listError = (captureList.isError && !captureList.data ? captureList.error : null) ?? (versionList.isError && !versionList.data ? versionList.error : null);
   useEffect(() => {
@@ -91,7 +97,8 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
       void loadCaptures();
     }, POLL_MS);
     return () => clearTimeout(timer);
-  }, [captures, loadCaptures]);
+    // Each read counts, even one whose answer looks the same as the last (the cache then keeps the same list).
+  }, [captures, capturesReadAt, loadCaptures]);
 
   async function run(kind: "test" | "save" | "on" | "suggest", work: () => Promise<void>) {
     setBusy(kind);
@@ -241,7 +248,6 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
             links={links}
             captures={captures}
             results={test?.results ?? []}
-            reload={loadCaptures}
             onChanged={() => setTest(null)}
             onCaptureRequested={() => {
               polls.current = 0;

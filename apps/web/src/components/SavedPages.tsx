@@ -39,7 +39,6 @@ type Props = {
   /** Results of the last "Test all examples", by saved page. */
   results: ExampleResult[];
   /** Reads the list of saved pages again. */
-  reload: () => Promise<unknown>;
   /** Called when a label changes or a page goes, so an old test result is not trusted. */
   onChanged: () => void;
   /** Called when a capture was asked for, so the list is followed until it is ready. */
@@ -69,7 +68,6 @@ export function SavedPages({
   links,
   captures,
   results,
-  reload,
   onChanged,
   onCaptureRequested,
 }: Props) {
@@ -132,7 +130,6 @@ export function SavedPages({
       await requestCapture.mutateAsync({ supplierId, mappingId });
       onCaptureRequested();
       toast("Capturing the page. It will appear in the list in a moment.");
-      await reload();
     } catch (e) {
       setCaptureError(message(e));
     } finally {
@@ -157,7 +154,6 @@ export function SavedPages({
         expectedAnswer: expected === "" ? null : expected,
       });
       onChanged();
-      await reload();
     } catch (e) {
       setLabelError(message(e));
     } finally {
@@ -171,7 +167,6 @@ export function SavedPages({
     toast("Deleted the saved page.");
     onChanged();
     setPhoneView("list");
-    await reload();
   }
 
   const lines = useMemo(() => {
