@@ -63,7 +63,7 @@ function AppRoutes({ api }: { api: Api }) {
 
   const signedIn = state.kind === "signedIn";
   const proposalCount = useGetProposalCountQuery({ enabled: signedIn }).data ?? 0;
-  const notifications = useNotifications(api, signedIn);
+  const notifications = useNotifications(signedIn);
   const reloadNotifications = notifications.reload;
   // How many suggestions are waiting, for the menu. Read again when the owner moves to another page and the count is over 30 s old.
   const refreshCount = useCallback(() => {
