@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { App } from "./App.js";
 import type { Owner } from "./api.js";
@@ -60,6 +60,27 @@ describe("App", () => {
     await user.click(screen.getByRole("menuitem", { name: "Sign out" }));
     expect(await screen.findByRole("heading", { name: /sign in/i })).toBeInTheDocument();
     expect(api.logout).toHaveBeenCalled();
+    // Plain /login: signing in again goes to the Dashboard, not back to the page signed out from.
+    expect(window.location.pathname + window.location.search).toBe("/login");
+  });
+
+  it("after a sign-out that failed, Try again checks the session afresh", async () => {
+    const user = userEvent.setup();
+    let answer: (owner: Owner | null) => void = () => {};
+    const getMe = vi
+      .fn()
+      .mockResolvedValueOnce({ email: "owner@example.com" })
+      .mockImplementation(() => new Promise((resolve) => (answer = resolve)));
+    const api = fakeApi({ getMe, logout: vi.fn().mockRejectedValue(new Error("Can't reach the server.")) });
+    render(<App api={api} />);
+    await user.click(await screen.findByRole("button", { name: "Account" }));
+    await user.click(screen.getByRole("menuitem", { name: "Sign out" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Can't reach the server.");
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Loading…");
+    expect(screen.queryByRole("heading", { name: "Dashboard" })).toBeNull();
+    await act(async () => answer(null));
+    expect(await screen.findByRole("heading", { name: /sign in/i })).toBeInTheDocument();
   });
 
   it("shows a plain message when the server cannot be reached at start", async () => {
