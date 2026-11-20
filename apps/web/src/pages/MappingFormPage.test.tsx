@@ -29,7 +29,7 @@ const setup = (over: Parameters<typeof fakeApi>[0] = {}, props: { id?: string } 
     suppliers: { list: vi.fn().mockResolvedValue([aSupplier(), globex]), ...over.suppliers },
     mappings: { unmapped: vi.fn().mockResolvedValue({ total: 2, unmapped: 2, items }), ...over.mappings },
   });
-  renderWithStore(<MappingFormPage api={api} {...props} />);
+  renderWithStore(<MappingFormPage {...props} />, { api });
   return { api, user: userEvent.setup() };
 };
 
@@ -50,7 +50,7 @@ describe("saving", () => {
 
   it("shows a shimmer while a link to edit is loading", () => {
     const api = fakeApi({ mappings: { get: vi.fn().mockReturnValue(new Promise(() => {})) } });
-    renderWithStore(<MappingFormPage api={api} id="abc" />);
+    renderWithStore(<MappingFormPage id="abc" />, { api });
     expect(screen.getByRole("status")).toHaveTextContent("Loading…");
   });
 });

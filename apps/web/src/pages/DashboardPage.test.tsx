@@ -12,7 +12,7 @@ afterEach(cleanup);
 
 const setup = (over: Parameters<typeof fakeApi>[0] = {}) => {
   const api = fakeApi(over);
-  renderWithStore(<DashboardPage api={api} />, { api });
+  renderWithStore(<DashboardPage />, { api });
   return { api, user: userEvent.setup() };
 };
 const card = (name: string) => screen.getByRole("heading", { level: 2, name }).closest("section")!;

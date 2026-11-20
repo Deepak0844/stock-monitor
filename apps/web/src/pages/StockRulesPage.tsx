@@ -24,9 +24,11 @@ import { toast } from "../lib/toast.js";
 import { Link } from "../router.js";
 import { useTitle } from "../useTitle.js";
 import { useGetSupplierQuery } from "../store/api/suppliers/supplierApi.js";
+import { useGetMappingListQuery } from "../store/api/mappings/mappingApi.js";
 
 const POLL_MS = 3000;
 const POLLS = 20;
+const NO_LINKS: Mapping[] = [];
 const message = (e: unknown) =>
   e instanceof Error ? e.message : "Something went wrong. Please try again.";
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
@@ -37,7 +39,7 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
   const supplier = supplierQuery.data ?? null;
   // Only a first read that failed replaces the page; a failed read in the background keeps what is shown.
   const loadError = supplierQuery.isError && !supplierQuery.data ? message(supplierQuery.error) : null;
-  const [links, setLinks] = useState<Mapping[]>([]);
+  const links = useGetMappingListQuery({ supplierId }).data ?? NO_LINKS;
   const [captures, setCaptures] = useState<Capture[]>([]);
   const [versions, setVersions] = useState<RecipeVersion[] | null>(null);
   const [draft, setDraft] = useState<Draft>(emptyDraft());
@@ -68,10 +70,6 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
   );
 
   useEffect(() => {
-    api.mappings
-      .list({ supplierId })
-      .then(setLinks)
-      .catch(() => {});
     void loadCaptures();
     void loadVersions();
   }, [api, supplierId, loadCaptures, loadVersions]);

@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import { keepPreviousData, mutationOptions, queryOptions, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { Api, Mapping, MappingFilter, MappingInput, Page } from "../../../api.js";
 import { useApi } from "../baseQuery.js";
@@ -97,7 +98,7 @@ const updateMappingMutation = (api: Api, client: QueryClient) =>
 
 const removeMappingMutation = (api: Api, client: QueryClient) =>
   mutationOptions({
-    mutationFn: ({ id }: { id: string }) => api.mappings.remove(id),
+    mutationFn: ({ id, keepalive = false }: { id: string; keepalive?: boolean }) => api.mappings.remove(id, { keepalive }),
     onSuccess: (_result, { id }) => mappingRemoved(client, id),
   });
 
@@ -142,7 +143,8 @@ export function useGetUnmappedQuery(search?: string, { enabled = true }: { enabl
 export function useFetchUnmapped() {
   const api = useApi();
   const client = useQueryClient();
-  return (search?: string) => client.fetchQuery(getUnmappedQuery(api, search));
+  // The same function on every render, so a search box built on it does not start again.
+  return useCallback((search?: string) => client.fetchQuery(getUnmappedQuery(api, search)), [api, client]);
 }
 
 export function useCreateMappingMutation() {
