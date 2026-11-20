@@ -21,6 +21,20 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: /sign in/i })).toBeInTheDocument();
   });
 
+  it("never asks for the waiting count while nobody is signed in", async () => {
+    const api = fakeApi();
+    render(<App api={api} />);
+    await screen.findByRole("heading", { name: /sign in/i });
+    expect(api.proposals.count).not.toHaveBeenCalled();
+  });
+
+  it("shows the waiting count in the menu once signed in", async () => {
+    const api = fakeApi({ getMe: vi.fn().mockResolvedValue({ email: "owner@example.com" }), proposals: { count: vi.fn().mockResolvedValue(4) } });
+    render(<App api={api} />);
+    await screen.findByRole("heading", { name: "Dashboard" });
+    await waitFor(() => expect(document.title).toMatch(/^\(4\)/));
+  });
+
   it("shows the home page for a signed-in owner", async () => {
     render(<App api={fakeApi({ getMe: vi.fn().mockResolvedValue({ email: "owner@example.com" }) })} />);
     expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();

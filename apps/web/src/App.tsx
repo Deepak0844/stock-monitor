@@ -21,7 +21,9 @@ import { SuggestionsPage } from "./pages/settings/SuggestionsPage.js";
 import { LoginPage } from "./pages/LoginPage.js";
 import { AppShell } from "./shell/AppShell.js";
 import { TooltipProvider } from "@/components/ui/tooltip.js";
+import { useQueryClient } from "@tanstack/react-query";
 import { createQueryClient } from "./store/api/api.js";
+import { proposalKeys, useGetProposalCountQuery } from "./store/api/proposals/proposalApi.js";
 import { StoreProvider } from "./store/StoreProvider.js";
 import { setWaiting } from "./tabTitle.js";
 import { useNotifications } from "./shell/useNotifications.js";
@@ -40,27 +42,33 @@ const messageOf = (e: unknown) =>
   e instanceof Error ? e.message : "Something went wrong. Please try again.";
 
 export function App({ api = realApi }: { api?: Api }) {
-  const [state, setState] = useState<State>({ kind: "loading" });
   // One cache for the life of the page.
   const [queryClient] = useState(createQueryClient);
+  return (
+    <StoreProvider api={api} client={queryClient}>
+      <AppRoutes api={api} />
+    </StoreProvider>
+  );
+}
+
+function AppRoutes({ api }: { api: Api }) {
+  const [state, setState] = useState<State>({ kind: "loading" });
+  const queryClient = useQueryClient();
   const path = usePath();
   const editId = /^\/suppliers\/([^/]+)\/edit$/.exec(path)?.[1];
   const mappingEditId = /^\/mappings\/([^/]+)\/edit$/.exec(path)?.[1];
   const rulesId = /^\/suppliers\/([^/]+)\/rules$/.exec(path)?.[1];
   const connectId = /^\/suppliers\/([^/]+)\/connect$/.exec(path)?.[1];
 
-  const [proposalCount, setProposalCount] = useState(0);
   const signedIn = state.kind === "signedIn";
+  const proposalCount = useGetProposalCountQuery({ enabled: signedIn }).data ?? 0;
   const notifications = useNotifications(api, signedIn);
   const reloadNotifications = notifications.reload;
-  // How many suggestions are waiting, for the menu. Read again whenever the owner moves to another page.
+  // How many suggestions are waiting, for the menu. Read again when the owner moves to another page and the count is over 30 s old.
   const refreshCount = useCallback(() => {
-    api.proposals
-      .count()
-      .then(setProposalCount)
-      .catch(() => {});
+    void queryClient.refetchQueries({ queryKey: proposalKeys.count(), stale: true });
     reloadNotifications();
-  }, [api, reloadNotifications]);
+  }, [queryClient, reloadNotifications]);
   useEffect(() => {
     if (signedIn) refreshCount();
   }, [signedIn, path, refreshCount]);
@@ -159,61 +167,59 @@ export function App({ api = realApi }: { api?: Api }) {
       .catch((e: unknown) => setState({ kind: "error", message: messageOf(e) }));
 
   return (
-    <StoreProvider api={api} client={queryClient}>
-      <TooltipProvider delayDuration={400}>
-        <AppShell
-          email={state.email}
-          proposalCount={proposalCount}
-          attentionCount={notifications.items.length}
-          schedule={schedule}
-          notifications={notifications}
-          onSignOut={signOut}
-        >
-          {path === "/" ? (
-            <DashboardPage api={api} />
-          ) : path === "/products" ? (
-            <ProductsPage api={api} />
-          ) : path === "/proposals" ? (
-            <ProposalsPage api={api} onChange={refreshCount} />
-          ) : path === "/suppliers" ? (
-            <SuppliersPage api={api} />
-          ) : path === "/suppliers/new" ? (
-            <SupplierFormPage api={api} />
-          ) : path === "/mappings" ? (
-            <MappingsPage api={api} />
-          ) : path === "/mappings/new" ? (
-            <MappingFormPage api={api} />
-          ) : path === "/mappings/import" ? (
-            <ImportMappingsPage api={api} />
-          ) : mappingEditId ? (
-            <MappingFormPage key={mappingEditId} api={api} id={mappingEditId} />
-          ) : rulesId ? (
-            <StockRulesPage key={rulesId} api={api} supplierId={rulesId} />
-          ) : connectId ? (
-            <ConnectSupplierPage key={connectId} api={api} supplierId={connectId} />
-          ) : editId ? (
-            <SupplierFormPage key={editId} api={api} id={editId} />
-          ) : path === "/settings" || path === "/settings/shopify" ? (
-            <SettingsLayout current="shopify">
-              <SettingsShopifyPage api={api} />
-            </SettingsLayout>
-          ) : path === "/settings/suggestions" ? (
-            <SettingsLayout current="suggestions">
-              <SuggestionsPage />
-            </SettingsLayout>
-          ) : path === "/settings/appearance" ? (
-            <SettingsLayout current="appearance">
-              <AppearancePage />
-            </SettingsLayout>
-          ) : path === "/settings/account" ? (
-            <SettingsLayout current="account">
-              <AccountPage email={state.email} onSignOut={signOut} />
-            </SettingsLayout>
-          ) : (
-            <NotFoundPage />
-          )}
-        </AppShell>
-      </TooltipProvider>
-    </StoreProvider>
+    <TooltipProvider delayDuration={400}>
+      <AppShell
+        email={state.email}
+        proposalCount={proposalCount}
+        attentionCount={notifications.items.length}
+        schedule={schedule}
+        notifications={notifications}
+        onSignOut={signOut}
+      >
+        {path === "/" ? (
+          <DashboardPage api={api} />
+        ) : path === "/products" ? (
+          <ProductsPage api={api} />
+        ) : path === "/proposals" ? (
+          <ProposalsPage api={api} />
+        ) : path === "/suppliers" ? (
+          <SuppliersPage api={api} />
+        ) : path === "/suppliers/new" ? (
+          <SupplierFormPage api={api} />
+        ) : path === "/mappings" ? (
+          <MappingsPage api={api} />
+        ) : path === "/mappings/new" ? (
+          <MappingFormPage api={api} />
+        ) : path === "/mappings/import" ? (
+          <ImportMappingsPage api={api} />
+        ) : mappingEditId ? (
+          <MappingFormPage key={mappingEditId} api={api} id={mappingEditId} />
+        ) : rulesId ? (
+          <StockRulesPage key={rulesId} api={api} supplierId={rulesId} />
+        ) : connectId ? (
+          <ConnectSupplierPage key={connectId} api={api} supplierId={connectId} />
+        ) : editId ? (
+          <SupplierFormPage key={editId} api={api} id={editId} />
+        ) : path === "/settings" || path === "/settings/shopify" ? (
+          <SettingsLayout current="shopify">
+            <SettingsShopifyPage api={api} />
+          </SettingsLayout>
+        ) : path === "/settings/suggestions" ? (
+          <SettingsLayout current="suggestions">
+            <SuggestionsPage />
+          </SettingsLayout>
+        ) : path === "/settings/appearance" ? (
+          <SettingsLayout current="appearance">
+            <AppearancePage />
+          </SettingsLayout>
+        ) : path === "/settings/account" ? (
+          <SettingsLayout current="account">
+            <AccountPage email={state.email} onSignOut={signOut} />
+          </SettingsLayout>
+        ) : (
+          <NotFoundPage />
+        )}
+      </AppShell>
+    </TooltipProvider>
   );
 }
