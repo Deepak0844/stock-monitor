@@ -1,10 +1,15 @@
 import { cn } from "@/lib/utils.js";
 
-// The brand mark: a "b" holding a moving cart.
+// The brand mark: a "b" holding a moving cart, in the owner's colours. Dark mode puts it on a white tile so the brown stays visible.
 export function Logo({ className }: { className?: string }) {
   return (
     <span className={cn("inline-flex items-center gap-2.5 font-bold tracking-tight", className)}>
-      <svg viewBox="104 111 840 840" width="28" height="28" aria-hidden="true" focusable="false">
+      <svg
+        viewBox="104 111 840 840"
+        aria-hidden="true"
+        focusable="false"
+        className="size-8 shrink-0 rounded-md bg-(--logo-tile) p-0.5"
+      >
         <path
           fill="#511400"
           d="M293 117h114a38 38 0 0 1 38 38v155a330 330 0 1 1-202 380h117v-153H255V155a38 38 0 0 1 38-38z"
