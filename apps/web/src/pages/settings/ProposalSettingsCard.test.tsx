@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { ApiError } from "../../api.js";
 import { fakeApi } from "../../test/fake-api.js";
+import { renderWithStore } from "../../test/renderWithStore.js";
 import { ProposalSettingsCard } from "./ProposalSettingsCard.js";
 
 afterEach(cleanup);
@@ -13,7 +14,7 @@ const ready = { state: "ready" as const, message: "Shopify allows this app to ch
 
 const setup = (over: NonNullable<Parameters<typeof fakeApi>[0]>["proposals"] = {}) => {
   const api = fakeApi({ proposals: { settings: vi.fn().mockResolvedValue({ settings: { defaultQuantity: 5, expiryHours: 24 }, writePermission: ready }), ...over } });
-  render(<ProposalSettingsCard api={api} />);
+  renderWithStore(<ProposalSettingsCard />, { api });
   return { api, user: userEvent.setup() };
 };
 
@@ -56,6 +57,33 @@ describe("suggestion settings", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(screen.getByRole("alert")).toBeInTheDocument();
     expect(saveSettings).not.toHaveBeenCalled();
+  });
+
+  it("says so when the settings can't be loaded, and shows no form", async () => {
+    setup({ settings: vi.fn().mockRejectedValue(new ApiError("Sign in again to continue.", 401)) });
+    expect(await screen.findByRole("alert")).toHaveTextContent("Sign in again to continue.");
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+  });
+
+  it("keeps what the owner typed when saving fails", async () => {
+    const { user } = setup({ saveSettings: vi.fn().mockRejectedValue(new ApiError("Can't reach the server. Check your connection and try again.", 0)) });
+    const quantity = await screen.findByLabelText("Quantity for back-in-stock suggestions");
+    await user.clear(quantity);
+    await user.type(quantity, "9");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Can't reach the server.");
+    expect(quantity).toHaveValue("9");
+  });
+
+  it("shows the permission the server gives back after a save", async () => {
+    const { user } = setup({
+      settings: vi.fn().mockResolvedValue({ settings: { defaultQuantity: 5, expiryHours: 24 }, writePermission: missing }),
+      saveSettings: vi.fn().mockResolvedValue({ settings: { defaultQuantity: 5, expiryHours: 24 }, writePermission: ready }),
+    });
+    expect(await screen.findByText(missing.message)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText(ready.message)).toBeInTheDocument();
+    expect(screen.queryByText(missing.message)).not.toBeInTheDocument();
   });
 
   it("shows the server's plain message when saving fails", async () => {
