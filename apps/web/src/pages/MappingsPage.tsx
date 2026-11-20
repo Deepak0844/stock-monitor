@@ -45,6 +45,7 @@ import { useWatch, WATCH_MS } from "../lib/useWatch.js";
 import { Link } from "../router.js";
 import { useTitle } from "../useTitle.js";
 import { toast } from "../lib/toast.js";
+import { useGetSupplierListQuery } from "../store/api/suppliers/supplierApi.js";
 
 const SHOW_UNMAPPED = 50;
 const SEARCH_DELAY_MS = 300;
@@ -87,6 +88,7 @@ const STOCK_OPTIONS: { value: StockFilter; words: string }[] = [
 // A whole supplier run is followed through its own small status, not by reading the list again.
 const RUN_POLL_MS = 3000;
 
+const NO_SUPPLIERS: Supplier[] = [];
 const message = (e: unknown) =>
   e instanceof Error ? e.message : "Something went wrong. Please try again.";
 const host = (url: string) => {
@@ -154,7 +156,7 @@ export function MappingsPage({ api }: { api: Api }) {
   ) as StockFilter | "";
   const filtered = supplierId !== "" || status !== "" || stock !== "" || search !== "";
 
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const suppliers = useGetSupplierListQuery().data ?? NO_SUPPLIERS;
   const [data, setData] = useState<{ items: Mapping[]; total: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -174,12 +176,6 @@ export function MappingsPage({ api }: { api: Api }) {
   const vq = useDelayed(variantSearch);
   const latestCall = useRef(0);
 
-  useEffect(() => {
-    api.suppliers
-      .list()
-      .then(setSuppliers)
-      .catch(() => {});
-  }, [api]);
 
   const load = useCallback(() => {
     const mine = ++latestCall.current;

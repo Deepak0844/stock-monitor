@@ -10,6 +10,7 @@ import { Notice } from "../components/Notice.js";
 import { Link } from "../router.js";
 import { useTitle } from "../useTitle.js";
 import { useApproveProposalMutation, useGetProposalCountQuery, useGetProposalOpenListQuery } from "../store/api/proposals/proposalApi.js";
+import { useGetSupplierListQuery } from "../store/api/suppliers/supplierApi.js";
 
 /** One number and what it means, with the link to the list behind it. A shimmer while loading, a retry if it failed. */
 function SummaryCard(props: {
@@ -113,7 +114,10 @@ export function DashboardPage({ api }: { api: Api }) {
   useTitle("Dashboard");
   const [notes, setNotes] = useState<AppNotification[] | null>(null);
   const [notesError, setNotesError] = useState<string | null>(null);
-  const [suppliers, setSuppliers] = useState<Supplier[] | "error" | null>(null);
+  const supplierList = useGetSupplierListQuery();
+  const suppliers: Supplier[] | "error" | null =
+    supplierList.data ?? (supplierList.isError && !supplierList.isFetching ? "error" : null);
+  const loadSuppliers = () => void supplierList.refetch();
   const waiting = useGetProposalCountQuery().data ?? 0;
   const [links, setLinks] = useState<
     | {
@@ -133,13 +137,6 @@ export function DashboardPage({ api }: { api: Api }) {
       .list()
       .then(setNotes)
       .catch((e: unknown) => setNotesError(messageOf(e)));
-  }, [api]);
-  const loadSuppliers = useCallback(() => {
-    setSuppliers(null);
-    api.suppliers
-      .list()
-      .then(setSuppliers)
-      .catch(() => setSuppliers("error"));
   }, [api]);
   const loadSchedule = useCallback(() => {
     setSchedule(null);
@@ -166,7 +163,6 @@ export function DashboardPage({ api }: { api: Api }) {
       .catch(() => setLinks("error"));
   }, [api]);
   useEffect(loadNotes, [loadNotes]);
-  useEffect(loadSuppliers, [loadSuppliers]);
   useEffect(loadSchedule, [loadSchedule]);
   useEffect(loadLinks, [loadLinks]);
   // The newest suggestions, so the owner can approve from here.

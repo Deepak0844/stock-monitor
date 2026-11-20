@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button.js";
 import { Input } from "@/components/ui/input.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
@@ -12,6 +12,12 @@ import { PermissionPanel, RegionPanel } from "../components/PermissionPanel.js";
 import { SchedulePanel } from "../components/SchedulePanel.js";
 import { Link, navigate } from "../router.js";
 import { useTitle } from "../useTitle.js";
+import {
+  useCreateSupplierMutation,
+  useGetSupplierQuery,
+  useSupplierRefresh,
+  useUpdateSupplierMutation,
+} from "../store/api/suppliers/supplierApi.js";
 import { Badge } from "@/components/ui/badge.js";
 import { When } from "../components/When.js";
 import { statusOf } from "./SuppliersPage.js";
@@ -48,25 +54,19 @@ const message = (e: unknown) =>
 export function SupplierFormPage({ api, id }: { api: Api; id?: string }) {
   const editing = id !== undefined;
   useTitle(editing ? "Edit supplier" : "Add supplier");
-  const [load, setLoad] = useState<Load>(
-    editing ? { kind: "loading" } : { kind: "ready", supplier: null },
-  );
+  const supplierQuery = useGetSupplierQuery(id ?? "", { enabled: editing });
+  const load: Load = !editing
+    ? { kind: "ready", supplier: null }
+    : supplierQuery.data
+      ? { kind: "ready", supplier: supplierQuery.data }
+      : supplierQuery.isError
+        ? { kind: "error", message: message(supplierQuery.error) }
+        : { kind: "loading" };
 
-  useEffect(() => {
-    if (id === undefined) return;
-    api.suppliers
-      .get(id)
-      .then((supplier) => setLoad({ kind: "ready", supplier }))
-      .catch((e: unknown) => setLoad({ kind: "error", message: message(e) }));
-  }, [api, id]);
-
-  /** Loads the supplier again without the loading screen, so the page keeps what the owner typed. */
+  /** A card changed the supplier: read it again without the loading screen, so the page keeps what the owner typed. */
+  const refreshSupplier = useSupplierRefresh();
   const reload = () => {
-    if (id === undefined) return;
-    api.suppliers
-      .get(id)
-      .then((supplier) => setLoad({ kind: "ready", supplier }))
-      .catch(() => undefined);
+    if (id !== undefined) refreshSupplier(id);
   };
 
   const ready = load.kind === "ready" ? load : null;
@@ -117,7 +117,7 @@ export function SupplierFormPage({ api, id }: { api: Api; id?: string }) {
       {load.kind === "ready" && !load.supplier && (
         <div className="flex max-w-3xl flex-col">
           <section className="scroll-mt-16 border-t border-border py-7 first:border-t-0 first:pt-2 [&_h2]:text-base [&_h2]:font-semibold lg:[&_h2]:text-[0.9375rem] [&_legend]:text-base [&_legend]:font-semibold lg:[&_legend]:text-[0.9375rem]">
-            <SupplierForm api={api} supplier={null} />
+            <SupplierForm supplier={null} />
           </section>
         </div>
       )}
@@ -130,7 +130,7 @@ export function SupplierFormPage({ api, id }: { api: Api; id?: string }) {
               className="scroll-mt-16 border-t border-border py-7 first:border-t-0 first:pt-2 [&_h2]:text-base [&_h2]:font-semibold lg:[&_h2]:text-[0.9375rem] [&_legend]:text-base [&_legend]:font-semibold lg:[&_legend]:text-[0.9375rem]"
             >
               <h2 className="mb-4">Details</h2>
-              <SupplierForm api={api} supplier={load.supplier} />
+              <SupplierForm supplier={load.supplier} />
             </section>
             <section
               id="part-permission"
@@ -243,7 +243,7 @@ function PartsIndex({ supplier: s }: { supplier: Supplier }) {
   );
 }
 
-function SupplierForm({ api, supplier }: { api: Api; supplier: Supplier | null }) {
+function SupplierForm({ supplier }: { supplier: Supplier | null }) {
   const [name, setName] = useState(supplier?.name ?? "");
   const [shopifyName, setShopifyName] = useState(supplier?.shopifyName ?? "");
   const [websiteUrl, setWebsiteUrl] = useState(supplier?.websiteUrl ?? "");
@@ -251,6 +251,8 @@ function SupplierForm({ api, supplier }: { api: Api; supplier: Supplier | null }
   const [errors, setErrors] = useState<Errors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const createSupplier = useCreateSupplierMutation();
+  const updateSupplier = useUpdateSupplierMutation();
   const refs: Record<Field, React.RefObject<HTMLInputElement | null>> = {
     name: useRef<HTMLInputElement>(null),
     shopifyName: useRef<HTMLInputElement>(null),
@@ -303,7 +305,7 @@ function SupplierForm({ api, supplier }: { api: Api; supplier: Supplier | null }
 
     setSaving(true);
     try {
-      await (supplier ? api.suppliers.update(supplier.id, patch) : api.suppliers.create(values));
+      await (supplier ? updateSupplier.mutateAsync({ id: supplier.id, patch }) : createSupplier.mutateAsync(values));
       navigate("/suppliers");
     } catch (error) {
       const field = error instanceof ApiError && error.code ? FIELD_OF_CODE[error.code] : undefined;

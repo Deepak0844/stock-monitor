@@ -9,6 +9,7 @@ import { PageHeader } from "../components/PageHeader.js";
 import { SearchSelect } from "../components/SearchSelect.js";
 import { Link, navigate } from "../router.js";
 import { useTitle } from "../useTitle.js";
+import { useGetSupplierListQuery } from "../store/api/suppliers/supplierApi.js";
 
 type Field = "variant" | "supplier" | "url" | "note" | "region" | "supplierOption";
 type Errors = Partial<Record<Field, string>>;
@@ -25,6 +26,7 @@ const FIELD_OF_CODE: Record<string, Field> = {
   invalid_region: "region",
   invalid_supplier_option: "supplierOption",
 };
+const NO_SUPPLIERS: Supplier[] = [];
 const message = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong. Please try again.");
 
 export function MappingFormPage({ api, id }: { api: Api; id?: string }) {
@@ -98,7 +100,8 @@ function MappingForm({ api, mapping }: { api: Api; mapping: Mapping | null }) {
   const [region, setRegion] = useState(mapping?.region ?? "");
   const [supplierOption, setSupplierOption] = useState(mapping?.supplierOption ?? "");
   const [variants, setVariants] = useState<UnmappedVariant[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const supplierList = useGetSupplierListQuery();
+  const suppliers = supplierList.data ?? NO_SUPPLIERS;
   const [errors, setErrors] = useState<Errors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -114,8 +117,8 @@ function MappingForm({ api, mapping }: { api: Api; mapping: Mapping | null }) {
   };
 
   useEffect(() => {
-    api.suppliers.list().then(setSuppliers).catch((e: unknown) => setFormError(message(e)));
-  }, [api]);
+    if (supplierList.error) setFormError(message(supplierList.error));
+  }, [supplierList.error]);
   // The first variants with no link, so a variant chosen from the Map button shows by name.
   useEffect(() => {
     if (mapping) return;

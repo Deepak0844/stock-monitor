@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Link as ListChecks,
   MoreHorizontal,
@@ -18,6 +18,14 @@ import {
 } from "@/components/ui/dropdown-menu.js";
 import { Input, Select } from "@/components/ui/input.js";
 import type { Api, ScheduleRow, Supplier, SupplierStatusFilter } from "../api.js";
+import {
+  useCheckSupplierSessionMutation,
+  useGetSupplierListQuery,
+  useGetSupplierPageQuery,
+  useRemoveSupplierMutation,
+  useSetSupplierEnabledMutation,
+  useSupplierChanged,
+} from "../store/api/suppliers/supplierApi.js";
 import { ConfirmDialog } from "../components/ConfirmDialog.js";
 import { DataTable, type Column } from "../components/DataTable.js";
 import { EmptyState } from "../components/EmptyState.js";
@@ -121,11 +129,19 @@ export function SuppliersPage({ api }: { api: Api }) {
     : undefined;
   const filtering = search !== "" || status !== undefined;
 
-  const [data, setData] = useState<{ items: Supplier[]; total: number } | null>(null);
-  const [all, setAll] = useState<Supplier[] | null>(null);
+  const supplierPage = useGetSupplierPageQuery({ page, pageSize, search: search || undefined, status });
+  const data = supplierPage.data ? { items: supplierPage.data.items, total: supplierPage.data.total } : null;
+  // Loading while the first read or a new page is on its way; the rows shown stay until the next ones arrive.
+  const loading = supplierPage.isPlaceholderData || (supplierPage.isFetching && !supplierPage.data);
+  const loadError = supplierPage.isError && !supplierPage.isFetching ? message(supplierPage.error) : null;
+  const load = () => void supplierPage.refetch();
+  // Every supplier, for the summary tiles. If it cannot be read the tiles are left out.
+  const all = useGetSupplierListQuery().data ?? null;
+  const setEnabled = useSetSupplierEnabledMutation();
+  const checkSession = useCheckSupplierSessionMutation();
+  const removeSupplier = useRemoveSupplierMutation();
+  const replace = useSupplierChanged();
   const [schedule, setSchedule] = useState<ScheduleRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<Supplier | null>(null);
   const [checkingId, setCheckingId] = useState<string | null>(null);
@@ -134,35 +150,7 @@ export function SuppliersPage({ api }: { api: Api }) {
   const stopWaiting = (id: string) =>
     setWaiting((w) => (w.has(id) ? new Set([...w].filter((x) => x !== id)) : w));
   const [q, setQ] = useState(search);
-  const latest = useRef(0);
   const watch = useWatch();
-
-  const load = useCallback(() => {
-    const mine = ++latest.current;
-    setLoading(true);
-    setLoadError(null);
-    api.suppliers
-      .page({ page, pageSize, search: search || undefined, status })
-      .then((result) => {
-        if (mine !== latest.current) return;
-        setData({ items: result.items, total: result.total });
-        setLoading(false);
-      })
-      .catch((e: unknown) => {
-        if (mine !== latest.current) return;
-        setLoadError(message(e));
-        setLoading(false);
-      });
-  }, [api, page, pageSize, search, status]);
-  useEffect(load, [load]);
-
-  // Every supplier, once, for the summary tiles. If it cannot be read the tiles are left out.
-  useEffect(() => {
-    api.suppliers
-      .list()
-      .then(setAll)
-      .catch(() => {});
-  }, [api]);
 
   // The search box waits for a pause in typing, then goes to the address. A change made elsewhere, such as clearing, comes back in.
   useEffect(() => {
@@ -194,10 +182,6 @@ export function SuppliersPage({ api }: { api: Api }) {
     };
   }, [api]);
 
-  const replace = (updated: Supplier) => {
-    setData((d) => d && { ...d, items: d.items.map((s) => (s.id === updated.id ? updated : s)) });
-    setAll((list) => list?.map((s) => (s.id === updated.id ? updated : s)) ?? null);
-  };
   async function act(work: () => Promise<void>) {
     setActionError(null);
     try {
@@ -208,14 +192,14 @@ export function SuppliersPage({ api }: { api: Api }) {
   }
   const toggle = (s: Supplier) =>
     act(async () =>
-      replace(await (s.enabled ? api.suppliers.pause(s.id) : api.suppliers.resume(s.id))),
+      void (await setEnabled.mutateAsync({ supplier: s, enabled: !s.enabled })),
     );
   const check = (s: Supplier) =>
     act(async () => {
       setCheckingId(s.id);
       setWaiting((w) => new Set(w).add(s.id));
       try {
-        await api.suppliers.checkSession(s.id);
+        await checkSession.mutateAsync({ id: s.id });
       } catch (e) {
         stopWaiting(s.id);
         throw e;
@@ -235,10 +219,8 @@ export function SuppliersPage({ api }: { api: Api }) {
         .finally(() => stopWaiting(s.id));
     });
   const remove = async (s: Supplier) => {
-    await api.suppliers.remove(s.id);
-    setAll((list) => list?.filter((x) => x.id !== s.id) ?? null);
+    await removeSupplier.mutateAsync({ id: s.id });
     toast(`Deleted ${s.name}.`);
-    load();
   };
 
   const confirmedEmpty = data !== null && data.total === 0 && !filtering;

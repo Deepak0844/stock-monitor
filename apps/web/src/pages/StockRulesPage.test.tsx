@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { ApiError, type Capture } from "../api.js";
 import { aCapture, aMapping, aRecipeVersion, aSupplier, fakeApi } from "../test/fake-api.js";
+import { renderWithStore } from "../test/renderWithStore.js";
 import { StockRulesPage } from "./StockRulesPage.js";
 
 beforeEach(() =>
@@ -34,7 +35,7 @@ const setup = (over: Parameters<typeof fakeApi>[0] = {}) => {
     suppliers: { get: vi.fn().mockResolvedValue(acme), ...over.suppliers },
     mappings: { list: vi.fn().mockResolvedValue([aMapping()]), ...over.mappings },
   });
-  render(<StockRulesPage api={api} supplierId={acme.id} />);
+  renderWithStore(<StockRulesPage api={api} supplierId={acme.id} />);
   return { api, user: userEvent.setup() };
 };
 

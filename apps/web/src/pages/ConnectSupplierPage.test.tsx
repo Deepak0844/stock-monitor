@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { StrictMode } from "react";
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api.js";
 import { aLoginSession, aSupplier, fakeApi } from "../test/fake-api.js";
+import { renderWithStore } from "../test/renderWithStore.js";
 import { ConnectSupplierPage } from "./ConnectSupplierPage.js";
 
 const TOKEN = "e".repeat(64);
@@ -45,7 +46,7 @@ function setup(over: Parameters<typeof fakeApi>[0] = {}, opts: { strict?: boolea
     },
   });
   const ui = <ConnectSupplierPage api={api} supplierId={supplier.id} liveWindow={StubWindow} />;
-  const view = render(opts.strict ? <StrictMode>{ui}</StrictMode> : ui);
+  const view = renderWithStore(opts.strict ? <StrictMode>{ui}</StrictMode> : ui);
   return { api, user: userEvent.setup(), ...view };
 }
 const connect = async () => {

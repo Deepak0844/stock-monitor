@@ -14,6 +14,7 @@ import {
   useRefreshProposalMutation,
   useRejectProposalMutation,
 } from "../store/api/proposals/proposalApi.js";
+import { useGetSupplierListQuery } from "../store/api/suppliers/supplierApi.js";
 import { DataTable, type Column } from "../components/DataTable.js";
 import { ConfirmDialog } from "../components/ConfirmDialog.js";
 import { SearchSelect } from "../components/SearchSelect.js";
@@ -41,6 +42,7 @@ import { toast } from "../lib/toast.js";
 const message = (e: unknown) =>
   e instanceof Error ? e.message : "Something went wrong. Please try again.";
 const NOT_A_NUMBER = "Enter a whole number from 0 up.";
+const NO_SUPPLIERS: Supplier[] = [];
 const name = (p: Proposal) => `${p.productTitle}, ${p.variantTitle}`;
 
 type Open =
@@ -352,17 +354,9 @@ export function ProposalsPage({ api }: { api: Api }) {
   const params = useListParams({ pageSize: 10 });
   const { page, pageSize, sort, dir, set } = params;
   const tab = params.filters.tab === "history" ? "history" : "open";
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [suppliersRead, setSuppliersRead] = useState(false);
-  useEffect(() => {
-    api.suppliers
-      .list()
-      .then((list) => {
-        setSuppliers(list);
-        setSuppliersRead(true);
-      })
-      .catch(() => {});
-  }, [api]);
+  const supplierList = useGetSupplierListQuery();
+  const suppliers = supplierList.data ?? NO_SUPPLIERS;
+  const suppliersRead = supplierList.isSuccess;
   // A supplier in the address that is not in the list (deleted, or mistyped) shows everything.
   const wanted = params.filters.supplier ?? "";
   const supplierId = suppliersRead && !suppliers.some((s) => s.id === wanted) ? "" : wanted;

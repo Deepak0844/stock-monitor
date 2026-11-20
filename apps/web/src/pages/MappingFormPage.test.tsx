@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { ApiError } from "../api.js";
 import { aMapping, aSupplier, fakeApi } from "../test/fake-api.js";
+import { renderWithStore } from "../test/renderWithStore.js";
 import { MappingFormPage } from "./MappingFormPage.js";
 
 beforeEach(() => window.history.replaceState(null, "", "/mappings/new"));
@@ -28,7 +29,7 @@ const setup = (over: Parameters<typeof fakeApi>[0] = {}, props: { id?: string } 
     suppliers: { list: vi.fn().mockResolvedValue([aSupplier(), globex]), ...over.suppliers },
     mappings: { unmapped: vi.fn().mockResolvedValue({ total: 2, unmapped: 2, items }), ...over.mappings },
   });
-  render(<MappingFormPage api={api} {...props} />);
+  renderWithStore(<MappingFormPage api={api} {...props} />);
   return { api, user: userEvent.setup() };
 };
 
@@ -49,7 +50,7 @@ describe("saving", () => {
 
   it("shows a shimmer while a link to edit is loading", () => {
     const api = fakeApi({ mappings: { get: vi.fn().mockReturnValue(new Promise(() => {})) } });
-    render(<MappingFormPage api={api} id="abc" />);
+    renderWithStore(<MappingFormPage api={api} id="abc" />);
     expect(screen.getByRole("status")).toHaveTextContent("Loading…");
   });
 });
