@@ -1,12 +1,12 @@
 import { cn } from "@/lib/utils.js";
 
-// The brand mark: a "b" holding a moving cart. The "b" turns light in dark mode so it stays visible.
+// The brand mark: a "b" holding a moving cart.
 export function Logo({ className }: { className?: string }) {
   return (
     <span className={cn("inline-flex items-center gap-2.5 font-bold tracking-tight", className)}>
       <svg viewBox="104 111 840 840" width="28" height="28" aria-hidden="true" focusable="false">
         <path
-          className="fill-brand-ink"
+          fill="#511400"
           d="M293 117h114a38 38 0 0 1 38 38v155a330 330 0 1 1-202 380h117v-153H255V155a38 38 0 0 1 38-38z"
         />
         <circle cx="570" cy="615" r="235" fill="#fff" stroke="#f2400a" strokeWidth="40" />
