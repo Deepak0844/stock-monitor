@@ -25,10 +25,18 @@ import { Link } from "../router.js";
 import { useTitle } from "../useTitle.js";
 import { useGetSupplierQuery } from "../store/api/suppliers/supplierApi.js";
 import { useGetMappingListQuery } from "../store/api/mappings/mappingApi.js";
+import { useGetCaptureListQuery } from "../store/api/captures/captureApi.js";
+import {
+  useActivateRecipeMutation,
+  useGetRecipeVersionsQuery,
+  useRemoveRecipeMutation,
+  useSaveRecipeMutation,
+} from "../store/api/recipes/recipeApi.js";
 
 const POLL_MS = 3000;
 const POLLS = 20;
 const NO_LINKS: Mapping[] = [];
+const NO_CAPTURES: Capture[] = [];
 const message = (e: unknown) =>
   e instanceof Error ? e.message : "Something went wrong. Please try again.";
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
@@ -40,8 +48,13 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
   // Only a first read that failed replaces the page; a failed read in the background keeps what is shown.
   const loadError = supplierQuery.isError && !supplierQuery.data ? message(supplierQuery.error) : null;
   const links = useGetMappingListQuery({ supplierId }).data ?? NO_LINKS;
-  const [captures, setCaptures] = useState<Capture[]>([]);
-  const [versions, setVersions] = useState<RecipeVersion[] | null>(null);
+  const captureList = useGetCaptureListQuery(supplierId);
+  const captures = captureList.data ?? NO_CAPTURES;
+  const versionList = useGetRecipeVersionsQuery(supplierId);
+  const versions = versionList.data ?? null;
+  const saveRecipe = useSaveRecipeMutation();
+  const activateRecipe = useActivateRecipeMutation();
+  const removeRecipe = useRemoveRecipeMutation();
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const [startedFrom, setStartedFrom] = useState<number | null>(null);
   const [started, setStarted] = useState(false);
@@ -52,27 +65,20 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
   const polls = useRef(0);
   const rulesRef = useRef<HTMLDivElement>(null);
 
+  // Joins a read already on its way instead of starting another. A read that fails says so, as before.
+  const { refetch: refetchCaptures, dataUpdatedAt: capturesReadAt } = captureList;
   const loadCaptures = useCallback(
     () =>
-      api.captures
-        .list(supplierId)
-        .then(setCaptures)
-        .catch((e: unknown) => setError(message(e))),
-    [api, supplierId],
+      refetchCaptures({ cancelRefetch: false }).then((r) => {
+        if (r.isError) setError(message(r.error));
+      }),
+    [refetchCaptures],
   );
-  const loadVersions = useCallback(
-    () =>
-      api.recipes
-        .list(supplierId)
-        .then(setVersions)
-        .catch((e: unknown) => setError(message(e))),
-    [api, supplierId],
-  );
-
+  // A list that cannot be read at first says so, as before; a failed read later keeps what is shown.
+  const listError = (captureList.isError && !captureList.data ? captureList.error : null) ?? (versionList.isError && !versionList.data ? versionList.error : null);
   useEffect(() => {
-    void loadCaptures();
-    void loadVersions();
-  }, [api, supplierId, loadCaptures, loadVersions]);
+    if (listError) setError(message(listError));
+  }, [listError]);
 
   // Start the editor from the rules that are on, else the newest version. Only the first time, so edits are never overwritten.
   useEffect(() => {
@@ -91,7 +97,8 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
       void loadCaptures();
     }, POLL_MS);
     return () => clearTimeout(timer);
-  }, [captures, loadCaptures]);
+    // Each read counts, even one whose answer looks the same as the last (the cache then keeps the same list).
+  }, [captures, capturesReadAt, loadCaptures]);
 
   async function run(kind: "test" | "save" | "on" | "suggest", work: () => Promise<void>) {
     setBusy(kind);
@@ -123,15 +130,13 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
   };
   const save = () =>
     run("save", async () => {
-      const saved = await api.recipes.save(supplierId, toRecipe(draft));
+      const saved = await saveRecipe.mutateAsync({ supplierId, recipe: toRecipe(draft) });
       toast(`Saved as version ${saved.version}. It is not turned on yet.`);
-      await loadVersions();
     });
   const turnOn = (v: RecipeVersion) =>
     run("on", async () => {
-      await api.recipes.activate(v.id);
+      await activateRecipe.mutateAsync({ supplierId, id: v.id });
       toast(`Version ${v.version} is turned on. Stock checks use it now.`);
-      await loadVersions();
     });
   const editAsNew = (v: RecipeVersion) => {
     setDraft(toDraft(v.rules));
@@ -141,9 +146,8 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
     rulesRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center" });
   };
   const deleteVersion = async (v: RecipeVersion) => {
-    await api.recipes.remove(v.id);
+    await removeRecipe.mutateAsync({ supplierId, id: v.id });
     toast(`Deleted version ${v.version}.`);
-    await loadVersions();
   };
 
   const labelledPages = captures.filter((c) => c.status === "ready" && c.expectedAnswer !== null);
@@ -244,7 +248,6 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
             links={links}
             captures={captures}
             results={test?.results ?? []}
-            reload={loadCaptures}
             onChanged={() => setTest(null)}
             onCaptureRequested={() => {
               polls.current = 0;
