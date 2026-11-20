@@ -88,7 +88,7 @@ export function PermissionPanel({ api, supplier, onSaved }: { api: Api; supplier
 }
 
 /** The region stock checks look for on this supplier's pages, unless a link has its own. */
-export function RegionPanel({ api, supplier }: { api: Api; supplier: Supplier }) {
+export function RegionPanel({ api, supplier, onSaved }: { api: Api; supplier: Supplier; onSaved?: () => void }) {
   const [region, setRegion] = useState(supplier.defaultRegion ?? "");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -100,6 +100,7 @@ export function RegionPanel({ api, supplier }: { api: Api; supplier: Supplier })
     try {
       await api.suppliers.setRegion(supplier.id, region.trim() || null);
       toast("Region saved.");
+      onSaved?.();
     } catch (e) {
       setError(message(e));
     } finally {

@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { ApiError, type Mapping } from "../api.js";
 import { aMapping, aRun, aSupplier, fakeApi } from "../test/fake-api.js";
+import { renderWithStore } from "../test/renderWithStore.js";
 import { MappingsPage } from "./MappingsPage.js";
 
 beforeEach(() => window.history.replaceState(null, "", "/mappings"));
@@ -69,7 +70,7 @@ const setup = (mappings: Mapping[], over: Parameters<typeof fakeApi>[0] = {}) =>
       ...over.mappings,
     },
   });
-  render(<MappingsPage api={api} />);
+  renderWithStore(<MappingsPage api={api} />);
   return { api, user: userEvent.setup() };
 };
 
@@ -87,7 +88,7 @@ const openMenu = async (user: ReturnType<typeof userEvent.setup>, label: string)
 describe("empty and loading", () => {
   it("shows a loading message first", () => {
     const api = fakeApi({ mappings: { page: vi.fn().mockReturnValue(new Promise(() => {})) } });
-    render(<MappingsPage api={api} />);
+    renderWithStore(<MappingsPage api={api} />);
     expect(screen.getByRole("status")).toHaveTextContent("Loading links…");
     expect(screen.getByRole("table", { name: "Links" })).toHaveAttribute("aria-busy", "true");
   });

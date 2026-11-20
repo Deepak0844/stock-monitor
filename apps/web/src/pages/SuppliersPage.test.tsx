@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { ApiError, type ScheduleRow, type Supplier } from "../api.js";
 import { aRun, aSupplier, fakeApi } from "../test/fake-api.js";
+import { renderWithStore } from "../test/renderWithStore.js";
 import { SuppliersPage } from "./SuppliersPage.js";
 
 beforeEach(() => window.history.replaceState(null, "", "/suppliers"));
@@ -27,7 +28,7 @@ const setup = (suppliers: Supplier[], over: Parameters<typeof fakeApi>[0] = {}) 
     ...over,
     suppliers: { list: vi.fn().mockImplementation(async () => current), page: serve(() => current), remove: vi.fn().mockImplementation(async (id: string) => void (current = current.filter((s) => s.id !== id))), ...over.suppliers },
   });
-  const view = render(<SuppliersPage api={api} />);
+  const view = renderWithStore(<SuppliersPage api={api} />);
   return { api, user: userEvent.setup(), unmount: view.unmount };
 };
 
@@ -41,7 +42,7 @@ const openMenu = async (user: ReturnType<typeof userEvent.setup>, name: string) 
 describe("empty and loading", () => {
   it("shows shimmering rows and tells a screen reader it is loading", () => {
     const api = fakeApi({ suppliers: { page: vi.fn().mockReturnValue(new Promise(() => {})) } });
-    render(<SuppliersPage api={api} />);
+    renderWithStore(<SuppliersPage api={api} />);
     expect(screen.getByRole("status")).toHaveTextContent("Loading suppliers…");
     expect(screen.getByRole("table", { name: "Suppliers" })).toHaveAttribute("aria-busy", "true");
   });

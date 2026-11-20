@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { ApiError } from "../api.js";
 import { aSupplier, fakeApi } from "../test/fake-api.js";
+import { renderWithStore } from "../test/renderWithStore.js";
 import { SupplierFormPage } from "./SupplierFormPage.js";
 
 beforeEach(() => window.history.replaceState(null, "", "/suppliers/new"));
@@ -19,7 +20,7 @@ const fillNew = async (user: U, name = "Acme Supply", site = "https://shop.acme.
 describe("adding a supplier", () => {
   const setup = (over: Parameters<typeof fakeApi>[0] = {}) => {
     const api = fakeApi(over);
-    render(<SupplierFormPage api={api} />);
+    renderWithStore(<SupplierFormPage api={api} />);
     return { api, user: userEvent.setup() };
   };
 
@@ -131,7 +132,7 @@ describe("editing a supplier", () => {
       ...over,
       suppliers: { get: vi.fn().mockResolvedValue(existing), ...over.suppliers },
     });
-    render(<SupplierFormPage api={api} id={existing.id} />);
+    renderWithStore(<SupplierFormPage api={api} id={existing.id} />);
     return { api, user: userEvent.setup() };
   };
 
@@ -219,12 +220,12 @@ describe("permission to check automatically", () => {
       ...over,
       suppliers: { get: vi.fn().mockResolvedValue(supplier), ...over.suppliers },
     });
-    render(<SupplierFormPage api={api} id={supplier.id} />);
+    renderWithStore(<SupplierFormPage api={api} id={supplier.id} />);
     return { api, user: userEvent.setup() };
   };
 
   it("is not shown when adding a supplier", () => {
-    render(<SupplierFormPage api={fakeApi()} />);
+    renderWithStore(<SupplierFormPage api={fakeApi()} />);
     expect(screen.queryByRole("group", { name: "Permission to check automatically" })).toBeNull();
   });
 
@@ -270,12 +271,12 @@ describe("permission to check automatically", () => {
 describe("default region", () => {
   const setupEdit = (supplier = aSupplier()) => {
     const api = fakeApi({ suppliers: { get: vi.fn().mockResolvedValue(supplier) } });
-    render(<SupplierFormPage api={api} id={supplier.id} />);
+    renderWithStore(<SupplierFormPage api={api} id={supplier.id} />);
     return { api, user: userEvent.setup() };
   };
 
   it("is not shown when adding a supplier", () => {
-    render(<SupplierFormPage api={fakeApi()} />);
+    renderWithStore(<SupplierFormPage api={fakeApi()} />);
     expect(screen.queryByLabelText("Default region (optional)")).toBeNull();
   });
 
@@ -308,7 +309,7 @@ describe("default region", () => {
         ),
       );
     const api = fakeApi({ suppliers: { get: vi.fn().mockResolvedValue(aSupplier()), setRegion } });
-    render(<SupplierFormPage api={api} id={aSupplier().id} />);
+    renderWithStore(<SupplierFormPage api={api} id={aSupplier().id} />);
     await userEvent.setup().click(await screen.findByRole("button", { name: "Save region" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("up to 200 characters");
   });
@@ -323,7 +324,7 @@ describe("permission and automatic login on the same page", () => {
       .mockResolvedValueOnce(aSupplier())
       .mockResolvedValue(aSupplier({ automationPermission: "granted" }));
     const api = fakeApi({ suppliers: { get } });
-    render(<SupplierFormPage api={api} id={id} />);
+    renderWithStore(<SupplierFormPage api={api} id={id} />);
     const user = userEvent.setup();
     expect(await screen.findByRole("switch", { name: "Automatic login" })).toBeDisabled();
     await user.selectOptions(screen.getByLabelText("Permission"), "granted");
@@ -337,7 +338,7 @@ describe("permission and automatic login on the same page", () => {
 describe("a supplier that needs no login", () => {
   const setupEdit = (supplier = aSupplier()) => {
     const api = fakeApi({ suppliers: { get: vi.fn().mockResolvedValue(supplier) } });
-    render(<SupplierFormPage api={api} id={supplier.id} />);
+    renderWithStore(<SupplierFormPage api={api} id={supplier.id} />);
     return { api, user: userEvent.setup() };
   };
 
@@ -360,7 +361,7 @@ describe("a supplier that needs no login", () => {
 describe("name in Shopify", () => {
   it("sends the name in Shopify with a new supplier, with its hint", async () => {
     const api = fakeApi();
-    render(<SupplierFormPage api={api} />);
+    renderWithStore(<SupplierFormPage api={api} />);
     const user = userEvent.setup();
     await fillNew(user);
     expect(
@@ -381,7 +382,7 @@ describe("name in Shopify", () => {
     const existing = aSupplier({ shopifyName: "Acme Trading" });
     window.history.replaceState(null, "", `/suppliers/${existing.id}/edit`);
     const api = fakeApi({ suppliers: { get: vi.fn().mockResolvedValue(existing) } });
-    render(<SupplierFormPage api={api} id={existing.id} />);
+    renderWithStore(<SupplierFormPage api={api} id={existing.id} />);
     const user = userEvent.setup();
     const field = await screen.findByLabelText("Name in Shopify (optional)");
     expect(field).toHaveValue("Acme Trading");
@@ -403,7 +404,7 @@ describe("name in Shopify", () => {
         ),
       );
     const api = fakeApi({ suppliers: { create } });
-    render(<SupplierFormPage api={api} />);
+    renderWithStore(<SupplierFormPage api={api} />);
     const user = userEvent.setup();
     await fillNew(user);
     await user.type(screen.getByLabelText("Name in Shopify (optional)"), "Acme");
@@ -417,7 +418,7 @@ describe("name in Shopify", () => {
 
 describe("the edit page layout", () => {
   const show = (supplier = aSupplier({ name: "Acme Supply", sessionStatus: "connected" })) => {
-    render(
+    renderWithStore(
       <SupplierFormPage
         api={fakeApi({ suppliers: { get: vi.fn().mockResolvedValue(supplier) } })}
         id={supplier.id}

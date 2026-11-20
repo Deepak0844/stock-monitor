@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { ApiError, type Capture } from "../api.js";
 import { aCapture, aMapping, aRecipeVersion, aSupplier, fakeApi } from "../test/fake-api.js";
+import { renderWithStore } from "../test/renderWithStore.js";
+import { supplierKeys } from "../store/api/suppliers/supplierApi.js";
 import { StockRulesPage } from "./StockRulesPage.js";
 
 beforeEach(() =>
@@ -34,8 +36,8 @@ const setup = (over: Parameters<typeof fakeApi>[0] = {}) => {
     suppliers: { get: vi.fn().mockResolvedValue(acme), ...over.suppliers },
     mappings: { list: vi.fn().mockResolvedValue([aMapping()]), ...over.mappings },
   });
-  render(<StockRulesPage api={api} supplierId={acme.id} />);
-  return { api, user: userEvent.setup() };
+  const { client } = renderWithStore(<StockRulesPage api={api} supplierId={acme.id} />);
+  return { api, client, user: userEvent.setup() };
 };
 
 describe("saved pages", () => {
@@ -839,5 +841,17 @@ describe("the steps across the top", () => {
     expect(items[1]).toHaveAttribute("data-state", "done");
     expect(items[2]).toHaveAttribute("data-state", "now");
     expect(items[2]).toHaveTextContent("No version is on yet");
+  });
+});
+
+describe("a failed read in the background", () => {
+  it("keeps the page when reading the supplier again fails", async () => {
+    const get = vi.fn().mockResolvedValueOnce(acme).mockRejectedValue(new ApiError("Can't reach the server.", 0));
+    const { client } = setup({ suppliers: { get } });
+    expect(await screen.findByText(/says plainly there are none yet|Stock rules/i, { selector: "h1" })).toBeInTheDocument();
+    await act(() => client.invalidateQueries({ queryKey: supplierKeys.detail(acme.id) }));
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText("Can't reach the server.")).toBeNull();
+    expect(screen.getByText(/Stock rules/i, { selector: "h1" })).toBeInTheDocument();
   });
 });

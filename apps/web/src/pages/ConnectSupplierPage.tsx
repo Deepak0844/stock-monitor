@@ -13,6 +13,7 @@ import { Notice } from "../components/Notice.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { Link, navigate } from "../router.js";
 import { useTitle } from "../useTitle.js";
+import { useFetchSupplier, useSupplierRefresh } from "../store/api/suppliers/supplierApi.js";
 
 type WindowProps = {
   loginSessionId: string;
@@ -77,6 +78,8 @@ export function ConnectSupplierPage({
 }) {
   useTitle("Connect supplier");
   const [supplier, setSupplier] = useState<Supplier | null>(null);
+  const fetchSupplier = useFetchSupplier();
+  const refreshSupplier = useSupplierRefresh();
   const [state, setState] = useState<State>({ kind: "starting" });
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -112,7 +115,7 @@ export function ConnectSupplierPage({
       started.current = true;
       void (async () => {
         try {
-          setSupplier(await api.suppliers.get(supplierId));
+          setSupplier(await fetchSupplier(supplierId));
         } catch (error) {
           setState({ kind: "error", message: messageOf(error), canRetry: false });
           return;
@@ -135,6 +138,8 @@ export function ConnectSupplierPage({
     try {
       await api.loginSessions.finish(s.loginSession.id);
       open.current = null;
+      // The supplier is connected now: every page showing it reads it again.
+      refreshSupplier(supplierId);
       setState({ kind: "done" });
     } catch (error) {
       open.current = null; // the server has ended that login, whatever went wrong

@@ -10,7 +10,6 @@ import type {
   RecipeTest,
   RecipeVersion,
   SuggestResult,
-  Supplier,
 } from "../api.js";
 import { Notice } from "../components/Notice.js";
 import { PageHeader } from "../components/PageHeader.js";
@@ -24,6 +23,7 @@ import { ANSWER_WORDS, reasonWords } from "../components/stockWords.js";
 import { toast } from "../lib/toast.js";
 import { Link } from "../router.js";
 import { useTitle } from "../useTitle.js";
+import { useGetSupplierQuery } from "../store/api/suppliers/supplierApi.js";
 
 const POLL_MS = 3000;
 const POLLS = 20;
@@ -33,8 +33,10 @@ const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
 export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: string }) {
   useTitle("Stock rules");
-  const [supplier, setSupplier] = useState<Supplier | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const supplierQuery = useGetSupplierQuery(supplierId);
+  const supplier = supplierQuery.data ?? null;
+  // Only a first read that failed replaces the page; a failed read in the background keeps what is shown.
+  const loadError = supplierQuery.isError && !supplierQuery.data ? message(supplierQuery.error) : null;
   const [links, setLinks] = useState<Mapping[]>([]);
   const [captures, setCaptures] = useState<Capture[]>([]);
   const [versions, setVersions] = useState<RecipeVersion[] | null>(null);
@@ -66,10 +68,6 @@ export function StockRulesPage({ api, supplierId }: { api: Api; supplierId: stri
   );
 
   useEffect(() => {
-    api.suppliers
-      .get(supplierId)
-      .then(setSupplier)
-      .catch((e: unknown) => setLoadError(message(e)));
     api.mappings
       .list({ supplierId })
       .then(setLinks)
