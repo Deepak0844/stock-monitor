@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
+import { createQueryClient } from "../api.js";
+import { StoreProvider } from "../../StoreProvider.js";
 import type { ScheduleRow } from "../../../api.js";
 import { aRun, aSupplier, fakeApi } from "../../../test/fake-api.js";
 import { renderWithStore } from "../../../test/renderWithStore.js";
@@ -59,5 +61,27 @@ describe("the schedule in the cache", () => {
     expect(await screen.findByText("runs: 1")).toBeInTheDocument();
     expect(overview).toHaveBeenCalledTimes(2);
     expect(client.getQueryState(scheduleKeys.overview())?.status).toBe("success");
+  });
+
+  it("shows the cached schedule at once on a page opened again, and reads it again because runs change by themselves", async () => {
+    const overview = vi.fn().mockResolvedValueOnce([row("s1")]).mockResolvedValue([row("s1"), row("s2")]);
+    const runs = vi.fn().mockResolvedValueOnce([]).mockResolvedValue([aRun()]);
+    const api = fakeApi({ schedule: { overview, runs } });
+    // The app's own cache, so its 30-second freshness is in play.
+    const client = createQueryClient();
+    const page = () => (
+      <StoreProvider api={api} client={client}>
+        <Overview name="a" />
+        <Runs />
+      </StoreProvider>
+    );
+    const first = render(page());
+    await screen.findByText("a: s1");
+    await screen.findByText("runs: 0");
+    first.unmount();
+    render(page());
+    expect(screen.getByText("a: s1")).toBeInTheDocument(); // the cached copy, straight away
+    expect(await screen.findByText("a: s1,s2")).toBeInTheDocument();
+    expect(await screen.findByText("runs: 1")).toBeInTheDocument();
   });
 });

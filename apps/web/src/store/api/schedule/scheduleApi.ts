@@ -18,6 +18,10 @@ export const scheduleKeys = {
   runs: (supplierId: string) => [...entityKey(SCHEDULE, supplierId), "runs"] as const,
 };
 
+// Runs start and end on the server by themselves, so every page that opens reads the schedule again; the cached copy shows
+// meanwhile.
+const LIVE = { staleTime: 0 } as const;
+
 /** How often to read the schedule again: a fixed time, or worked out from what was last read. */
 type RefetchEvery = number | false | ((rows: ScheduleRow[] | undefined) => number | false);
 
@@ -29,12 +33,14 @@ const getScheduleOverviewQuery = (api: Api) =>
   queryOptions({
     queryKey: scheduleKeys.overview(),
     queryFn: () => api.schedule.overview(),
+    ...LIVE,
   });
 
 const getScheduleRunsQuery = (api: Api, supplierId: string) =>
   queryOptions({
     queryKey: scheduleKeys.runs(supplierId),
     queryFn: () => api.schedule.runs(supplierId),
+    ...LIVE,
   });
 
 const setScheduleMutation = (api: Api, client: QueryClient) =>
