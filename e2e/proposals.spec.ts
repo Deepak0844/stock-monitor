@@ -10,8 +10,18 @@ import { expectSignedIn, settle } from "./ui.js";
 
 test.describe.configure({ mode: "serial" });
 
-const SOLD_OUT = { sections: [{ heading: "Blue Tee", level: 1, lines: ["Sold out"] }], buttons: [{ label: "Add to cart", enabled: false, section: "Blue Tee" }] };
-const LOGIN_PAGE = { result: "login_required", status: 200, finalUrl: null, title: null, heading: null, softNotFound: false };
+const SOLD_OUT = {
+  sections: [{ heading: "Blue Tee", level: 1, lines: ["Sold out"] }],
+  buttons: [{ label: "Add to cart", enabled: false, section: "Blue Tee" }],
+};
+const LOGIN_PAGE = {
+  result: "login_required",
+  status: 200,
+  finalUrl: null,
+  title: null,
+  heading: null,
+  softNotFound: false,
+};
 const READ_ONLY = ["read_products", "read_inventory"];
 
 test.beforeEach(async () => {
@@ -26,7 +36,12 @@ async function signIn(page: Page) {
   await expectSignedIn(page);
 }
 
-const supplierId = async (page: Page) => ((await page.request.get("/api/suppliers").then((r) => r.json())) as { suppliers: { id: string }[] }).suppliers[0]!.id;
+const supplierId = async (page: Page) =>
+  (
+    (await page.request.get("/api/suppliers").then((r) => r.json())) as {
+      suppliers: { id: string }[];
+    }
+  ).suppliers[0]!.id;
 
 /** Checks all of Acme Supply's links now, as the Check now button does, and waits for the run to end. */
 async function checkAll(page: Page) {
@@ -34,7 +49,15 @@ async function checkAll(page: Page) {
   const res = await page.request.post(`/api/suppliers/${id}/check-stock`);
   expect(res.status()).toBe(202);
   await expect
-    .poll(async () => ((await page.request.get(`/api/suppliers/${id}/runs/current`).then((r) => r.json())) as { run: unknown }).run, { timeout: 30_000 })
+    .poll(
+      async () =>
+        (
+          (await page.request.get(`/api/suppliers/${id}/runs/current`).then((r) => r.json())) as {
+            run: unknown;
+          }
+        ).run,
+      { timeout: 30_000 },
+    )
     .toBeNull();
 }
 
@@ -42,17 +65,28 @@ async function checkAll(page: Page) {
 async function sync(page: Page) {
   expect((await page.request.post("/api/shopify/sync")).status()).toBeLessThan(300);
   await expect
-    .poll(async () => ((await page.request.get("/api/shopify/sync").then((r) => r.json())) as { lastRun: { status: string } | null }).lastRun?.status, { timeout: 30_000 })
+    .poll(
+      async () =>
+        (
+          (await page.request.get("/api/shopify/sync").then((r) => r.json())) as {
+            lastRun: { status: string } | null;
+          }
+        ).lastRun?.status,
+      { timeout: 30_000 },
+    )
     .toBe("succeeded");
 }
 
-const card = (page: Page, size: number) => page.getByRole("listitem", { name: `Blue Tee, Size ${size}` });
+const card = (page: Page, size: number) =>
+  page.getByRole("listitem", { name: `Blue Tee, Size ${size}` });
 /** Opens Proposals and waits until the suggestions have been made (they are made by a background job). */
 async function openProposals(page: Page, expectCount: number) {
   await expect(async () => {
     await page.goto("/proposals");
     await expect(page.getByRole("heading", { level: 1, name: "Proposals" })).toBeVisible();
-    await expect(page.getByRole("listitem", { name: /Blue Tee/ })).toHaveCount(expectCount, { timeout: 1500 });
+    await expect(page.getByRole("listitem", { name: /Blue Tee/ })).toHaveCount(expectCount, {
+      timeout: 1500,
+    });
   }).toPass({ timeout: 20_000 });
 }
 const history = async (page: Page) => {
@@ -61,11 +95,18 @@ const history = async (page: Page) => {
 };
 const scan = async (page: Page, label: string) => {
   await settle(page);
-  const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
-  expect(result.violations.map((v) => `${label}: ${v.id}`), label).toEqual([]);
+  const result = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+    .analyze();
+  expect(
+    result.violations.map((v) => `${label}: ${v.id}`),
+    label,
+  ).toEqual([]);
 };
 
-test("a sold-out supplier makes suggestions to set 0; one press on Approve changes Shopify and the result is in History", async ({ page }) => {
+test("a sold-out supplier makes suggestions to set 0; one press on Approve changes Shopify and the result is in History", async ({
+  page,
+}) => {
   await signIn(page);
   await control.browser({ description: SOLD_OUT });
   await checkAll(page);
@@ -88,7 +129,9 @@ test("a sold-out supplier makes suggestions to set 0; one press on Approve chang
   await expect(table.getByRole("row", { name: /Size 1/ })).toContainText("Shopify now shows 0.");
 });
 
-test("a supplier back in stock where Shopify shows 0 suggests the default quantity, and an edited number is what is written", async ({ page }) => {
+test("a supplier back in stock where Shopify shows 0 suggests the default quantity, and an edited number is what is written", async ({
+  page,
+}) => {
   await signIn(page);
   await control.setShopifyStock(2, 0);
   await sync(page);
@@ -107,25 +150,40 @@ test("a supplier back in stock where Shopify shows 0 suggests the default quanti
   await expect(table.getByRole("row", { name: /Size 2/ })).toContainText("Set to 7 (edited)");
 });
 
-test("if Shopify's number changed after the suggestion, Approve writes nothing and says so", async ({ page }) => {
+test("if Shopify's number changed after the suggestion, Approve writes nothing and says so", async ({
+  page,
+}) => {
   await signIn(page);
   await control.browser({ description: SOLD_OUT });
   await checkAll(page);
   await openProposals(page, 3);
   await control.setShopifyStock(1, 3); // a sale, behind the app's back
-  await card(page, 1).getByRole("button", { name: /^Approve/ }).click();
+  await card(page, 1)
+    .getByRole("button", { name: /^Approve/ })
+    .click();
   await expect(card(page, 1)).toHaveCount(0, { timeout: 20_000 });
   expect(await control.shopifyStock(1)).toEqual({ quantity: 3, writes: 0 });
   const table = await history(page);
-  await expect(table.getByRole("row", { name: /Size 1/ })).toContainText("Not applied: Shopify changed");
-  await expect(table.getByRole("row", { name: /Size 1/ })).toContainText("Shopify now shows 3, so nothing was changed.");
+  await expect(table.getByRole("row", { name: /Size 1/ })).toContainText(
+    "Not applied: Shopify changed",
+  );
+  await expect(table.getByRole("row", { name: /Size 1/ })).toContainText(
+    "Shopify now shows 3, so nothing was changed.",
+  );
 
   // The Dashboard says a change was not applied, and the Links page says what became of the link's suggestion.
   await page.goto("/");
-  await expect(page.getByText(/A stock change was not applied because Shopify's number changed/)).toBeVisible();
-  await expect(page.getByRole("link", { name: "See proposals" })).toHaveAttribute("href", "/proposals");
+  await expect(
+    page.getByText(/A stock change was not applied because Shopify's number changed/),
+  ).toBeVisible();
+  await expect(page.getByRole("link", { name: "See proposals" })).toHaveAttribute(
+    "href",
+    "/proposals",
+  );
   await page.goto("/mappings");
-  await expect(page.getByRole("row", { name: /Size 1/ })).toContainText("Suggestion: Out of stock, not applied: Shopify changed");
+  await expect(page.getByRole("row", { name: /Size 1/ })).toContainText(
+    "Suggestion: Out of stock, not applied: Shopify changed",
+  );
   await page.goto("/proposals");
   await page.getByRole("button", { name: "History" }).click();
 
@@ -142,12 +200,16 @@ test("if Shopify's number changed after the suggestion, Approve writes nothing a
   await expect(page.getByText(/A stock change was not applied/)).toHaveCount(0); // refreshing closed the notice
 });
 
-test("Reject needs no reason, changes nothing in Shopify, and the same answer does not come back", async ({ page }) => {
+test("Reject needs no reason, changes nothing in Shopify, and the same answer does not come back", async ({
+  page,
+}) => {
   await signIn(page);
   await control.browser({ description: SOLD_OUT });
   await checkAll(page);
   await openProposals(page, 3);
-  await card(page, 3).getByRole("button", { name: /^Reject/ }).click();
+  await card(page, 3)
+    .getByRole("button", { name: /^Reject/ })
+    .click();
   await expect(card(page, 3)).toHaveCount(0);
   expect(await control.shopifyStock(3)).toEqual({ quantity: 4, writes: 0 });
   await sync(page); // a sync asks for the suggestions again; the rejected one must not return
@@ -170,17 +232,25 @@ test("suggestions that nobody decided expire, and cannot be approved", async ({ 
   expect((await control.shopifyStock(1)).writes).toBe(0);
 });
 
-test("without permission to change stock, Approve is off and says why, and nothing is sent", async ({ page }) => {
+test("without permission to change stock, Approve is off and says why, and nothing is sent", async ({
+  page,
+}) => {
   await control.resetProposals(READ_ONLY);
   await signIn(page);
   await control.browser({ description: SOLD_OUT });
   await checkAll(page);
   await openProposals(page, 3);
-  await expect(page.getByText("Shopify has not given this app permission to change stock yet.")).toBeVisible();
+  await expect(
+    page.getByText("Shopify has not given this app permission to change stock yet."),
+  ).toBeVisible();
   await expect(card(page, 1).getByRole("button", { name: /^Approve/ })).toBeDisabled();
   // Even a direct request is refused.
-  const list = (await page.request.get("/api/proposals").then((r) => r.json())) as { proposals: { id: string }[] };
-  const res = await page.request.post(`/api/proposals/${list.proposals[0]!.id}/approve`, { data: {} });
+  const list = (await page.request.get("/api/proposals").then((r) => r.json())) as {
+    proposals: { id: string }[];
+  };
+  const res = await page.request.post(`/api/proposals/${list.proposals[0]!.id}/approve`, {
+    data: {},
+  });
   expect(res.status()).toBe(409);
   expect((await control.shopifyStock(1)).writes).toBe(0);
 });
@@ -194,9 +264,11 @@ test("a check that could not tell shows no suggestion", async ({ page }) => {
   await expect(page.getByRole("listitem", { name: /Blue Tee/ })).toHaveCount(0);
 });
 
-test("the settings change the back-in-stock number, and they are still there after a reload", async ({ page }) => {
+test("the settings change the back-in-stock number, and they are still there after a reload", async ({
+  page,
+}) => {
   await signIn(page);
-  await page.goto("/settings/shopify");
+  await page.goto("/settings/suggestions");
   await page.getByLabel("Quantity for back-in-stock suggestions").fill("9");
   await page.getByLabel("Hours a suggestion stays open").fill("12");
   await page.getByRole("button", { name: "Save", exact: true }).click();
@@ -213,26 +285,112 @@ test("the settings change the back-in-stock number, and they are still there aft
   await expect(card(page, 1)).toContainText("Suggested: set to 9");
 });
 
-test("the Proposals screens pass the accessibility scan in light and dark and do not scroll sideways", async ({ page }) => {
+test("the Proposals screens pass the accessibility scan in light and dark and do not scroll sideways", async ({
+  page,
+}) => {
   await signIn(page);
   await control.browser({ description: SOLD_OUT });
   await checkAll(page);
   await openProposals(page, 3);
-  await card(page, 3).getByRole("button", { name: /^Reject/ }).click();
+  await card(page, 3)
+    .getByRole("button", { name: /^Reject/ })
+    .click();
   await expect(card(page, 3)).toHaveCount(0);
   for (const scheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: scheme });
     await page.goto("/proposals");
     await expect(card(page, 1)).toBeVisible();
     await scan(page, `proposals ${scheme}`);
-    await card(page, 1).getByRole("button", { name: /Edit number/ }).click();
+    await card(page, 1)
+      .getByRole("button", { name: /Edit number/ })
+      .click();
     await scan(page, `proposals editing ${scheme}`);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), "waiting list scrolls sideways").toBe(false);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      ),
+      "waiting list scrolls sideways",
+    ).toBe(false);
     await history(page);
     await scan(page, `history ${scheme}`);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), "history scrolls sideways").toBe(false);
-    await page.goto("/settings/shopify");
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      ),
+      "history scrolls sideways",
+    ).toBe(false);
+    await page.goto("/settings/suggestions");
     await expect(page.getByLabel("Quantity for back-in-stock suggestions")).toBeVisible();
     await scan(page, `settings ${scheme}`);
   }
+});
+
+test("ticking a suggestion does not push the list down", async ({ page }) => {
+  await signIn(page);
+  await control.browser({ description: SOLD_OUT });
+  await checkAll(page);
+  await openProposals(page, 3);
+  const first = page.getByRole("listitem", { name: /Blue Tee/ }).first();
+  const before = (await first.boundingBox())!.y;
+  await first.getByRole("checkbox", { name: /^Select Blue Tee/ }).check();
+  await expect(page.getByRole("region", { name: "Selected proposals" })).toBeVisible();
+  expect((await first.boundingBox())!.y - before).toBe(0);
+  await page.getByRole("checkbox", { name: "Select all on this page" }).check();
+  expect((await first.boundingBox())!.y - before).toBe(0);
+  await page.getByRole("button", { name: "Clear selection" }).click();
+  expect((await first.boundingBox())!.y - before).toBe(0);
+});
+
+test("checking a link or its stock keeps the row the same size", async ({ page }) => {
+  await signIn(page);
+  await control.browser({ description: SOLD_OUT });
+  await checkAll(page);
+  const row = page.getByRole("row", { name: /Blue Tee/ }).first();
+  // The suggestion is made by a background job just after the check; wait until the row shows it.
+  await expect(async () => {
+    await page.goto("/mappings");
+    await expect(row.getByRole("link", { name: /Suggestion/ })).toBeVisible({ timeout: 1500 });
+  }).toPass({ timeout: 20_000 });
+  // Every size the row takes while the checks run is recorded in the page.
+  await row.evaluate((el) => {
+    const w = window as unknown as { heights: number[] };
+    w.heights = [Math.round(el.getBoundingClientRect().height)];
+    new ResizeObserver(() => w.heights.push(Math.round(el.getBoundingClientRect().height))).observe(
+      el,
+    );
+  });
+  await row.getByRole("button", { name: /^Check stock/ }).click();
+  await expect(page.getByText(/stock check of .* has started/i)).toBeVisible();
+  await expect(row.getByText("Checking…").filter({ visible: true })).toHaveCount(0, {
+    timeout: 15_000,
+  });
+  await row.getByRole("button", { name: /^Check now/ }).click();
+  await expect(page.getByText(/check of .* has started/i).last()).toBeVisible();
+  await expect(row.getByText("Checking…").filter({ visible: true })).toHaveCount(0, {
+    timeout: 15_000,
+  });
+  const heights = await page.evaluate(() => (window as unknown as { heights: number[] }).heights);
+  expect(new Set(heights).size, `row heights: ${heights.join(", ")}`).toBe(1);
+});
+
+test("on a phone each link is a short card, and the page never scrolls sideways", async ({
+  page,
+}) => {
+  test.skip((page.viewportSize()?.width ?? 0) > 600, "phone only");
+  await signIn(page);
+  await control.browser({ description: SOLD_OUT });
+  await checkAll(page);
+  await page.goto("/mappings");
+  const row = page.getByRole("row", { name: /Blue Tee/ }).first();
+  await expect(row).toBeVisible();
+  expect((await row.boundingBox())!.height).toBeLessThan(220);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    ),
+  ).toBe(false);
+  await page.goto("/suppliers");
+  const supplier = page.getByRole("row", { name: /Acme Supply/ });
+  await expect(supplier).toBeVisible();
+  expect((await supplier.boundingBox())!.height).toBeLessThan(220);
 });

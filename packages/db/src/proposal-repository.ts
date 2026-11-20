@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { and, count, desc, eq, gt, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { appSettings, mappings, proposals, shopifyVariants, stockObservations, suppliers } from "./schema.js";
+
+/** The columns a page of open suggestions can be sorted by. "seen" is when the suggestion was made. */
+export const PROPOSAL_SORTS = ["product", "supplier", "seen"] as const;
+export type ProposalSort = (typeof PROPOSAL_SORTS)[number];
 
 export type ProposalState = "open" | "approved" | "applied" | "conflict" | "failed" | "rejected" | "expired" | "replaced";
 export type Proposal = typeof proposals.$inferSelect;
@@ -68,6 +72,14 @@ export function createProposalRepository<S extends Record<string, unknown>>(db: 
   type ViewRow = Awaited<ReturnType<ReturnType<typeof viewQuery>["limit"]>>[number];
   const toView = ({ proposal, ...rest }: ViewRow): ProposalView => ({ ...proposal, ...rest });
   const PAST = sql`${proposals.state} not in ('open', 'approved')`;
+  // Every order ends with the id, so equal values never swap between pages. With no order: newest first.
+  const orderFor = (order?: { sort: ProposalSort; dir: "asc" | "desc" }) => {
+    if (!order) return [desc(proposals.createdAt), desc(proposals.id)];
+    const by = order.dir === "desc" ? desc : asc;
+    if (order.sort === "product") return [by(sql`lower(${shopifyVariants.productTitle})`), by(sql`lower(${shopifyVariants.variantTitle})`), by(proposals.id)];
+    if (order.sort === "supplier") return [by(sql`lower(${suppliers.name})`), desc(proposals.createdAt), by(proposals.id)];
+    return [by(proposals.createdAt), by(proposals.id)];
+  };
   const ofSupplier = (supplierId?: string) => (supplierId ? eq(proposals.supplierId, supplierId) : undefined);
 
   async function liveFor(variantId: string): Promise<Proposal | null> {
@@ -151,10 +163,10 @@ export function createProposalRepository<S extends Record<string, unknown>>(db: 
       return rows.map(toView);
     },
 
-    /** One page of the open and approved suggestions, newest first, with how many there are in all. */
-    async openPage(limit: number, offset: number, supplierId?: string): Promise<{ items: ProposalView[]; total: number }> {
+    /** One page of the open and approved suggestions, newest first unless sorted, with how many there are in all. */
+    async openPage(limit: number, offset: number, supplierId?: string, order?: { sort: ProposalSort; dir: "asc" | "desc" }): Promise<{ items: ProposalView[]; total: number }> {
       const where = and(inArray(proposals.state, ["open", "approved"]), ofSupplier(supplierId));
-      const rows = await viewQuery().where(where).orderBy(desc(proposals.createdAt), desc(proposals.id)).limit(limit).offset(offset);
+      const rows = await viewQuery().where(where).orderBy(...orderFor(order)).limit(limit).offset(offset);
       const [row] = await db.select({ n: count() }).from(proposals).where(where);
       return { items: rows.map(toView), total: Number(row?.n ?? 0) };
     },

@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { toast } from "./toast.js";
+import { OfflineBar } from "../components/OfflineBar.js";
+import { render } from "@testing-library/react";
 
 beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: true }));
 afterEach(() => {
@@ -30,4 +32,36 @@ describe("toasts", () => {
     expect(screen.getByText("Second.")).toBeInTheDocument();
   });
 
+  it("keeps an error until it is closed, and says it as an alert", () => {
+    act(() => void toast("Couldn't reach Shopify. Nothing was changed.", { kind: "error" }));
+    act(() => void vi.advanceTimersByTime(10_000));
+    expect(screen.getByRole("alert")).toHaveTextContent("Couldn't reach Shopify. Nothing was changed.");
+  });
+
+  it("runs its action once and closes when the action is pressed", async () => {
+    const run = vi.fn();
+    act(() => void toast("3 proposals rejected.", { action: { label: "Undo", run } }));
+    await userEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("3 proposals rejected.")).toBeNull();
+  });
+
+  it("stays as long as it is told to", () => {
+    act(() => void toast("Link deleted.", { durationMs: 5_000 }));
+    act(() => void vi.advanceTimersByTime(4_900));
+    expect(screen.getByText("Link deleted.")).toBeInTheDocument();
+    act(() => void vi.advanceTimersByTime(200));
+    expect(screen.queryByText("Link deleted.")).toBeNull();
+  });
+});
+
+describe("OfflineBar", () => {
+  it("appears when the browser goes offline and leaves when it is back", () => {
+    render(<OfflineBar />);
+    expect(screen.queryByText(/You're offline/)).toBeNull();
+    act(() => void window.dispatchEvent(new Event("offline")));
+    expect(screen.getByText(/You're offline/)).toBeInTheDocument();
+    act(() => void window.dispatchEvent(new Event("online")));
+    expect(screen.queryByText(/You're offline/)).toBeNull();
+  });
 });

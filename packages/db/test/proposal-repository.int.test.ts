@@ -319,6 +319,18 @@ describe("by supplier", () => {
     expect(await repo().historyTotal(bolt)).toBe(0);
   });
 
+  it("sorts a page of open suggestions by product, supplier or when they were made, both ways", async () => {
+    const a = (await repo().evaluateFor(input())).proposal!; // Acme, Tee
+    const b = (await repo().evaluateFor(boltInput())).proposal!; // Bolt, Cap
+    const ids = async (sort: "product" | "supplier" | "seen", dir: "asc" | "desc") => (await repo().openPage(10, 0, undefined, { sort, dir })).items.map((p) => p.id);
+    expect(await ids("product", "asc")).toEqual([b.id, a.id]);
+    expect(await ids("product", "desc")).toEqual([a.id, b.id]);
+    expect(await ids("supplier", "asc")).toEqual([a.id, b.id]);
+    expect(await ids("supplier", "desc")).toEqual([b.id, a.id]);
+    expect(await ids("seen", "asc")).toEqual([a.id, b.id]);
+    expect((await repo().openPage(10, 0)).items.map((p) => p.id)).toEqual([b.id, a.id]);
+  });
+
   it("counts suggestions waiting for the owner per supplier, not approved ones", async () => {
     expect(await repo().openCountBySupplier()).toEqual({});
     const a = (await repo().evaluateFor(input())).proposal!;

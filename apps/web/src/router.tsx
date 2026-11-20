@@ -18,6 +18,13 @@ export function navigate(to: string): void {
   notify();
 }
 
+/** Moves to another address without adding a step to Back, for example from any page to /login when signed out. */
+export function redirect(to: string): void {
+  if (window.location.pathname + window.location.search === to) return;
+  window.history.replaceState(null, "", to);
+  notify();
+}
+
 /** The query string of the current address, such as "?page=2". */
 export function useSearch(): string {
   return useSyncExternalStore(subscribe, () => window.location.search, () => "");

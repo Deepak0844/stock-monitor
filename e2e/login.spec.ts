@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { OWNER_EMAIL, OWNER_PASSWORD } from "./constants.js";
 import { expectSignedIn } from "./ui.js";
 
@@ -11,20 +11,31 @@ async function signIn(page: Page) {
   await expectSignedIn(page);
 }
 
+/** On a wide screen sign out is in the Account menu; on a phone it is under More in the tabs at the bottom. */
+async function openAccount(page: Page) {
+  const more = page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "More" });
+  if (await more.isVisible()) {
+    await more.click();
+    return page.getByRole("dialog", { name: "More" });
+  }
+  await page.getByRole("button", { name: "Account" }).click();
+  return page.getByRole("menu");
+}
+const signOutFrom = (panel: Locator) => panel.getByRole("button", { name: "Sign out" }).or(panel.getByRole("menuitem", { name: "Sign out" }));
+
 test("the owner signs in, sees the home page and signs out", async ({ page }) => {
   await signIn(page);
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
-  await page.getByRole("button", { name: "Account" }).click();
-  await expect(page.getByText(OWNER_EMAIL)).toBeVisible();
+  const panel = await openAccount(page);
+  await expect(panel.getByText(OWNER_EMAIL)).toBeVisible();
 
-  await page.getByRole("menuitem", { name: "Sign out" }).click();
+  await signOutFrom(panel).click();
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
 });
 
 test("after signing out the home page and the API are blocked", async ({ page }) => {
   await signIn(page);
-  await page.getByRole("button", { name: "Account" }).click();
-  await page.getByRole("menuitem", { name: "Sign out" }).click();
+  await signOutFrom(await openAccount(page)).click();
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
 
   await page.reload();
@@ -97,14 +108,16 @@ test("the sign-in and home pages have no detectable accessibility violations", a
   expect(signedIn.violations).toEqual([]);
 });
 
-test("nothing scrolls sideways and every control is at least 44px tall", async ({ page }) => {
+// The owner's sizes: controls are 44px tall on a phone and 32px on a wide screen (1024px and up).
+test("nothing scrolls sideways, and controls are 44px tall on a phone and 32px on a wide screen", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
+  const minimum = page.viewportSize()!.width >= 1024 ? 32 : 44;
   for (const control of await page.locator("input, button").all()) {
     const box = await control.boundingBox();
-    expect(box!.height).toBeGreaterThanOrEqual(44);
+    expect(box!.height).toBeGreaterThanOrEqual(minimum);
   }
 });
 
@@ -128,15 +141,17 @@ test("the pages also pass the accessibility scan in dark mode", async ({ page })
 
 test("the navigation links to every section, with no dead items", async ({ page }) => {
   await signIn(page);
-  const menu = page.getByRole("button", { name: "Menu" });
-  if (await menu.isVisible()) await menu.click(); // on a phone the navigation opens from the Menu button
   const nav = page.getByRole("navigation", { name: "Main" });
   await expect(nav.getByRole("link", { name: "Dashboard" })).toHaveAttribute("aria-current", "page");
   await expect(nav.getByRole("link", { name: "Proposals" })).toHaveAttribute("href", "/proposals");
   await expect(nav.getByText("History")).toHaveCount(0);
   await expect(nav.getByRole("link", { name: "Suppliers" })).toHaveAttribute("href", "/suppliers");
-  await expect(nav.getByRole("link", { name: "Products" })).toHaveAttribute("href", "/products");
-  await expect(nav.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings/shopify");
+  await expect(nav.getByRole("link", { name: "Links" })).toHaveAttribute("href", "/mappings");
+  // On a phone, Products and Settings sit under More in the tabs at the bottom.
+  const more = nav.getByRole("button", { name: "More" });
+  const rest = (await more.isVisible()) ? (await more.click(), page.getByRole("dialog", { name: "More" })) : nav;
+  await expect(rest.getByRole("link", { name: "Products" })).toHaveAttribute("href", "/products");
+  await expect(rest.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings/shopify");
 });
 
 test("Tab reaches the skip link first and it jumps to the main content", async ({ page, isMobile }) => {
@@ -155,5 +170,6 @@ test("Tab reaches the skip link first and it jumps to the main content", async (
 test("sign out is reachable on a phone without scrolling to the bottom", async ({ page, isMobile }) => {
   test.skip(!isMobile, "phone layout only");
   await signIn(page);
-  await expect(page.getByRole("button", { name: "Account" })).toBeInViewport();
+  await expect(page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "More" })).toBeInViewport();
+  await expect(signOutFrom(await openAccount(page))).toBeInViewport();
 });

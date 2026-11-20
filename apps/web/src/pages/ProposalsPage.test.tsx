@@ -22,6 +22,11 @@ const setup = async (open = [aProposal()], over: { writePermission?: typeof read
   return { api, user: userEvent.setup() };
 };
 const card = (name: RegExp | string) => screen.getByRole("listitem", { name });
+/** The supplier filter is a dropdown with search: open it and pick by name ("" picks All suppliers). */
+const pickSupplier = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
+  await user.click(await screen.findByRole("button", { name: /^Supplier:/ }));
+  await user.click(await screen.findByRole("option", { name: name ? new RegExp(name) : /All suppliers/ }));
+};
 
 describe("loading, empty and errors", () => {
   it("says it is loading, then says plainly there is nothing waiting", async () => {
@@ -143,11 +148,20 @@ describe("approving, editing and rejecting", () => {
     await act(async () => finish(aProposal({ state: "approved", approvedQuantity: 0 })));
   });
 
-  it("Reject needs no reason and removes it from the waiting list", async () => {
+  it("Reject needs no reason, removes it at once, and is sent after the five seconds for Undo", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     const reject = vi.fn().mockResolvedValue(aProposal({ state: "rejected" }));
-    const { user } = await setup([aProposal()], { proposals: { reject } });
+    // Like the real server: once rejected, it is no longer in the waiting list.
+    const openPage = vi
+      .fn()
+      .mockResolvedValueOnce({ items: [aProposal()], total: 1, page: 1, pageSize: 10, writePermission: ready })
+      .mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 10, writePermission: ready });
+    const { user } = await setup([aProposal()], { proposals: { reject, openPage } });
     await user.click(within(card(/Blue Tee/)).getByRole("button", { name: /Reject/ }));
-    expect(reject).toHaveBeenCalledWith("p1");
+    expect(screen.queryByRole("listitem", { name: /Blue Tee/ })).toBeNull();
+    expect(reject).not.toHaveBeenCalled();
+    await act(async () => void vi.advanceTimersByTime(5000));
+    expect(reject).toHaveBeenCalledWith("p1", { keepalive: false });
     await waitFor(() => expect(screen.queryByRole("listitem", { name: /Blue Tee/ })).toBeNull());
     expect(screen.getByText(/Nothing is waiting for you/)).toBeInTheDocument();
   });
@@ -206,8 +220,10 @@ describe("minor fixes", () => {
       decided = true;
       return aProposal({ state: "rejected" });
     });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     const { user } = await setup([], { proposals: { openPage, reject } });
     await user.click(await screen.findByRole("button", { name: /Reject/ }));
+    await act(async () => void vi.advanceTimersByTime(5000));
     await waitFor(() => expect(reject).toHaveBeenCalled());
     await waitFor(() => expect(screen.queryByRole("listitem")).toBeNull());
     expect(screen.queryByText(/Nothing is waiting for you/)).toBeNull();
@@ -351,13 +367,24 @@ describe("by supplier", () => {
   const bolt = aSupplier({ id: "s2", name: "Bolt" });
   const withSuppliers = (over: Parameters<typeof fakeApi>[0] = {}) =>
     fakeApi({ ...over, suppliers: { list: vi.fn().mockResolvedValue([acme, bolt]), ...over.suppliers }, proposals: { waitingBySupplier: vi.fn().mockResolvedValue({ s1: 2 }), ...over.proposals } });
-  const options = () => within(screen.getByRole("combobox", { name: "Supplier" })).getAllByRole("option").map((o) => o.textContent);
+  /** Opens the supplier dropdown, reads its choices as "Name (count)", and closes it again. */
+  const options = async () => {
+    const u = userEvent.setup();
+    await u.click(screen.getByRole("button", { name: /^Supplier:/ }));
+    const texts = within(screen.getByRole("listbox")).getAllByRole("option").map((o) => {
+      const name = o.firstElementChild?.textContent ?? "";
+      const count = o.lastElementChild?.textContent ?? "";
+      return count ? `${name} (${count})` : name;
+    });
+    await u.keyboard("{Escape}");
+    return texts;
+  };
 
   it("filters waiting suggestions by the chosen supplier, with counts", async () => {
     const api = withSuppliers();
     render(<ProposalsPage api={api} />);
-    await waitFor(() => expect(options()).toEqual(["All suppliers", "Acme (2)", "Bolt (0)"]));
-    await userEvent.setup().selectOptions(screen.getByRole("combobox", { name: "Supplier" }), "s2");
+    await waitFor(async () => expect(await options()).toEqual(["All suppliers", "Acme (2)", "Bolt (0)"]));
+    await pickSupplier(userEvent.setup(), "Bolt");
     await waitFor(() => expect(api.proposals.openPage).toHaveBeenLastCalledWith({ page: 1, pageSize: 10, supplierId: "s2" }));
     expect(await screen.findByText("Nothing is waiting for Bolt.")).toBeInTheDocument();
   });
@@ -366,9 +393,9 @@ describe("by supplier", () => {
     window.history.replaceState(null, "", "/proposals?page=3");
     const api = withSuppliers();
     render(<ProposalsPage api={api} />);
-    await waitFor(() => expect(options()).toHaveLength(3));
+    await waitFor(async () => expect(await options()).toHaveLength(3));
     expect(api.proposals.openPage).toHaveBeenCalledWith({ page: 3, pageSize: 10 });
-    await userEvent.setup().selectOptions(screen.getByRole("combobox", { name: "Supplier" }), "s1");
+    await pickSupplier(userEvent.setup(), "Acme");
     await waitFor(() => expect(api.proposals.openPage).toHaveBeenLastCalledWith({ page: 1, pageSize: 10, supplierId: "s1" }));
   });
 
@@ -376,11 +403,11 @@ describe("by supplier", () => {
     const api = withSuppliers();
     render(<ProposalsPage api={api} />);
     const user = userEvent.setup();
-    await waitFor(() => expect(options()).toHaveLength(3));
-    await user.selectOptions(screen.getByRole("combobox", { name: "Supplier" }), "s1");
+    await waitFor(async () => expect(await options()).toHaveLength(3));
+    await pickSupplier(user, "Acme");
     await user.click(screen.getByRole("button", { name: "History" }));
     await waitFor(() => expect(api.proposals.history).toHaveBeenLastCalledWith(1, 10, "s1"));
-    expect(options()).toEqual(["All suppliers", "Acme", "Bolt"]);
+    expect(await options()).toEqual(["All suppliers", "Acme", "Bolt"]);
     expect(await screen.findByText("No past suggestions for Acme yet.")).toBeInTheDocument();
   });
 
@@ -388,9 +415,9 @@ describe("by supplier", () => {
     window.history.replaceState(null, "", "/proposals?supplier=99999999-9999-4999-8999-999999999999");
     const api = withSuppliers();
     render(<ProposalsPage api={api} />);
-    await waitFor(() => expect(options()).toHaveLength(3));
+    await waitFor(async () => expect(await options()).toHaveLength(3));
     await waitFor(() => expect(api.proposals.openPage).toHaveBeenLastCalledWith({ page: 1, pageSize: 10 }));
-    expect(screen.getByRole("combobox", { name: "Supplier" })).toHaveValue("");
+    expect(screen.getByRole("button", { name: /^Supplier:/ })).toHaveTextContent("All suppliers");
   });
 
   it("shows the supplier last chosen even when an earlier answer comes back later", async () => {
@@ -401,9 +428,9 @@ describe("by supplier", () => {
     const api = withSuppliers({ proposals: { openPage } });
     render(<ProposalsPage api={api} />);
     const user = userEvent.setup();
-    await waitFor(() => expect(options()).toHaveLength(3));
-    await user.selectOptions(screen.getByRole("combobox", { name: "Supplier" }), "s1");
-    await user.selectOptions(screen.getByRole("combobox", { name: "Supplier" }), "s2");
+    await waitFor(async () => expect(await options()).toHaveLength(3));
+    await pickSupplier(user, "Acme");
+    await pickSupplier(user, "Bolt");
     await act(async () => replies.s2!({ items: [aProposal({ id: "b", productTitle: "Red Cap" })], total: 1, page: 1, pageSize: 10, writePermission: ready }));
     await act(async () => replies.s1!({ items: [aProposal({ id: "a", productTitle: "Blue Tee" })], total: 1, page: 1, pageSize: 10, writePermission: ready }));
     expect(screen.getByText("Red Cap")).toBeInTheDocument();
@@ -415,15 +442,104 @@ describe("by supplier", () => {
     const api = withSuppliers({ proposals: { waitingBySupplier, openPage: vi.fn().mockResolvedValue({ items: [aProposal()], total: 1, page: 1, pageSize: 10, writePermission: ready }) } });
     render(<ProposalsPage api={api} />);
     const user = userEvent.setup();
-    await waitFor(() => expect(options()).toContain("Acme (2)"));
+    await waitFor(async () => expect(await options()).toContain("Acme (2)"));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     await user.click(screen.getByRole("button", { name: "Reject Blue Tee, Large" }));
-    await waitFor(() => expect(options()).toContain("Acme (1)"));
+    await act(async () => void vi.advanceTimersByTime(5000));
+    await waitFor(async () => expect(await options()).toContain("Acme (1)"));
   });
 
   it("still lists everything when suppliers cannot be read", async () => {
     const api = withSuppliers({ suppliers: { list: vi.fn().mockRejectedValue(new Error("down")) }, proposals: { openPage: vi.fn().mockResolvedValue({ items: [aProposal()], total: 1, page: 1, pageSize: 10, writePermission: ready }) } });
     render(<ProposalsPage api={api} />);
     expect(await screen.findByText("Blue Tee")).toBeInTheDocument();
-    expect(options()).toEqual(["All suppliers"]);
+    expect(await options()).toEqual(["All suppliers"]);
+  });
+});
+
+describe("bulk approve and reject", () => {
+  const three = [
+    aProposal({ id: "a", productTitle: "Blue Tee" }),
+    aProposal({ id: "b", productTitle: "Red Cap" }),
+    aProposal({ id: "c", productTitle: "Green Sock" }),
+  ];
+
+  it("shows a bar with Approve and Reject for the ticked rows, and ticks the whole page from one box", async () => {
+    const { user } = await setup(three);
+    await user.click(screen.getByRole("checkbox", { name: "Select Blue Tee, Large" }));
+    expect(screen.getByRole("region", { name: "Selected proposals" })).toHaveTextContent("1 selected");
+    await user.click(screen.getByRole("checkbox", { name: "Select all on this page" }));
+    expect(screen.getByRole("button", { name: "Approve 3" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reject 3" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Clear selection" }));
+    expect(screen.queryByRole("region", { name: "Selected proposals" })).toBeNull();
+  });
+
+  it("asks once, then approves each with the number its row shows", async () => {
+    const { api, user } = await setup(three);
+    await user.click(within(card(/Red Cap/)).getByRole("button", { name: /Edit number/ }));
+    const box = within(card(/Red Cap/)).getByLabelText("New number");
+    await user.clear(box);
+    await user.type(box, "5");
+    await user.click(screen.getByRole("checkbox", { name: "Select Blue Tee, Large" }));
+    await user.click(screen.getByRole("checkbox", { name: "Select Red Cap, Large" }));
+    await user.click(screen.getByRole("button", { name: "Approve 2" }));
+    const dialog = screen.getByRole("dialog", { name: "Approve 2 changes?" });
+    expect(dialog).toHaveTextContent("Shopify will be updated for each.");
+    expect(api.proposals.approve).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole("button", { name: "Approve 2" }));
+    await waitFor(() => expect(api.proposals.approve).toHaveBeenCalledTimes(2));
+    expect(api.proposals.approve).toHaveBeenNthCalledWith(1, "a", undefined);
+    expect(api.proposals.approve).toHaveBeenNthCalledWith(2, "b", 5);
+  });
+
+  it("approves the rest when one was already decided, and names the one that failed with the reason", async () => {
+    const approve = vi.fn().mockImplementation(async (id: string) => {
+      if (id === "b") throw new ApiError("This suggestion can no longer be decided.", 409);
+      return aProposal({ id, state: "approved", approvedQuantity: 0 });
+    });
+    const { user } = await setup(three, { proposals: { approve } });
+    await user.click(screen.getByRole("checkbox", { name: "Select all on this page" }));
+    await user.click(screen.getByRole("button", { name: "Approve 3" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Approve 3" }));
+    await waitFor(() => expect(approve).toHaveBeenCalledTimes(3));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Red Cap: This suggestion can no longer be decided.");
+  });
+
+  it("Reject N hides them at once, offers Undo, and sends each after five seconds", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { api, user } = await setup(three);
+    await user.click(screen.getByRole("checkbox", { name: "Select Blue Tee, Large" }));
+    await user.click(screen.getByRole("checkbox", { name: "Select Green Sock, Large" }));
+    await user.click(screen.getByRole("button", { name: "Reject 2" }));
+    expect(screen.queryByRole("listitem", { name: /Blue Tee/ })).toBeNull();
+    expect(screen.getByRole("listitem", { name: /Red Cap/ })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("2 proposals rejected.");
+    await act(async () => void vi.advanceTimersByTime(5000));
+    await waitFor(() => expect(api.proposals.reject).toHaveBeenCalledTimes(2));
+    expect(api.proposals.reject).toHaveBeenCalledWith("a", { keepalive: false });
+  });
+
+  it("sorts the waiting list through the address", async () => {
+    const { api, user } = await setup(three);
+    await user.selectOptions(screen.getByLabelText("Sort"), "supplier");
+    await waitFor(() => expect(api.proposals.openPage).toHaveBeenLastCalledWith({ page: 1, pageSize: 10, sort: "supplier", dir: "asc" }));
+  });
+  it("sends every waiting reject at once when the owner leaves the page, not just the first", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { api, user } = await setup(three);
+    await user.click(screen.getByRole("checkbox", { name: "Select Blue Tee, Large" }));
+    await user.click(screen.getByRole("checkbox", { name: "Select Red Cap, Large" }));
+    await user.click(screen.getByRole("button", { name: "Reject 2" }));
+    act(() => void window.dispatchEvent(new Event("pagehide")));
+    expect(api.proposals.reject).toHaveBeenCalledTimes(2);
+    expect(api.proposals.reject).toHaveBeenCalledWith("b", { keepalive: true });
+  });
+  it("puts the bulk buttons in the select-all row, so ticking a row never pushes the list down", async () => {
+    const { user } = await setup(three);
+    await user.click(screen.getByRole("checkbox", { name: "Select Blue Tee, Large" }));
+    const bar = screen.getByRole("region", { name: "Selected proposals" });
+    expect(within(bar).getByRole("checkbox", { name: "Select all on this page" })).toBeInTheDocument();
+    expect(screen.getAllByRole("checkbox", { name: "Select all on this page" })).toHaveLength(1);
   });
 });

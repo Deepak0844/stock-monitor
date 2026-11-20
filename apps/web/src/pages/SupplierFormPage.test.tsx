@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { ApiError } from "../api.js";
 import { aSupplier, fakeApi } from "../test/fake-api.js";
@@ -53,7 +53,11 @@ describe("adding a supplier", () => {
     const { api, user } = setup();
     await fillNew(user, "  Acme  ", "  https://acme.example/ ");
     await user.click(screen.getByRole("button", { name: "Add supplier" }));
-    expect(api.suppliers.create).toHaveBeenCalledWith({ name: "Acme", websiteUrl: "https://acme.example/", loginUrl: null });
+    expect(api.suppliers.create).toHaveBeenCalledWith({
+      name: "Acme",
+      websiteUrl: "https://acme.example/",
+      loginUrl: null,
+    });
   });
 
   it("shows what is missing beside each field, focuses the first, and sends nothing", async () => {
@@ -63,7 +67,9 @@ describe("adding a supplier", () => {
     expect(screen.getByText(/Enter the supplier's website address/)).toBeInTheDocument();
     expect(screen.getByLabelText("Name")).toHaveFocus();
     expect(screen.getByLabelText("Name")).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByLabelText("Name")).toHaveAccessibleDescription(/Enter a name for the supplier\./);
+    expect(screen.getByLabelText("Name")).toHaveAccessibleDescription(
+      /Enter a name for the supplier\./,
+    );
     expect(api.suppliers.create).not.toHaveBeenCalled();
   });
 
@@ -78,14 +84,20 @@ describe("adding a supplier", () => {
     await fillNew(user);
     await user.click(screen.getByRole("button", { name: "Add supplier" }));
     const message = await screen.findByText(`Server says: ${code}.`);
-    expect(screen.getByLabelText(new RegExp(label))).toHaveAccessibleDescription(new RegExp(`Server says: ${code}\\.`));
+    expect(screen.getByLabelText(new RegExp(label))).toHaveAccessibleDescription(
+      new RegExp(`Server says: ${code}\\.`),
+    );
     expect(message).toBeInTheDocument();
     expect(screen.getByLabelText(new RegExp(label))).toHaveFocus();
     expect(window.location.pathname).toBe("/suppliers/new");
   });
 
   it("shows any other failure as a message above the buttons and keeps what was typed", async () => {
-    const create = vi.fn().mockRejectedValue(new ApiError("Can't reach the server. Check your connection and try again.", 0));
+    const create = vi
+      .fn()
+      .mockRejectedValue(
+        new ApiError("Can't reach the server. Check your connection and try again.", 0),
+      );
     const { user } = setup({ suppliers: { create } });
     await fillNew(user);
     await user.click(screen.getByRole("button", { name: "Add supplier" }));
@@ -95,7 +107,13 @@ describe("adding a supplier", () => {
 
   it("disables the button while saving so it cannot be sent twice", async () => {
     let finish: () => void = () => {};
-    const create = vi.fn().mockReturnValue(new Promise<ReturnType<typeof aSupplier>>((resolve) => (finish = () => resolve(aSupplier()))));
+    const create = vi
+      .fn()
+      .mockReturnValue(
+        new Promise<ReturnType<typeof aSupplier>>(
+          (resolve) => (finish = () => resolve(aSupplier())),
+        ),
+      );
     const { user } = setup({ suppliers: { create } });
     await fillNew(user);
     await user.click(screen.getByRole("button", { name: "Add supplier" }));
@@ -109,14 +127,19 @@ describe("editing a supplier", () => {
   const existing = aSupplier({ loginUrl: "https://shop.acme.example/login" });
   const setup = (over: Parameters<typeof fakeApi>[0] = {}) => {
     window.history.replaceState(null, "", `/suppliers/${existing.id}/edit`);
-    const api = fakeApi({ ...over, suppliers: { get: vi.fn().mockResolvedValue(existing), ...over.suppliers } });
+    const api = fakeApi({
+      ...over,
+      suppliers: { get: vi.fn().mockResolvedValue(existing), ...over.suppliers },
+    });
     render(<SupplierFormPage api={api} id={existing.id} />);
     return { api, user: userEvent.setup() };
   };
 
   it("loads the supplier into the form", async () => {
     const { api } = setup();
-    expect(await screen.findByRole("heading", { name: "Edit supplier" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Acme Supply" }),
+    ).toBeInTheDocument();
     expect(api.suppliers.get).toHaveBeenCalledWith(existing.id);
     expect(await screen.findByLabelText("Name")).toHaveValue("Acme Supply");
     expect(screen.getByLabelText("Website address")).toHaveValue("https://shop.acme.example/");
@@ -155,27 +178,47 @@ describe("editing a supplier", () => {
   });
 
   it("says plainly when the supplier does not exist, with a way back", async () => {
-    setup({ suppliers: { get: vi.fn().mockRejectedValue(new ApiError("That supplier does not exist.", 404, "supplier_not_found")) } });
+    setup({
+      suppliers: {
+        get: vi
+          .fn()
+          .mockRejectedValue(
+            new ApiError("That supplier does not exist.", 404, "supplier_not_found"),
+          ),
+      },
+    });
     expect(await screen.findByRole("alert")).toHaveTextContent("That supplier does not exist.");
-    expect(screen.getByRole("link", { name: "Back to suppliers" })).toHaveAttribute("href", "/suppliers");
+    expect(screen.getByRole("link", { name: "Back to suppliers" })).toHaveAttribute(
+      "href",
+      "/suppliers",
+    );
     expect(screen.queryByLabelText("Name")).toBeNull();
   });
 
   it("shows a duplicate name beside the name field", async () => {
-    const update = vi.fn().mockRejectedValue(new ApiError("You already have a supplier with that name.", 409, "name_taken"));
+    const update = vi
+      .fn()
+      .mockRejectedValue(
+        new ApiError("You already have a supplier with that name.", 409, "name_taken"),
+      );
     const { user } = setup({ suppliers: { update } });
     const name = await screen.findByLabelText("Name");
     await user.clear(name);
     await user.type(name, "Globex");
     await user.click(screen.getByRole("button", { name: "Save changes" }));
-    expect(await screen.findByText("You already have a supplier with that name.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("You already have a supplier with that name."),
+    ).toBeInTheDocument();
     expect(name).toHaveFocus();
   });
 });
 
 describe("permission to check automatically", () => {
   const setupEdit = (supplier = aSupplier(), over: Parameters<typeof fakeApi>[0] = {}) => {
-    const api = fakeApi({ ...over, suppliers: { get: vi.fn().mockResolvedValue(supplier), ...over.suppliers } });
+    const api = fakeApi({
+      ...over,
+      suppliers: { get: vi.fn().mockResolvedValue(supplier), ...over.suppliers },
+    });
     render(<SupplierFormPage api={api} id={supplier.id} />);
     return { api, user: userEvent.setup() };
   };
@@ -195,12 +238,21 @@ describe("permission to check automatically", () => {
   it("records the decision, a note and the pause between pages", async () => {
     const { api, user } = setupEdit();
     await user.selectOptions(await screen.findByLabelText("Permission"), "granted");
-    await user.type(screen.getByLabelText("Note about the permission (optional)"), "Emailed 10 Nov");
+    await user.type(
+      screen.getByLabelText("Note about the permission (optional)"),
+      "Emailed 10 Nov",
+    );
     const pause = screen.getByLabelText("Pause between pages (seconds)");
     await user.clear(pause);
     await user.type(pause, "15");
     await user.click(screen.getByRole("button", { name: "Save permission" }));
-    await waitFor(() => expect(api.suppliers.setPermission).toHaveBeenCalledWith(aSupplier().id, { status: "granted", note: "Emailed 10 Nov", pauseSeconds: 15 }));
+    await waitFor(() =>
+      expect(api.suppliers.setPermission).toHaveBeenCalledWith(aSupplier().id, {
+        status: "granted",
+        note: "Emailed 10 Nov",
+        pauseSeconds: 15,
+      }),
+    );
     expect(await screen.findByText("Permission saved.")).toBeInTheDocument();
   });
 
@@ -234,15 +286,27 @@ describe("default region", () => {
     await user.clear(field);
     await user.type(field, "Loughborough");
     await user.click(screen.getByRole("button", { name: "Save region" }));
-    await waitFor(() => expect(api.suppliers.setRegion).toHaveBeenCalledWith(aSupplier().id, "Loughborough"));
+    await waitFor(() =>
+      expect(api.suppliers.setRegion).toHaveBeenCalledWith(aSupplier().id, "Loughborough"),
+    );
     expect(await screen.findByText("Region saved.")).toBeInTheDocument();
     await user.clear(field);
     await user.click(screen.getByRole("button", { name: "Save region" }));
-    await waitFor(() => expect(api.suppliers.setRegion).toHaveBeenLastCalledWith(aSupplier().id, null));
+    await waitFor(() =>
+      expect(api.suppliers.setRegion).toHaveBeenLastCalledWith(aSupplier().id, null),
+    );
   });
 
   it("shows the server's plain message when it is refused", async () => {
-    const setRegion = vi.fn().mockRejectedValue(new ApiError("A region can be up to 200 characters of text, or empty to clear it.", 400, "invalid_region"));
+    const setRegion = vi
+      .fn()
+      .mockRejectedValue(
+        new ApiError(
+          "A region can be up to 200 characters of text, or empty to clear it.",
+          400,
+          "invalid_region",
+        ),
+      );
     const api = fakeApi({ suppliers: { get: vi.fn().mockResolvedValue(aSupplier()), setRegion } });
     render(<SupplierFormPage api={api} id={aSupplier().id} />);
     await userEvent.setup().click(await screen.findByRole("button", { name: "Save region" }));
@@ -254,14 +318,19 @@ describe("permission and automatic login on the same page", () => {
   it("enables the Automatic login switch after permission is saved as Allowed", async () => {
     const id = "11111111-1111-4111-8111-111111111111";
     window.history.replaceState(null, "", `/suppliers/${id}`);
-    const get = vi.fn().mockResolvedValueOnce(aSupplier()).mockResolvedValue(aSupplier({ automationPermission: "granted" }));
+    const get = vi
+      .fn()
+      .mockResolvedValueOnce(aSupplier())
+      .mockResolvedValue(aSupplier({ automationPermission: "granted" }));
     const api = fakeApi({ suppliers: { get } });
     render(<SupplierFormPage api={api} id={id} />);
     const user = userEvent.setup();
     expect(await screen.findByRole("switch", { name: "Automatic login" })).toBeDisabled();
     await user.selectOptions(screen.getByLabelText("Permission"), "granted");
     await user.click(screen.getByRole("button", { name: "Save permission" }));
-    await waitFor(() => expect(screen.getByRole("switch", { name: "Automatic login" })).toBeEnabled());
+    await waitFor(() =>
+      expect(screen.getByRole("switch", { name: "Automatic login" })).toBeEnabled(),
+    );
   });
 });
 
@@ -294,10 +363,18 @@ describe("name in Shopify", () => {
     render(<SupplierFormPage api={api} />);
     const user = userEvent.setup();
     await fillNew(user);
-    expect(screen.getByText("The supplier name your Shopify products use (the custom.supplier_name field). Leave it empty if it is the same as the name above.")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "The supplier name your Shopify products use (the custom.supplier_name field). Leave it empty if it is the same as the name above.",
+      ),
+    ).toBeInTheDocument();
     await user.type(screen.getByLabelText("Name in Shopify (optional)"), " Acme Trading ");
     await user.click(screen.getByRole("button", { name: /^(Add|Save)/ }));
-    await waitFor(() => expect(api.suppliers.create).toHaveBeenCalledWith(expect.objectContaining({ name: "Acme Supply", shopifyName: "Acme Trading" })));
+    await waitFor(() =>
+      expect(api.suppliers.create).toHaveBeenCalledWith(
+        expect.objectContaining({ name: "Acme Supply", shopifyName: "Acme Trading" }),
+      ),
+    );
   });
 
   it("shows a supplier's name in Shopify, and clears it", async () => {
@@ -310,11 +387,21 @@ describe("name in Shopify", () => {
     expect(field).toHaveValue("Acme Trading");
     await user.clear(field);
     await user.click(screen.getByRole("button", { name: "Save changes" }));
-    await waitFor(() => expect(api.suppliers.update).toHaveBeenCalledWith(existing.id, { shopifyName: null }));
+    await waitFor(() =>
+      expect(api.suppliers.update).toHaveBeenCalledWith(existing.id, { shopifyName: null }),
+    );
   });
 
   it("puts a clash with another supplier under the field and focuses it", async () => {
-    const create = vi.fn().mockRejectedValue(new ApiError("Another supplier already uses that name for Shopify matching.", 409, "shopify_name_taken"));
+    const create = vi
+      .fn()
+      .mockRejectedValue(
+        new ApiError(
+          "Another supplier already uses that name for Shopify matching.",
+          409,
+          "shopify_name_taken",
+        ),
+      );
     const api = fakeApi({ suppliers: { create } });
     render(<SupplierFormPage api={api} />);
     const user = userEvent.setup();
@@ -322,6 +409,60 @@ describe("name in Shopify", () => {
     await user.type(screen.getByLabelText("Name in Shopify (optional)"), "Acme");
     await user.click(screen.getByRole("button", { name: /^(Add|Save)/ }));
     await waitFor(() => expect(screen.getByLabelText("Name in Shopify (optional)")).toHaveFocus());
-    expect(screen.getByLabelText("Name in Shopify (optional)")).toHaveAccessibleDescription(/Another supplier already uses that name/);
+    expect(screen.getByLabelText("Name in Shopify (optional)")).toHaveAccessibleDescription(
+      /Another supplier already uses that name/,
+    );
+  });
+});
+
+describe("the edit page layout", () => {
+  const show = (supplier = aSupplier({ name: "Acme Supply", sessionStatus: "connected" })) => {
+    render(
+      <SupplierFormPage
+        api={fakeApi({ suppliers: { get: vi.fn().mockResolvedValue(supplier) } })}
+        id={supplier.id}
+      />,
+    );
+    return supplier;
+  };
+
+  it("puts the supplier's name, its status and its website at the top, with a way to its stock rules", async () => {
+    const s = show();
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Acme Supply" }),
+    ).toBeInTheDocument();
+    const facts = screen.getByRole("list", { name: "About this supplier" });
+    expect(within(facts).getByText("Connected")).toBeInTheDocument();
+    expect(within(facts).getByText("shop.acme.example")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Stock rules" })).toHaveAttribute(
+      "href",
+      `/suppliers/${s.id}/rules`,
+    );
+  });
+
+  it("lists its parts with where each stands, and each part is a place on the page", async () => {
+    show(
+      aSupplier({
+        automationPermission: "granted",
+        defaultRegion: null,
+        scheduleIntervalMinutes: null,
+        needsLogin: true,
+        autoLogin: false,
+      }),
+    );
+    const index = await screen.findByRole("navigation", { name: "Parts of this supplier" });
+    const parts = within(index)
+      .getAllByRole("link")
+      .map((a) => [a.textContent, a.getAttribute("href")]);
+    expect(parts).toEqual([
+      ["Details", "#part-details"],
+      ["PermissionAllowed", "#part-permission"],
+      ["RegionNone", "#part-region"],
+      ["Automatic checksOff", "#part-checks"],
+      ["LoginNeeded", "#part-login"],
+      ["Automatic loginOff", "#part-auto-login"],
+    ]);
+    for (const id of ["details", "permission", "region", "checks", "login", "auto-login"])
+      expect(document.getElementById(`part-${id}`)).not.toBeNull();
   });
 });

@@ -126,7 +126,7 @@ test("an address for a supplier that does not exist says so, with a way back", a
   await signIn(page);
   await page.goto("/suppliers/00000000-0000-4000-8000-000000000000/edit");
   await expect(page.getByRole("alert")).toContainText("That supplier does not exist.");
-  await page.getByRole("link", { name: "Back to suppliers" }).click();
+  await page.getByRole("link", { name: "Back to suppliers", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Suppliers" })).toBeVisible();
 });
 
@@ -218,7 +218,7 @@ test("the owner connects a supplier: the login window appears, they press I'm lo
   await done.click();
   await expect(page.getByText("Acme Supply is connected.")).toBeVisible();
   await shot(page, "connect-done", info.project.name);
-  await page.getByRole("link", { name: "Back to suppliers" }).click();
+  await page.getByRole("link", { name: "Back to suppliers", exact: true }).click();
   await expect(page.getByRole("row", { name: /Acme Supply/ })).toContainText("Connected");
   expect(problems).toEqual([]); // the viewer and its WebSocket fit the page's security policy
 });
@@ -422,7 +422,7 @@ test("a supplier that is not connected offers Connect, and a connected one offer
   await expect(liveCanvas(page)).toBeVisible({ timeout: 20_000 });
   await page.getByRole("button", { name: "I'm logged in" }).click();
   await expect(page.getByText("Acme Supply is connected.")).toBeVisible();
-  await page.getByRole("link", { name: "Back to suppliers" }).click();
+  await page.getByRole("link", { name: "Back to suppliers", exact: true }).click();
   await expect(page.getByRole("button", { name: "Check connection Acme Supply" })).toBeVisible();
 });
 

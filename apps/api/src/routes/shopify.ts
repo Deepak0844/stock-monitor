@@ -68,6 +68,8 @@ const variantsQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
   warningsOnly: z.enum(["true", "false"]).optional(),
+  sort: z.enum(["product"]).optional(),
+  dir: z.enum(["asc", "desc"]).optional(),
 });
 
 function parseDetails(body: unknown): { shop: string; credentials: Credentials } {
@@ -233,8 +235,8 @@ export function registerShopifyRoutes(app: App, deps: ShopifyRoutesDeps, audit: 
   app.get("/api/shopify/variants", async (request) => {
     const parsed = variantsQuery.safeParse(request.query);
     if (!parsed.success) throw new AppError(400, "invalid_input", "Check the search and page values and try again.");
-    const { search, page, pageSize, warningsOnly } = parsed.data;
-    const result = await repo.listVariants({ search: search || undefined, page, pageSize, warningsOnly: warningsOnly === "true" });
+    const { search, page, pageSize, warningsOnly, dir } = parsed.data;
+    const result = await repo.listVariants({ search: search || undefined, page, pageSize, warningsOnly: warningsOnly === "true", dir });
     return {
       total: result.total,
       page: result.page,

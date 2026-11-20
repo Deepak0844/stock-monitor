@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { StrictMode } from "react";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api.js";
@@ -12,12 +12,20 @@ const TOKEN = "e".repeat(64);
 const supplier = aSupplier();
 const login = aLoginSession({ supplierId: supplier.id });
 
-type WindowProps = { loginSessionId: string; token: string; expiresAt: string | null; onConnected: () => void; onFailed: (r: "refused" | "lost") => void; onExpired: () => void };
+type WindowProps = {
+  loginSessionId: string;
+  token: string;
+  expiresAt: string | null;
+  onConnected: () => void;
+  onFailed: (r: "refused" | "lost") => void;
+  onExpired: () => void;
+  bar?: React.ReactNode;
+};
 const windowProps = vi.fn<(p: WindowProps) => void>();
 /** A stand-in for the live window that lets a test say what happened to it. */
 const StubWindow = (props: WindowProps) => {
   windowProps(props);
-  return <div data-testid="live-window" />;
+  return <div data-testid="live-window">{props.bar}</div>;
 };
 const last = () => windowProps.mock.lastCall![0];
 
@@ -31,7 +39,10 @@ function setup(over: Parameters<typeof fakeApi>[0] = {}, opts: { strict?: boolea
   const api = fakeApi({
     ...over,
     suppliers: { get: vi.fn().mockResolvedValue(supplier), ...over.suppliers },
-    loginSessions: { start: vi.fn().mockResolvedValue({ loginSession: login, token: TOKEN }), ...over.loginSessions },
+    loginSessions: {
+      start: vi.fn().mockResolvedValue({ loginSession: login, token: TOKEN }),
+      ...over.loginSessions,
+    },
   });
   const ui = <ConnectSupplierPage api={api} supplierId={supplier.id} liveWindow={StubWindow} />;
   const view = render(opts.strict ? <StrictMode>{ui}</StrictMode> : ui);
@@ -45,17 +56,29 @@ const connect = async () => {
 describe("starting", () => {
   it("names the supplier, says what to do, and opens a login window once, even when React runs effects twice", async () => {
     const { api } = setup({}, { strict: true });
-    expect(await screen.findByRole("heading", { level: 1, name: "Connect Acme Supply" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Connect Acme Supply" }),
+    ).toBeInTheDocument();
     await screen.findByTestId("live-window");
     expect(api.loginSessions.start).toHaveBeenCalledTimes(1);
     expect(api.loginSessions.start).toHaveBeenCalledWith(supplier.id);
-    expect(screen.getByText(/Log in as you normally would\. Solve any puzzle or code\. Then press I'm logged in\./)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Log in as you normally would\. Solve any puzzle or code\. Then press I'm logged in\./,
+      ),
+    ).toBeInTheDocument();
     expect(document.title).toBe("Connect supplier · Stock Monitor");
   });
 
   it("calls it Reconnect when the supplier has been connected before", async () => {
-    setup({ suppliers: { get: vi.fn().mockResolvedValue(aSupplier({ sessionStatus: "needs_reconnect" })) } });
-    expect(await screen.findByRole("heading", { level: 1, name: "Reconnect Acme Supply" })).toBeInTheDocument();
+    setup({
+      suppliers: {
+        get: vi.fn().mockResolvedValue(aSupplier({ sessionStatus: "needs_reconnect" })),
+      },
+    });
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Reconnect Acme Supply" }),
+    ).toBeInTheDocument();
   });
 
   it("says plainly that a computer works best", async () => {
@@ -67,7 +90,11 @@ describe("starting", () => {
     setup();
     expect(screen.getByRole("status")).toHaveTextContent("Opening the login window…");
     await screen.findByTestId("live-window");
-    expect(last()).toMatchObject({ loginSessionId: login.id, token: TOKEN, expiresAt: login.expiresAt });
+    expect(last()).toMatchObject({
+      loginSessionId: login.id,
+      token: TOKEN,
+      expiresAt: login.expiresAt,
+    });
   });
 
   it("never shows the token on the page", async () => {
@@ -77,16 +104,38 @@ describe("starting", () => {
   });
 
   it("says plainly when the supplier does not exist, and starts nothing", async () => {
-    const { api } = setup({ suppliers: { get: vi.fn().mockRejectedValue(new ApiError("That supplier does not exist.", 404, "supplier_not_found")) } });
+    const { api } = setup({
+      suppliers: {
+        get: vi
+          .fn()
+          .mockRejectedValue(
+            new ApiError("That supplier does not exist.", 404, "supplier_not_found"),
+          ),
+      },
+    });
     expect(await screen.findByRole("alert")).toHaveTextContent("That supplier does not exist.");
-    expect(screen.getByRole("link", { name: "Back to suppliers" })).toHaveAttribute("href", "/suppliers");
+    expect(screen.getByRole("link", { name: "Back to suppliers" })).toHaveAttribute(
+      "href",
+      "/suppliers",
+    );
     expect(api.loginSessions.start).not.toHaveBeenCalled();
   });
 
   it("shows the server's plain message when a login cannot start, with a way to try again or go back", async () => {
-    const start = vi.fn().mockRejectedValueOnce(new ApiError("A login window is already open. Finish or cancel it first.", 409, "login_open")).mockResolvedValue({ loginSession: login, token: TOKEN });
+    const start = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new ApiError(
+          "A login window is already open. Finish or cancel it first.",
+          409,
+          "login_open",
+        ),
+      )
+      .mockResolvedValue({ loginSession: login, token: TOKEN });
     const { user } = setup({ loginSessions: { start } });
-    expect(await screen.findByRole("alert")).toHaveTextContent("A login window is already open. Finish or cancel it first.");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "A login window is already open. Finish or cancel it first.",
+    );
     expect(screen.queryByTestId("live-window")).toBeNull();
     expect(screen.getByRole("link", { name: "Back to suppliers" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Try again" }));
@@ -109,13 +158,20 @@ describe("finishing", () => {
     await user.click(screen.getByRole("button", { name: "I'm logged in" }));
     expect(api.loginSessions.finish).toHaveBeenCalledWith(login.id);
     expect(await screen.findByText("Acme Supply is connected.")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Back to suppliers" })).toHaveAttribute("href", "/suppliers");
+    expect(screen.getByRole("link", { name: "Back to suppliers" })).toHaveAttribute(
+      "href",
+      "/suppliers",
+    );
     expect(screen.queryByTestId("live-window")).toBeNull();
   });
 
   it("shows Saving… and cannot be pressed twice while it saves", async () => {
     let done: () => void = () => {};
-    const finish = vi.fn().mockReturnValue(new Promise((resolve) => (done = () => resolve({ loginSession: login, session: null }))));
+    const finish = vi
+      .fn()
+      .mockReturnValue(
+        new Promise((resolve) => (done = () => resolve({ loginSession: login, session: null }))),
+      );
     const { user } = setup({ loginSessions: { finish } });
     await connect();
     await user.click(screen.getByRole("button", { name: "I'm logged in" }));
@@ -128,7 +184,11 @@ describe("finishing", () => {
 
   it("does not mistake the window closing, which saving causes, for a problem", async () => {
     let done: () => void = () => {};
-    const finish = vi.fn().mockReturnValue(new Promise((resolve) => (done = () => resolve({ loginSession: login, session: null }))));
+    const finish = vi
+      .fn()
+      .mockReturnValue(
+        new Promise((resolve) => (done = () => resolve({ loginSession: login, session: null }))),
+      );
     const { user } = setup({ loginSessions: { finish } });
     await connect();
     await user.click(screen.getByRole("button", { name: "I'm logged in" }));
@@ -140,7 +200,15 @@ describe("finishing", () => {
   });
 
   it("shows the server's plain message when saving fails, and Try again opens a fresh login", async () => {
-    const finish = vi.fn().mockRejectedValue(new ApiError("No login was found in the window. Log in to the supplier, then press I'm logged in. Start the login again to try again.", 422, "nothing_to_save"));
+    const finish = vi
+      .fn()
+      .mockRejectedValue(
+        new ApiError(
+          "No login was found in the window. Log in to the supplier, then press I'm logged in. Start the login again to try again.",
+          422,
+          "nothing_to_save",
+        ),
+      );
     const { api, user } = setup({ loginSessions: { finish } });
     await connect();
     await user.click(screen.getByRole("button", { name: "I'm logged in" }));
@@ -162,7 +230,11 @@ describe("cancelling", () => {
   });
 
   it("goes back even when the cancel cannot be sent", async () => {
-    const cancel = vi.fn().mockRejectedValue(new ApiError("Can't reach the server. Check your connection and try again.", 0));
+    const cancel = vi
+      .fn()
+      .mockRejectedValue(
+        new ApiError("Can't reach the server. Check your connection and try again.", 0),
+      );
     const { user } = setup({ loginSessions: { cancel } });
     await connect();
     await user.click(screen.getByRole("button", { name: "Cancel" }));
@@ -193,13 +265,21 @@ describe("when the window has a problem", () => {
     setup();
     await screen.findByTestId("live-window");
     act(() => last().onExpired());
-    expect(await screen.findByRole("alert")).toHaveTextContent("The login window closed because time ran out. Start again.");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The login window closed because time ran out. Start again.",
+    );
   });
 
   it("closes the old login before opening a new one, so the new one is not refused as a second window", async () => {
     const calls: string[] = [];
-    const start = vi.fn().mockImplementation(async () => (calls.push("start"), { loginSession: login, token: TOKEN }));
-    const cancel = vi.fn().mockImplementation(async () => (calls.push("cancel"), aLoginSession({ status: "cancelled" })));
+    const start = vi
+      .fn()
+      .mockImplementation(async () => (calls.push("start"), { loginSession: login, token: TOKEN }));
+    const cancel = vi
+      .fn()
+      .mockImplementation(
+        async () => (calls.push("cancel"), aLoginSession({ status: "cancelled" })),
+      );
     const { user } = setup({ loginSessions: { start, cancel } });
     await screen.findByTestId("live-window");
     act(() => last().onFailed("refused"));
@@ -235,9 +315,35 @@ describe("leaving the page", () => {
   });
 
   it("does nothing on leaving when no login was ever opened", async () => {
-    const { api, unmount } = setup({ loginSessions: { start: vi.fn().mockRejectedValue(new ApiError("x", 409, "login_open")) } });
+    const { api, unmount } = setup({
+      loginSessions: { start: vi.fn().mockRejectedValue(new ApiError("x", 409, "login_open")) },
+    });
     await screen.findByRole("alert");
     unmount();
     expect(api.loginSessions.cancelOnLeave).not.toHaveBeenCalled();
+  });
+});
+
+describe("around the window", () => {
+  it("lists the three steps beside the window", async () => {
+    setup();
+    await screen.findByTestId("live-window");
+    const steps = screen.getByRole("list", { name: "Steps" });
+    expect(
+      within(steps)
+        .getAllByRole("listitem")
+        .map((li) => li.querySelector("b")?.textContent),
+    ).toEqual(["Log in as you normally would", "Solve any puzzle or code", "Press I'm logged in"]);
+  });
+
+  it("shows the supplier's address over the window, and Live once the window is working", async () => {
+    setup();
+    await screen.findByTestId("live-window");
+    const bar = screen.getByRole("group", { name: "Supplier website" });
+    expect(bar).toHaveTextContent("Connecting…");
+    expect(bar).toHaveTextContent(new URL(supplier.loginUrl ?? supplier.websiteUrl).host);
+    await connect();
+    expect(bar).toHaveTextContent("Live");
+    expect(bar).not.toHaveTextContent("Connecting…");
   });
 });

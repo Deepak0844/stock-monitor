@@ -9,9 +9,8 @@ import { decideLinkStatus, isSupplierWide, whyNotChecked, type CheckGateReason, 
 import { unsealSessionState } from "@stock-monitor/supplier-session";
 import { EMPTY_STATE, loginFields } from "./supplier-visit.js";
 import { ensureLoggedIn, loginCheckUrl, type AutoLoginDeps } from "./auto-login.js";
-import type { StopReason } from "./extraction-check.js";
 import { saveRefreshedSession } from "./session-refresh.js";
-import { raiseNeedsAttention } from "./supplier-verify.js";
+import { raiseNeedsAttention, type StopReason } from "./needs-attention.js";
 
 export type LinkCheckDeps = {
   /** Reads emailed login codes for automatic login. */

@@ -64,7 +64,9 @@ export type VariantItem = {
 export type VariantPage = { items: VariantItem[]; total: number; page: number; pageSize: number };
 /** One page of a list, with how many there are in all. */
 export type Page<T> = { items: T[]; total: number; page: number; pageSize: number };
-export type VariantQuery = { page: number; pageSize: number; search?: string; warningsOnly?: boolean };
+/** A list's sort: a column key the server knows, and which way. */
+export type Sort = { sort?: string; dir?: "asc" | "desc" };
+export type VariantQuery = { page: number; pageSize: number; search?: string; warningsOnly?: boolean } & Sort;
 
 export type ShopifyApi = {
   getConnection(): Promise<ShopifyConnection | null>;
@@ -171,7 +173,11 @@ export type ScheduleRow = {
   nextCheckAt: string | null;
   run: CheckRun | null;
   lastRun: CheckRun | null;
+  /** How the newest 24 ended runs went. */
+  recent: RecentChecks;
 };
+/** How a supplier's recent automatic checks went: counts, and the unbroken run of failures at the newest end, if any. */
+export type RecentChecks = { total: number; finished: number; failed: number; stopped: number; streak: { count: number; since: string } | null };
 export type ScheduleApi = {
   overview(): Promise<ScheduleRow[]>;
   /** Turns automatic checks on (an interval from the list) or off (null), with the quiet-hours window or null for all day, and keep-alive (null = off). */
@@ -377,13 +383,14 @@ export type ImportResult = { created: number; updated: number; unchanged: number
 export type MappingsApi = {
   list(filter?: MappingFilter): Promise<Mapping[]>;
   /** One page, filtered on the server. */
-  page(query: MappingFilter & { page: number; pageSize: number }): Promise<Page<Mapping>>;
+  page(query: MappingFilter & { page: number; pageSize: number } & Sort): Promise<Page<Mapping>>;
   get(id: string): Promise<Mapping>;
   /** Only when the last link and stock checks finished, to follow a check cheaply. */
   status(id: string): Promise<{ linkCheckedAt: string | null; stockCheckedAt: string | null }>;
   create(input: MappingInput): Promise<Mapping>;
   update(id: string, patch: { url?: string; note?: string | null; region?: string | null; supplierOption?: string | null; enabled?: boolean }): Promise<Mapping>;
-  remove(id: string): Promise<void>;
+  /** `keepalive` sends it even while the page is closing (a delayed delete with Undo). */
+  remove(id: string, opts?: { keepalive?: boolean }): Promise<void>;
   /** Asks for a check of one link. The answer arrives later, as the link's status. */
   checkLink(id: string): Promise<void>;
   /** Asks for a check of all of a supplier's links. Returns how many are queued. */
@@ -470,14 +477,15 @@ export type ProposalsApi = {
   /** Suggestions waiting for the owner, and ones approved and waiting for Shopify. */
   open(): Promise<{ proposals: Proposal[]; writePermission: WritePermission }>;
   /** One page of the suggestions waiting for the owner, and ones approved and waiting for Shopify. */
-  openPage(query: { page: number; pageSize: number; supplierId?: string }): Promise<Page<Proposal> & { writePermission: WritePermission }>;
+  openPage(query: { page: number; pageSize: number; supplierId?: string } & Sort): Promise<Page<Proposal> & { writePermission: WritePermission }>;
   history(page: number, pageSize?: number, supplierId?: string): Promise<{ proposals: Proposal[]; hasMore: boolean; total: number; page: number; pageSize: number }>;
   count(): Promise<number>;
   /** How many suggestions wait for the owner, per supplier id. Suppliers with none are left out. */
   waitingBySupplier(): Promise<Record<string, number>>;
   /** Approves one suggestion. Pass a number to change it first. */
   approve(id: string, quantity?: number): Promise<Proposal>;
-  reject(id: string): Promise<Proposal>;
+  /** `keepalive` sends it even while the page is closing (a delayed reject with Undo). */
+  reject(id: string, opts?: { keepalive?: boolean }): Promise<Proposal>;
   /** After a conflict, a failure or an expiry: read Shopify's numbers again. A new suggestion appears if one still applies. */
   refresh(id: string): Promise<void>;
   settings(): Promise<{ settings: ProposalSettings; writePermission: WritePermission }>;
@@ -516,11 +524,13 @@ export class ApiError extends Error {
 const NETWORK_MESSAGE = "Can't reach the server. Check your connection and try again.";
 const GENERIC_MESSAGE = "Something went wrong. Please try again.";
 
-async function send(path: string, init: { method: string; json?: unknown; csv?: string }): Promise<Response> {
+async function send(path: string, init: { method: string; json?: unknown; csv?: string; keepalive?: boolean }): Promise<Response> {
   try {
     return await fetch(path, {
       method: init.method,
       credentials: "same-origin",
+      // A reject or delete sent while the page closes must still arrive.
+      ...(init.keepalive ? { keepalive: true } : {}),
       // Only declare a JSON body when there is one, or the server rejects the empty body.
       ...(init.csv !== undefined
         ? { headers: { "content-type": "text/csv" }, body: init.csv }
@@ -542,7 +552,14 @@ async function failure(res: Response): Promise<ApiError> {
   }
 }
 
-async function request<T>(path: string, init: { method: string; json?: unknown; csv?: string }): Promise<T> {
+/** Adds a sort to a list's address, when there is one. */
+function addSort(params: URLSearchParams, { sort, dir }: Sort): void {
+  if (!sort) return;
+  params.set("sort", sort);
+  params.set("dir", dir ?? "asc");
+}
+
+async function request<T>(path: string, init: { method: string; json?: unknown; csv?: string; keepalive?: boolean }): Promise<T> {
   const res = await send(path, init);
   if (!res.ok) throw await failure(res);
   try {
@@ -580,6 +597,7 @@ const shopify: ShopifyApi = {
     const params = new URLSearchParams({ page: String(query.page), pageSize: String(query.pageSize) });
     if (query.search) params.set("search", query.search);
     if (query.warningsOnly) params.set("warningsOnly", "true");
+    addSort(params, query);
     return request(`/api/shopify/variants?${params}`, { method: "GET" });
   },
   async getSync() {
@@ -703,6 +721,7 @@ const mappings: MappingsApi = {
     if (filter.search) params.set("search", filter.search);
     params.set("page", String(page));
     params.set("pageSize", String(pageSize));
+    addSort(params, filter);
     const body = await request<{ mappings: Mapping[]; total: number; page: number; pageSize: number }>(`/api/mappings?${params}`, { method: "GET" });
     return { items: body.mappings, total: body.total, page: body.page, pageSize: body.pageSize };
   },
@@ -716,8 +735,8 @@ const mappings: MappingsApi = {
   async update(id, patch) {
     return (await request<{ mapping: Mapping }>(`/api/mappings/${enc(id)}`, { method: "PATCH", json: patch })).mapping;
   },
-  async remove(id) {
-    await request(`/api/mappings/${enc(id)}`, { method: "DELETE" });
+  async remove(id, opts) {
+    await request(`/api/mappings/${enc(id)}`, { method: "DELETE", keepalive: opts?.keepalive });
   },
   async checkLink(id) {
     await request(`/api/mappings/${enc(id)}/check-link`, { method: "POST" });
@@ -747,8 +766,9 @@ const notifications: NotificationsApi = {
 
 const proposals: ProposalsApi = {
   open: () => request("/api/proposals?tab=open", { method: "GET" }),
-  async openPage({ page, pageSize, supplierId }) {
+  async openPage({ page, pageSize, supplierId, sort, dir }) {
     const params = new URLSearchParams({ tab: "open", page: String(page), pageSize: String(pageSize) });
+    addSort(params, { sort, dir });
     if (supplierId) params.set("supplierId", supplierId);
     const body = await request<{ proposals: Proposal[]; total: number; page: number; pageSize: number; writePermission: WritePermission }>(
       `/api/proposals?${params}`,
@@ -771,8 +791,8 @@ const proposals: ProposalsApi = {
   async approve(id, quantity) {
     return (await request<{ proposal: Proposal }>(`/api/proposals/${enc(id)}/approve`, { method: "POST", json: quantity === undefined ? {} : { quantity } })).proposal;
   },
-  async reject(id) {
-    return (await request<{ proposal: Proposal }>(`/api/proposals/${enc(id)}/reject`, { method: "POST", json: {} })).proposal;
+  async reject(id, opts) {
+    return (await request<{ proposal: Proposal }>(`/api/proposals/${enc(id)}/reject`, { method: "POST", json: {}, keepalive: opts?.keepalive })).proposal;
   },
   async refresh(id) {
     await request(`/api/proposals/${enc(id)}/refresh`, { method: "POST", json: {} });

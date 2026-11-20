@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Direction D: other screens</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #e6e6e2; color: #1a1a1a; font: 15px/1.5 system-ui, sans-serif; padding: 28px 24px 80px; }
+  .page { max-width: 1240px; margin: 0 auto; }
+  .intro h1 { font-size: 22px; font-weight: 650; }
+  .intro p { color: #555; margin-top: 4px; max-width: 860px; }
+  .vbar { position: sticky; top: 0; z-index: 20; background: rgba(230,230,226,.95); backdrop-filter: blur(6px); display: flex; gap: 22px; flex-wrap: wrap; padding: 12px 0; margin: 16px 0 6px; border-bottom: 1px solid #c9c9c4; }
+  .grp { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+  .grp > span { font: 600 12px system-ui; text-transform: uppercase; letter-spacing: .06em; color: #555; margin-right: 6px; }
+  .grp button { font: 600 13px system-ui; padding: 6px 11px; border-radius: 6px; border: 1px solid #b9b9b3; background: #fff; cursor: pointer; color: #1a1a1a; }
+  .grp button[aria-pressed="true"] { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+  .mode { font: 600 12px system-ui; text-transform: uppercase; letter-spacing: .08em; color: #555; margin: 20px 0 8px; }
+  .frame { width: fit-content; max-width: 100%; overflow-x: auto; border-radius: 6px; box-shadow: 0 1px 0 rgba(0,0,0,.08), 0 12px 40px -12px rgba(0,0,0,.3); }
+  [hidden] { display: none !important; }
+
+  /* ===== D tokens (desktop: 14px text, 32px controls) ===== */
+  .s { --bg:#fbfbf8; --side:#f4f3ee; --ink:#16181d; --ink2:#3c3f46; --muted:#6b6e76; --faint:#9a9ca2; --rule:#e2e1da; --rule2:#ebeae4; --strong:#16181d;
+       --good:#15803d; --bad:#c2410c; --neutral:#b9b8b0; --btn:#16181d; --btn-fg:#fff; --danger-fg:#fff; --inb:#8f9097; --hover:#f0efe9; --sel:#fdf1e7;
+       --tip:#16181d; --tip-fg:#fbfbf8; --focus:#1d4ed8; --shadow:0 10px 30px -10px rgba(22,24,29,.28); --win:#e9e8e2; --rowpad: 11px; }
+  .s.dk { --bg:#121311; --side:#0c0d0b; --ink:#ecebe4; --ink2:#c4c3bc; --muted:#9c9d97; --faint:#6c6d68; --rule:#2a2b27; --rule2:#1e1f1c; --strong:#ecebe4;
+       --good:#4ade80; --bad:#fb923c; --neutral:#4a4b46; --btn:#ecebe4; --btn-fg:#121311; --danger-fg:#1a0d05; --inb:#64655f; --hover:#1c1d1a; --sel:#2a1d12;
+       --tip:#ecebe4; --tip-fg:#121311; --focus:#93c5fd; --shadow:0 10px 30px -10px rgba(0,0,0,.7); --win:#1b1c19; }
+  .s.compact { --rowpad: 5px; }
+  .s { width: 1200px; height: 780px; display: grid; grid-template-columns: 224px 1fr; overflow: hidden; background: var(--bg); color: var(--ink); font-family: "IBM Plex Sans", sans-serif; font-size: 14px; line-height: 1.45; }
+  .s.full { grid-template-columns: 1fr; }
+  .s .mono { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; }
+  .s .muted { color: var(--muted); }
+  .s .good { color: var(--good); } .s .bad { color: var(--bad); }
+
+  /* sidebar with check status */
+  .side { background: var(--side); border-right: 1px solid var(--rule); display: flex; flex-direction: column; padding: 18px 0 0; }
+  .brand { display: flex; align-items: center; gap: 9px; padding: 0 18px 18px; font-weight: 700; font-size: 15px; letter-spacing: -.01em; }
+  .fav { width: 14px; height: 14px; background: var(--ink); clip-path: polygon(0 100%, 0 40%, 33% 40%, 33% 0, 66% 0, 66% 60%, 100% 60%, 100% 100%); flex: none; display: inline-block; }
+  .side nav a { display: flex; justify-content: space-between; align-items: center; padding: 0 18px; height: 36px; color: var(--ink2); text-decoration: none; border-left: 2px solid transparent; cursor: pointer; }
+  .side nav a:hover { color: var(--ink); background: var(--hover); }
+  .side nav a.on { color: var(--ink); font-weight: 600; border-left-color: var(--ink); background: var(--bg); }
+  .side nav a span { font: 500 12px "IBM Plex Mono", monospace; color: var(--bad); }
+  .chk { margin-top: auto; border-top: 1px solid var(--rule); padding: 12px 18px; display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; }
+  .chk .h { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 600; margin-bottom: 2px; }
+  .chk a { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; width: fit-content; }
+  .who { border-top: 1px solid var(--rule); padding: 10px 18px 12px; color: var(--muted); font-size: 12.5px; display: flex; justify-content: space-between; }
+
+  .st { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+  .st::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--neutral); flex: none; }
+  .st.ok::before { background: var(--good); } .st.bad::before { background: var(--bad); }
+  .st.bad { color: var(--bad); font-weight: 600; }
+  .st.live::before { animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+
+  /* main */
+  main { overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
+  .top { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 14px 28px; border-bottom: 1px solid var(--rule); }
+  .top h1 { font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
+  .top p { color: var(--muted); font-size: 13px; }
+  .back { font-size: 13px; color: var(--muted); text-decoration: none; cursor: pointer; display: inline-block; margin-bottom: 2px; }
+  .back:hover { color: var(--ink); }
+  .acts { display: flex; gap: 8px; align-items: center; }
+  .body { padding: 18px 28px; overflow: hidden; flex: 1; }
+  .tools { display: flex; gap: 8px; align-items: center; padding: 12px 28px; border-bottom: 1px solid var(--rule); }
+  .tools .end { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+  /* controls */
+  .btn { font: 600 13px "IBM Plex Sans", sans-serif; height: 32px; padding: 0 13px; border: 1px solid var(--btn); background: var(--btn); color: var(--btn-fg); border-radius: 3px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; transition: transform .08s, box-shadow .12s, background .12s; }
+  .btn:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 14%, transparent); }
+  .btn:active { transform: translateY(1px); box-shadow: none; }
+  .btn.ghost { background: transparent; color: var(--ink); border-color: var(--inb); }
+  .btn.ghost:hover { background: var(--hover); box-shadow: none; border-color: var(--ink); }
+  .btn.danger { background: transparent; color: var(--bad); border-color: var(--bad); }
+  .btn.sm { height: 28px; padding: 0 10px; font-size: 12.5px; }
+  .btn.icon { width: 32px; padding: 0; justify-content: center; }
+  .link { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; background: none; border: 0; font: inherit; }
+  .fld { height: 32px; display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 10px; border: 1px solid var(--inb); border-radius: 3px; color: var(--muted); font-size: 13px; background: var(--bg); white-space: nowrap; }
+  .fld .v { color: var(--ink); }
+  .fld.grow { flex: 1; max-width: 360px; justify-content: flex-start; }
+  .fld.on { border-color: var(--strong); box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 22%, transparent); }
+  .num { width: 70px; justify-content: flex-end; font-family: "IBM Plex Mono", monospace; color: var(--ink); }
+  .seg { display: inline-flex; border: 1px solid var(--inb); border-radius: 3px; overflow: hidden; height: 32px; }
+  .seg button { font: 500 12.5px "IBM Plex Sans"; padding: 0 11px; border: 0; background: transparent; color: var(--ink2); cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--inb); }
+  .seg button.on { background: var(--ink); color: var(--bg); font-weight: 600; }
+  .seglbl { font-size: 12.5px; color: var(--muted); }
+  .tog { width: 34px; height: 20px; border-radius: 10px; background: var(--neutral); position: relative; flex: none; cursor: pointer; }
+  .tog::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--bg); transition: left .12s; }
+  .tog.on { background: var(--ink); } .tog.on::after { left: 16px; }
+  .cb { width: 16px; height: 16px; border: 1.5px solid var(--inb); border-radius: 2px; display: inline-grid; place-items: center; vertical-align: middle; cursor: pointer; }
+  .cb.on { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+  .cb.on::after { content: ""; width: 8px; height: 4px; border-left: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg) translate(1px, -1px); }
+  .cb.mixed { background: var(--ink); border-color: var(--ink); }
+  .cb.mixed::after { content: ""; width: 8px; height: 2px; background: var(--bg); }
+  kbd { font: 500 11px "IBM Plex Mono"; border: 1px solid var(--inb); border-bottom-width: 2px; border-radius: 3px; padding: 0 4px; }
+
+  /* tables */
+  .tbl { padding: 0 28px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-weight: 500; color: var(--muted); font-size: 12.5px; padding: 10px 12px 7px 0; border-bottom: 1px solid var(--strong); white-space: nowrap; }
+  th.sort { cursor: pointer; } th .ar { font-family: "IBM Plex Mono"; margin-left: 4px; color: var(--muted); }
+  th.sorted { color: var(--ink); font-weight: 600; }
+  td { padding: var(--rowpad) 12px var(--rowpad) 0; border-bottom: 1px solid var(--rule2); vertical-align: middle; }
+  tr:hover td { background: var(--hover); }
+  tr.selrow td, tr.selrow:hover td { background: var(--sel); }
+  .r { text-align: right; }
+  .sub { display: block; color: var(--muted); font-size: 12.5px; }
+  .s.compact .sub { display: inline; margin-left: 6px; }
+  .s.compact .sub::before { content: "· "; }
+  .chg s { color: var(--muted); }
+  .pager { display: flex; justify-content: space-between; align-items: center; padding: 10px 28px; color: var(--muted); font-size: 12.5px; }
+  .pg { display: flex; gap: 2px; align-items: center; }
+  .pbtn { font: 500 12.5px "IBM Plex Mono"; min-width: 32px; height: 32px; border: 1px solid transparent; background: none; color: var(--ink); border-radius: 3px; cursor: pointer; }
+  .pbtn.on { border-color: var(--strong); font-weight: 600; }
+  .copyi { width: 22px; height: 22px; display: inline-grid; place-items: center; border: 1px solid transparent; background: none; color: var(--muted); border-radius: 3px; cursor: pointer; vertical-align: middle; margin-left: 2px; }
+  .copyi:hover { border-color: var(--inb); color: var(--ink); }
+  .tabs { display: flex; gap: 24px; padding: 0 28px; border-bottom: 1px solid var(--rule); }
+  .tabs a { padding: 11px 0 9px; color: var(--muted); font-weight: 600; font-size: 13.5px; text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; }
+  .tabs a.on { color: var(--ink); border-color: var(--ink); }
+  .tabs a i { font-style: normal; font-family: "IBM Plex Mono"; color: var(--bad); margin-left: 6px; }
+  .selbar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--ink); color: var(--bg); border-radius: 3px; margin: 12px 28px 0; font-size: 13px; }
+  .selbar .btn { background: var(--bg); color: var(--ink); border-color: var(--bg); }
+  .selbar .btn.ghost { background: transparent; color: var(--bg); border-color: color-mix(in srgb, var(--bg) 50%, transparent); }
+  .selbar .clr { margin-left: auto; color: var(--bg); text-decoration: underline; text-underline-offset: 3px; background: none; border: 0; font: inherit; cursor: pointer; }
+
+  /* settings */
+  .set { display: grid; grid-template-columns: 200px 1fr; flex: 1; overflow: hidden; }
+  .snav { border-right: 1px solid var(--rule); padding: 14px 0; }
+  .snav a { display: block; padding: 0 20px; height: 34px; line-height: 34px; color: var(--ink2); text-decoration: none; border-left: 2px solid transparent; cursor: pointer; }
+  .snav a:hover { background: var(--hover); color: var(--ink); }
+  .snav a.on { border-left-color: var(--ink); color: var(--ink); font-weight: 600; }
+  .scont { padding: 4px 32px 24px; overflow: hidden; }
+  .sec { display: grid; grid-template-columns: 220px 1fr; gap: 28px; padding: 20px 0; border-bottom: 1px solid var(--rule); }
+  .sec h2 { font-size: 14.5px; font-weight: 600; }
+  .sec .d { color: var(--muted); font-size: 13px; margin-top: 3px; }
+  .facts { display: grid; grid-template-columns: 130px 1fr; gap: 8px 16px; font-size: 13.5px; }
+  .facts dt { color: var(--muted); }
+  .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
+  .field label { font-weight: 600; font-size: 13px; }
+  .field .h { color: var(--muted); font-size: 12.5px; }
+  .field .fld { width: 100%; max-width: 420px; justify-content: flex-start; }
+  .field .fld.sel { justify-content: space-between; }
+  .trow { display: flex; justify-content: space-between; align-items: center; gap: 20px; max-width: 520px; padding: 8px 0; border-bottom: 1px solid var(--rule2); }
+  .trow b { display: block; font-size: 13.5px; } .trow span.h { color: var(--muted); font-size: 12.5px; }
+  .choices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; max-width: 620px; }
+  .choice { border: 1px solid var(--inb); border-radius: 3px; padding: 10px 12px; cursor: pointer; }
+  .choice:hover { border-color: var(--ink); }
+  .choice.on { border: 2px solid var(--ink); padding: 9px 11px; }
+  .choice b { display: flex; gap: 8px; align-items: center; font-size: 13.5px; }
+  .radio { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--inb); flex: none; }
+  .choice.on .radio { border: 4px solid var(--ink); }
+  .choice .pv { margin-top: 10px; border-top: 1px solid var(--rule); }
+  .choice .pv i { display: block; border-bottom: 1px solid var(--rule2); }
+  .choice .pv i::before { content: ""; display: block; width: 60%; height: 6px; background: var(--rule); border-radius: 1px; }
+  .swatch { height: 34px; margin-top: 10px; border-radius: 2px; border: 1px solid var(--rule); display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; }
+
+  /* forms */
+  .formwrap { padding: 4px 28px 0; overflow: hidden; flex: 1; }
+  .fbar { display: flex; gap: 8px; padding: 12px 28px; border-top: 1px solid var(--strong); }
+  .adv { color: var(--ink); font-weight: 600; font-size: 13px; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
+  .pop { position: absolute; z-index: 3; top: calc(100% + 4px); left: 0; width: 420px; border: 1px solid var(--strong); background: var(--bg); box-shadow: var(--shadow); border-radius: 3px; }
+  .pop .q { display: flex; gap: 8px; align-items: center; padding: 9px 10px; border-bottom: 1px solid var(--rule); }
+  .pop ul { list-style: none; padding: 4px 0; }
+  .pop li { display: flex; justify-content: space-between; gap: 10px; padding: 7px 10px; cursor: pointer; }
+  .pop li.act { background: var(--hover); box-shadow: inset 2px 0 0 var(--ink); }
+  .pop li[aria-disabled] { color: var(--muted); cursor: not-allowed; }
+  .pop li .c { font-family: "IBM Plex Mono"; font-size: 12px; color: var(--muted); }
+  .pop mark { background: color-mix(in srgb, var(--bad) 22%, transparent); color: inherit; }
+  .caret { display: inline-block; width: 1px; height: 15px; background: var(--ink); animation: blink 1s steps(1) infinite; vertical-align: -2px; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* connect */
+  .connect { display: grid; grid-template-columns: 1fr 300px; flex: 1; overflow: hidden; }
+  .win { margin: 18px 0 18px 28px; border: 1px solid var(--strong); border-radius: 3px; display: flex; flex-direction: column; overflow: hidden; }
+  .win .bar { display: flex; gap: 10px; align-items: center; padding: 7px 10px; border-bottom: 1px solid var(--rule); font-size: 12.5px; }
+  .win .addr { flex: 1; height: 26px; border: 1px solid var(--rule); border-radius: 3px; display: flex; align-items: center; padding: 0 8px; font-family: "IBM Plex Mono"; font-size: 12px; color: var(--muted); }
+  .win .view { flex: 1; background: var(--win); display: grid; place-items: center; }
+  .sitecard { width: 300px; background: #ffffff; color: #1d2733; border-radius: 6px; padding: 22px; font-family: system-ui, sans-serif; box-shadow: 0 2px 10px rgba(0,0,0,.12); }
+  .sitecard h4 { font-size: 17px; margin-bottom: 4px; } .sitecard p { font-size: 12px; color: #5b6573; margin-bottom: 12px; }
+  .sitecard i { display: block; height: 34px; border: 1px solid #c5ccd5; border-radius: 4px; margin-bottom: 10px; }
+  .sitecard b { display: block; height: 36px; border-radius: 4px; background: #1f5fa8; }
+  .steps { padding: 22px 26px; display: flex; flex-direction: column; gap: 14px; }
+  .steps ol { list-style: none; counter-reset: s; display: flex; flex-direction: column; gap: 12px; }
+  .steps li { counter-increment: s; display: grid; grid-template-columns: 26px 1fr; gap: 8px; }
+  .steps li::before { content: counter(s); font: 600 12px "IBM Plex Mono"; width: 22px; height: 22px; border: 1px solid var(--strong); border-radius: 50%; display: grid; place-items: center; }
+  .steps li.done::before { background: var(--ink); color: var(--bg); }
+
+  /* import */
+  .drop { border: 1.5px dashed var(--inb); border-radius: 3px; padding: 18px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+  .warnrow td:first-child { box-shadow: inset 2px 0 0 var(--bad); padding-left: 8px; }
+
+  /* sign in + not found */
+  .signin { display: grid; grid-template-columns: 1.1fr 1fr; height: 100%; }
+  .signin .lft { background: var(--side); border-right: 1px solid var(--rule); padding: 44px 56px; display: flex; flex-direction: column; justify-content: space-between; }
+  .signin .lft h2 { font-size: 38px; line-height: 1.12; letter-spacing: -.02em; font-weight: 600; max-width: 460px; }
+  .signin .lft .facts2 { display: grid; grid-template-columns: repeat(3, auto); gap: 28px; justify-content: start; border-top: 1px solid var(--rule); padding-top: 18px; }
+  .signin .lft .facts2 b { display: block; font-size: 17px; font-weight: 600; }
+  .signin .lft .facts2 span { color: var(--muted); font-size: 12.5px; }
+  .signin .rgt { display: grid; place-items: center; }
+  .signin form { width: 340px; }
+  .signin form h3 { font-size: 20px; margin-bottom: 4px; }
+  .signin form p { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+  .nf { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 80px 60px; max-width: 640px; }
+  .nf .code { font: 500 64px/1 "IBM Plex Mono"; letter-spacing: -.04em; color: var(--muted); }
+  .nf h2 { font-size: 22px; }
+  @media (prefers-reduced-motion: reduce) { .st.live::before, .caret { animation: none; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="intro">
+    <h1>Direction D: the other screens, with your three picks</h1>
+    <p>Desktop sizes as you chose: 14px text, 32px buttons. Your three picks are built in: <b>check status in the sidebar</b> (bottom left of every screen), <b>compact or comfortable rows</b> (the "Rows" switch here, the same switch on the Products and Proposals screens, and a setting under Settings → Appearance), and <b>Settings with a side menu</b>. Same sample data as before.</p>
+  </div>
+  <div class="vbar">
+    <div class="grp" data-k="screen"><span>Screen</span>
+      <button data-v="products" aria-pressed="true">Products</button><button data-v="proposals">Proposals</button><button data-v="settings">Settings</button><button data-v="appearance">Settings · Appearance</button><button data-v="supplier">Add supplier</button><button data-v="link">Add link</button><button data-v="connect">Connect supplier</button><button data-v="rules">Stock rules</button><button data-v="import">Import links</button><button data-v="signin">Sign in</button><button data-v="notfound">Not found</button>
+    </div>
+    <div class="grp" data-k="mode"><span>Mode</span><button data-v="both" aria-pressed="true">Both</button><button data-v="light">Light</button><button data-v="dark">Dark</button></div>
+    <div class="grp" data-k="rows"><span>Rows</span><button data-v="comfortable" aria-pressed="true">Comfortable</button><button data-v="compact">Compact</button></div>
+  </div>
+  <div id="out"></div>
+</div>
+<script>
+(() => {
+  const ICON_COPY = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="1"/><path d="M5 15V5a1 1 0 0 1 1-1h9"/></svg>`;
+  const ICON_SEARCH = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>`;
+  const copy = (label) => `<button class="copyi" aria-label="Copy ${label}">${ICON_COPY}</button>`;
+  const NAV = ["Dashboard", "Suppliers", "Links", "Products", "Proposals", "Settings"];
+  const COUNT = { Dashboard: 2, Proposals: 12 };
+  const side = (on) => `<aside class="side">
+      <div class="brand"><span class="fav"></span>Stock Monitor</div>
+      <nav>${NAV.map((n) => `<a class="${n === on ? "on" : ""}">${n}${COUNT[n] ? `<span>${COUNT[n]}</span>` : ""}</a>`).join("")}</nav>
+      <div class="chk"><span class="h">Checks</span><span class="st ok live">On · next at <span class="mono">09:28</span></span><span class="st bad">1 supplier stopped</span><a>See suppliers</a></div>
+      <div class="who"><span>owner@store.example</span><span>◐</span></div>
+    </aside>`;
+  const rowsSwitch = (state) => `<span class="seglbl">Rows</span><span class="seg"><button class="${state === "comfortable" ? "on" : ""}">Comfortable</button><button class="${state === "compact" ? "on" : ""}">Compact</button></span>`;
+
+  // ---------- Products ----------
+  const PRODUCTS = [
+    ["Beeswax wraps", "Set of 3", "BW-3", "Harbour Goods", "22", ""],
+    ["Ceramic planter", "Small", "CP-S", "Fenwick & Co", "7", ""],
+    ["Cotton tea towel", "Stripe", "TT-ST", "", "5", "No supplier in Shopify"],
+    ["Enamel mug", "350 ml", "EM-350", "Kestrel Supply", "0", ""],
+    ["Gift card", "£25", "GC-25", "", "", "Not stocked here"],
+    ["Glass carafe", "1 litre", "GC-1", "Oldfield Paper", "11", ""],
+    ["Linen apron", "Rust", "LA-RU", "Brightwell Trade", "3", ""],
+    ["Linen apron", "Sage", "LA-SG", "Brightwell Trade", "14", ""],
+    ["Oak serving board", "Large", "OSB-L", "Northline Wholesale", "0", ""],
+    ["Oak serving board", "Small", "OSB-S", "Northline Wholesale", "6", ""],
+    ["Rattan basket", "Medium", "RB-M", "Kestrel Supply", "0", ""],
+    ["Stoneware jug", "Speckled", "SJ-SP", "Northline Wholesale", "8", ""],
+  ];
+  const products = (rows) => `${side("Products")}<main>
+    <div class="top"><div><h1>Products</h1><p>Every variant from your Shopify store, with the supplier Shopify lists for it.</p></div><div class="acts"><button class="btn ghost">Sync from Shopify</button></div></div>
+    <div class="tools"><span class="fld grow">${ICON_SEARCH}<span>Search by product, variant or SKU</span></span><span class="fld" style="gap:8px"><span class="cb"></span><span class="v">Only ones that need a look</span></span><span class="end">${rowsSwitch(rows)}</span></div>
+    <div class="tbl"><table>
+      <tr><th class="sort sorted">Product<span class="ar">▲</span></th><th>Variant</th><th>SKU</th><th class="sort">Supplier<span class="ar">↕</span></th><th class="r sort">Available<span class="ar">↕</span></th><th>Notes</th></tr>
+      ${PRODUCTS.map(([p, v, sku, sup, av, note]) => `<tr><td><b>${p}</b></td><td>${v}</td><td><span class="mono">${sku}</span>${copy("SKU")}</td><td>${sup || `<span class="muted">None</span>`}</td><td class="r mono ${av === "0" ? "bad" : ""}">${av || "–"}</td><td>${note ? `<span class="st ${note.startsWith("No supplier") ? "bad" : ""}">${note}</span>` : ""}</td></tr>`).join("")}
+    </table></div>
+    <div class="pager"><span class="mono">Showing 1–12 of 2,481</span><div class="pg"><button class="pbtn">‹ Prev</button><button class="pbtn on">1</button><button class="pbtn">2</button><button class="pbtn">3</button><span class="muted">…</span><button class="pbtn">207</button><button class="pbtn">Next ›</button></div></div>
+  </main>`;
+
+  // ---------- Proposals ----------
+  const PROPOSALS = [
+    ["Beeswax wraps", "Set of 3 · BW-3", "Harbour Goods", "22", "0", true],
+    ["Enamel mug", "350 ml · EM-350", "Kestrel Supply", "8", "0", true],
+    ["Linen apron", "Sage · LA-SG", "Brightwell Trade", "0", "5", false, "Shopify is set to keep selling when stock is 0."],
+    ["Oak serving board", "Large · OSB-L", "Northline Wholesale", "14", "0", true],
+    ["Rattan basket", "Medium · RB-M", "Kestrel Supply", "4", "0", false],
+    ["Stoneware jug", "Speckled · SJ-SP", "Northline Wholesale", "0", "5", false],
+    ["Glass carafe", "1 litre · GC-1", "Oldfield Paper", "0", "5", false],
+  ];
+  const proposals = (rows) => `${side("Proposals")}<main>
+    <div class="top"><div><h1>Proposals</h1><p>Changes this app suggests to your Shopify stock. Nothing changes in Shopify until you press Approve.</p></div></div>
+    <div class="tabs"><a class="on">Waiting<i>12</i></a><a>History</a></div>
+    <div class="tools" style="border-bottom:0"><span class="fld" style="width:280px"><span>Supplier: <span class="v">All suppliers</span></span>▾</span><span class="end">${rowsSwitch(rows)}</span></div>
+    <div class="selbar" style="margin-top:0"><span class="cb mixed" style="border-color:var(--bg)"></span><b>3 selected</b><button class="btn sm">Approve 3</button><button class="btn ghost sm">Reject 3</button><button class="clr">Clear selection</button></div>
+    <div class="tbl"><table>
+      <tr><th style="width:30px"><span class="cb mixed"></span></th><th class="sort sorted">Product<span class="ar">▲</span></th><th class="sort">Supplier<span class="ar">↕</span></th><th class="r">Shopify showed</th><th class="r">Suggested</th><th class="r"></th></tr>
+      ${PROPOSALS.map(([p, v, sup, was, now, sel, hint]) => `<tr class="${sel ? "selrow" : ""}"><td><span class="cb ${sel ? "on" : ""}"></span></td><td><b>${p}</b><span class="sub">${v}</span>${hint ? `<span class="sub" style="display:block;margin-left:0">${hint}</span>` : ""}</td><td>${sup}</td><td class="r mono">${was}</td><td class="r"><span class="fld num">${now}</span></td><td class="r" style="white-space:nowrap"><button class="btn sm">Approve</button> <button class="btn ghost sm">Reject</button></td></tr>`).join("")}
+    </table></div>
+    <div class="pager"><span class="mono">Showing 1–7 of 12</span><div class="pg"><button class="pbtn">‹ Prev</button><button class="pbtn on">1</button><button class="pbtn">2</button><button class="pbtn">Next ›</button></div></div>
+  </main>`;
+
+  // ---------- Settings ----------
+  const snav = (on) => `<nav class="snav">${["Shopify", "Stock suggestions", "Appearance", "Account"].map((n) => `<a class="${n === on ? "on" : ""}">${n}</a>`).join("")}</nav>`;
+  const settings = () => `${side("Settings")}<main>
+    <div class="top"><div><h1>Settings</h1><p>Your Shopify store and how stock suggestions work.</p></div></div>
+    <div class="set">${snav("Shopify")}<div class="scont">
+      <div class="sec"><div><h2>Connection</h2><p class="d">The Shopify store this app reads from and writes approved stock to.</p></div>
+        <div><dl class="facts"><dt>Store</dt><dd class="mono">yourstore.myshopify.com</dd><dt>Status</dt><dd><span class="st ok">Connected</span> <span class="muted">since 12 Nov</span></dd><dt>Access</dt><dd>Read products · write stock</dd></dl>
+        <div class="acts" style="margin-top:14px"><button class="btn ghost">Reconnect Shopify</button><button class="btn danger">Disconnect</button></div></div></div>
+      <div class="sec"><div><h2>Inventory location</h2><p class="d">Stock is read from one location in Shopify. Pick the one that holds the stock you sell.</p></div>
+        <div><div class="field"><label>Location</label><span class="fld sel" style="max-width:320px"><span class="v">Main warehouse, London</span>▾</span></div><button class="btn">Save location</button></div></div>
+      <div class="sec" style="border-bottom:0"><div><h2>Sync</h2><p class="d">Copies your products and the stock at the chosen location into this app. It only reads from Shopify.</p></div>
+        <div><dl class="facts"><dt>Last sync</dt><dd><span class="mono">Today 06:00</span> · 2,481 variants</dd><dt>Skipped</dt><dd><span class="st bad">3 variants</span> <span class="muted">Fix these in Shopify, then sync again.</span> <button class="link">Show</button></dd></dl>
+        <div class="acts" style="margin-top:14px"><button class="btn ghost">Sync now</button></div></div></div>
+    </div></div>
+  </main>`;
+  const appearance = (rows) => `${side("Settings")}<main>
+    <div class="top"><div><h1>Settings</h1><p>Your Shopify store and how stock suggestions work.</p></div></div>
+    <div class="set">${snav("Appearance")}<div class="scont">
+      <div class="sec"><div><h2>Theme</h2><p class="d">Light, dark, or whatever your computer or phone is set to.</p></div>
+        <div class="choices">
+          <div class="choice on"><b><span class="radio"></span>Follow my device</b><div class="swatch"><span style="background:#fbfbf8"></span><span style="background:#121311"></span></div></div>
+          <div class="choice"><b><span class="radio"></span>Light</b><div class="swatch" style="grid-template-columns:1fr"><span style="background:#fbfbf8"></span></div></div>
+          <div class="choice"><b><span class="radio"></span>Dark</b><div class="swatch" style="grid-template-columns:1fr"><span style="background:#121311"></span></div></div>
+        </div></div>
+      <div class="sec"><div><h2>Rows</h2><p class="d">How tightly tables are packed. Compact fits about twice as many rows on screen; the same switch sits above each long table.</p></div>
+        <div class="choices" style="grid-template-columns:repeat(2,1fr);max-width:420px">
+          <div class="choice ${rows === "comfortable" ? "on" : ""}"><b><span class="radio"></span>Comfortable</b><div class="pv">${'<i style="padding:9px 0"></i>'.repeat(3)}</div></div>
+          <div class="choice ${rows === "compact" ? "on" : ""}"><b><span class="radio"></span>Compact</b><div class="pv">${'<i style="padding:3px 0"></i>'.repeat(6)}</div></div>
+        </div>
+        <p class="d" style="margin-top:10px">Saved on this device. On a phone, rows are always comfortable so they're easy to tap.</p></div>
+      <div class="sec" style="border-bottom:0"><div><h2>Sidebar check status</h2><p class="d">The box at the bottom of the sidebar that says whether checks are running.</p></div>
+        <div class="trow"><div><b>Show check status in the sidebar</b><span class="h">Checks on, next check time, and any stopped supplier.</span></div><span class="tog on"></span></div></div>
+    </div></div>
+  </main>`;
+
+  // ---------- Add supplier ----------
+  const supplier = () => `${side("Suppliers")}<main>
+    <div class="top"><div><a class="back">← Back to suppliers</a><h1>Add supplier</h1></div></div>
+    <div class="formwrap">
+      <div class="sec"><div><h2>Supplier</h2><p class="d">The website this app checks for stock.</p></div>
+        <div><div class="field"><label>Name</label><span class="fld"><span class="v">Harbour Goods</span></span></div>
+        <div class="field" style="margin-bottom:0"><label>Website</label><span class="fld"><span class="v mono">https://harbourgoods.example</span></span></div></div></div>
+      <div class="sec"><div><h2>Login</h2><p class="d">Only if the supplier shows stock after you log in. Saved encrypted; never shown again.</p></div>
+        <div><div style="display:grid;grid-template-columns:1fr 1fr;gap:0 18px;max-width:560px">
+          <div class="field"><label>Username</label><span class="fld"><span class="v">orders@yourstore.example</span></span></div>
+          <div class="field"><label>Password</label><span class="fld"><span class="v">••••••••••</span></span></div>
+          <div class="field"><label>Account number (optional)</label><span class="fld"></span></div>
+          <div class="field"><label>Only shows when logged in</label><span class="fld"><span class="v">Log out</span></span><span class="h">Text you see only when logged in, like "Log out" or your account name</span></div>
+        </div>
+        <div class="trow"><div><b>Automatic login</b><span class="h">Logs in again by itself when the supplier logs you out.</span></div><span class="tog on"></span></div>
+        <div class="trow"><div><b>Keep login alive</b><span class="h">Visits the supplier with your saved login so it does not log you out.</span></div><span class="tog on"></span></div>
+        <div style="margin-top:12px"><span class="adv">▸ Login page fields (advanced)</span></div></div></div>
+      <div class="sec" style="border-bottom:0"><div><h2>Automatic checks</h2><p class="d">How often stock is read from this supplier.</p></div>
+        <div class="field" style="max-width:260px"><label>How often</label><span class="fld sel"><span class="v">Every 30 minutes</span>▾</span></div></div>
+    </div>
+    <div class="fbar"><button class="btn">Save supplier</button><button class="btn ghost">Cancel</button></div>
+  </main>`;
+
+  // ---------- Add link ----------
+  const link = () => `${side("Links")}<main>
+    <div class="top"><div><a class="back">← Back to links</a><h1>Add link</h1><p>Say which supplier page a Shopify variant matches, so its stock can be checked.</p></div></div>
+    <div class="formwrap">
+      <div class="sec"><div><h2>Variant</h2><p class="d">Only variants with no link are listed.</p></div>
+        <div><div class="field" style="position:relative"><label>Find a variant</label><span class="fld on" style="justify-content:space-between"><span class="v">oak<span class="caret"></span></span>▴</span>
+          <div class="pop"><ul>
+            <li class="act"><span><mark>Oak</mark> serving board<span class="sub" style="display:block;margin:0">Large · OSB-L</span></span><span class="c">no link</span></li>
+            <li aria-disabled="true"><span><mark>Oak</mark> serving board<span class="sub" style="display:block;margin:0">Small · OSB-S</span></span><span class="c">linked</span></li>
+            <li><span><mark>Oak</mark> coasters, set of 4<span class="sub" style="display:block;margin:0">Natural · CO-4</span></span><span class="c">no link</span></li>
+          </ul><div style="border-top:1px solid var(--rule);padding:7px 10px;font-size:12px;color:var(--muted)"><kbd>↑</kbd> <kbd>↓</kbd> move · <kbd>Enter</kbd> pick · 3 of 2,481 variants</div></div>
+          <span class="h">Search by product, variant or SKU.</span></div></div></div>
+      <div class="sec"><div><h2>Supplier page</h2><p class="d">The page on the supplier's website that shows this product's stock.</p></div>
+        <div><div class="field"><label>Supplier</label><span class="fld sel"><span class="v">Northline Wholesale</span>▾</span></div>
+        <div class="field"><label>Supplier page address</label><span class="fld"><span class="v mono">https://northline-trade.example/oak-board-large</span></span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 18px;max-width:560px">
+          <div class="field"><label>Option on the supplier's page (optional)</label><span class="fld"></span></div>
+          <div class="field"><label>Region (optional)</label><span class="fld sel"><span>Any</span>▾</span></div>
+        </div>
+        <div class="field" style="margin-bottom:0"><label>Note (optional)</label><span class="fld"></span></div></div></div>
+    </div>
+    <div class="fbar"><button class="btn">Save link</button><button class="btn ghost">Check this page first</button><button class="btn ghost">Cancel</button></div>
+  </main>`;
+
+  // ---------- Connect supplier ----------
+  const connect = () => `${side("Suppliers")}<main>
+    <div class="top"><div><a class="back">← Back to suppliers</a><h1>Connect Harbour Goods</h1><p>Log in as you normally would. Solve any puzzle or code. Then press I'm logged in.</p></div><div class="acts"><span class="st ok live">Live window connected</span></div></div>
+    <div class="connect">
+      <div class="win"><div class="bar"><span class="muted">◀ ▶ ⟳</span><span class="addr">harbourgoods.example/account/login</span></div>
+        <div class="view"><div class="sitecard"><h4>Harbour Goods Trade</h4><p>Sign in to your trade account</p><i></i><i></i><b></b></div></div></div>
+      <div class="steps">
+        <ol><li class="done"><div><b>Log in</b><span class="sub" style="display:block;margin:0">Type your details in the window, as you normally would.</span></div></li>
+        <li><div><b>Solve any puzzle or code</b><span class="sub" style="display:block;margin:0">If the supplier emails a code, it can be read for you.</span></div></li>
+        <li><div><b>Press I'm logged in</b><span class="sub" style="display:block;margin:0">The login is saved so checks can run.</span></div></li></ol>
+        <button class="btn" style="height:44px;justify-content:center">I'm logged in</button>
+        <button class="btn ghost" style="justify-content:center">Cancel</button>
+        <p class="sub" style="display:block;margin:0">Nothing is saved until you press I'm logged in.</p>
+      </div>
+    </div>
+  </main>`;
+
+  // ---------- Stock rules ----------
+  const rules = () => `${side("Suppliers")}<main>
+    <div class="top"><div><a class="back">← Back to suppliers</a><h1>Stock rules · Northline Wholesale</h1><p>How this app reads in stock or out of stock from this supplier's pages.</p></div><div class="acts"><button class="btn ghost">Test on examples</button><button class="btn">Save as version 4</button></div></div>
+    <div class="body" style="display:grid;grid-template-columns:1.5fr 1fr;gap:32px">
+      <div>
+        <h2 style="font-size:14.5px;margin-bottom:8px">Rules</h2>
+        <table><tr><th>When the page shows</th><th>The answer is</th><th class="r">On</th></tr>
+          <tr><td>Text <span class="mono">"Sold out"</span></td><td><span class="st bad">Out of stock</span></td><td class="r"><span class="tog on"></span></td></tr>
+          <tr><td>Text <span class="mono">"Out of stock"</span></td><td><span class="st bad">Out of stock</span></td><td class="r"><span class="tog on"></span></td></tr>
+          <tr><td>Button <span class="mono">"Add to basket"</span></td><td><span class="st ok">In stock</span></td><td class="r"><span class="tog on"></span></td></tr>
+          <tr><td>Text <span class="mono">"Back soon"</span></td><td><span class="st bad">Out of stock</span></td><td class="r"><span class="tog"></span></td></tr>
+        </table>
+        <button class="btn ghost sm" style="margin-top:10px">+ Add rule</button>
+        <h2 style="font-size:14.5px;margin:22px 0 8px">Test results</h2>
+        <p class="st ok">All examples give the answer you expect.</p>
+        <table style="margin-top:6px"><tr><th>Example page</th><th>Expected</th><th>Got</th></tr>
+          <tr><td class="mono" style="font-size:12.5px">/oak-board-large</td><td>Out of stock</td><td class="good">Out of stock ✓</td></tr>
+          <tr><td class="mono" style="font-size:12.5px">/jug-speckled</td><td>In stock</td><td class="good">In stock ✓</td></tr>
+        </table>
+      </div>
+      <div>
+        <h2 style="font-size:14.5px;margin-bottom:2px">Versions</h2>
+        <p class="sub" style="display:block;margin:0 0 8px">Open a version to see its rules and how it differs from another, before you turn it on.</p>
+        <table><tr><th>Version</th><th>Saved</th><th class="r"></th></tr>
+          <tr><td><b>3</b> <span class="st ok" style="margin-left:6px">In use</span></td><td class="mono">18 Nov</td><td class="r"><button class="btn ghost sm">Open</button></td></tr>
+          <tr><td><b>2</b></td><td class="mono">14 Nov</td><td class="r"><button class="btn ghost sm">Open</button></td></tr>
+          <tr><td><b>1</b></td><td class="mono">10 Nov</td><td class="r"><button class="btn ghost sm">Open</button></td></tr>
+        </table>
+      </div>
+    </div>
+  </main>`;
+
+  // ---------- Import ----------
+  const imp = () => `${side("Links")}<main>
+    <div class="top"><div><a class="back">← Back to links</a><h1>Import links</h1><p>Upload the file from Shopify's Products › Export. Nothing is saved until you have seen the preview and confirmed it.</p></div></div>
+    <div class="body">
+      <div class="drop"><div><b>products_export.csv</b><span class="sub" style="display:block;margin:0">2,481 rows · read here and sent only to your own app. Descriptions and other columns are never stored.</span></div><button class="btn ghost">Choose another file</button></div>
+      <div style="display:flex;gap:18px;margin:16px 0 6px;align-items:flex-end">
+        <div class="field" style="margin:0"><label>Column with the SKU</label><span class="fld sel" style="width:220px"><span class="v">Variant SKU</span>▾</span></div>
+        <div class="field" style="margin:0"><label>Column with the supplier page</label><span class="fld sel" style="width:260px"><span class="v">Supplier URL (metafield)</span>▾</span></div>
+      </div>
+      <h2 style="font-size:14.5px;margin:18px 0 6px">Preview <span class="muted mono" style="font-weight:400">2,169 ready · 4 worth a look · 308 no address</span></h2>
+      <table><tr><th>Product</th><th>SKU</th><th>Supplier page</th><th>Result</th></tr>
+        <tr><td><b>Oak serving board</b> <span class="sub">Large</span></td><td class="mono">OSB-L</td><td class="mono muted" style="font-size:12.5px">northline-trade.example/oak-board-large</td><td><span class="st ok">Ready</span></td></tr>
+        <tr class="warnrow"><td><b>Linen apron</b> <span class="sub">Sage</span></td><td class="mono">LA-SG</td><td class="mono muted" style="font-size:12.5px">brightwell.example/aprons/linen-sage</td><td><span class="st bad">Worth a look</span><span class="sub" style="display:block;margin:0">Already linked to a different page</span></td></tr>
+        <tr><td><b>Gift card</b> <span class="sub">£25</span></td><td class="mono">GC-25</td><td class="muted">None</td><td><span class="st">Skipped: no address</span></td></tr>
+      </table>
+    </div>
+    <div class="fbar"><button class="btn">Save 2,169 links</button><button class="btn ghost">Cancel</button><span class="muted" style="margin-left:auto;align-self:center;font-size:12.5px">To check them afterwards, open Links, choose the supplier and select Check all links.</span></div>
+  </main>`;
+
+  // ---------- Sign in ----------
+  const signin = () => `<div class="signin">
+    <div class="lft"><div class="brand" style="padding:0"><span class="fav"></span>Stock Monitor</div>
+      <h2>Know what your suppliers have, before your customers order.</h2>
+      <div class="facts2"><div><b>Check</b><span>supplier stock on a schedule</span></div><div><b>Propose</b><span>changes when stock differs</span></div><div><b>Approve</b><span>before Shopify is updated</span></div></div></div>
+    <div class="rgt"><form>
+      <h3>Sign in</h3><p>Use the owner account to review supplier stock and approve changes.</p>
+      <div class="field"><label>Email</label><span class="fld" style="max-width:none"><span class="v">owner@store.example</span></span></div>
+      <div class="field"><label>Password</label><span class="fld" style="max-width:none"><span class="v">••••••••••••</span></span></div>
+      <button class="btn" style="width:100%;justify-content:center;height:40px;margin-top:4px">Sign in</button>
+    </form></div>
+  </div>`;
+
+  // ---------- Not found ----------
+  const notfound = () => `${side("")}<main>
+    <div class="nf"><span class="code">404</span><h2>Page not found</h2><p class="muted">This page may have moved, or the supplier or link it showed was deleted.</p>
+      <div class="acts" style="margin-top:6px"><button class="btn">Go to Dashboard</button><button class="btn ghost">Back</button></div></div>
+  </main>`;
+
+  const SCREENS = { products, proposals, settings, appearance, supplier, link, connect, rules, import: imp, signin, notfound };
+  const FULL = new Set(["signin"]);
+  const state = { screen: "products", mode: "both", rows: "comfortable" };
+  const render = () => {
+    const make = (dark) => {
+      const el = document.createElement("div");
+      el.className = `s${FULL.has(state.screen) ? " full" : ""}${dark ? " dk" : ""}${state.rows === "compact" ? " compact" : ""}`;
+      el.innerHTML = SCREENS[state.screen](state.rows);
+      const f = document.createElement("div"); f.className = "frame"; f.append(el);
+      return f;
+    };
+    const out = document.getElementById("out");
+    out.innerHTML = "";
+    [["light", false], ["dark", true]].forEach(([m, dark]) => {
+      if (state.mode !== "both" && state.mode !== m) return;
+      const p = document.createElement("p"); p.className = "mode"; p.textContent = m === "light" ? "Light" : "Dark";
+      out.append(p, make(dark));
+    });
+  };
+  document.querySelectorAll(".grp[data-k]").forEach((grp) => grp.addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    grp.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    state[grp.dataset.k] = b.dataset.v;
+    render();
+  }));
+  render();
+})();
+</script>
+</body>
+</html>

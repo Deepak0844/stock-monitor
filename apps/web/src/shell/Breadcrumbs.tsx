@@ -14,14 +14,27 @@ export function crumbsForPath(path: string): Crumb[] {
   if (path === "/suppliers") return [HOME, { label: "Suppliers" }];
   if (path === "/suppliers/new") return [HOME, SUPPLIERS, { label: "Add supplier" }];
   const supplier = /^\/suppliers\/[^/]+\/(edit|rules|connect)$/.exec(path)?.[1];
-  if (supplier) return [HOME, SUPPLIERS, { label: supplier === "edit" ? "Edit supplier" : supplier === "rules" ? "Stock rules" : "Connect" }];
+  if (supplier)
+    return [
+      HOME,
+      SUPPLIERS,
+      {
+        label:
+          supplier === "edit" ? "Edit supplier" : supplier === "rules" ? "Stock rules" : "Connect",
+      },
+    ];
   if (path === "/mappings") return [HOME, { label: "Links" }];
   if (path === "/mappings/new") return [HOME, LINKS, { label: "Add link" }];
   if (path === "/mappings/import") return [HOME, LINKS, { label: "Import links" }];
   if (/^\/mappings\/[^/]+\/edit$/.test(path)) return [HOME, LINKS, { label: "Edit link" }];
   if (path === "/products") return [HOME, { label: "Products" }];
   if (path === "/proposals") return [HOME, { label: "Proposals" }];
-  if (path === "/settings" || path === "/settings/shopify") return [HOME, { label: "Settings", to: "/settings/shopify" }, { label: "Shopify" }];
+  const SETTINGS = { label: "Settings", to: "/settings/shopify" };
+  if (path === "/settings" || path === "/settings/shopify")
+    return [HOME, SETTINGS, { label: "Shopify" }];
+  if (path === "/settings/suggestions") return [HOME, SETTINGS, { label: "Stock suggestions" }];
+  if (path === "/settings/appearance") return [HOME, SETTINGS, { label: "Appearance" }];
+  if (path === "/settings/account") return [HOME, SETTINGS, { label: "Account" }];
   return [HOME, { label: "Page not found" }];
 }
 
@@ -33,10 +46,20 @@ export function Breadcrumbs({ items }: { items: Crumb[] }) {
           const last = i === items.length - 1;
           return (
             // On a phone only the current page is shown, so it is not squeezed.
-            <li key={`${crumb.label}-${i}`} className={last ? "flex min-w-0 items-center gap-1" : "hidden min-w-0 items-center gap-1 sm:flex"}>
+            <li
+              key={`${crumb.label}-${i}`}
+              className={
+                last
+                  ? "flex min-w-0 items-center gap-1"
+                  : "hidden min-w-0 items-center gap-1 sm:flex"
+              }
+            >
               {i > 0 && <ChevronRight className="size-3.5 shrink-0" aria-hidden="true" />}
               {last || !crumb.to ? (
-                <span aria-current={last ? "page" : undefined} className={last ? "truncate font-semibold text-foreground" : "truncate"}>
+                <span
+                  aria-current={last ? "page" : undefined}
+                  className={last ? "truncate font-semibold text-foreground" : "truncate"}
+                >
                   {crumb.label}
                 </span>
               ) : (

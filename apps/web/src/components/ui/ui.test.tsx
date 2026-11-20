@@ -28,6 +28,21 @@ describe("Button", () => {
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(onClick).toHaveBeenCalledOnce();
   });
+
+  it("a loading button keeps its words and shows a spinner", () => {
+    render(<Button loading>Approving…</Button>);
+    const button = screen.getByRole("button", { name: "Approving…" });
+    expect(button).toHaveAttribute("aria-busy", "true");
+    expect(button).toBeDisabled();
+    expect(button.querySelector("[data-spinner]")).not.toBeNull();
+  });
+
+  it("keeps its size while loading: the words stay in place, hidden, and the spinner sits over them", () => {
+    render(<Button loading>Check now</Button>);
+    const button = screen.getByRole("button", { name: "Check now" });
+    expect(screen.getByText("Check now")).toHaveClass("opacity-0"); // still read by screen readers, unlike invisible
+    expect(button.querySelector("[data-spinner]")!.parentElement).toHaveClass("absolute");
+  });
 });
 
 describe("Dialog", () => {
@@ -54,6 +69,10 @@ describe("Badge and Skeleton", () => {
   it("renders the badge text", () => {
     render(<Badge variant="warning">Needs reconnecting</Badge>);
     expect(screen.getByText("Needs reconnecting")).toBeInTheDocument();
+  });
+  it("badge words stay visible next to the dot", () => {
+    render(<Badge variant="warning">Needs reconnecting</Badge>);
+    expect(screen.getByText("Needs reconnecting").closest("[data-tone]")).toHaveAttribute("data-tone", "bad");
   });
   it("hides the skeleton from assistive technology", () => {
     render(<Skeleton data-testid="s" />);

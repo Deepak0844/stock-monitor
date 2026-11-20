@@ -271,6 +271,12 @@ describe("listing variants", () => {
     expect(page.pageSize).toBe(25);
   });
 
+  it("lists products Z to A when asked", async () => {
+    await seed();
+    const page = await repo().listVariants({ page: 1, pageSize: 25, dir: "desc" });
+    expect(page.items.map((v) => v.variantTitle)).toEqual(["30m", "Small", "Large", "A_B"]);
+  });
+
   it("pages through the results", async () => {
     await seed();
     const first = await repo().listVariants({ page: 1, pageSize: 3 });

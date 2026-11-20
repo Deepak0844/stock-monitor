@@ -8,7 +8,15 @@ afterEach(cleanup);
 
 describe("Breadcrumbs", () => {
   it("links every crumb but the last, which marks the current page", () => {
-    render(<Breadcrumbs items={[{ label: "Dashboard", to: "/" }, { label: "Suppliers", to: "/suppliers" }, { label: "Add supplier" }]} />);
+    render(
+      <Breadcrumbs
+        items={[
+          { label: "Dashboard", to: "/" },
+          { label: "Suppliers", to: "/suppliers" },
+          { label: "Add supplier" },
+        ]}
+      />,
+    );
     expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute("href", "/");
     expect(screen.getByRole("link", { name: "Suppliers" })).toHaveAttribute("href", "/suppliers");

@@ -4,12 +4,15 @@ import { replaceSearch, useSearch } from "../router.js";
 export const PAGE_SIZES = [10, 25, 50] as const;
 /** Larger than any real list; a bigger number in the address is nonsense and means page 1. */
 const MAX_PAGE = 1_000_000;
-const RESERVED = new Set(["page", "pageSize", "search"]);
+const RESERVED = new Set(["page", "pageSize", "search", "sort", "dir"]);
 
 export type ListParams = {
   page: number;
   pageSize: number;
   search: string;
+  /** The column the list is sorted by, or null for its usual order. */
+  sort: string | null;
+  dir: "asc" | "desc";
   /** Every other query value, such as `status`. */
   filters: Record<string, string>;
   /** Changing the search, the size or a filter goes back to page 1. An empty or undefined value removes the key. */
@@ -26,6 +29,8 @@ export function useListParams(defaults: { pageSize: number }): ListParams {
   const rawSize = Number(params.get("pageSize"));
   const pageSize = (PAGE_SIZES as readonly number[]).includes(rawSize) ? rawSize : defaults.pageSize;
   const search = params.get("search") ?? "";
+  const sort = params.get("sort") || null;
+  const dir = params.get("dir") === "desc" ? "desc" : "asc";
   const filters = useMemo(() => {
     const out: Record<string, string> = {};
     params.forEach((value, key) => {
@@ -49,5 +54,5 @@ export function useListParams(defaults: { pageSize: number }): ListParams {
     [defaults.pageSize],
   );
 
-  return { page, pageSize, search, filters, set };
+  return { page, pageSize, search, sort, dir, filters, set };
 }

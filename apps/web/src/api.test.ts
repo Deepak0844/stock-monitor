@@ -329,6 +329,15 @@ describe("paged lists and notification actions", () => {
     expect(page).toMatchObject({ items: [{ id: "m1" }], total: 11, page: 2, pageSize: 10 });
   });
 
+  it("adds the sort to the address only when there is one", async () => {
+    const fetchMock = reply({ mappings: [], total: 0, page: 1, pageSize: 10 });
+    await api.mappings.page({ page: 1, pageSize: 10, sort: "lastChecked", dir: "desc" });
+    expect(sent(fetchMock)).toBe("/api/mappings?page=1&pageSize=10&sort=lastChecked&dir=desc");
+    const open = reply({ proposals: [], total: 0, page: 1, pageSize: 25, writePermission: { state: "ready", message: "ok" } });
+    await api.proposals.openPage({ page: 1, pageSize: 25, sort: "seen" });
+    expect(sent(open)).toBe("/api/proposals?tab=open&page=1&pageSize=25&sort=seen&dir=asc");
+  });
+
   it("asks for a page of open suggestions and of history", async () => {
     const permission = { state: "ready", message: "ok" };
     const open = reply({ proposals: [{ id: "p1" }], total: 3, page: 1, pageSize: 25, writePermission: permission });

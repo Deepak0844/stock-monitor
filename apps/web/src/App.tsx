@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
-import { api as realApi, type Api } from "./api.js";
+import { api as realApi, type Api, type ScheduleRow } from "./api.js";
 import { DashboardPage } from "./pages/DashboardPage.js";
 import { NotFoundPage } from "./pages/NotFoundPage.js";
 import { ProposalsPage } from "./pages/ProposalsPage.js";
@@ -14,10 +14,16 @@ import { StockRulesPage } from "./pages/StockRulesPage.js";
 import { SupplierFormPage } from "./pages/SupplierFormPage.js";
 import { SuppliersPage } from "./pages/SuppliersPage.js";
 import { SettingsShopifyPage } from "./pages/SettingsShopifyPage.js";
+import { AccountPage } from "./pages/settings/AccountPage.js";
+import { AppearancePage } from "./pages/settings/AppearancePage.js";
+import { SettingsLayout } from "./pages/settings/SettingsLayout.js";
+import { SuggestionsPage } from "./pages/settings/SuggestionsPage.js";
 import { LoginPage } from "./pages/LoginPage.js";
 import { AppShell } from "./shell/AppShell.js";
+import { TooltipProvider } from "@/components/ui/tooltip.js";
+import { setWaiting } from "./tabTitle.js";
 import { useNotifications } from "./shell/useNotifications.js";
-import { usePath } from "./router.js";
+import { redirect, usePath } from "./router.js";
 
 type State =
   | { kind: "loading" }
@@ -25,6 +31,9 @@ type State =
   | { kind: "signedIn"; email: string }
   | { kind: "error"; message: string };
 
+const SCHEDULE_POLL_MS = 60_000;
+/** Where to go after signing in: only an address inside this app ("/suppliers"), never another site ("//x", "https://x"). */
+const safeNext = (next: string | null) => (next && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/");
 const messageOf = (e: unknown) =>
   e instanceof Error ? e.message : "Something went wrong. Please try again.";
 
@@ -42,22 +51,58 @@ export function App({ api = realApi }: { api?: Api }) {
   const reloadNotifications = notifications.reload;
   // How many suggestions are waiting, for the menu. Read again whenever the owner moves to another page.
   const refreshCount = useCallback(() => {
-    api.proposals.count().then(setProposalCount).catch(() => {});
+    api.proposals
+      .count()
+      .then(setProposalCount)
+      .catch(() => {});
     reloadNotifications();
   }, [api, reloadNotifications]);
   useEffect(() => {
     if (signedIn) refreshCount();
   }, [signedIn, path, refreshCount]);
 
+  // The browser tab shows the waiting count, and its icon a dot while anything needs the owner.
+  const attention = notifications.items.length;
+  useEffect(
+    () => setWaiting(signedIn ? proposalCount : 0, signedIn && attention > 0),
+    [signedIn, proposalCount, attention],
+  );
+
+  // The schedule, for the check status in the sidebar. Read when signed in and every minute after.
+  const [schedule, setSchedule] = useState<ScheduleRow[] | null>(null);
+  useEffect(() => {
+    if (!signedIn) return;
+    const load = () =>
+      void api.schedule
+        .overview()
+        .then(setSchedule)
+        .catch(() => {});
+    load();
+    const timer = window.setInterval(() => !document.hidden && load(), SCHEDULE_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [api, signedIn]);
+
   const checkSession = useCallback(() => {
     setState({ kind: "loading" });
     api
       .getMe()
-      .then((owner) => setState(owner ? { kind: "signedIn", email: owner.email } : { kind: "signedOut" }))
+      .then((owner) =>
+        setState(owner ? { kind: "signedIn", email: owner.email } : { kind: "signedOut" }),
+      )
       .catch((e: unknown) => setState({ kind: "error", message: messageOf(e) }));
   }, [api]);
 
   useEffect(checkSession, [checkSession]);
+
+  // Signed out, every address shows the sign-in page at /login, remembering where the owner was going. Signed in, /login moves
+  // on to that page, or to the Dashboard.
+  useEffect(() => {
+    if (state.kind === "signedOut" && path !== "/login") {
+      const going = path + window.location.search;
+      redirect(going === "/" ? "/login" : `/login?next=${encodeURIComponent(going)}`);
+    }
+    if (state.kind === "signedIn" && path === "/login") redirect(safeNext(new URLSearchParams(window.location.search).get("next")));
+  }, [state.kind, path]);
 
   if (state.kind === "loading") {
     return (
@@ -98,48 +143,69 @@ export function App({ api = realApi }: { api?: Api }) {
     );
   }
 
+  const signOut = () =>
+    api
+      .logout()
+      .then(() => {
+        redirect("/login");
+        setState({ kind: "signedOut" });
+      })
+      .catch((e: unknown) => setState({ kind: "error", message: messageOf(e) }));
+
   return (
-    <AppShell
-      email={state.email}
-      proposalCount={proposalCount}
-      attentionCount={notifications.items.length}
-      notifications={notifications}
-      onSignOut={() =>
-        api
-          .logout()
-          .then(() => setState({ kind: "signedOut" }))
-          .catch((e: unknown) => setState({ kind: "error", message: messageOf(e) }))
-      }
-    >
-      {path === "/" ? (
-        <DashboardPage api={api} />
-      ) : path === "/products" ? (
-        <ProductsPage api={api} />
-      ) : path === "/proposals" ? (
-        <ProposalsPage api={api} onChange={refreshCount} />
-      ) : path === "/suppliers" ? (
-        <SuppliersPage api={api} />
-      ) : path === "/suppliers/new" ? (
-        <SupplierFormPage api={api} />
-      ) : path === "/mappings" ? (
-        <MappingsPage api={api} />
-      ) : path === "/mappings/new" ? (
-        <MappingFormPage api={api} />
-      ) : path === "/mappings/import" ? (
-        <ImportMappingsPage api={api} />
-      ) : mappingEditId ? (
-        <MappingFormPage key={mappingEditId} api={api} id={mappingEditId} />
-      ) : rulesId ? (
-        <StockRulesPage key={rulesId} api={api} supplierId={rulesId} />
-      ) : connectId ? (
-        <ConnectSupplierPage key={connectId} api={api} supplierId={connectId} />
-      ) : editId ? (
-        <SupplierFormPage key={editId} api={api} id={editId} />
-      ) : path === "/settings" || path === "/settings/shopify" ? (
-        <SettingsShopifyPage api={api} />
-      ) : (
-        <NotFoundPage />
-      )}
-    </AppShell>
+    <TooltipProvider delayDuration={400}>
+      <AppShell
+        email={state.email}
+        proposalCount={proposalCount}
+        attentionCount={notifications.items.length}
+        schedule={schedule}
+        notifications={notifications}
+        onSignOut={signOut}
+      >
+        {path === "/" ? (
+          <DashboardPage api={api} />
+        ) : path === "/products" ? (
+          <ProductsPage api={api} />
+        ) : path === "/proposals" ? (
+          <ProposalsPage api={api} onChange={refreshCount} />
+        ) : path === "/suppliers" ? (
+          <SuppliersPage api={api} />
+        ) : path === "/suppliers/new" ? (
+          <SupplierFormPage api={api} />
+        ) : path === "/mappings" ? (
+          <MappingsPage api={api} />
+        ) : path === "/mappings/new" ? (
+          <MappingFormPage api={api} />
+        ) : path === "/mappings/import" ? (
+          <ImportMappingsPage api={api} />
+        ) : mappingEditId ? (
+          <MappingFormPage key={mappingEditId} api={api} id={mappingEditId} />
+        ) : rulesId ? (
+          <StockRulesPage key={rulesId} api={api} supplierId={rulesId} />
+        ) : connectId ? (
+          <ConnectSupplierPage key={connectId} api={api} supplierId={connectId} />
+        ) : editId ? (
+          <SupplierFormPage key={editId} api={api} id={editId} />
+        ) : path === "/settings" || path === "/settings/shopify" ? (
+          <SettingsLayout current="shopify">
+            <SettingsShopifyPage api={api} />
+          </SettingsLayout>
+        ) : path === "/settings/suggestions" ? (
+          <SettingsLayout current="suggestions">
+            <SuggestionsPage api={api} />
+          </SettingsLayout>
+        ) : path === "/settings/appearance" ? (
+          <SettingsLayout current="appearance">
+            <AppearancePage />
+          </SettingsLayout>
+        ) : path === "/settings/account" ? (
+          <SettingsLayout current="account">
+            <AccountPage email={state.email} onSignOut={signOut} />
+          </SettingsLayout>
+        ) : (
+          <NotFoundPage />
+        )}
+      </AppShell>
+    </TooltipProvider>
   );
 }

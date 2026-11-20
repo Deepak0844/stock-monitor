@@ -1,4 +1,4 @@
-import { and, asc, count, eq, ilike, isNull, notExists, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, isNull, notExists, or, sql, type SQL } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { mappings, shopifyVariants, suppliers } from "./schema.js";
 
@@ -45,6 +45,10 @@ export type LinkCheckResult = {
 /** The latest stock answer of a link, or `none` for a link with no stock check yet. */
 export type StockFilter = "in_stock" | "out_of_stock" | "cannot_tell" | "none";
 export type MappingFilter = { supplierId?: string; linkStatus?: LinkStatusValue; stock?: StockFilter; search?: string };
+/** The columns a page of links can be sorted by. With none, links come in product then variant order. */
+export const MAPPING_SORTS = ["product", "supplier", "lastChecked"] as const;
+export type MappingSort = (typeof MAPPING_SORTS)[number];
+export type SortDir = "asc" | "desc";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const UNIQUE_VIOLATION = "23505";
@@ -92,6 +96,15 @@ export function createMappingRepository<S extends Record<string, unknown>>(db: N
       ? sql`not exists (select 1 from stock_observations o where o.mapping_id = ${mappings.id})`
       : sql`(select o.answer from stock_observations o where o.mapping_id = ${mappings.id} order by o.observed_at desc, o.id desc limit 1) = ${stock}`;
 
+  // Every order ends with the id, so equal values never swap between pages.
+  const orderFor = (sort: MappingSort | undefined, dir: SortDir) => {
+    const by = dir === "desc" ? desc : asc;
+    const byProduct = [asc(shopifyVariants.productTitle), asc(shopifyVariants.variantTitle), asc(mappings.id)];
+    if (sort === "supplier") return [by(sql`lower(${suppliers.name})`), ...byProduct];
+    if (sort === "lastChecked") return [sql`${mappings.lastLinkCheckAt} ${sql.raw(dir)} nulls last`, ...byProduct];
+    return [by(shopifyVariants.productTitle), by(shopifyVariants.variantTitle), by(mappings.id)];
+  };
+
   const whereFor = (filter: MappingFilter) =>
     and(
       filter.supplierId ? eq(mappings.supplierId, filter.supplierId) : undefined,
@@ -116,12 +129,12 @@ export function createMappingRepository<S extends Record<string, unknown>>(db: N
     },
 
     /** One page of links in the same order as `list`, with how many match in all. */
-    async page(filter: MappingFilter & { page: number; pageSize: number }): Promise<{ rows: MappingRow[]; total: number }> {
+    async page(filter: MappingFilter & { page: number; pageSize: number; sort?: MappingSort; dir?: SortDir }): Promise<{ rows: MappingRow[]; total: number }> {
       if (filter.supplierId !== undefined && !UUID.test(filter.supplierId)) return { rows: [], total: 0 };
       const where = whereFor(filter);
       const rows = (await joined()
         .where(where)
-        .orderBy(asc(shopifyVariants.productTitle), asc(shopifyVariants.variantTitle), asc(mappings.id))
+        .orderBy(...orderFor(filter.sort, filter.dir ?? "asc"))
         .limit(filter.pageSize)
         .offset((filter.page - 1) * filter.pageSize)) as MappingRow[];
       const [row] = await db
