@@ -21,9 +21,8 @@ import { SuggestionsPage } from "./pages/settings/SuggestionsPage.js";
 import { LoginPage } from "./pages/LoginPage.js";
 import { AppShell } from "./shell/AppShell.js";
 import { TooltipProvider } from "@/components/ui/tooltip.js";
-import { QueryClientProvider } from "@tanstack/react-query";
-import { ApiProvider } from "./query/ApiProvider.js";
-import { createQueryClient } from "./query/client.js";
+import { createQueryClient } from "./store/api/api.js";
+import { StoreProvider } from "./store/StoreProvider.js";
 import { setWaiting } from "./tabTitle.js";
 import { useNotifications } from "./shell/useNotifications.js";
 import { redirect, usePath } from "./router.js";
@@ -160,63 +159,61 @@ export function App({ api = realApi }: { api?: Api }) {
       .catch((e: unknown) => setState({ kind: "error", message: messageOf(e) }));
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <ApiProvider api={api}>
-        <TooltipProvider delayDuration={400}>
-          <AppShell
-            email={state.email}
-            proposalCount={proposalCount}
-            attentionCount={notifications.items.length}
-            schedule={schedule}
-            notifications={notifications}
-            onSignOut={signOut}
-          >
-            {path === "/" ? (
-              <DashboardPage api={api} />
-            ) : path === "/products" ? (
-              <ProductsPage api={api} />
-            ) : path === "/proposals" ? (
-              <ProposalsPage api={api} onChange={refreshCount} />
-            ) : path === "/suppliers" ? (
-              <SuppliersPage api={api} />
-            ) : path === "/suppliers/new" ? (
-              <SupplierFormPage api={api} />
-            ) : path === "/mappings" ? (
-              <MappingsPage api={api} />
-            ) : path === "/mappings/new" ? (
-              <MappingFormPage api={api} />
-            ) : path === "/mappings/import" ? (
-              <ImportMappingsPage api={api} />
-            ) : mappingEditId ? (
-              <MappingFormPage key={mappingEditId} api={api} id={mappingEditId} />
-            ) : rulesId ? (
-              <StockRulesPage key={rulesId} api={api} supplierId={rulesId} />
-            ) : connectId ? (
-              <ConnectSupplierPage key={connectId} api={api} supplierId={connectId} />
-            ) : editId ? (
-              <SupplierFormPage key={editId} api={api} id={editId} />
-            ) : path === "/settings" || path === "/settings/shopify" ? (
-              <SettingsLayout current="shopify">
-                <SettingsShopifyPage api={api} />
-              </SettingsLayout>
-            ) : path === "/settings/suggestions" ? (
-              <SettingsLayout current="suggestions">
-                <SuggestionsPage />
-              </SettingsLayout>
-            ) : path === "/settings/appearance" ? (
-              <SettingsLayout current="appearance">
-                <AppearancePage />
-              </SettingsLayout>
-            ) : path === "/settings/account" ? (
-              <SettingsLayout current="account">
-                <AccountPage email={state.email} onSignOut={signOut} />
-              </SettingsLayout>
-            ) : (
-              <NotFoundPage />
-            )}
-          </AppShell>
-        </TooltipProvider>
-      </ApiProvider>
-    </QueryClientProvider>
+    <StoreProvider api={api} client={queryClient}>
+      <TooltipProvider delayDuration={400}>
+        <AppShell
+          email={state.email}
+          proposalCount={proposalCount}
+          attentionCount={notifications.items.length}
+          schedule={schedule}
+          notifications={notifications}
+          onSignOut={signOut}
+        >
+          {path === "/" ? (
+            <DashboardPage api={api} />
+          ) : path === "/products" ? (
+            <ProductsPage api={api} />
+          ) : path === "/proposals" ? (
+            <ProposalsPage api={api} onChange={refreshCount} />
+          ) : path === "/suppliers" ? (
+            <SuppliersPage api={api} />
+          ) : path === "/suppliers/new" ? (
+            <SupplierFormPage api={api} />
+          ) : path === "/mappings" ? (
+            <MappingsPage api={api} />
+          ) : path === "/mappings/new" ? (
+            <MappingFormPage api={api} />
+          ) : path === "/mappings/import" ? (
+            <ImportMappingsPage api={api} />
+          ) : mappingEditId ? (
+            <MappingFormPage key={mappingEditId} api={api} id={mappingEditId} />
+          ) : rulesId ? (
+            <StockRulesPage key={rulesId} api={api} supplierId={rulesId} />
+          ) : connectId ? (
+            <ConnectSupplierPage key={connectId} api={api} supplierId={connectId} />
+          ) : editId ? (
+            <SupplierFormPage key={editId} api={api} id={editId} />
+          ) : path === "/settings" || path === "/settings/shopify" ? (
+            <SettingsLayout current="shopify">
+              <SettingsShopifyPage api={api} />
+            </SettingsLayout>
+          ) : path === "/settings/suggestions" ? (
+            <SettingsLayout current="suggestions">
+              <SuggestionsPage />
+            </SettingsLayout>
+          ) : path === "/settings/appearance" ? (
+            <SettingsLayout current="appearance">
+              <AppearancePage />
+            </SettingsLayout>
+          ) : path === "/settings/account" ? (
+            <SettingsLayout current="account">
+              <AccountPage email={state.email} onSignOut={signOut} />
+            </SettingsLayout>
+          ) : (
+            <NotFoundPage />
+          )}
+        </AppShell>
+      </TooltipProvider>
+    </StoreProvider>
   );
 }

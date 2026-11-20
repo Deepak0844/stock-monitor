@@ -5,7 +5,7 @@ import { cleanup, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { ApiError } from "../../api.js";
 import { fakeApi } from "../../test/fake-api.js";
-import { renderWithQuery } from "../../test/renderWithQuery.js";
+import { renderWithStore } from "../../test/renderWithStore.js";
 import { ProposalSettingsCard } from "./ProposalSettingsCard.js";
 
 afterEach(cleanup);
@@ -14,7 +14,7 @@ const ready = { state: "ready" as const, message: "Shopify allows this app to ch
 
 const setup = (over: NonNullable<Parameters<typeof fakeApi>[0]>["proposals"] = {}) => {
   const api = fakeApi({ proposals: { settings: vi.fn().mockResolvedValue({ settings: { defaultQuantity: 5, expiryHours: 24 }, writePermission: ready }), ...over } });
-  renderWithQuery(<ProposalSettingsCard />, { api });
+  renderWithStore(<ProposalSettingsCard />, { api });
   return { api, user: userEvent.setup() };
 };
 

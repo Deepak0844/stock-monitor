@@ -8,14 +8,14 @@ import { Field } from "../../components/Field.js";
 import { Notice } from "../../components/Notice.js";
 import { Panel } from "../../components/Panel.js";
 import { toast } from "../../lib/toast.js";
-import { useProposalSettings, useSaveProposalSettings } from "../../query/proposals.js";
+import { useGetProposalSettingsQuery, useSaveProposalSettingsMutation } from "../../store/api/proposals/proposalApi.js";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong. Please try again.");
 const whole = (text: string, min: number, max: number) => /^\d+$/.test(text.trim()) && Number(text) >= min && Number(text) <= max;
 
 /** The two numbers behind suggestions, and whether Shopify lets this app change stock. */
 export function ProposalSettingsCard() {
-  const { data, error } = useProposalSettings();
+  const { data, error } = useGetProposalSettingsQuery();
 
   return (
     <Panel
@@ -49,7 +49,7 @@ function SettingsForm({ initial }: { initial: ProposalSettings }) {
   const [quantity, setQuantity] = useState(String(initial.defaultQuantity));
   const [hours, setHours] = useState(String(initial.expiryHours));
   const [error, setError] = useState<string | null>(null);
-  const save = useSaveProposalSettings();
+  const save = useSaveProposalSettingsMutation();
 
   async function submit(event: FormEvent) {
     event.preventDefault();

@@ -53,3 +53,25 @@ apps/web/src/
 ## Left to the builder
 
 Exact retry count wording, test helper name, inline comments that give the RTK equivalent.
+
+## Revision (same day): the owner's RTK Query structure
+
+The owner asked for the folder structure they use with RTK Query in another project, built with TanStack Query. This replaces `src/query/` above. Global errors are off by default (owner's choice): pages keep showing their own errors, and an endpoint turns a toast on with `meta`.
+
+```
+apps/web/src/store/
+  StoreProvider.tsx          RTK: store.js + <Provider store>      QueryClientProvider + api context
+  api/
+    api.ts                   RTK: api/api.js (createApi)           createQueryClient(), shouldRetry, wires the error handler
+    baseQuery.ts             RTK: customBaseQuery                  useApi(): endpoints call api.ts (like the sdkFn path)
+    queryErrorHandler.ts     RTK: rtkQueryErrorMiddleware          QueryCache/MutationCache onError, meta { showToaster, suppressGlobalError }
+    apiUtils.ts              RTK: apiUtils list/paginated/entity   allKey, listKey, pageKey, entityKey
+    proposals/
+      proposalApi.ts         RTK: <entity>Api.js                   PROPOSAL type, proposalKeys, queryOptions/mutationOptions
+                                                                   definitions, useGetProposalSettingsQuery, useSaveProposalSettingsMutation
+apps/web/src/test/renderWithStore.tsx                              RTK: <Provider store={makeStore(fakeApi)}>
+```
+
+- No module folders in this app, so each resource sits in `store/api/<resource>/`.
+- URLs stay in `api.ts`; moving them into each resource file means rewriting the fetch layer every page and test uses.
+- Not carried over: `showPageError` / `errorPageUrl` (this app has no error page), call-site flag overrides (no caller needs them yet), transformer files (add one per resource only when an endpoint needs `select`).
