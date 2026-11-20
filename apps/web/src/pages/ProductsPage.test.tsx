@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { ApiError, type VariantPage, type VariantQuery } from "../api.js";
 import { aConnection, aPage, aVariant, fakeApi } from "../test/fake-api.js";
+import { renderWithStore } from "../test/renderWithStore.js";
 import { ProductsPage } from "./ProductsPage.js";
 
 beforeEach(() => window.history.replaceState(null, "", "/products"));
@@ -22,7 +23,7 @@ const setup = (
   const api = fakeApi({
     shopify: { variants: variantsSpy, getConnection: vi.fn().mockResolvedValue(connection) },
   });
-  render(<ProductsPage api={api} />);
+  renderWithStore(<ProductsPage />, { api });
   return { variantsSpy, api, user: userEvent.setup() };
 };
 

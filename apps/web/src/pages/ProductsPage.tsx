@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button.js";
 import { Input } from "@/components/ui/input.js";
-import type { Api, ShopifyConnection, VariantPage, VariantItem } from "../api.js";
+import type { ShopifyConnection, VariantPage, VariantItem } from "../api.js";
+import { useGetShopifyConnectionQuery, useGetShopifyVariantsQuery } from "../store/api/shopify/shopifyApi.js";
 import { DataTable, type Column } from "../components/DataTable.js";
 import { CopyButton } from "../components/CopyButton.js";
 import { FilterChips } from "../components/FilterChips.js";
@@ -98,52 +99,34 @@ const columns: Column<VariantItem>[] = [
   },
 ];
 
-export function ProductsPage({ api }: { api: Api }) {
+export function ProductsPage() {
   useTitle("Products");
   const params = useListParams({ pageSize: 25 });
   const { page, pageSize, search, sort, dir, set } = params;
   const attention = params.filters.attention === "1";
   const filtering = search !== "" || attention;
 
-  const [connection, setConnection] = useState<ShopifyConnection | null | undefined>(undefined);
+  // A connection that cannot be read counts as none, so the page still says what to do.
+  const connectionQuery = useGetShopifyConnectionQuery();
+  const connection: ShopifyConnection | null | undefined = connectionQuery.isError ? null : connectionQuery.data;
   const [q, setQ] = useState(search);
   // The previous page stays on screen, dimmed, while the next one loads, so the page does not jump.
-  const [data, setData] = useState<VariantPage | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const latest = useRef(0);
-
-  useEffect(() => {
-    api.shopify
-      .getConnection()
-      .then(setConnection)
-      .catch(() => setConnection(null));
-  }, [api]);
-
-  const load = useCallback(() => {
-    const id = ++latest.current;
-    setLoading(true);
-    setError(null);
-    api.shopify
-      .variants({
-        page,
-        pageSize,
-        search: search || undefined,
-        warningsOnly: attention,
-        ...(sort ? { sort, dir } : {}),
-      })
-      .then((result) => {
-        if (id !== latest.current) return; // a newer request has taken over
-        setData(result);
-        setLoading(false);
-      })
-      .catch((e: unknown) => {
-        if (id !== latest.current) return;
-        setError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
-        setLoading(false);
-      });
-  }, [api, page, pageSize, search, attention, sort, dir]);
-  useEffect(load, [load]);
+  const variants = useGetShopifyVariantsQuery({
+    page,
+    pageSize,
+    search: search || undefined,
+    warningsOnly: attention,
+    ...(sort ? { sort, dir } : {}),
+  });
+  const data: VariantPage | null = variants.data ?? null;
+  const loading = variants.isPlaceholderData || (variants.isFetching && !variants.data);
+  const error =
+    variants.isError && !variants.isFetching && !variants.data
+      ? variants.error instanceof Error
+        ? variants.error.message
+        : "Something went wrong. Please try again."
+      : null;
+  const load = () => void variants.refetch();
 
   // The search box waits for a pause in typing, then goes to the address. A change made elsewhere, such as clearing, comes back in.
   useEffect(() => {

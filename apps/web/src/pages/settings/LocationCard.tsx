@@ -1,44 +1,37 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Select } from "@/components/ui/input.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
-import type { Api, ShopifyConnection, ShopifyLocation } from "../../api.js";
+import type { ShopifyConnection, ShopifyLocation } from "../../api.js";
 import { Field } from "../../components/Field.js";
 import { Notice } from "../../components/Notice.js";
 import { Panel } from "../../components/Panel.js";
 import { toast } from "../../lib/toast.js";
+import { useChooseShopifyLocationMutation, useGetShopifyLocationsQuery } from "../../store/api/shopify/shopifyApi.js";
 
 type Props = {
-  api: Api;
   connection: ShopifyConnection;
-  onChosen: (location: ShopifyLocation) => void;
+  /** The chosen location is already in the cache; this only tells the page. */
+  onChosen?: (location: ShopifyLocation) => void;
 };
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong. Please try again.");
 
-export function LocationCard({ api, connection, onChosen }: Props) {
-  const [locations, setLocations] = useState<ShopifyLocation[] | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+export function LocationCard({ connection, onChosen }: Props) {
+  const locationsQuery = useGetShopifyLocationsQuery();
+  const locations = locationsQuery.data ?? null;
+  const loadError = locationsQuery.isError && !locationsQuery.data ? message(locationsQuery.error) : null;
+  const chooseLocation = useChooseShopifyLocationMutation();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let current = true;
-    api.shopify
-      .locations()
-      .then((list) => current && setLocations(list))
-      .catch((e: unknown) => current && setLoadError(message(e)));
-    return () => {
-      current = false;
-    };
-  }, [api]);
 
   async function choose(id: string) {
     if (!id) return;
     setSaving(true);
     setError(null);
     try {
-      const location = await api.shopify.chooseLocation(id);
-      onChosen(location);
+      const location = await chooseLocation.mutateAsync(id);
+      onChosen?.(location);
       toast(`Using ${location.name}.`);
     } catch (e) {
       setError(message(e));

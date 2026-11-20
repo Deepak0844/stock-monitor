@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { ApiError, type ShopifyApi, type SyncRun } from "../api.js";
 import { aCheck, aConnection, fakeApi } from "../test/fake-api.js";
+import { renderWithStore } from "../test/renderWithStore.js";
 import { SettingsShopifyPage } from "./SettingsShopifyPage.js";
 
 beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: true }));
@@ -42,7 +43,7 @@ const syncButton = async () => {
 
 const setup = (shopify: Partial<ShopifyApi> = {}) => {
   const api = fakeApi({ shopify });
-  render(<SettingsShopifyPage api={api} />);
+  renderWithStore(<SettingsShopifyPage api={api} />);
   return { api, user: userEvent.setup({ advanceTimers: vi.advanceTimersByTime }) };
 };
 

@@ -169,7 +169,7 @@ function AppRoutes({ api }: { api: Api }) {
         {path === "/" ? (
           <DashboardPage api={api} />
         ) : path === "/products" ? (
-          <ProductsPage api={api} />
+          <ProductsPage />
         ) : path === "/proposals" ? (
           <ProposalsPage api={api} />
         ) : path === "/suppliers" ? (
