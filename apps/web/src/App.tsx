@@ -167,7 +167,7 @@ function AppRoutes({ api }: { api: Api }) {
         onSignOut={signOut}
       >
         {path === "/" ? (
-          <DashboardPage api={api} />
+          <DashboardPage />
         ) : path === "/products" ? (
           <ProductsPage />
         ) : path === "/proposals" ? (
@@ -179,11 +179,11 @@ function AppRoutes({ api }: { api: Api }) {
         ) : path === "/mappings" ? (
           <MappingsPage api={api} />
         ) : path === "/mappings/new" ? (
-          <MappingFormPage api={api} />
+          <MappingFormPage />
         ) : path === "/mappings/import" ? (
           <ImportMappingsPage api={api} />
         ) : mappingEditId ? (
-          <MappingFormPage key={mappingEditId} api={api} id={mappingEditId} />
+          <MappingFormPage key={mappingEditId} id={mappingEditId} />
         ) : rulesId ? (
           <StockRulesPage key={rulesId} api={api} supplierId={rulesId} />
         ) : connectId ? (

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Download, History, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import { isStale } from "@stock-monitor/scheduling";
 import { Badge } from "@/components/ui/badge.js";
@@ -27,7 +27,6 @@ import type {
   StartedRun,
   StockFilter,
   Supplier,
-  UnmappedList,
 } from "../api.js";
 import { DataTable, type Column } from "../components/DataTable.js";
 import { EmptyState } from "../components/EmptyState.js";
@@ -46,6 +45,16 @@ import { Link } from "../router.js";
 import { useTitle } from "../useTitle.js";
 import { toast } from "../lib/toast.js";
 import { useGetSupplierListQuery } from "../store/api/suppliers/supplierApi.js";
+import {
+  useCheckMappingLinkMutation,
+  useCheckMappingStockMutation,
+  useGetMappingPageQuery,
+  useGetUnmappedQuery,
+  useMappingChanged,
+  useMappingRemoved,
+  useMappingsRefresh,
+  useRemoveMappingMutation,
+} from "../store/api/mappings/mappingApi.js";
 
 const SHOW_UNMAPPED = 50;
 const SEARCH_DELAY_MS = 300;
@@ -157,52 +166,39 @@ export function MappingsPage({ api }: { api: Api }) {
   const filtered = supplierId !== "" || status !== "" || stock !== "" || search !== "";
 
   const suppliers = useGetSupplierListQuery().data ?? NO_SUPPLIERS;
-  const [data, setData] = useState<{ items: Mapping[]; total: number } | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const mappingPage = useGetMappingPageQuery({
+    supplierId: supplierId || undefined,
+    status: status || undefined,
+    stock: stock || undefined,
+    search: search || undefined,
+    page,
+    pageSize,
+    ...(sort ? { sort, dir } : {}),
+  });
+  const data = mappingPage.data ? { items: mappingPage.data.items, total: mappingPage.data.total } : null;
+  // Loading while the first read or a new page is on its way; the rows shown stay until the next ones arrive.
+  const loading = mappingPage.isPlaceholderData || (mappingPage.isFetching && !mappingPage.data);
+  const loadError = mappingPage.isError && !mappingPage.isFetching && !mappingPage.data ? message(mappingPage.error) : null;
+  const load = () => void mappingPage.refetch();
+  const refreshMappings = useMappingsRefresh();
+  const checkLink = useCheckMappingLinkMutation();
+  const checkLinkStock = useCheckMappingStockMutation();
+  const removeMapping = useRemoveMappingMutation();
+  const mappingRemoved = useMappingRemoved();
   const [actionError, setActionError] = useState<string | null>(null);
   // Links deleted with Undo still waiting: hidden at once, back again on Undo or if the delete fails.
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [q, setQ] = useState(search);
   const [variantSearch, setVariantSearch] = useState("");
-  const [unmapped, setUnmapped] = useState<UnmappedList | null>(null);
-  const [reloaded, setReloaded] = useState(0);
   // Checks asked for whose answer has not shown yet, as `link:<id>` or `stock:<id>`.
   const [waiting, setWaiting] = useState<Set<string>>(new Set());
   const stopWaiting = (key?: string) =>
     key && setWaiting((w) => (w.has(key) ? new Set([...w].filter((x) => x !== key)) : w));
   const [history, setHistory] = useState<{ mapping: Mapping; items: Observation[] } | null>(null);
   const vq = useDelayed(variantSearch);
-  const latestCall = useRef(0);
-
-
-  const load = useCallback(() => {
-    const mine = ++latestCall.current;
-    setLoading(true);
-    setLoadError(null);
-    api.mappings
-      .page({
-        supplierId: supplierId || undefined,
-        status: status || undefined,
-        stock: stock || undefined,
-        search: search || undefined,
-        page,
-        pageSize,
-        ...(sort ? { sort, dir } : {}),
-      })
-      .then((result) => {
-        if (mine !== latestCall.current) return;
-        setData({ items: result.items, total: result.total });
-        setLoading(false);
-      })
-      .catch((e: unknown) => {
-        if (mine !== latestCall.current) return;
-        setLoadError(message(e));
-        setLoading(false);
-      });
-  }, [api, supplierId, status, stock, search, page, pageSize, sort, dir]);
-  useEffect(load, [load]);
+  // Variants with no link, for the panel beside the table. One that cannot be read leaves the panel out.
+  const unmapped = useGetUnmappedQuery(vq || undefined).data ?? null;
 
   // The search box waits for a pause in typing, then goes to the address. A change made elsewhere, such as clearing, comes back in.
   useEffect(() => {
@@ -215,8 +211,7 @@ export function MappingsPage({ api }: { api: Api }) {
   // A check of one link is followed through the link's small status. Once it says the check finished, that link is read once and
   // only its row changes.
   const watch = useWatch();
-  const replaceRow = (m: Mapping) =>
-    setData((d) => d && { ...d, items: d.items.map((x) => (x.id === m.id ? m : x)) });
+  const replaceRow = useMappingChanged();
   const follow = async (
     key: string,
     m: { id: string },
@@ -282,19 +277,13 @@ export function MappingsPage({ api }: { api: Api }) {
         .run(wholeRun.id)
         .then((next) => {
           setWholeRun((cur) => (cur?.id === next.id ? next : cur));
-          if (next.outcome !== "running") load();
+          if (next.outcome !== "running") refreshMappings();
         })
         .catch(() => setWholeRun((cur) => (cur?.id === wholeRun.id ? { ...cur } : cur))); // a new object asks again after the pause
     }, RUN_POLL_MS);
     return () => clearTimeout(timer);
-  }, [api, wholeRun, load]);
+  }, [api, wholeRun]);
 
-  useEffect(() => {
-    api.mappings
-      .unmapped(vq || undefined)
-      .then(setUnmapped)
-      .catch(() => setUnmapped(null));
-  }, [api, vq, reloaded]);
 
   async function run(key: string, work: () => Promise<void>) {
     setBusyKey(key);
@@ -314,7 +303,7 @@ export function MappingsPage({ api }: { api: Api }) {
     run(`link:${m.id}`, async () => {
       setWaiting((w) => new Set(w).add(`link:${m.id}`));
       try {
-        await api.mappings.checkLink(m.id);
+        await checkLink.mutateAsync({ id: m.id });
       } catch (e) {
         stopWaiting(`link:${m.id}`);
         throw e;
@@ -335,7 +324,7 @@ export function MappingsPage({ api }: { api: Api }) {
     run(`stock:${m.id}`, async () => {
       setWaiting((w) => new Set(w).add(`stock:${m.id}`));
       try {
-        await api.stock.checkLink(m.id);
+        await checkLinkStock.mutateAsync({ id: m.id });
       } catch (e) {
         stopWaiting(`stock:${m.id}`);
         throw e;
@@ -412,10 +401,12 @@ export function MappingsPage({ api }: { api: Api }) {
     deferred({
       text: `Deleted the link for ${m.productTitle} (${m.variantTitle}).`,
       commit: async (keepalive) => {
-        await api.mappings.remove(m.id, { keepalive });
+        if (keepalive) {
+          // While the page closes the request must leave at once, so it goes straight to the server.
+          await api.mappings.remove(m.id, { keepalive });
+          mappingRemoved(m.id);
+        } else await removeMapping.mutateAsync({ id: m.id, keepalive }); // its variant now has no link: both lists are read again
         show(m.id);
-        setReloaded((n) => n + 1); // its variant now has no link
-        load();
       },
       onUndo: () => show(m.id),
       onFailed: () => show(m.id),
