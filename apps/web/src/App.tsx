@@ -25,6 +25,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createQueryClient } from "./store/api/api.js";
 import { proposalKeys, useGetProposalCountQuery } from "./store/api/proposals/proposalApi.js";
 import { useGetScheduleOverviewQuery } from "./store/api/schedule/scheduleApi.js";
+import { useGetMeQuery, useLoginMutation, useLogoutMutation } from "./store/api/auth/authApi.js";
 import { StoreProvider } from "./store/StoreProvider.js";
 import { setWaiting } from "./tabTitle.js";
 import { useNotifications } from "./shell/useNotifications.js";
@@ -53,7 +54,20 @@ export function App({ api = realApi }: { api?: Api }) {
 }
 
 function AppRoutes({ api }: { api: Api }) {
-  const [state, setState] = useState<State>({ kind: "loading" });
+  // Who is signed in, from the cache. A sign-out that failed shows its own error until Try again.
+  const me = useGetMeQuery();
+  const [failure, setFailure] = useState<string | null>(null);
+  const state: State = failure
+    ? { kind: "error", message: failure }
+    : me.data
+      ? { kind: "signedIn", email: me.data.email }
+      : me.data === null
+        ? { kind: "signedOut" }
+        : me.isError && !me.isFetching
+          ? { kind: "error", message: messageOf(me.error) }
+          : { kind: "loading" };
+  const login = useLoginMutation();
+  const logout = useLogoutMutation();
   const queryClient = useQueryClient();
   const path = usePath();
   const editId = /^\/suppliers\/([^/]+)\/edit$/.exec(path)?.[1];
@@ -84,17 +98,10 @@ function AppRoutes({ api }: { api: Api }) {
   // The schedule, for the check status in the sidebar. Read when signed in and every minute after, while the tab is shown.
   const schedule = useGetScheduleOverviewQuery({ enabled: signedIn, refetchEvery: SCHEDULE_POLL_MS }).data ?? null;
 
-  const checkSession = useCallback(() => {
-    setState({ kind: "loading" });
-    api
-      .getMe()
-      .then((owner) =>
-        setState(owner ? { kind: "signedIn", email: owner.email } : { kind: "signedOut" }),
-      )
-      .catch((e: unknown) => setState({ kind: "error", message: messageOf(e) }));
-  }, [api]);
-
-  useEffect(checkSession, [checkSession]);
+  const checkSession = () => {
+    setFailure(null);
+    void me.refetch();
+  };
 
   // Signed out, every address shows the sign-in page at /login, remembering where the owner was going. Signed in, /login moves
   // on to that page, or to the Dashboard.
@@ -138,23 +145,18 @@ function AppRoutes({ api }: { api: Api }) {
     return (
       <LoginPage
         onLogin={async (email, password) => {
-          const owner = await api.login(email, password);
-          setState({ kind: "signedIn", email: owner.email });
+          await login.mutateAsync({ email, password });
         }}
       />
     );
   }
 
+  // Signing out empties the cache, so nothing from this session is shown afterwards.
   const signOut = () =>
-    api
-      .logout()
-      .then(() => {
-        // Nothing cached for this session is shown after signing out.
-        queryClient.clear();
-        redirect("/login");
-        setState({ kind: "signedOut" });
-      })
-      .catch((e: unknown) => setState({ kind: "error", message: messageOf(e) }));
+    logout
+      .mutateAsync()
+      .then(() => redirect("/login"))
+      .catch((e: unknown) => setFailure(messageOf(e)));
 
   return (
     <TooltipProvider delayDuration={400}>
