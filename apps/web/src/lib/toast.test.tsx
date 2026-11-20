@@ -56,12 +56,34 @@ describe("toasts", () => {
 });
 
 describe("OfflineBar", () => {
-  it("appears when the browser goes offline and leaves when it is back", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("appears when the browser goes offline and the server cannot be reached, and leaves when it is back", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("Failed to fetch"));
     render(<OfflineBar />);
     expect(screen.queryByText(/You're offline/)).toBeNull();
     act(() => void window.dispatchEvent(new Event("offline")));
-    expect(screen.getByText(/You're offline/)).toBeInTheDocument();
+    expect(await screen.findByText(/You're offline/)).toBeInTheDocument();
     act(() => void window.dispatchEvent(new Event("online")));
+    expect(screen.queryByText(/You're offline/)).toBeNull();
+  });
+
+  it("stays hidden when the browser wrongly says offline but the server answers", async () => {
+    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response('{"status":"ok"}'));
+    render(<OfflineBar />);
+    await act(async () => void (await vi.advanceTimersByTimeAsync(0)));
+    expect(fetch).toHaveBeenCalledWith("/health", expect.objectContaining({ cache: "no-store" }));
+    expect(screen.queryByText(/You're offline/)).toBeNull();
+  });
+
+  it("goes away by itself once the server answers again", async () => {
+    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    const fetch = vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("Failed to fetch"));
+    render(<OfflineBar />);
+    expect(await screen.findByText(/You're offline/)).toBeInTheDocument();
+    fetch.mockResolvedValue(new Response('{"status":"ok"}'));
+    await act(async () => void (await vi.advanceTimersByTimeAsync(15_000)));
     expect(screen.queryByText(/You're offline/)).toBeNull();
   });
 });
