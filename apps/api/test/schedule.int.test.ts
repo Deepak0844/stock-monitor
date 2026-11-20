@@ -147,7 +147,19 @@ describe("PUT /api/suppliers/:id/schedule", () => {
 describe("GET /api/schedule", () => {
   it("is off for a supplier with no interval", async () => {
     const r = await call("GET", "/api/schedule");
-    expect(r.body.schedule).toEqual([{ supplierId: acme, status: { state: "off" }, intervalMinutes: null, window: null, nextCheckAt: null, run: null, lastRun: null }]);
+    expect(r.body.schedule).toEqual([
+      { supplierId: acme, status: { state: "off" }, intervalMinutes: null, window: null, nextCheckAt: null, run: null, lastRun: null, recent: { total: 0, finished: 0, failed: 0, stopped: 0, streak: null } },
+    ]);
+  });
+
+  it("sums up the recent runs and keeps the last one that ended", async () => {
+    for (const outcome of ["finished", "finished", "failed"] as const) {
+      const r = await runs().start(acme, "scheduled", 3);
+      await runs().end(r!.id, outcome, outcome === "failed" ? "logged_out" : null);
+    }
+    const [row] = (await call("GET", "/api/schedule")).body.schedule;
+    expect(row.recent).toMatchObject({ total: 3, finished: 2, failed: 1, stopped: 0, streak: { count: 1 } });
+    expect(row.lastRun).toMatchObject({ outcome: "failed" });
   });
 
   it("is waiting for a ready supplier, with the next check time", async () => {

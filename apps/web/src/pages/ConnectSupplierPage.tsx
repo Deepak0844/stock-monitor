@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentType,
+  type ReactNode,
+} from "react";
 import { Button } from "@/components/ui/button.js";
 import type { Api, LoginSession, Supplier } from "../api.js";
 import { LiveWindow, type LiveWindowFailure } from "../components/LiveWindow.js";
@@ -14,11 +21,18 @@ type WindowProps = {
   onConnected: () => void;
   onFailed: (reason: LiveWindowFailure) => void;
   onExpired: () => void;
+  bar?: ReactNode;
 };
 
 type State =
   | { kind: "starting" }
-  | { kind: "window"; loginSession: LoginSession; token: string; connected: boolean; saving: boolean }
+  | {
+      kind: "window";
+      loginSession: LoginSession;
+      token: string;
+      connected: boolean;
+      saving: boolean;
+    }
   | { kind: "done" }
   | { kind: "error"; message: string; canRetry: boolean };
 
@@ -28,13 +42,39 @@ const MESSAGES = {
   expired: "The login window closed because time ran out. Start again.",
 } as const;
 
-const messageOf = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong. Please try again.");
+const messageOf = (e: unknown) =>
+  e instanceof Error ? e.message : "Something went wrong. Please try again.";
 
 /**
  * Connecting a supplier: the owner logs in by hand in a live window, then presses "I'm logged in".
  * Only one login can be open, so the page cancels what it opened whenever it is left, closed or retried.
  */
-export function ConnectSupplierPage({ api, supplierId, liveWindow: Window = LiveWindow }: { api: Api; supplierId: string; liveWindow?: ComponentType<WindowProps> }) {
+const STEPS: [string, string][] = [
+  ["Log in as you normally would", "Your usual email and password, on the supplier's own website."],
+  ["Solve any puzzle or code", "Codes sent by email are filled in for you when email is set up."],
+  ["Press I'm logged in", "The app saves the login and checks it works."],
+];
+
+/** The supplier's login page, as an address bar shows it. */
+function address(s: Supplier | null): string {
+  if (!s) return "";
+  try {
+    const u = new URL(s.loginUrl ?? s.websiteUrl);
+    return u.host + (u.pathname === "/" ? "" : u.pathname);
+  } catch {
+    return s.loginUrl ?? s.websiteUrl;
+  }
+}
+
+export function ConnectSupplierPage({
+  api,
+  supplierId,
+  liveWindow: Window = LiveWindow,
+}: {
+  api: Api;
+  supplierId: string;
+  liveWindow?: ComponentType<WindowProps>;
+}) {
   useTitle("Connect supplier");
   const [supplier, setSupplier] = useState<Supplier | null>(null);
   const [state, setState] = useState<State>({ kind: "starting" });
@@ -131,12 +171,16 @@ export function ConnectSupplierPage({ api, supplierId, liveWindow: Window = Live
   return (
     <>
       <PageHeader
+        back={{ to: "/suppliers", label: "Back to suppliers" }}
         title={name ? `${again ? "Reconnect" : "Connect"} ${name}` : "Connect supplier"}
         description="Log in as you normally would. Solve any puzzle or code. Then press I'm logged in."
       />
 
       <div className="mb-4 min-[897px]:hidden">
-        <Notice kind="info">Connecting a supplier works best on a computer. You can still check status and messages on your phone.</Notice>
+        <Notice kind="info">
+          Connecting a supplier works best on a computer. You can still check status and messages on
+          your phone.
+        </Notice>
       </div>
 
       {state.kind === "starting" && (
@@ -146,25 +190,74 @@ export function ConnectSupplierPage({ api, supplierId, liveWindow: Window = Live
       )}
 
       {state.kind === "window" && (
-        <>
-          {/* The buttons come before the window, so keyboard and screen reader users reach them first. */}
-          <div className="flex flex-wrap gap-2">
-            <Button disabled={!state.connected || state.saving} loading={state.saving} onClick={() => void finish()}>
+        <div className="grid gap-0 border border-border lg:grid-cols-[17rem_minmax(0,1fr)]">
+          {/* The guide and its buttons come before the window, so keyboard and screen reader users reach them first. */}
+          <div className="flex flex-col gap-4 border-border bg-card p-4 max-lg:border-b lg:border-r">
+            <ol aria-label="Steps" className="flex flex-col gap-3">
+              {STEPS.map(([title, detail], i) => (
+                <li key={title} className="flex gap-3 text-sm">
+                  <span
+                    aria-hidden="true"
+                    className="grid size-6 shrink-0 place-items-center rounded-full border-[1.5px] border-foreground font-mono text-xs font-semibold"
+                  >
+                    {i + 1}
+                  </span>
+                  <span>
+                    <b className="block font-medium">{title}</b>
+                    <span className="block text-[0.8125rem] text-muted-foreground">{detail}</span>
+                  </span>
+                </li>
+              ))}
+            </ol>
+            <Button
+              className="w-full"
+              disabled={!state.connected || state.saving}
+              loading={state.saving}
+              onClick={() => void finish()}
+            >
               {state.saving ? "Saving…" : "I'm logged in"}
             </Button>
-            <Button variant="outline" disabled={state.saving} onClick={() => void cancel()}>
+            <Button
+              className="w-full"
+              variant="outline"
+              disabled={state.saving}
+              onClick={() => void cancel()}
+            >
               Cancel
             </Button>
           </div>
-          <Window
-            loginSessionId={state.loginSession.id}
-            token={state.token}
-            expiresAt={state.loginSession.expiresAt}
-            onConnected={() => setState((s) => (s.kind === "window" ? { ...s, connected: true } : s))}
-            onFailed={(reason) => problem(MESSAGES[reason])}
-            onExpired={() => problem(MESSAGES.expired)}
-          />
-        </>
+          <div className="min-w-0 p-3">
+            <Window
+              loginSessionId={state.loginSession.id}
+              token={state.token}
+              expiresAt={state.loginSession.expiresAt}
+              onConnected={() =>
+                setState((s) => (s.kind === "window" ? { ...s, connected: true } : s))
+              }
+              onFailed={(reason) => problem(MESSAGES[reason])}
+              onExpired={() => problem(MESSAGES.expired)}
+              bar={
+                <div
+                  role="group"
+                  aria-label="Supplier website"
+                  className="flex items-center gap-3 rounded-t-md border border-b-0 border-border bg-sidebar px-3 py-2 text-[0.8125rem]"
+                >
+                  {state.connected ? (
+                    <span className="inline-flex items-center gap-1.5 font-semibold text-good">
+                      <span aria-hidden="true" className="size-2 rounded-full bg-good" />
+                      Live
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">Connecting…</span>
+                  )}
+                  <span className="min-w-0 flex-1 truncate rounded border border-border bg-card px-2.5 py-1 font-mono text-xs text-ink-soft">
+                    {address(supplier)}
+                  </span>
+                </div>
+              }
+            />
+          </div>
+        </div>
       )}
 
       {state.kind === "done" && (

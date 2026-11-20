@@ -46,4 +46,18 @@ describe("useListParams", () => {
     act(() => result.current.set({ status: undefined }));
     expect(window.location.search).toBe("");
   });
+  it("reads the sort from the address, and keeps it out of the filters", () => {
+    window.history.replaceState(null, "", "/mappings?sort=supplier&dir=desc&status=works");
+    const { result } = renderHook(() => useListParams({ pageSize: 10 }));
+    expect(result.current.sort).toBe("supplier");
+    expect(result.current.dir).toBe("desc");
+    expect(result.current.filters).toEqual({ status: "works" });
+  });
+
+  it("has no sort, and sorts A to Z, when the address says nothing or nonsense", () => {
+    window.history.replaceState(null, "", "/mappings?dir=sideways");
+    const { result } = renderHook(() => useListParams({ pageSize: 10 }));
+    expect(result.current.sort).toBeNull();
+    expect(result.current.dir).toBe("asc");
+  });
 });

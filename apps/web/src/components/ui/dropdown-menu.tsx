@@ -1,4 +1,5 @@
 import * as React from "react";
+import { Check } from "lucide-react";
 import { DropdownMenu as M } from "radix-ui";
 import { cn } from "@/lib/utils.js";
 
@@ -16,7 +17,11 @@ export function DropdownMenu(props: React.ComponentProps<typeof M.Root>) {
   );
 }
 
-export function DropdownMenuTrigger({ onPointerDown, onClick, ...props }: React.ComponentProps<typeof M.Trigger>) {
+export function DropdownMenuTrigger({
+  onPointerDown,
+  onClick,
+  ...props
+}: React.ComponentProps<typeof M.Trigger>) {
   const toggle = React.useContext(Toggle);
   return (
     <M.Trigger
@@ -33,13 +38,19 @@ export function DropdownMenuTrigger({ onPointerDown, onClick, ...props }: React.
   );
 }
 
-export function DropdownMenuContent({ className, ...props }: React.ComponentProps<typeof M.Content>) {
+export function DropdownMenuContent({
+  className,
+  ...props
+}: React.ComponentProps<typeof M.Content>) {
   return (
     <M.Portal>
       <M.Content
         align="end"
         sideOffset={6}
-        className={cn("z-50 min-w-44 rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lg", className)}
+        className={cn(
+          "z-50 min-w-44 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg",
+          className,
+        )}
         {...props}
       />
     </M.Portal>
@@ -49,16 +60,49 @@ export function DropdownMenuContent({ className, ...props }: React.ComponentProp
 export function DropdownMenuItem({ className, ...props }: React.ComponentProps<typeof M.Item>) {
   return (
     <M.Item
-      className={cn("flex min-h-11 cursor-pointer select-none items-center gap-2 rounded-lg px-3 text-sm outline-none data-[highlighted]:bg-muted data-[disabled]:opacity-50 [&_svg]:size-4", className)}
+      className={cn(
+        "flex min-h-11 cursor-pointer select-none items-center gap-2 rounded-lg px-3 text-sm outline-none data-[highlighted]:bg-muted data-[disabled]:opacity-50 lg:min-h-8 [&_svg]:size-4",
+        className,
+      )}
       {...props}
     />
   );
 }
 
 export function DropdownMenuLabel({ className, ...props }: React.ComponentProps<typeof M.Label>) {
-  return <M.Label className={cn("px-3 py-2 text-xs text-muted-foreground", className)} {...props} />;
+  return (
+    <M.Label className={cn("px-3 py-2 text-xs text-muted-foreground", className)} {...props} />
+  );
 }
 
-export function DropdownMenuSeparator({ className, ...props }: React.ComponentProps<typeof M.Separator>) {
+export function DropdownMenuSeparator({
+  className,
+  ...props
+}: React.ComponentProps<typeof M.Separator>) {
   return <M.Separator className={cn("my-1 h-px bg-border", className)} {...props} />;
+}
+
+export function DropdownMenuRadioGroup(props: React.ComponentProps<typeof M.RadioGroup>) {
+  return <M.RadioGroup {...props} />;
+}
+
+export function DropdownMenuRadioItem({
+  className,
+  children,
+  ...props
+}: React.ComponentProps<typeof M.RadioItem>) {
+  return (
+    <M.RadioItem
+      className={cn(
+        "flex min-h-11 cursor-pointer select-none items-center gap-2 rounded-lg px-3 text-sm outline-none data-[highlighted]:bg-muted data-[state=checked]:font-semibold lg:min-h-8 [&_svg]:size-4",
+        className,
+      )}
+      {...props}
+    >
+      {children}
+      <M.ItemIndicator className="ml-auto">
+        <Check aria-hidden="true" />
+      </M.ItemIndicator>
+    </M.RadioItem>
+  );
 }

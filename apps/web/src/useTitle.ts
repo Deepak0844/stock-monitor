@@ -1,8 +1,7 @@
 import { useEffect } from "react";
+import { setPageTitle } from "./tabTitle.js";
 
-/** Sets the browser tab title, for example "Shopify settings · Stock Monitor". */
+/** Sets the page's name in the browser tab, for example "Shopify settings · Stock Monitor". */
 export function useTitle(title: string): void {
-  useEffect(() => {
-    document.title = `${title} · Stock Monitor`;
-  }, [title]);
+  useEffect(() => setPageTitle(title), [title]);
 }

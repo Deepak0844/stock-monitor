@@ -42,4 +42,34 @@ describe("Pager", () => {
     render(<Pager page={1} pageSize={10} total={0} onPage={vi.fn()} onPageSize={vi.fn()} />);
     expect(screen.getByText("No results")).toBeInTheDocument();
   });
+  it("jumps straight to a page typed in Go to page", async () => {
+    const onPage = vi.fn();
+    render(<Pager page={2} pageSize={25} total={2169} onPage={onPage} onPageSize={vi.fn()} />);
+    const box = screen.getByLabelText("Go to page");
+    await userEvent.type(box, "40{Enter}");
+    expect(onPage).toHaveBeenLastCalledWith(40);
+  });
+
+  it("goes to the last page when the typed page is past the end", async () => {
+    const onPage = vi.fn();
+    render(<Pager page={2} pageSize={25} total={2169} onPage={onPage} onPageSize={vi.fn()} />);
+    await userEvent.type(screen.getByLabelText("Go to page"), "999{Enter}");
+    expect(onPage).toHaveBeenLastCalledWith(87);
+  });
+
+  it("ignores a typed page that is not a page number", async () => {
+    const onPage = vi.fn();
+    render(<Pager page={2} pageSize={25} total={2169} onPage={onPage} onPageSize={vi.fn()} />);
+    await userEvent.type(screen.getByLabelText("Go to page"), "0{Enter}");
+    await userEvent.clear(screen.getByLabelText("Go to page"));
+    await userEvent.type(screen.getByLabelText("Go to page"), "abc{Enter}");
+    expect(onPage).not.toHaveBeenCalled();
+  });
+  it("still says which rows are showing on a phone", () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: false, media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    render(<Pager page={1} pageSize={25} total={60} onPage={vi.fn()} onPageSize={vi.fn()} />);
+    expect(screen.getByText("Showing 1–25 of 60")).toBeInTheDocument();
+    expect(screen.getByText("Page 1 of 3")).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
 });

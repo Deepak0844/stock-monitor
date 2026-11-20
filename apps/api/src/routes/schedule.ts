@@ -5,6 +5,7 @@ import type { CheckRun, createCheckRunRepository, createRecipeRepository, create
 import { whyNotChecked, type CheckGateReason } from "@stock-monitor/mapping";
 import { INTERVALS, KEEP_ALIVE_CHOICES, nextCheckAt, type Window } from "@stock-monitor/scheduling";
 import { AppError } from "../errors.js";
+import { summarizeRuns } from "./recent-checks.js";
 
 type App = FastifyInstance<RawServerDefault, RawRequestDefaultExpression, RawReplyDefaultExpression, Logger>;
 type Audit = ReturnType<typeof createAuditWriter>;
@@ -81,8 +82,10 @@ export function registerScheduleRoutes(app: App, deps: ScheduleRoutesDeps, audit
     const schedule = [];
     for (const s of await suppliers.list()) {
       const run = await checkRuns.current(s.id);
-      const lastRun = (await checkRuns.recent(s.id, 2)).find((r) => r.endedAt) ?? null;
-      schedule.push({ supplierId: s.id, status: await status(s, run), intervalMinutes: s.scheduleIntervalMinutes, window: windowOf(s), nextCheckAt: s.nextCheckAt, run, lastRun });
+      // One read of the newest runs gives both the last one that ended and the summary of recent checks.
+      const recentRuns = await checkRuns.recent(s.id, 25);
+      const lastRun = recentRuns.find((r) => r.endedAt) ?? null;
+      schedule.push({ supplierId: s.id, status: await status(s, run), intervalMinutes: s.scheduleIntervalMinutes, window: windowOf(s), nextCheckAt: s.nextCheckAt, run, lastRun, recent: summarizeRuns(recentRuns) });
     }
     return { schedule };
   });

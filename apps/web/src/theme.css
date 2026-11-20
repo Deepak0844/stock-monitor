@@ -1,106 +1,131 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-/* Store style: dark brown sidebar, black primary buttons, orange accent used for fills and marks only (never text on
-   white), white surfaces. Text contrast is at least 4.5:1 and input borders at least 3:1 in both themes. */
+/* Direction D, "Ledger": paper and ink, thin rules instead of boxes. Green means fine, orange-red means needs you, grey is
+   neutral; there is no other accent. Text contrast is at least 4.5:1 and control borders at least 3:1 in both themes
+   (theme.test.ts checks it). Faint is for decoration only, never for text that carries meaning. */
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --background: #f6f4f2;
-  --foreground: #1c1410;
-  --card: #ffffff;
-  --card-foreground: #1c1410;
-  --popover: #ffffff;
-  --popover-foreground: #1c1410;
-  --primary: #111111;
+  --background: #efeee9;
+  --foreground: #16181d;
+  --card: #f8f7f3;
+  --card-foreground: #16181d;
+  --popover: #f8f7f3;
+  --popover-foreground: #16181d;
+  --primary: #16181d;
   --primary-foreground: #ffffff;
-  --secondary: #f1ede9;
-  --secondary-foreground: #1c1410;
-  --muted: #f1ede9;
-  --muted-foreground: #5c4f46;
-  --accent: #e8873a;
-  --accent-foreground: #2a1608;
-  --destructive: #b91c1c;
+  --secondary: #e6e5df;
+  --secondary-foreground: #16181d;
+  --muted: #e6e5df;
+  --muted-foreground: #5b5e66;
+  --accent: #b33c0b;
+  --accent-foreground: #ffffff;
+  --destructive: #b33c0b;
   --destructive-foreground: #ffffff;
-  --border: #e3dcd5;
-  --input: #8a7d73;
+  --border: #d8d7cf;
+  --input: #7f8087;
   --ring: #1d4ed8;
-  --sidebar: #5b3420;
-  --sidebar-foreground: #f3e6dc;
-  --sidebar-active: #6f4329;
-  --success: #166534;
-  --success-soft: #dcfce7;
-  --warning: #78350f;
-  --warning-soft: #fef3c7;
-  --danger: #991b1b;
-  --danger-soft: #fee2e2;
-  --radius: 0.75rem;
+  --sidebar: #e6e5df;
+  --sidebar-foreground: #3c3f46;
+  --sidebar-active: #efeee9;
+  --success: #137538;
+  --success-soft: #f1f7f2;
+  --warning: #b33c0b;
+  --warning-soft: #fdf1e7;
+  --danger: #b33c0b;
+  --danger-soft: #fdf1e7;
+  --rule-soft: #e1e0d9;
+  --hover: #e6e5df;
+  --selected: #fdf1e7;
+  --faint: #9a9ca2;
+  --good: #137538;
+  --bad: #b33c0b;
+  --neutral: #b9b8b0;
+  --ink-soft: #3c3f46;
+  --radius: 3px;
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
-    --background: #120d0a;
-    --foreground: #f3ece6;
-    --card: #1c1511;
-    --card-foreground: #f3ece6;
-    --popover: #1c1511;
-    --popover-foreground: #f3ece6;
-    --primary: #f5f5f5;
-    --primary-foreground: #111111;
-    --secondary: #2a201a;
-    --secondary-foreground: #f3ece6;
-    --muted: #2a201a;
-    --muted-foreground: #b9aaa0;
-    --accent: #e8873a;
-    --accent-foreground: #2a1608;
-    --destructive: #f87171;
-    --destructive-foreground: #1c0a0a;
-    --border: #35291f;
-    --input: #8f7f73;
+    --background: #1b1c1a;
+    --foreground: #ecebe4;
+    --card: #232421;
+    --card-foreground: #ecebe4;
+    --popover: #232421;
+    --popover-foreground: #ecebe4;
+    --primary: #ecebe4;
+    --primary-foreground: #1b1c1a;
+    --secondary: #262724;
+    --secondary-foreground: #ecebe4;
+    --muted: #262724;
+    --muted-foreground: #9c9d97;
+    --accent: #fb923c;
+    --accent-foreground: #1a0d05;
+    --destructive: #fb923c;
+    --destructive-foreground: #1a0d05;
+    --border: #33342f;
+    --input: #6e6f69;
     --ring: #93c5fd;
-    --sidebar: #2b1a10;
-    --sidebar-foreground: #ecd9cb;
-    --sidebar-active: #3d2616;
-    --success: #86efac;
-    --success-soft: #14301f;
-    --warning: #fcd34d;
-    --warning-soft: #3a2a08;
-    --danger: #fca5a5;
-    --danger-soft: #3b1414;
+    --sidebar: #161715;
+    --sidebar-foreground: #c4c3bc;
+    --sidebar-active: #1b1c1a;
+    --success: #4ade80;
+    --success-soft: #12271a;
+    --warning: #fb923c;
+    --warning-soft: #2a1d12;
+    --danger: #fb923c;
+    --danger-soft: #2a1d12;
+    --rule-soft: #282925;
+    --hover: #262724;
+    --selected: #2a1d12;
+    --faint: #6c6d68;
+    --good: #4ade80;
+    --bad: #fb923c;
+    --neutral: #4a4b46;
+    --ink-soft: #c4c3bc;
     color-scheme: dark;
   }
 }
 
 :root.dark {
-  --background: #120d0a;
-  --foreground: #f3ece6;
-  --card: #1c1511;
-  --card-foreground: #f3ece6;
-  --popover: #1c1511;
-  --popover-foreground: #f3ece6;
-  --primary: #f5f5f5;
-  --primary-foreground: #111111;
-  --secondary: #2a201a;
-  --secondary-foreground: #f3ece6;
-  --muted: #2a201a;
-  --muted-foreground: #b9aaa0;
-  --accent: #e8873a;
-  --accent-foreground: #2a1608;
-  --destructive: #f87171;
-  --destructive-foreground: #1c0a0a;
-  --border: #35291f;
-  --input: #8f7f73;
+  --background: #1b1c1a;
+  --foreground: #ecebe4;
+  --card: #232421;
+  --card-foreground: #ecebe4;
+  --popover: #232421;
+  --popover-foreground: #ecebe4;
+  --primary: #ecebe4;
+  --primary-foreground: #1b1c1a;
+  --secondary: #262724;
+  --secondary-foreground: #ecebe4;
+  --muted: #262724;
+  --muted-foreground: #9c9d97;
+  --accent: #fb923c;
+  --accent-foreground: #1a0d05;
+  --destructive: #fb923c;
+  --destructive-foreground: #1a0d05;
+  --border: #33342f;
+  --input: #6e6f69;
   --ring: #93c5fd;
-  --sidebar: #2b1a10;
-  --sidebar-foreground: #ecd9cb;
-  --sidebar-active: #3d2616;
-  --success: #86efac;
-  --success-soft: #14301f;
-  --warning: #fcd34d;
-  --warning-soft: #3a2a08;
-  --danger: #fca5a5;
-  --danger-soft: #3b1414;
+  --sidebar: #161715;
+  --sidebar-foreground: #c4c3bc;
+  --sidebar-active: #1b1c1a;
+  --success: #4ade80;
+  --success-soft: #12271a;
+  --warning: #fb923c;
+  --warning-soft: #2a1d12;
+  --danger: #fb923c;
+  --danger-soft: #2a1d12;
+  --rule-soft: #282925;
+  --hover: #262724;
+  --selected: #2a1d12;
+  --faint: #6c6d68;
+  --good: #4ade80;
+  --bad: #fb923c;
+  --neutral: #4a4b46;
+  --ink-soft: #c4c3bc;
   color-scheme: dark;
 }
 
@@ -133,17 +158,27 @@
   --color-warning-soft: var(--warning-soft);
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
+  --color-rule-soft: var(--rule-soft);
+  --color-hover: var(--hover);
+  --color-selected: var(--selected);
+  --color-faint: var(--faint);
+  --color-good: var(--good);
+  --color-bad: var(--bad);
+  --color-neutral: var(--neutral);
+  --color-ink-soft: var(--ink-soft);
   --radius-lg: var(--radius);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-sm: calc(var(--radius) - 4px);
-  --font-sans: "Inter Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --radius-md: var(--radius);
+  --radius-sm: 2px;
+  --radius-xl: var(--radius);
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 /* Shimmer for loading placeholders. It rests when the visitor asks for less motion. */
 .skeleton {
-  background: linear-gradient(90deg, var(--muted) 25%, color-mix(in srgb, var(--muted) 55%, var(--card)) 50%, var(--muted) 75%);
+  background: linear-gradient(90deg, var(--hover) 25%, var(--background) 50%, var(--hover) 75%);
   background-size: 200% 100%;
-  animation: skeleton-shimmer 1.3s linear infinite;
+  animation: skeleton-shimmer 1.4s linear infinite;
 }
 @keyframes skeleton-shimmer {
   to {
@@ -160,9 +195,22 @@
   body {
     background-color: var(--background);
     color: var(--foreground);
-    font-size: 0.9375rem;
+    font-size: 1rem;
     line-height: 1.5;
+    /* A very long name, link or SKU with no spaces wraps instead of pushing a phone screen sideways. It only breaks where there
+       is no room; text meant to be cut off with "…" (truncate) still is. */
+    overflow-wrap: anywhere;
     -webkit-font-smoothing: antialiased;
+  }
+  /* Desktop is denser: 14px text and 32px controls. A phone keeps 16px text and 44px controls. */
+  @media (min-width: 64rem) {
+    body {
+      font-size: 0.875rem;
+      line-height: 1.45;
+    }
+  }
+  .font-mono {
+    font-variant-numeric: tabular-nums;
   }
   :focus-visible {
     outline: 2px solid var(--ring);
@@ -195,9 +243,27 @@
   }
 }
 
-/* On a phone a table becomes a stack of cards: one card per row, each value under its own label. The roles on the table
-   elements keep it a table for screen readers. */
-@media (max-width: 47.9375rem) {
+/* Compact rows on a wide screen: tighter, and a cell's second line moves up after a "·". */
+table[data-density="compact"] td {
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+table[data-density="compact"] td .cell-sub {
+  display: inline;
+  margin-left: 0.375rem;
+}
+table[data-density="compact"] td .cell-sub::before {
+  content: "· ";
+}
+.cell-sub {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+/* Below 1024px a table becomes stacked rows: one block per row, each value under its own small label, divided by thin rules.
+   The roles on the table elements keep it a table for screen readers. */
+@media (max-width: 63.9375rem) {
   table.stack,
   table.stack tbody,
   table.stack tr,
@@ -215,16 +281,91 @@
     padding: 0.75rem 1rem;
   }
   table.stack td {
-    padding: 0.35rem 0;
+    padding: 0.25rem 0;
     text-align: left !important;
   }
   table.stack td[data-label]::before {
     content: attr(data-label);
     display: block;
     font-size: 0.75rem;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
+    font-weight: 500;
     color: var(--muted-foreground);
   }
+  /* Short cards: no label on each line; halves share a line. */
+  table.stack.cards tr {
+    display: flex;
+    flex-wrap: wrap;
+    column-gap: 0.75rem;
+    row-gap: 0.125rem;
+    padding: 0.75rem 0;
+  }
+  table.stack.cards td {
+    flex: 1 1 100%;
+    min-width: 0;
+    padding: 0;
+  }
+  table.stack.cards td:last-child {
+    order: 2;
+    padding-top: 0.375rem;
+  }
+  table.stack.cards td.phone-half {
+    flex: 1 1 calc(50% - 0.75rem);
+  }
+  table.stack.cards td.phone-hide {
+    display: none;
+  }
+  table.stack.cards td[data-label]::before {
+    display: none;
+  }
+  table.stack.cards td.phone-inline-label[data-label]::before {
+    display: inline;
+    content: attr(data-label) ": ";
+    font-size: inherit;
+  }
+  table.stack.cards td.phone-inline-label {
+    order: 1;
+    font-size: 0.875rem;
+    color: var(--muted-foreground);
+  }
+  table.stack.cards td.phone-inline-label > * {
+    display: inline;
+  }
+}
+
+/* An on/off setting: a checkbox with role="switch", drawn as a small sliding track. The words beside it say On or Off. */
+input[type="checkbox"][role="switch"] {
+  appearance: none;
+  position: relative;
+  width: 2.25rem;
+  height: 1.25rem;
+  flex: none;
+  border-radius: 9999px;
+  background: var(--neutral);
+  cursor: pointer;
+  transition: background-color 120ms;
+}
+input[type="checkbox"][role="switch"]::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 9999px;
+  background: var(--background);
+  transition: transform 120ms;
+}
+input[type="checkbox"][role="switch"]:checked {
+  background: var(--foreground);
+}
+input[type="checkbox"][role="switch"]:checked::before {
+  transform: translateX(1rem);
+}
+input[type="checkbox"][role="switch"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+input[type="checkbox"][role="switch"]:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }

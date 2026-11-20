@@ -1,6 +1,5 @@
 import { useState, type ChangeEvent } from "react";
 import { Button } from "@/components/ui/button.js";
-import { Card } from "@/components/ui/card.js";
 import { Select } from "@/components/ui/input.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
 import type { Api, ImportColumnChoice, ImportColumns, ImportPreview, ImportResult } from "../api.js";
@@ -64,7 +63,7 @@ export function ImportMappingsPage({ api }: { api: Api }) {
   const list = "flex flex-col gap-1 text-sm";
   return (
     <>
-      <PageHeader title="Import links" description="Upload the file from Shopify's Products > Export. Nothing is saved until you have seen the preview and confirmed it." />
+      <PageHeader back={{ to: "/mappings", label: "Back to links" }} title="Import links" description="Upload the file from Shopify's Products > Export. Nothing is saved until you have seen the preview and confirmed it." />
       <div className="flex max-w-3xl flex-col gap-6">
         {error && (
           <Notice kind="error" role="alert">
@@ -73,7 +72,7 @@ export function ImportMappingsPage({ api }: { api: Api }) {
         )}
 
         {step.kind !== "done" && (
-          <Card className="p-6">
+          <section className=" border-t border-border py-6 first:border-t-0 first:pt-2 max-w-3xl">
             <h2 className={heading}>1. Choose the file</h2>
             <Field id="export-file" label="Shopify product export (CSV)" hint="Up to 10 MB. The file is read here and sent to your own app. Descriptions and other columns are never stored.">
               <input
@@ -94,7 +93,7 @@ export function ImportMappingsPage({ api }: { api: Api }) {
                 <Skeleton className="h-4 w-1/2" />
               </div>
             )}
-          </Card>
+          </section>
         )}
 
         {(step.kind === "columns" || step.kind === "preview") && (
@@ -102,7 +101,7 @@ export function ImportMappingsPage({ api }: { api: Api }) {
         )}
 
         {step.kind === "preview" && (
-          <Card className="flex flex-col gap-3 p-6" aria-labelledby="preview-heading" role="region">
+          <section className="flex flex-col gap-3 border-t border-border py-6 first:border-t-0 first:pt-2 max-w-3xl" aria-labelledby="preview-heading" role="region">
             <h2 id="preview-heading" className={heading}>
               3. Preview
             </h2>
@@ -174,11 +173,11 @@ export function ImportMappingsPage({ api }: { api: Api }) {
                 </Button>
               </div>
             )}
-          </Card>
+          </section>
         )}
 
         {step.kind === "done" && (
-          <Card className="flex flex-col gap-3 p-6">
+          <section className="flex flex-col gap-3 border-t border-border py-6 first:border-t-0 first:pt-2 max-w-3xl">
             <Notice kind="success" role="status">
               {plural(step.result.created, "new link")} saved, {step.result.updated} replaced, {step.result.unchanged} unchanged
               {step.result.skipped > 0 ? `, ${step.result.skipped} skipped because another supplier already has them` : ""}.
@@ -189,7 +188,7 @@ export function ImportMappingsPage({ api }: { api: Api }) {
                 <Link to="/mappings">Go to links</Link>
               </Button>
             </div>
-          </Card>
+          </section>
         )}
       </div>
     </>
@@ -200,7 +199,7 @@ function ColumnsPanel({ columns, initial, busy, onPreview }: { columns: ImportCo
   const [choice, setChoice] = useState(initial);
   const complete = COLUMN_FIELDS.every((f) => choice[f.key] !== undefined);
   return (
-    <Card className="flex flex-col gap-4 p-6">
+    <section className="flex flex-col gap-4 border-t border-border py-6 first:border-t-0 first:pt-2 max-w-3xl">
       <h2 className="text-base font-semibold">2. Check the columns</h2>
       <p className="text-sm text-muted-foreground">{columns.rowCount.toLocaleString("en-GB")} rows found. These are our best guesses. Change any that are wrong.</p>
       {COLUMN_FIELDS.map((f) => (
@@ -225,6 +224,6 @@ function ColumnsPanel({ columns, initial, busy, onPreview }: { columns: ImportCo
           Show preview
         </Button>
       </div>
-    </Card>
+    </section>
   );
 }

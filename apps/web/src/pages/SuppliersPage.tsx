@@ -1,9 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link as ListChecks, MoreHorizontal, Pause, Pencil, Play, Plus, Trash2 } from "lucide-react";
+import {
+  Link as ListChecks,
+  MoreHorizontal,
+  Pause,
+  Pencil,
+  Play,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge.js";
 import { Button } from "@/components/ui/button.js";
-import { Card } from "@/components/ui/card.js";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu.js";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu.js";
 import { Input, Select } from "@/components/ui/input.js";
 import type { Api, ScheduleRow, Supplier, SupplierStatusFilter } from "../api.js";
 import { ConfirmDialog } from "../components/ConfirmDialog.js";
@@ -11,12 +23,16 @@ import { DataTable, type Column } from "../components/DataTable.js";
 import { EmptyState } from "../components/EmptyState.js";
 import { Notice } from "../components/Notice.js";
 import { PageHeader } from "../components/PageHeader.js";
+import { FilterChips } from "../components/FilterChips.js";
+import { recentChecksSentence } from "../components/recentChecks.js";
+import { RowsSwitch } from "../components/RowsSwitch.js";
+import { RunProgress } from "../components/RunProgress.js";
+import { When } from "../components/When.js";
 import { Pager } from "../components/Pager.js";
-import { StatTile } from "../components/StatTile.js";
+import { StatRow, StatTile } from "../components/StatTile.js";
 import { useListParams } from "../lib/useListParams.js";
 import { useWatch } from "../lib/useWatch.js";
 import { intervalWords, runSummary, whenWords } from "../components/scheduleWords.js";
-import { formatWhen } from "../format.js";
 import { Link } from "../router.js";
 import { useTitle } from "../useTitle.js";
 import { toast } from "../lib/toast.js";
@@ -35,13 +51,14 @@ const STATUSES: { value: SupplierStatusFilter; label: string }[] = [
 // While a run is going, its progress is read again this often.
 const PROGRESS_REFRESH_MS = 5000;
 
-const message = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong. Please try again.");
+const message = (e: unknown) =>
+  e instanceof Error ? e.message : "Something went wrong. Please try again.";
 
 /**
  * The one word shown for a supplier. Paused wins when the owner paused it. When the app paused it because its login
  * needs attention, the reason is what the owner has to act on, so that is shown instead.
  */
-function statusOf(s: Supplier): { words: string; tone: "success" | "warning" | "neutral" } {
+export function statusOf(s: Supplier): { words: string; tone: "success" | "warning" | "neutral" } {
   if (!s.enabled && s.pausedReason !== "session") return { words: "Paused", tone: "neutral" };
   if (!s.needsLogin) return { words: "No login needed", tone: "success" };
   switch (s.sessionStatus) {
@@ -57,11 +74,17 @@ function statusOf(s: Supplier): { words: string; tone: "success" | "warning" | "
 }
 
 /** The one status key the filter and the tiles use: paused wins, as `statusOf` does. */
-const keyOf = (s: Supplier): SupplierStatusFilter => (!s.enabled && s.pausedReason !== "session" ? "paused" : !s.needsLogin ? "no_login" : s.sessionStatus);
+const keyOf = (s: Supplier): SupplierStatusFilter =>
+  !s.enabled && s.pausedReason !== "session"
+    ? "paused"
+    : !s.needsLogin
+      ? "no_login"
+      : s.sessionStatus;
 
 /** What the schedule is doing for one supplier, in a few plain lines. */
 function ScheduleCell({ row }: { row: ScheduleRow | undefined }) {
-  if (!row || row.status.state === "off") return <span className="text-muted-foreground">Automatic checks off</span>;
+  if (!row || row.status.state === "off")
+    return <span className="text-muted-foreground">Automatic checks off</span>;
   const status = row.status;
   return (
     <>
@@ -74,7 +97,9 @@ function ScheduleCell({ row }: { row: ScheduleRow | undefined }) {
           {intervalWords(row.intervalMinutes)}, next check {whenWords(row.nextCheckAt)}
         </span>
       )}
-      {status.state !== "running" && row.lastRun && <div className="text-muted-foreground">{runSummary(row.lastRun)}</div>}
+      {status.state !== "running" && row.lastRun && (
+        <div className="text-muted-foreground">{runSummary(row.lastRun)}</div>
+      )}
     </>
   );
 }
@@ -91,7 +116,9 @@ export function SuppliersPage({ api }: { api: Api }) {
   useTitle("Suppliers");
   const params = useListParams({ pageSize: 10 });
   const { page, pageSize, search, set } = params;
-  const status = STATUSES.some((o) => o.value === params.filters.status) ? (params.filters.status as SupplierStatusFilter) : undefined;
+  const status = STATUSES.some((o) => o.value === params.filters.status)
+    ? (params.filters.status as SupplierStatusFilter)
+    : undefined;
   const filtering = search !== "" || status !== undefined;
 
   const [data, setData] = useState<{ items: Supplier[]; total: number } | null>(null);
@@ -104,7 +131,8 @@ export function SuppliersPage({ api }: { api: Api }) {
   const [checkingId, setCheckingId] = useState<string | null>(null);
   // Suppliers whose check was asked for and whose new status has not shown yet.
   const [waiting, setWaiting] = useState<Set<string>>(new Set());
-  const stopWaiting = (id: string) => setWaiting((w) => (w.has(id) ? new Set([...w].filter((x) => x !== id)) : w));
+  const stopWaiting = (id: string) =>
+    setWaiting((w) => (w.has(id) ? new Set([...w].filter((x) => x !== id)) : w));
   const [q, setQ] = useState(search);
   const latest = useRef(0);
   const watch = useWatch();
@@ -130,7 +158,10 @@ export function SuppliersPage({ api }: { api: Api }) {
 
   // Every supplier, once, for the summary tiles. If it cannot be read the tiles are left out.
   useEffect(() => {
-    api.suppliers.list().then(setAll).catch(() => {});
+    api.suppliers
+      .list()
+      .then(setAll)
+      .catch(() => {});
   }, [api]);
 
   // The search box waits for a pause in typing, then goes to the address. A change made elsewhere, such as clearing, comes back in.
@@ -152,7 +183,8 @@ export function SuppliersPage({ api }: { api: Api }) {
         .then((rows) => {
           if (cancelled) return;
           setSchedule(rows);
-          if (rows.some((r) => r.status.state === "running")) timer = setTimeout(read, PROGRESS_REFRESH_MS);
+          if (rows.some((r) => r.status.state === "running"))
+            timer = setTimeout(read, PROGRESS_REFRESH_MS);
         })
         .catch(() => {});
     void read();
@@ -174,7 +206,10 @@ export function SuppliersPage({ api }: { api: Api }) {
       setActionError(message(e));
     }
   }
-  const toggle = (s: Supplier) => act(async () => replace(await (s.enabled ? api.suppliers.pause(s.id) : api.suppliers.resume(s.id))));
+  const toggle = (s: Supplier) =>
+    act(async () =>
+      replace(await (s.enabled ? api.suppliers.pause(s.id) : api.suppliers.resume(s.id))),
+    );
   const check = (s: Supplier) =>
     act(async () => {
       setCheckingId(s.id);
@@ -189,7 +224,12 @@ export function SuppliersPage({ api }: { api: Api }) {
       }
       toast(`A check of ${s.name} has started. Its status will update in a moment.`);
       // The supplier's small status is asked until the check has finished, then the supplier is read once; only its row changes.
-      void watch(`session:${s.id}`, CHECK_READS, () => api.suppliers.status(s.id), (st) => st.checkedAt !== s.lastSessionCheckAt)
+      void watch(
+        `session:${s.id}`,
+        CHECK_READS,
+        () => api.suppliers.status(s.id),
+        (st) => st.checkedAt !== s.lastSessionCheckAt,
+      )
         .then(async (finished) => finished && replace(await api.suppliers.get(s.id)))
         .catch(() => {})
         .finally(() => stopWaiting(s.id));
@@ -204,21 +244,70 @@ export function SuppliersPage({ api }: { api: Api }) {
   const confirmedEmpty = data !== null && data.total === 0 && !filtering;
   // A page past the end, for example after deleting its last row, is read again from the last page, so show it as loading.
   const rows = data === null || (data.items.length === 0 && data.total > 0) ? null : data.items;
-  const count = (key?: SupplierStatusFilter) => (all === null ? null : key ? all.filter((s) => keyOf(s) === key).length : all.length);
+  const count = (key?: SupplierStatusFilter) =>
+    all === null ? null : key ? all.filter((s) => keyOf(s) === key).length : all.length;
 
   const columns: Column<Supplier>[] = [
-    { header: "Name", cell: (s) => <span className="font-semibold">{s.name}</span> },
-    { header: "Website", cell: (s) => hostOf(s.websiteUrl) },
+    {
+      header: "Supplier",
+      cell: (s) => (
+        <>
+          <span className="font-semibold">{s.name}</span>
+          <span className="cell-sub">{hostOf(s.websiteUrl)}</span>
+        </>
+      ),
+    },
     {
       header: "Status",
+      phone: "half",
       cell: (s) => {
-        if (waiting.has(s.id)) return <Badge variant="warning" className="animate-pulse">Checking…</Badge>;
         const st = statusOf(s);
-        return <Badge variant={st.tone}>{st.words}</Badge>;
+        return (
+          <>
+            {waiting.has(s.id) ? (
+              <Badge variant="warning" className="animate-pulse">
+                Checking…
+              </Badge>
+            ) : (
+              <Badge variant={st.tone}>{st.words}</Badge>
+            )}
+            <span className="cell-sub">
+              {s.lastSessionCheckAt ? (
+                <>
+                  Checked <When at={s.lastSessionCheckAt} />
+                </>
+              ) : (
+                "Never checked"
+              )}
+            </span>
+          </>
+        );
       },
     },
-    { header: "Last checked", cell: (s) => (s.lastSessionCheckAt ? formatWhen(s.lastSessionCheckAt) : <span className="text-muted-foreground">Never</span>) },
-    { header: "Automatic checks", cell: (s) => <ScheduleCell row={schedule.find((r) => r.supplierId === s.id)} /> },
+    {
+      header: "Recent checks",
+      phone: "inline-label",
+      cell: (s) => {
+        const row = schedule.find((r) => r.supplierId === s.id);
+        if (!row) return <span className="text-muted-foreground">No checks yet</span>;
+        if (row.status.state === "running" && row.run)
+          return <RunProgress run={row.run} name={s.name} />;
+        const said = recentChecksSentence(row, new Date());
+        return (
+          <span
+            data-tone={said.tone}
+            className={said.tone === "bad" ? "font-semibold text-bad" : "text-ink-soft"}
+          >
+            {said.text}
+          </span>
+        );
+      },
+    },
+    {
+      header: "Automatic checks",
+      phone: "half",
+      cell: (s) => <ScheduleCell row={schedule.find((r) => r.supplierId === s.id)} />,
+    },
     {
       header: "Actions",
       hideHeader: true,
@@ -226,7 +315,13 @@ export function SuppliersPage({ api }: { api: Api }) {
       cell: (s) => (
         <div className="flex items-center justify-end gap-2">
           {!s.needsLogin ? null : s.sessionStatus === "connected" ? (
-            <Button variant="outline" size="sm" loading={checkingId === s.id} aria-label={`Check connection ${s.name}`} onClick={() => void check(s)}>
+            <Button
+              variant="outline"
+              size="sm"
+              loading={checkingId === s.id}
+              aria-label={`Check connection ${s.name}`}
+              onClick={() => void check(s)}
+            >
               Check connection
             </Button>
           ) : s.sessionStatus === "not_connected" ? (
@@ -244,7 +339,12 @@ export function SuppliersPage({ api }: { api: Api }) {
           )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="icon" className="size-9" aria-label={`More actions for ${s.name}`}>
+              <Button
+                variant="outline"
+                size="icon"
+                className="size-9"
+                aria-label={`More actions for ${s.name}`}
+              >
                 <MoreHorizontal aria-hidden="true" />
               </Button>
             </DropdownMenuTrigger>
@@ -294,12 +394,33 @@ export function SuppliersPage({ api }: { api: Api }) {
       />
 
       {all !== null && !confirmedEmpty && (
-        <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <StatTile label="All suppliers" value={count()} to="/suppliers" />
-          <StatTile label="Connected" value={count("connected")} to="/suppliers?status=connected" />
-          <StatTile label="Needs reconnecting" value={count("needs_reconnect")} to="/suppliers?status=needs_reconnect" tone="warning" />
-          <StatTile label="Paused" value={count("paused")} to="/suppliers?status=paused" />
-        </div>
+        <StatRow>
+          <StatTile
+            label="All suppliers"
+            value={count()}
+            to="/suppliers"
+            selected={status === undefined}
+          />
+          <StatTile
+            label="Connected"
+            value={count("connected")}
+            to="/suppliers?status=connected"
+            selected={status === "connected"}
+          />
+          <StatTile
+            label="Needs reconnecting"
+            value={count("needs_reconnect")}
+            to="/suppliers?status=needs_reconnect"
+            tone="warning"
+            selected={status === "needs_reconnect"}
+          />
+          <StatTile
+            label="Paused"
+            value={count("paused")}
+            to="/suppliers?status=paused"
+            selected={status === "paused"}
+          />
+        </StatRow>
       )}
 
       {actionError && (
@@ -316,11 +437,22 @@ export function SuppliersPage({ api }: { api: Api }) {
         </p>
       )}
 
-      <Card className="overflow-hidden">
+      <div className="min-w-0">
         {!confirmedEmpty && (
-          <div className="flex flex-wrap items-center gap-3 border-b border-border p-4">
-            <Input type="search" aria-label="Search suppliers" placeholder="Search by name or website" className="min-w-48 flex-1" value={q} onChange={(e) => setQ(e.target.value)} />
-            <Select aria-label="Filter by status" value={status ?? ""} onChange={(e) => set({ status: e.target.value || undefined })}>
+          <div className="flex flex-wrap items-center gap-2 border-b border-border pb-3">
+            <Input
+              type="search"
+              aria-label="Search suppliers"
+              placeholder="Search by name or website"
+              className="min-w-48 flex-1"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+            <Select
+              aria-label="Filter by status"
+              value={status ?? ""}
+              onChange={(e) => set({ status: e.target.value || undefined })}
+            >
               <option value="">All statuses</option>
               {STATUSES.map((o) => (
                 <option key={o.value} value={o.value}>
@@ -328,8 +460,36 @@ export function SuppliersPage({ api }: { api: Api }) {
                 </option>
               ))}
             </Select>
+            <span className="ml-auto">
+              <RowsSwitch />
+            </span>
           </div>
         )}
+        <FilterChips
+          chips={[
+            ...(search
+              ? [
+                  {
+                    key: "search",
+                    label: "Search",
+                    value: `"${search}"`,
+                    onRemove: () => set({ search: undefined }),
+                  },
+                ]
+              : []),
+            ...(status
+              ? [
+                  {
+                    key: "status",
+                    label: "Status",
+                    value: STATUSES.find((o) => o.value === status)!.label,
+                    onRemove: () => set({ status: undefined }),
+                  },
+                ]
+              : []),
+          ]}
+          onClearAll={() => set({ search: undefined, status: undefined })}
+        />
         <DataTable
           label="Suppliers"
           columns={columns}
@@ -357,7 +517,10 @@ export function SuppliersPage({ api }: { api: Api }) {
               <EmptyState
                 title="No suppliers match your search or filter."
                 action={
-                  <Button variant="outline" onClick={() => set({ search: undefined, status: undefined })}>
+                  <Button
+                    variant="outline"
+                    onClick={() => set({ search: undefined, status: undefined })}
+                  >
                     Clear search and filters
                   </Button>
                 }
@@ -365,8 +528,16 @@ export function SuppliersPage({ api }: { api: Api }) {
             )
           }
         />
-        {data !== null && data.total > 0 && <Pager page={page} pageSize={pageSize} total={data.total} onPage={(n) => set({ page: n })} onPageSize={(n) => set({ pageSize: n })} />}
-      </Card>
+        {data !== null && data.total > 0 && (
+          <Pager
+            page={page}
+            pageSize={pageSize}
+            total={data.total}
+            onPage={(n) => set({ page: n })}
+            onPageSize={(n) => set({ pageSize: n })}
+          />
+        )}
+      </div>
 
       {confirming && (
         <ConfirmDialog
@@ -376,7 +547,11 @@ export function SuppliersPage({ api }: { api: Api }) {
           confirmLabel="Delete supplier"
           onConfirm={() => remove(confirming)}
           onClose={() => setConfirming(null)}
-          returnFocusTo={() => document.querySelector<HTMLElement>(`[aria-label="More actions for ${confirming.name}"]`)}
+          returnFocusTo={() =>
+            document.querySelector<HTMLElement>(
+              `[aria-label="More actions for ${confirming.name}"]`,
+            )
+          }
         />
       )}
     </>

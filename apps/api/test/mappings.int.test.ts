@@ -250,6 +250,15 @@ describe("GET /api/mappings with a page", () => {
     expect((await call("GET", "/api/mappings")).body.mappings).toHaveLength(3);
   });
 
+  it("sorts a page when asked, and refuses an unknown sort with a plain 400", async () => {
+    for (const v of ["a1", "a2", "a3"]) await link(v);
+    const desc = await call("GET", "/api/mappings?page=1&pageSize=10&sort=product&dir=desc");
+    expect(desc.status).toBe(200);
+    expect(desc.body.mappings.map((m: { sku: string }) => m.sku)).toEqual(["P-a3", "P-a2", "P-a1"]);
+    expect((await call("GET", "/api/mappings?page=1&pageSize=10&sort=price")).status).toBe(400);
+    expect((await call("GET", "/api/mappings?page=1&pageSize=10&sort=product&dir=up")).status).toBe(400);
+  });
+
   it("keeps the supplier, status and search filters", async () => {
     await link("a1");
     await link("a2");

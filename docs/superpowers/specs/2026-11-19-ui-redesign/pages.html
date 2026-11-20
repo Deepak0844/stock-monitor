@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stock Monitor directions, light and dark</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Public+Sans:wght@400;500;600;700&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #e6e6e2; color: #1a1a1a; font: 15px/1.5 system-ui, sans-serif; padding: 32px 24px 80px; }
+  .page { max-width: 1240px; margin: 0 auto; }
+  .intro h1 { font-size: 22px; font-weight: 650; }
+  .intro p { color: #555; margin-top: 4px; max-width: 780px; }
+  .dir { margin-top: 56px; padding-top: 24px; border-top: 2px solid #1a1a1a; }
+  .dir-head { display: flex; justify-content: space-between; align-items: end; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+  .dir-head h2 { font-size: 20px; font-weight: 650; }
+  .dir-head p { color: #555; font-size: 14px; max-width: 780px; }
+  .pick { font: 600 14px system-ui; padding: 10px 18px; border-radius: 8px; border: 1.5px solid #1a1a1a; background: #fff; cursor: pointer; }
+  .pick:hover, .dir.selected .pick { background: #1a1a1a; color: #fff; }
+  .dir.selected .frame { outline: 3px solid #1a1a1a; outline-offset: 4px; }
+  .mode { font: 600 12px system-ui; text-transform: uppercase; letter-spacing: .08em; color: #555; margin: 18px 0 8px; }
+  .frame { width: fit-content; max-width: 100%; overflow-x: auto; border-radius: 6px; box-shadow: 0 1px 0 rgba(0,0,0,.08), 0 12px 40px -12px rgba(0,0,0,.3); }
+  .screen { width: 1200px; height: 720px; display: grid; grid-template-columns: 220px 1fr; overflow: hidden; }
+
+  /* ================= A. LEDGER ================= */
+  .a { --bg:#fbfbf8; --side:#f4f3ee; --ink:#16181d; --ink2:#3c3f46; --muted:#6b6e76; --faint:#9a9ca2; --rule:#e2e1da; --rule2:#ebeae4; --strong:#16181d;
+       --good:#15803d; --bad:#c2410c; --neutral:#b9b8b0; --btn:#16181d; --btn-fg:#ffffff; }
+  .a.dk { --bg:#121311; --side:#0c0d0b; --ink:#ecebe4; --ink2:#c4c3bc; --muted:#9c9d97; --faint:#6c6d68; --rule:#2a2b27; --rule2:#1e1f1c; --strong:#ecebe4;
+       --good:#4ade80; --bad:#fb923c; --neutral:#4a4b46; --btn:#ecebe4; --btn-fg:#121311; }
+  .a { background: var(--bg); color: var(--ink); font-family: "IBM Plex Sans", sans-serif; font-size: 13px; }
+  .a .mono { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; }
+  .a aside { border-right: 1px solid var(--rule); padding: 18px 0; display: flex; flex-direction: column; background: var(--side); }
+  .a .brand { padding: 0 18px 18px; font-weight: 700; letter-spacing: -.01em; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+  .a .brand i { width: 14px; height: 14px; background: var(--ink); display: inline-block; clip-path: polygon(0 100%, 0 40%, 33% 40%, 33% 0, 66% 0, 66% 60%, 100% 60%, 100% 100%); }
+  .a nav a { display: flex; justify-content: space-between; padding: 7px 18px; color: var(--ink2); text-decoration: none; border-left: 2px solid transparent; }
+  .a nav a.on { color: var(--ink); font-weight: 600; border-left-color: var(--ink); background: var(--bg); }
+  .a nav a span { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--bad); }
+  .a .who { margin-top: auto; padding: 12px 18px 0; border-top: 1px solid var(--rule); color: var(--muted); font-size: 12px; }
+  .a main { overflow: hidden; }
+  .a .top { display: flex; justify-content: space-between; align-items: center; padding: 14px 28px; border-bottom: 1px solid var(--rule); }
+  .a .top h1 { font-size: 15px; font-weight: 600; }
+  .a .sync { color: var(--muted); font-size: 12px; display: flex; gap: 6px; align-items: center; }
+  .a .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+  .a .dot.g { background: var(--good); } .a .dot.r { background: var(--bad); }
+  .a .stats { display: grid; grid-template-columns: repeat(5, 1fr); border-bottom: 1px solid var(--rule); }
+  .a .stat { padding: 16px 28px; border-right: 1px solid var(--rule); }
+  .a .stat:last-child { border-right: 0; }
+  .a .stat label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 500; }
+  .a .stat b { display: block; font: 500 26px/1.2 "IBM Plex Mono", monospace; margin-top: 4px; letter-spacing: -.02em; }
+  .a .stat small { color: var(--muted); font-size: 12px; }
+  .a .of { color: var(--faint); }
+  .a .good { color: var(--good); } .a .bad { color: var(--bad); }
+  .a .bar { display: flex; height: 6px; margin-top: 8px; gap: 2px; }
+  .a .bar i:nth-child(1) { background: var(--good); } .a .bar i:nth-child(2) { background: var(--bad); } .a .bar i:nth-child(3) { background: var(--neutral); }
+  .a .cols { display: grid; grid-template-columns: 1.35fr 1fr; }
+  .a .col { padding: 20px 28px; }
+  .a .col + .col { border-left: 1px solid var(--rule); }
+  .a h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; margin-bottom: 10px; display: flex; justify-content: space-between; }
+  .a h2 a { color: var(--ink); text-transform: none; letter-spacing: 0; text-decoration: underline; text-underline-offset: 3px; }
+  .a table { width: 100%; border-collapse: collapse; }
+  .a th { text-align: left; font-weight: 500; color: var(--muted); font-size: 12px; padding: 6px 0; border-bottom: 1px solid var(--strong); }
+  .a td { padding: 8px 0; border-bottom: 1px solid var(--rule2); vertical-align: middle; }
+  .a .r { text-align: right; }
+  .a .chg { font-family: "IBM Plex Mono", monospace; }
+  .a .chg s { color: var(--faint); }
+  .a .att li { list-style: none; display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--rule2); }
+  .a .att .t { display: flex; gap: 10px; align-items: center; }
+  .a .btn { font: 600 12px "IBM Plex Sans"; padding: 5px 10px; border: 1px solid var(--btn); background: var(--btn); color: var(--btn-fg); border-radius: 3px; }
+  .a .btn.ghost { background: transparent; color: var(--ink); }
+  .a .sec { margin-top: 22px; }
+  .a .warnc { color: var(--bad); font-weight: 600; }
+
+  /* ================= B. WORKSHOP ================= */
+  .b { --bg:#f4f0e8; --ink:#1f2621; --lede:#545247; --muted:#6c6a5e; --rule:#d9d2c3; --strong:#1f2621;
+       --side:#1f3a2e; --side-fg:#e6efe8; --side-muted:#c7d6cc; --side-faint:#9fb5a7; --nav-on:#f4f0e8; --nav-on-fg:#1f3a2e;
+       --gold:#e0b84a; --gold-fg:#2b2208; --hi:#a33a1d; --ok:#1f6b45; --btn:#1f3a2e; --btn-fg:#f4f0e8; }
+  .b.dk { --bg:#171a17; --ink:#ece6d8; --lede:#bdb7a6; --muted:#a8a493; --rule:#2f352f; --strong:#ece6d8;
+       --side:#0f1c16; --side-fg:#e6efe8; --side-muted:#a9bfb1; --side-faint:#7d9686; --nav-on:#25352c; --nav-on-fg:#f4f0e8;
+       --gold:#e0b84a; --gold-fg:#2b2208; --hi:#f0916f; --ok:#86cfa3; --btn:#cfe3d6; --btn-fg:#10231a; }
+  .b { background: var(--bg); color: var(--ink); font-family: "Public Sans", sans-serif; font-size: 14px; }
+  .b aside { background: var(--side); color: var(--side-fg); padding: 24px 16px; display: flex; flex-direction: column; }
+  .b.dk aside { border-right: 1px solid #22302a; }
+  .b .brand { font-family: "Newsreader", serif; font-size: 21px; padding: 0 10px 26px; letter-spacing: -.01em; }
+  .b .brand em { font-style: italic; color: var(--gold); }
+  .b nav a { display: flex; justify-content: space-between; padding: 9px 10px; color: var(--side-muted); text-decoration: none; border-radius: 4px; font-weight: 500; }
+  .b nav a.on { background: var(--nav-on); color: var(--nav-on-fg); }
+  .b nav a span { background: var(--gold); color: var(--gold-fg); font-size: 11px; font-weight: 700; padding: 0 7px; border-radius: 3px; line-height: 20px; }
+  .b .who { margin-top: auto; padding: 10px; font-size: 12px; color: var(--side-faint); }
+  .b main { padding: 34px 44px; overflow: hidden; }
+  .b .date { font-size: 12px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); font-weight: 600; }
+  .b h1 { font-family: "Newsreader", serif; font-weight: 400; font-size: 40px; line-height: 1.1; letter-spacing: -.02em; margin-top: 6px; max-width: 760px; }
+  .b h1 strong { font-weight: 500; color: var(--hi); }
+  .b .grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 44px; margin-top: 30px; }
+  .b h2 { font-family: "Newsreader", serif; font-weight: 500; font-size: 20px; padding-bottom: 8px; border-bottom: 2px solid var(--strong); display: flex; justify-content: space-between; align-items: baseline; }
+  .b h2 a { font-family: "Public Sans"; font-size: 13px; color: var(--ink); font-weight: 600; }
+  .b .need { padding: 14px 0; border-bottom: 1px solid var(--rule); display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; align-items: center; }
+  .b .need p { color: var(--muted); font-size: 13px; }
+  .b .btn { font: 600 13px "Public Sans"; padding: 8px 14px; border-radius: 4px; background: var(--btn); color: var(--btn-fg); border: 0; grid-row: span 2; }
+  .b .btn.line { background: transparent; color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--ink); }
+  .b .figs { display: grid; grid-template-columns: 1fr 1fr; margin-top: 4px; }
+  .b .fig { padding: 14px 0; border-bottom: 1px solid var(--rule); }
+  .b .fig:nth-child(odd) { padding-right: 16px; border-right: 1px solid var(--rule); }
+  .b .fig:nth-child(even) { padding-left: 16px; }
+  .b .fig b { font-family: "Newsreader", serif; font-weight: 500; font-size: 32px; display: block; line-height: 1.1; font-variant-numeric: lining-nums tabular-nums; }
+  .b .fig span { font-size: 13px; color: var(--muted); }
+  .b .sup { margin-top: 26px; }
+  .b .row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--rule); font-size: 13px; }
+  .b .tag { font-size: 12px; font-weight: 600; }
+  .b .ok { color: var(--ok); } .b .bad { color: var(--hi); }
+
+  /* ================= D. LEDGER + CHECK STRIPS (uses A's tokens) ================= */
+  .d { --tick-n:#e7e6df; }
+  .d.dk { --tick-n:#262723; }
+  .d .cols { grid-template-columns: 1.5fr 1fr; }
+  .d .lanes { margin-bottom: 22px; }
+  .d .lane { display: grid; grid-template-columns: 150px 1fr 52px 88px; gap: 14px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--rule2); }
+  .d .lane:first-of-type { border-top: 1px solid var(--strong); }
+  .d .lane .t { font-family: "IBM Plex Mono", monospace; color: var(--muted); text-align: right; }
+  .d .lane .s { text-align: right; }
+  .d .ticks { display: flex; gap: 2px; height: 14px; }
+  .d .ticks i { flex: 1; background: var(--good); }
+  .d .ticks i.x { background: var(--bad); } .d .ticks i.u { background: var(--neutral); } .d .ticks i.n { background: var(--tick-n); }
+  .d .key { text-transform: none; letter-spacing: 0; font-weight: 400; }
+  .d .key i { display: inline-block; width: 8px; height: 8px; margin: 0 4px 0 10px; }
+  .d .meter { height: 6px; display: flex; gap: 2px; margin: 8px 0 4px; }
+  .d .meter i:first-child { background: var(--ink); } .d .meter i:last-child { background: var(--tick-n); }
+  .d .linkrow { padding: 12px 0; border-bottom: 1px solid var(--rule2); }
+  .d .linkrow b { font: 500 22px/1.2 "IBM Plex Mono", monospace; letter-spacing: -.02em; }
+  .d .linkrow small { color: var(--muted); }
+  .d .linkrow .act { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+
+  /* ================= C. CONTROL ROOM ================= */
+  .c { --bg:#f5f6f8; --side:#eceef2; --panel:#ffffff; --ink:#11151a; --ink2:#4b5361; --muted:#5b6472; --faint:#9aa2ae; --rule:#dde1e7; --rule2:#eceef1; --nav-on:#ffffff;
+       --amber:#f2a93b; --amber-fg:#1b1203; --amber-text:#9a5800; --green-text:#137a43; --red-text:#c62a2f;
+       --tick-ok:#2f9e63; --tick-x:#e5484d; --tick-u:#a3abb7; --tick-n:#e3e6ea;
+       --pill-in:#e3f5ea; --pill-out:#fde7e8; --live-bg:#e8f6ee; --live-bd:#bfe5cf; --live-dot:#22a95c; --dim:#eceef2; --dim-bd:#d3d8df; }
+  .c.dk { --bg:#0d1014; --side:#0a0c0f; --panel:#11151a; --ink:#e4e7ec; --ink2:#9aa3b0; --muted:#8b94a1; --faint:#4b5361; --rule:#1f242c; --rule2:#171b21; --nav-on:#171b21;
+       --amber:#f2a93b; --amber-fg:#1b1203; --amber-text:#f2a93b; --green-text:#7ee2a8; --red-text:#ff8a8e;
+       --tick-ok:#2a8a57; --tick-x:#e5484d; --tick-u:#5b6472; --tick-n:#1c2128;
+       --pill-in:#0f2419; --pill-out:#2a1416; --live-bg:#0f1a14; --live-bd:#1f3a2b; --live-dot:#3ddc84; --dim:#1c2128; --dim-bd:#2c333d; }
+  .c { background: var(--bg); color: var(--ink); font-family: "Geist", sans-serif; font-size: 13px; }
+  .c .mono { font-family: "Geist Mono", monospace; font-variant-numeric: tabular-nums; }
+  .c aside { border-right: 1px solid var(--rule); padding: 16px 10px; display: flex; flex-direction: column; background: var(--side); }
+  .c .brand { display: flex; gap: 10px; align-items: center; padding: 4px 8px 20px; font-weight: 600; }
+  .c .brand i { width: 22px; height: 22px; border-radius: 5px; background: var(--amber); display: grid; place-items: center; font: 700 11px "Geist Mono"; color: var(--amber-fg); font-style: normal; }
+  .c nav a { display: flex; justify-content: space-between; align-items: center; padding: 7px 10px; border-radius: 6px; color: var(--ink2); text-decoration: none; }
+  .c nav a.on { background: var(--nav-on); color: var(--ink); font-weight: 500; box-shadow: inset 0 0 0 1px var(--rule); }
+  .c nav a span { font: 600 11px "Geist Mono"; color: var(--amber-text); }
+  .c .who { margin-top: auto; padding: 8px 10px; font-size: 12px; color: var(--muted); }
+  .c main { padding: 22px 28px; overflow: hidden; }
+  .c .top { display: flex; justify-content: space-between; align-items: center; }
+  .c h1 { font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
+  .c .live { font: 500 11px "Geist Mono"; color: var(--green-text); display: flex; align-items: center; gap: 8px; padding: 5px 10px; border: 1px solid var(--live-bd); border-radius: 999px; background: var(--live-bg); }
+  .c .live i { width: 6px; height: 6px; border-radius: 50%; background: var(--live-dot); }
+  .c .kpis { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--rule); border-radius: 8px; margin-top: 18px; background: var(--panel); }
+  .c .kpi { padding: 14px 18px; border-right: 1px solid var(--rule); }
+  .c .kpi:last-child { border-right: 0; }
+  .c .kpi label { font: 500 11px "Geist Mono"; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .c .kpi b { display: block; font: 500 28px/1.15 "Geist Mono"; margin-top: 6px; letter-spacing: -.03em; }
+  .c .kpi small { color: var(--muted); font-size: 12px; }
+  .c .of { color: var(--faint); }
+  .c .warn { color: var(--amber-text); } .c .gt { color: var(--green-text); } .c .rt { color: var(--red-text); }
+  .c .grid { display: grid; grid-template-columns: 1.5fr 1fr; gap: 16px; margin-top: 16px; }
+  .c .box { border: 1px solid var(--rule); border-radius: 8px; background: var(--panel); }
+  .c .box h2 { font: 500 11px "Geist Mono"; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 12px 16px; border-bottom: 1px solid var(--rule); display: flex; justify-content: space-between; }
+  .c .box h2.sep { border-top: 1px solid var(--rule); }
+  .c .lane { display: grid; grid-template-columns: 130px 1fr 70px; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--rule2); }
+  .c .lane .t { color: var(--muted); text-align: right; }
+  .c .ticks { display: flex; gap: 2px; height: 18px; }
+  .c .ticks i { flex: 1; border-radius: 1px; background: var(--tick-ok); }
+  .c .ticks i.x { background: var(--tick-x); } .c .ticks i.u { background: var(--tick-u); } .c .ticks i.n { background: var(--tick-n); }
+  .c .key i { display: inline-block; width: 8px; height: 8px; border-radius: 1px; margin: 0 4px 0 10px; vertical-align: 0; }
+  .c .alert { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--rule2); }
+  .c .alert p { color: var(--muted); font-size: 12px; }
+  .c .btn { font: 600 12px "Geist"; padding: 6px 11px; border-radius: 6px; background: var(--amber); color: var(--amber-fg); border: 0; white-space: nowrap; }
+  .c .btn.dim { background: var(--dim); color: var(--ink); box-shadow: inset 0 0 0 1px var(--dim-bd); }
+  .c table { width: 100%; border-collapse: collapse; }
+  .c td { padding: 9px 16px; border-bottom: 1px solid var(--rule2); }
+  .c td.r { text-align: right; }
+  .c .pill { font: 600 11px "Geist Mono"; padding: 2px 7px; border-radius: 4px; }
+  .c .pill.out { background: var(--pill-out); color: var(--red-text); } .c .pill.in { background: var(--pill-in); color: var(--green-text); }
+
+  /* ================= viewer toolbar ================= */
+  .vbar { position: sticky; top: 0; z-index: 10; background: rgba(230,230,226,.94); backdrop-filter: blur(6px); display: flex; gap: 28px; flex-wrap: wrap; padding: 12px 0; margin-top: 18px; border-bottom: 1px solid #c9c9c4; }
+  .grp { display: flex; gap: 4px; align-items: center; }
+  .grp > span { font: 600 12px system-ui; text-transform: uppercase; letter-spacing: .06em; color: #555; margin-right: 6px; }
+  .grp button { font: 600 13px system-ui; padding: 6px 12px; border-radius: 6px; border: 1px solid #b9b9b3; background: #fff; cursor: pointer; }
+  .grp button[aria-pressed="true"] { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+  [hidden] { display: none !important; }
+
+  /* ================= Ledger pages (A and D) ================= */
+  .a { --inb:#8f9097; } .a.dk { --inb:#64655f; }
+  .a .ttl p { color: var(--muted); font-size: 12px; margin-top: 1px; }
+  .a .top .btn { padding: 6px 12px; }
+  .a .hacts { display: flex; gap: 6px; }
+  .a .stats.s4 { grid-template-columns: repeat(4, 1fr); }
+  .a .stat.on { box-shadow: inset 0 -2px 0 var(--ink); }
+  .a .tools { display: flex; gap: 8px; padding: 12px 28px; border-bottom: 1px solid var(--rule); align-items: center; }
+  .a .fld { height: 30px; display: flex; align-items: center; padding: 0 10px; border: 1px solid var(--inb); border-radius: 3px; color: var(--muted); font-size: 12px; background: var(--bg); }
+  .a .fld.grow { flex: 1; max-width: 340px; }
+  .a .tools .btn { margin-left: auto; }
+  .a .tbl { padding: 0 28px; }
+  .a .tbl th { padding: 10px 10px 6px 0; }
+  .a .tbl td { padding: 9px 12px 9px 0; vertical-align: top; }
+  .a .sub { display: block; color: var(--muted); font-size: 12px; margin-top: 1px; }
+  .a .sub.bad { color: var(--bad); }
+  .a .muted { color: var(--muted); }
+  .a .url { font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--muted); word-break: break-all; }
+  .a .st { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .a .st::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--neutral); flex: none; }
+  .a .st.ok::before { background: var(--good); }
+  .a .st.warn::before, .a .st.out::before { background: var(--bad); }
+  .a .st.warn { color: var(--bad); font-weight: 600; }
+  .a .acts { white-space: nowrap; text-align: right; }
+  .a .acts .btn + .btn { margin-left: 6px; }
+  .a .btn.more { padding: 5px 8px; }
+  .a .pager { display: flex; justify-content: space-between; padding: 12px 28px; color: var(--muted); font-size: 12px; }
+  .a u { text-underline-offset: 2px; color: var(--ink); }
+  .d .tbl .ticks { width: 160px; margin-top: 3px; }
+  .d .tbl .ticks.short { width: 72px; }
+
+  /* ================= Workshop pages (B) ================= */
+  .b { --inb:#8a8577; } .b.dk { --inb:#6f6b5f; }
+  .b .hdr { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; }
+  .b .hacts { display: flex; gap: 8px; }
+  .b .hdr .btn { grid-row: auto; }
+  .b .lede { color: var(--lede); margin-top: 8px; font-size: 15px; max-width: 640px; }
+  .b .lede strong { color: var(--ink); }
+  .b .tabs { display: flex; gap: 26px; border-bottom: 1px solid var(--rule); margin-top: 22px; align-items: flex-end; }
+  .b .tabs a { padding: 10px 0; color: var(--muted); font-weight: 600; font-size: 13px; text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .b .tabs a.on { color: var(--ink); border-color: var(--ink); }
+  .b .tabs a span { font-family: "Newsreader", serif; font-weight: 500; font-size: 16px; margin-left: 6px; }
+  .b .search { margin-left: auto; margin-bottom: 8px; border: 1.5px solid var(--inb); border-radius: 4px; padding: 6px 12px; color: var(--muted); font-size: 13px; width: 260px; }
+  .b .item { display: grid; gap: 20px; align-items: center; padding: 13px 0; border-bottom: 1px solid var(--rule); font-size: 13px; }
+  .b .item.sup { grid-template-columns: 1.3fr 1fr 1.4fr auto; }
+  .b .item.lnk { grid-template-columns: 1.1fr 1.2fr 1.4fr 1fr auto; }
+  .b .nm { font-family: "Newsreader", serif; font-size: 18px; line-height: 1.2; }
+  .b .item small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .b .chip { font-weight: 600; }
+  .b .chip.ok { color: var(--ok); } .b .chip.warn, .b .chip.out { color: var(--hi); } .b .chip.neu, .b .chip.none { color: var(--muted); }
+  .b .acts { display: flex; gap: 6px; justify-content: flex-end; }
+  .b .btn.sm { padding: 6px 12px; font-size: 12px; grid-row: auto; }
+  .b .item > div { min-width: 0; }
+  .b .url { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .b .item small.bad { color: var(--hi); }
+  .b u { text-underline-offset: 2px; }
+
+  /* ================= Control room pages (C) ================= */
+  .c { --pill-warn:#fdf0dc; } .c.dk { --pill-warn:#2a1f0c; }
+  .c .desc { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .c .hacts { display: flex; gap: 10px; align-items: center; }
+  .c .kpi.on { box-shadow: inset 0 -2px 0 var(--amber); }
+  .c .tools { display: flex; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--rule); align-items: center; }
+  .c .fld { height: 30px; display: flex; align-items: center; padding: 0 10px; border: 1px solid var(--dim-bd); border-radius: 6px; background: var(--bg); color: var(--muted); font-size: 12px; }
+  .c .fld.grow { flex: 1; max-width: 320px; }
+  .c .tools .btn { margin-left: auto; }
+  .c th { font: 500 11px "Geist Mono", monospace; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); text-align: left; padding: 9px 12px 9px 16px; border-bottom: 1px solid var(--rule); }
+  .c .tbl td { vertical-align: top; padding: 10px 12px 10px 16px; }
+  .c .sub { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .c .sub.warn { color: var(--amber-text); }
+  .c .url { font-family: "Geist Mono", monospace; font-size: 11px; word-break: break-all; }
+  .c .pill.warn { background: var(--pill-warn); color: var(--amber-text); }
+  .c .pill.neu { background: var(--dim); color: var(--muted); }
+  .c .pill { white-space: nowrap; display: inline-block; }
+  .c .tbl td:first-child { white-space: nowrap; }
+  .c .tbl .url { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+  .c .tbl .ticks { width: 120px; height: 14px; margin-top: 3px; }
+  .c .acts { text-align: right; white-space: nowrap; }
+  .c .acts .btn + .btn { margin-left: 6px; }
+  .c .btn.more { padding: 6px 8px; }
+  .c u { text-underline-offset: 2px; }
+  /* ---- recent checks: words, strip only when broken ---- */
+  .rc { color: var(--ink2, var(--muted)); }
+  .hist { min-width: 0; }
+  .hist .ticks { width: 100%; max-width: 220px; }
+  .hist .axis { display: flex; justify-content: space-between; max-width: 220px; font-size: 10px; color: var(--muted); margin-top: 3px; }
+  .d .hist .axis { font-family: "IBM Plex Mono", monospace; } .c .hist .axis { font-family: "Geist Mono", monospace; }
+  .d .ticks i.n { background: transparent; box-shadow: inset 0 0 0 1px var(--neutral); }
+  .c .ticks i.n { background: transparent; box-shadow: inset 0 0 0 1px var(--tick-u); }
+  .hist .ticks i { cursor: help; }
+  .a .sub.hl { color: var(--bad); font-weight: 600; } .c .sub.hl { color: var(--amber-text); font-weight: 600; }
+  .d .tbl .hist .ticks { width: 200px; } .c .tbl .hist .ticks { width: 180px; }
+  .d .tbl .hist.short .ticks { width: 96px; }
+  .c .tbl td { font-size: 12.5px; } .c .tbl .hist .ticks { width: 150px; } .c .tbl tr > *:nth-child(5) { min-width: 180px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="intro">
+    <h1>Check history in words only (C and D)</h1>
+    <p>No strips anywhere. Healthy suppliers and links say "Last 24 checks fine"; a broken one says what went wrong and since when, in red, such as "3 failed from 07:48, then checks stopped". Use the switches to choose a direction, a page and a mode. Every screen uses the same sample suppliers and products. Suppliers and Links keep everything the real pages have (filters, search, status words, actions); only the look changes. Press "Pick this" on the direction you like, or tell me what to mix.</p>
+  </div>
+  <div class="vbar">
+    <div class="grp" data-k="dir"><span>Direction</span><button data-v="all">All</button><button data-v="ledger">A</button><button data-v="workshop">B</button><button data-v="control">C</button><button data-v="ledger-strips" aria-pressed="true">D</button></div>
+    <div class="grp" data-k="page"><span>Page</span><button data-v="dash">Dashboard</button><button data-v="sup" aria-pressed="true">Suppliers</button><button data-v="links">Links</button><button data-v="all">All pages</button></div>
+    <div class="grp" data-k="mode"><span>Mode</span><button data-v="both" aria-pressed="true">Both</button><button data-v="light">Light</button><button data-v="dark">Dark</button></div>
+  </div>
+
+  <!-- ================= A ================= -->
+  <section class="dir" data-choice="ledger" onclick="toggleSelect(this)">
+    <div class="dir-head">
+      <div>
+        <h2>A · Ledger: a dense work tool</h2>
+        <p>Paper and ink, thin lines and no boxes. Numbers line up in a fixed-width font. In dark mode the paper turns to warm charcoal, and green and orange stay readable.</p>
+      </div>
+      <button class="pick">Pick this</button>
+    </div>
+    <p class="mode">Light</p>
+    <div class="frame"><div class="screen a" data-tpl="a">
+      <aside>
+        <div class="brand"><i></i>Stock Monitor</div>
+        <nav>
+          <a class="on" href="#">Dashboard <span>2</span></a>
+          <a href="#">Suppliers</a><a href="#">Links</a><a href="#">Products</a>
+          <a href="#">Proposals <span>12</span></a><a href="#">Settings</a>
+        </nav>
+        <div class="who">owner@store.example</div>
+      </aside>
+      <main>
+        <div class="top"><h1>Dashboard</h1><div class="sync"><i class="dot g"></i>Next check in 14 min · last at 09:14</div></div>
+        <div class="stats">
+          <div class="stat"><label>Suppliers</label><b>3<span class="of">/4</span></b><small>connected</small></div>
+          <div class="stat"><label>Variants</label><b>2,481</b><small>312 not linked</small></div>
+          <div class="stat"><label>In stock</label><b class="good">2,104</b><small>at suppliers</small></div>
+          <div class="stat"><label>Out of stock</label><b class="bad">179</b><small>38 can't tell</small>
+            <div class="bar"><i style="flex:2104"></i><i style="flex:179"></i><i style="flex:38"></i></div></div>
+          <div class="stat"><label>Proposals</label><b>12</b><small>waiting for you</small></div>
+        </div>
+        <div class="cols">
+          <div class="col">
+            <h2>Waiting for approval <a href="#">All 12 proposals</a></h2>
+            <table>
+              <tr><th>Product</th><th>Supplier</th><th class="r">Change</th><th class="r"></th></tr>
+              <tr><td>Oak serving board, large</td><td>Northline</td><td class="r chg"><s>In stock</s> → Out</td><td class="r"><button class="btn">Approve</button></td></tr>
+              <tr><td>Linen apron, sage</td><td>Brightwell</td><td class="r chg"><s>Out</s> → In stock</td><td class="r"><button class="btn">Approve</button></td></tr>
+              <tr><td>Enamel mug, 350 ml</td><td>Kestrel</td><td class="r chg"><s>In stock</s> → Out</td><td class="r"><button class="btn">Approve</button></td></tr>
+              <tr><td>Stoneware jug, speckled</td><td>Northline</td><td class="r chg"><s>Out</s> → In stock</td><td class="r"><button class="btn">Approve</button></td></tr>
+              <tr><td>Beeswax wraps, set of 3</td><td>Harbour</td><td class="r chg"><s>In stock</s> → Out</td><td class="r"><button class="btn">Approve</button></td></tr>
+            </table>
+          </div>
+          <div class="col">
+            <h2>Needs you</h2>
+            <ul class="att">
+              <li><span class="t"><i class="dot r"></i>Harbour Goods logged out</span><button class="btn ghost">Reconnect</button></li>
+              <li><span class="t"><i class="dot r"></i>7 links look different</span><button class="btn ghost">Review</button></li>
+            </ul>
+            <div class="sec">
+              <h2>Suppliers</h2>
+              <table>
+                <tr><th>Name</th><th>Last check</th><th class="r">Status</th></tr>
+                <tr><td>Northline Wholesale</td><td class="mono">09:14</td><td class="r">Connected</td></tr>
+                <tr><td>Brightwell Trade</td><td class="mono">09:12</td><td class="r">Connected</td></tr>
+                <tr><td>Kestrel Supply</td><td class="mono">09:05</td><td class="r">Connected</td></tr>
+                <tr><td>Harbour Goods</td><td class="mono">07:48</td><td class="r warnc">Logged out</td></tr>
+              </table>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div></div>
+    <p class="mode">Dark</p>
+    <div class="frame" data-dark="a"></div>
+  </section>
+
+  <!-- ================= B ================= -->
+  <section class="dir" data-choice="workshop" onclick="toggleSelect(this)">
+    <div class="dir-head">
+      <div>
+        <h2>B · Workshop: a warm shop back office</h2>
+        <p>Cream paper, forest green and a serif for headings. The page opens with a sentence about today. In dark mode the cream turns to a deep green-black and the gold stays the same.</p>
+      </div>
+      <button class="pick">Pick this</button>
+    </div>
+    <p class="mode">Light</p>
+    <div class="frame"><div class="screen b" data-tpl="b">
+      <aside>
+        <div class="brand">Stock <em>Monitor</em></div>
+        <nav>
+          <a class="on" href="#">Dashboard</a>
+          <a href="#">Suppliers</a><a href="#">Links</a><a href="#">Products</a>
+          <a href="#">Proposals <span>12</span></a><a href="#">Settings</a>
+        </nav>
+        <div class="who">owner@store.example</div>
+      </aside>
+      <main>
+        <div class="date">Thursday 19 November · next check 09:28</div>
+        <h1>Good morning. <strong>179 products</strong> are out of stock at your suppliers, and 12 changes are waiting for you.</h1>
+        <div class="grid">
+          <div>
+            <h2>Needs you <a href="#">See all</a></h2>
+            <div class="need"><b>Harbour Goods logged you out</b><button class="btn">Reconnect</button><p>Its stock hasn't been checked since 07:48.</p></div>
+            <div class="need"><b>12 stock changes to approve</b><button class="btn">Review proposals</button><p>Nothing is sent to Shopify until you say yes.</p></div>
+            <div class="need"><b>7 links look different</b><button class="btn line">Check links</button><p>The supplier page may have moved or changed.</p></div>
+          </div>
+          <div>
+            <h2>Today in numbers</h2>
+            <div class="figs">
+              <div class="fig"><b>2,104</b><span>in stock</span></div>
+              <div class="fig"><b class="bad">179</b><span>out of stock</span></div>
+              <div class="fig"><b>2,481</b><span>variants, 312 not linked</span></div>
+              <div class="fig"><b>3 of 4</b><span>suppliers connected</span></div>
+            </div>
+            <div class="sup">
+              <h2>Suppliers</h2>
+              <div class="row"><span>Northline Wholesale</span><span class="tag ok">Checked 09:14</span></div>
+              <div class="row"><span>Brightwell Trade</span><span class="tag ok">Checked 09:12</span></div>
+              <div class="row"><span>Kestrel Supply</span><span class="tag ok">Checked 09:05</span></div>
+              <div class="row"><span>Harbour Goods</span><span class="tag bad">Logged out</span></div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div></div>
+    <p class="mode">Dark</p>
+    <div class="frame" data-dark="b"></div>
+  </section>
+
+  <!-- ================= C ================= -->
+  <section class="dir" data-choice="control" onclick="toggleSelect(this)">
+    <div class="dir-head">
+      <div>
+        <h2>C · Control room: live signals</h2>
+        <p>Amber for anything that needs you, green and red for stock, and a short sentence about each supplier's recent checks. Light mode is a cool grey with white panels. Dark mode is near-black.</p>
+      </div>
+      <button class="pick">Pick this</button>
+    </div>
+    <p class="mode">Light</p>
+    <div class="frame"><div class="screen c" data-tpl="c">
+      <aside>
+        <div class="brand"><i>SM</i>Stock Monitor</div>
+        <nav>
+          <a class="on" href="#">Dashboard <span>2</span></a>
+          <a href="#">Suppliers</a><a href="#">Links</a><a href="#">Products</a>
+          <a href="#">Proposals <span>12</span></a><a href="#">Settings</a>
+        </nav>
+        <div class="who">owner@store.example</div>
+      </aside>
+      <main>
+        <div class="top"><h1>Dashboard</h1><span class="live"><i></i>CHECKS ON · NEXT 09:28</span></div>
+        <div class="kpis">
+          <div class="kpi"><label>Suppliers</label><b>3<span class="of">/4</span></b><small class="warn">1 logged out</small></div>
+          <div class="kpi"><label>In stock</label><b class="gt">2,104</b><small>of 2,321 checked</small></div>
+          <div class="kpi"><label>Out of stock</label><b class="rt">179</b><small>38 can't tell</small></div>
+          <div class="kpi"><label>Proposals</label><b class="warn">12</b><small>waiting for you</small></div>
+        </div>
+        <div class="grid">
+          <div class="box">
+            <h2>Suppliers · recent checks</h2>
+            <div class="lane"><span>Northline</span><span class="rc">Last 24 checks fine</span><span class="mono t">09:14</span></div>
+            <div class="lane"><span>Brightwell</span><span class="rc">23 fine, 1 couldn't tell</span><span class="mono t">09:12</span></div>
+            <div class="lane"><span>Kestrel</span><span class="rc">Last 24 checks fine</span><span class="mono t">09:05</span></div>
+            <div class="lane"><span>Harbour</span><div data-hist></div><span class="mono t warn">07:48</span></div>
+            <h2 class="sep">Waiting for approval <span class="warn">12</span></h2>
+            <table>
+              <tr><td>Oak serving board, large</td><td>Northline</td><td class="r"><span class="pill out">→ OUT</span></td></tr>
+              <tr><td>Linen apron, sage</td><td>Brightwell</td><td class="r"><span class="pill in">→ IN</span></td></tr>
+              <tr><td>Enamel mug, 350 ml</td><td>Kestrel</td><td class="r"><span class="pill out">→ OUT</span></td></tr>
+            </table>
+          </div>
+          <div class="box">
+            <h2>Needs you <span class="warn">2</span></h2>
+            <div class="alert"><div><b>Harbour Goods logged out</b><p>3 checks failed since 07:48</p></div><button class="btn">Reconnect</button></div>
+            <div class="alert"><div><b>7 links look different</b><p>Supplier pages moved or changed</p></div><button class="btn dim">Review</button></div>
+            <h2 class="sep" style="margin-top:8px">Links</h2>
+            <div class="alert"><div><b class="mono" style="font-size:20px">2,169 <span class="of">/ 2,481</span></b><p>variants linked to a supplier page</p></div><button class="btn dim">Link 312</button></div>
+          </div>
+        </div>
+      </main>
+    </div></div>
+    <p class="mode">Dark</p>
+    <div class="frame" data-dark="c"></div>
+  </section>
+
+  <!-- ================= D ================= -->
+  <section class="dir" data-choice="ledger-strips" onclick="toggleSelect(this)">
+    <div class="dir-head">
+      <div>
+        <h2>D · Ledger with check sentences: A mixed with C</h2>
+        <p>A's paper-and-ink look, thin lines and lined-up numbers, plus a short sentence about each supplier's recent checks, taken from C. Trouble is written in red.</p>
+      </div>
+      <button class="pick">Pick this</button>
+    </div>
+    <p class="mode">Light</p>
+    <div class="frame"><div class="screen a d" data-tpl="d">
+      <aside>
+        <div class="brand"><i></i>Stock Monitor</div>
+        <nav>
+          <a class="on" href="#">Dashboard <span>2</span></a>
+          <a href="#">Suppliers</a><a href="#">Links</a><a href="#">Products</a>
+          <a href="#">Proposals <span>12</span></a><a href="#">Settings</a>
+        </nav>
+        <div class="who">owner@store.example</div>
+      </aside>
+      <main>
+        <div class="top"><h1>Dashboard</h1><div class="sync"><i class="dot g"></i>Checks on · next in 14 min · last at 09:14</div></div>
+        <div class="stats">
+          <div class="stat"><label>Suppliers</label><b>3<span class="of">/4</span></b><small class="bad">1 logged out</small></div>
+          <div class="stat"><label>Variants</label><b>2,481</b><small>312 not linked</small></div>
+          <div class="stat"><label>In stock</label><b class="good">2,104</b><small>at suppliers</small></div>
+          <div class="stat"><label>Out of stock</label><b class="bad">179</b><small>38 can't tell</small>
+            <div class="bar"><i style="flex:2104"></i><i style="flex:179"></i><i style="flex:38"></i></div></div>
+          <div class="stat"><label>Proposals</label><b>12</b><small>waiting for you</small></div>
+        </div>
+        <div class="cols">
+          <div class="col">
+            <h2>Suppliers · recent checks</h2>
+            <div class="lanes">
+              <div class="lane"><span>Northline Wholesale</span><span class="rc">Last 24 checks fine</span><span class="t">09:14</span><span class="s">Connected</span></div>
+              <div class="lane"><span>Brightwell Trade</span><span class="rc">23 fine, 1 couldn't tell</span><span class="t">09:12</span><span class="s">Connected</span></div>
+              <div class="lane"><span>Kestrel Supply</span><span class="rc">Last 24 checks fine</span><span class="t">09:05</span><span class="s">Connected</span></div>
+              <div class="lane"><span>Harbour Goods</span><div data-hist></div><span class="t bad">07:48</span><span class="s warnc">Logged out</span></div>
+            </div>
+            <h2>Waiting for approval <a href="#">All 12 proposals</a></h2>
+            <table>
+              <tr><th>Product</th><th>Supplier</th><th class="r">Change</th><th class="r"></th></tr>
+              <tr><td>Oak serving board, large</td><td>Northline</td><td class="r chg"><s>In stock</s> → Out</td><td class="r"><button class="btn">Approve</button></td></tr>
+              <tr><td>Linen apron, sage</td><td>Brightwell</td><td class="r chg"><s>Out</s> → In stock</td><td class="r"><button class="btn">Approve</button></td></tr>
+              <tr><td>Enamel mug, 350 ml</td><td>Kestrel</td><td class="r chg"><s>In stock</s> → Out</td><td class="r"><button class="btn">Approve</button></td></tr>
+            </table>
+          </div>
+          <div class="col">
+            <h2>Needs you</h2>
+            <ul class="att">
+              <li><span class="t"><i class="dot r"></i>Harbour Goods logged out</span><button class="btn">Reconnect</button></li>
+              <li><span class="t"><i class="dot r"></i>7 links look different</span><button class="btn ghost">Review</button></li>
+              <li><span class="t"><i class="dot r"></i>12 stock changes to approve</span><button class="btn ghost">Review</button></li>
+            </ul>
+            <div class="sec">
+              <h2>Links</h2>
+              <div class="linkrow">
+                <b>2,169</b> <small>of 2,481 variants linked to a supplier page</small>
+                <div class="meter"><i style="flex:2169"></i><i style="flex:312"></i></div>
+                <div class="act"><small>312 still to link</small><button class="btn ghost">Link variants</button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div></div>
+    <p class="mode">Dark</p>
+    <div class="frame" data-dark="d"></div>
+  </section>
+</div>
+<script>
+  // Fill the check strips, then copy each light screen into its dark frame.
+  document.querySelectorAll(".ticks[data-t]").forEach(el => {
+    el.innerHTML = [...el.dataset.t].map(ch => `<i class="${ch === "g" ? "" : ch}"></i>`).join("");
+  });
+  document.querySelectorAll("[data-dark]").forEach(frame => {
+    const copy = document.querySelector(`[data-tpl="${frame.dataset.dark}"]`).cloneNode(true);
+    copy.classList.add("dk");
+    copy.removeAttribute("data-tpl");
+    frame.appendChild(copy);
+  });
+</script>
+<script>
+(() => {
+  // ---------- sample data, shaped like the real pages ----------
+  const g = (n) => "g".repeat(n);
+  const SUP = [
+    { n: "Northline Wholesale", w: "northline-trade.example", st: "Connected", t: "ok", last: "09:14", sch: "Every 30 min, next 09:44", run: "Last run: 812 links, 41 out of stock", tk: g(24), act: "Check connection" },
+    { n: "Brightwell Trade", w: "brightwell.example", st: "Connected", t: "ok", last: "09:12", sch: "Every hour, next 10:12", run: "Last run: 655 links, 28 out of stock", tk: g(4) + "u" + g(19), act: "Check connection" },
+    { n: "Kestrel Supply", w: "kestrelsupply.example", st: "Connected", t: "ok", last: "09:05", sch: "Every 2 hours, next 11:05", run: "Last run: 540 links, 66 out of stock", tk: g(24), act: "Check connection" },
+    { n: "Harbour Goods", w: "harbourgoods.example", st: "Needs reconnecting", t: "warn", last: "07:48", sch: "Not being checked", run: "Reconnect to start checks again", tk: g(18) + "xxxnnn", act: "Reconnect supplier", primary: true },
+    { n: "Oldfield Paper", w: "oldfieldpaper.example", st: "No login needed", t: "ok", last: "09:20", sch: "Every 4 hours, next 13:20", run: "Last run: 162 links, 6 out of stock", tk: g(24) },
+    { n: "Fenwick & Co", w: "fenwick.example", st: "Paused", t: "neu", last: "Mon 16:20", sch: "Automatic checks off", run: "Paused on Monday", tk: "n".repeat(24) },
+  ];
+  const LNK = [
+    { p: "Oak serving board", v: "Large · OSB-L", s: "Northline", u: "northline-trade.example/oak-board-large", st: "Works", t: "ok", stock: "Out of stock", sk: "out", seen: "Seen 09:14", note: "Proposal waiting", last: "09:14", tk: g(8) },
+    { p: "Linen apron", v: "Sage · LA-SG", s: "Brightwell", u: "brightwell.example/aprons/linen-sage", st: "Works", t: "ok", stock: "In stock, 14 left", sk: "ok", seen: "Seen 09:12", last: "09:12", tk: g(8) },
+    { p: "Enamel mug", v: "350 ml · EM-350", s: "Kestrel", u: "kestrelsupply.example/mugs/enamel-350", st: "Works", t: "ok", stock: "Out of stock", sk: "out", seen: "Seen 09:05", note: "Proposal waiting", last: "09:05", tk: g(8) },
+    { p: "Stoneware jug", v: "Speckled · SJ-SP", s: "Northline", u: "northline-trade.example/jug-speckled", st: "Looks different", t: "warn", hint: "The page changed. Check it is still the same product.", stock: "Can't tell", sk: "neu", seen: "Seen 09:14", last: "09:14", tk: g(6) + "xx" },
+    { p: "Beeswax wraps", v: "Set of 3 · BW-3", s: "Harbour", u: "harbourgoods.example/wraps-3", st: "Needs login", t: "neu", hint: "The supplier asked for a login. Not marked broken.", stock: "In stock", sk: "ok", seen: "Seen 07:48", last: "07:48", stale: true, tk: g(5) + "nnn" },
+    { p: "Cotton tea towel", v: "Stripe · TT-ST", s: "Brightwell", u: "brightwell.example/towels/stripe", st: "Moved", t: "warn", hint: "The supplier sends this address somewhere else.", stock: "No stock check yet", sk: "none", last: "09:12", tk: g(5) + "xxx" },
+    { p: "Rattan basket", v: "Medium · RB-M", s: "Kestrel", u: "kestrelsupply.example/baskets/rattan-m", st: "Page missing", t: "warn", hint: "Worked until 12 Nov.", stock: "Out of stock", sk: "out", seen: "Seen 12 Nov", last: "09:05", tk: "xxxxxxxx" },
+    { p: "Glass carafe", v: "1 litre · GC-1", s: "Oldfield", u: "oldfieldpaper.example/carafe-1l", st: "Works", t: "ok", stock: "In stock", sk: "ok", seen: "Seen 09:20", last: "09:20", tk: g(8) },
+  ];
+
+  const RC = { "Northline Wholesale": "Last 24 checks fine", "Brightwell Trade": "23 fine, 1 couldn't tell", "Kestrel Supply": "Last 24 checks fine", "Oldfield Paper": "Last 24 checks fine", "Fenwick & Co": "No checks since Monday (paused)" };
+  SUP.forEach((x) => (x.rc = RC[x.n]));
+  const H = SUP.find((x) => x.n === "Harbour Goods");
+  Object.assign(H, { tk: g(19) + "xxxnn", from: "01:28", rc: "3 failed from 07:48, then checks stopped" });
+  ["Last 8 checks fine", "Last 8 checks fine", "Last 8 checks fine", "Page changed on the last 2 checks", "Waiting for Harbour Goods login", "Redirected on the last 3 checks", "Page missing on all 8 checks", "Last 8 checks fine"].forEach((t, i) => (LNK[i].rc = t));
+  const clock = (from, i, step) => { const [h, m] = from.split(":").map(Number); const t = h * 60 + m + i * step; return `${String(Math.floor(t / 60) % 24).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`; };
+  const WORD = { g: "fine", x: "failed", u: "couldn't tell", n: "not run" };
+  const recent = (item, { axis = true, cls = "" } = {}) => {
+    if (!item.tk.includes("x")) return `<span class="rc">${item.rc}</span>`;
+    return `<span class="sub hl" style="margin:0">${item.rc}</span>`;
+    const bars = [...item.tk].map((ch, i) => `<i class="${ch === "g" ? "" : ch}" title="${item.from ? clock(item.from, i, 20) + " · " : ""}${WORD[ch]}"></i>`).join("");
+    const ax = axis && item.from ? `<div class="axis"><span>${item.from}</span><span>now</span></div>` : "";
+    return `<div class="hist ${cls}"><div class="ticks">${bars}</div>${ax}<span class="sub hl">${item.rc}</span></div>`;
+  };
+  document.querySelectorAll("[data-hist]").forEach((el) => (el.outerHTML = recent(H)));
+
+  // ---------- shared pieces ----------
+  const NAV = ["Dashboard", "Suppliers", "Links", "Products", "Proposals", "Settings"];
+  const COUNT = { Dashboard: 2, Proposals: 12 };
+  const side = (k, on) => {
+    const brand = k === "b" ? `<div class="brand">Stock <em>Monitor</em></div>` : k === "c" ? `<div class="brand"><i>SM</i>Stock Monitor</div>` : `<div class="brand"><i></i>Stock Monitor</div>`;
+    const items = NAV.map((n) => {
+      const c = COUNT[n];
+      const badge = c == null || (k === "b" && n !== "Proposals") ? "" : `<span>${c}</span>`;
+      return `<a href="#"${n === on ? ' class="on"' : ""}>${n} ${badge}</a>`;
+    }).join("");
+    return `<aside>${brand}<nav>${items}</nav><div class="who">owner@store.example</div></aside>`;
+  };
+  const strip = (s, cls = "") => `<div class="ticks ${cls}">${[...s].map((ch) => `<i class="${ch === "g" ? "" : ch}"></i>`).join("")}</div>`;
+  const seenLine = (l, cls) => { if (!l.seen) return ""; const t = `${l.seen}${l.note ? ` · <u>${l.note}</u>` : ""}`; return cls === "small" ? `<small>${t}</small>` : `<span class="${cls}">${t}</span>`; };
+
+  // ---------- A and D: Ledger ----------
+  const dot = (t, w) => `<span class="st ${t}">${w}</span>`;
+  const ledgerSup = (d) => {
+    const head = d
+      ? `<tr><th>Supplier</th><th>Status</th><th>Recent checks</th><th>Automatic checks</th><th></th></tr>`
+      : `<tr><th>Name</th><th>Website</th><th>Status</th><th>Last checked</th><th>Automatic checks</th><th></th></tr>`;
+    const rows = SUP.map((s) => {
+      const acts = `<td class="acts">${s.act ? `<button class="btn ${s.primary ? "" : "ghost"}">${s.act}</button>` : ""}<button class="btn ghost more">⋯</button></td>`;
+      return d
+        ? `<tr><td><b>${s.n}</b><span class="sub">${s.w}</span></td><td>${dot(s.t, s.st)}<span class="sub mono">Checked ${s.last}</span></td><td>${recent(s)}</td><td>${s.sch}<span class="sub">${s.run}</span></td>${acts}</tr>`
+        : `<tr><td><b>${s.n}</b></td><td class="muted">${s.w}</td><td>${dot(s.t, s.st)}</td><td class="mono">${s.last}</td><td>${s.sch}<span class="sub">${s.run}</span></td>${acts}</tr>`;
+    }).join("");
+    return `<main>
+      <div class="top"><div class="ttl"><h1>Suppliers</h1><p>The supplier websites this app checks for stock.</p></div><button class="btn">+ Add supplier</button></div>
+      <div class="stats s4">
+        <div class="stat on"><label>All suppliers</label><b>6</b></div>
+        <div class="stat"><label>Connected</label><b class="good">3</b></div>
+        <div class="stat"><label>Needs reconnecting</label><b class="bad">1</b></div>
+        <div class="stat"><label>Paused</label><b>1</b></div>
+      </div>
+      <div class="tools"><span class="fld grow">Search by name or website</span><span class="fld">All statuses ▾</span></div>
+      <div class="tbl"><table>${head}${rows}</table></div>
+      <div class="pager"><span>6 suppliers</span></div>
+    </main>`;
+  };
+  const ledgerLinks = (d) => {
+    const head = d
+      ? `<tr><th>Product</th><th>Supplier page</th><th>Status</th><th>Stock</th><th>Recent checks</th><th></th></tr>`
+      : `<tr><th>Product</th><th>Supplier</th><th>Page</th><th>Status</th><th>Stock</th><th>Last checked</th><th></th></tr>`;
+    const rows = LNK.map((l) => {
+      const prod = `<td><b>${l.p}</b><span class="sub">${l.v}</span></td>`;
+      const status = `<td>${dot(l.t, l.st)}${l.hint ? `<span class="sub">${l.hint}</span>` : ""}</td>`;
+      const stock = `<td>${l.sk === "none" ? `<span class="muted">${l.stock}</span>` : dot(l.sk, l.stock)}${seenLine(l, "sub")}</td>`;
+      const last = `<td class="mono">${l.last}${l.stale ? `<span class="sub bad">Not checked recently</span>` : ""}</td>`;
+      const acts = `<td class="acts"><button class="btn ghost">Check now</button><button class="btn ghost more">⋯</button></td>`;
+      return d
+        ? `<tr>${prod}<td>${l.s}<span class="url sub">${l.u}</span></td>${status}${stock}<td>${recent(l, { axis: false, cls: "short" })}${l.stale ? `<span class="sub bad">Not checked recently</span>` : ""}</td>${acts}</tr>`
+        : `<tr>${prod}<td>${l.s}</td><td class="url">${l.u}</td>${status}${stock}${last}${acts}</tr>`;
+    }).join("");
+    return `<main>
+      <div class="top"><div class="ttl"><h1>Links</h1><p>Which supplier page each of your Shopify variants matches.</p></div><div class="hacts"><button class="btn ghost">Import from Shopify export</button><button class="btn">+ Add link</button></div></div>
+      <div class="stats s4">
+        <div class="stat"><label>Variants</label><b>2,481</b></div>
+        <div class="stat on"><label>Linked</label><b>2,169</b></div>
+        <div class="stat"><label>Not linked</label><b>312</b></div>
+        <div class="stat"><label>Need a look</label><b class="bad">7</b></div>
+      </div>
+      <div class="tools"><span class="fld grow">Search by product, variant or SKU</span><span class="fld">All suppliers ▾</span><span class="fld">Any status ▾</span><span class="fld">Any stock ▾</span><button class="btn ghost">Check all links</button></div>
+      <div class="tbl"><table>${head}${rows}</table></div>
+      <div class="pager"><span>Showing 1–8 of 2,169</span><span>← Previous · Next →</span></div>
+    </main>`;
+  };
+
+  // ---------- B: Workshop ----------
+  const chip = (t, w) => `<span class="chip ${t}">${w}</span>`;
+  const workSup = () => `<main>
+    <div class="hdr"><div><div class="date">6 suppliers · 3 connected</div><h1>Suppliers</h1><p class="lede">The supplier websites this app checks for stock. <strong>Harbour Goods</strong> needs you to log in again.</p></div><button class="btn">Add supplier</button></div>
+    <div class="tabs"><a class="on" href="#">All<span>6</span></a><a href="#">Connected<span>3</span></a><a href="#">Needs reconnecting<span>1</span></a><a href="#">Paused<span>1</span></a><span class="search">Search by name or website</span></div>
+    ${SUP.map((s) => `<div class="item sup"><div><div class="nm">${s.n}</div><small>${s.w}</small></div><div>${chip(s.t, s.st)}<small>Checked ${s.last}</small></div><div>${s.sch}<small>${s.run}</small></div><div class="acts">${s.act ? `<button class="btn sm ${s.primary ? "" : "line"}">${s.act}</button>` : ""}<button class="btn sm line">⋯</button></div></div>`).join("")}
+  </main>`;
+  const workLinks = () => `<main>
+    <div class="hdr"><div><div class="date">2,481 variants · 312 not linked</div><h1>Links</h1><p class="lede">Which supplier page each of your Shopify variants matches. <strong>7 links</strong> need a look.</p></div><div class="hacts"><button class="btn line">Import from Shopify export</button><button class="btn">Add link</button></div></div>
+    <div class="tabs"><a class="on" href="#">All<span>2,169</span></a><a href="#">Need a look<span>7</span></a><a href="#">Out of stock<span>179</span></a><a href="#">Not linked<span>312</span></a><span class="search">Search by product, variant or SKU</span></div>
+    ${LNK.map((l) => `<div class="item lnk"><div><div class="nm">${l.p}</div><small>${l.v}</small></div><div>${l.s}<small class="url">${l.u}</small></div><div>${chip(l.t, l.st)}${l.hint ? `<small>${l.hint}</small>` : ""}</div><div>${chip(l.sk, l.stock)}${seenLine(l, "small")}${l.stale ? `<small class="bad">Not checked recently</small>` : ""}</div><div class="acts"><button class="btn sm line">Check now</button><button class="btn sm line">⋯</button></div></div>`).join("")}
+  </main>`;
+
+  // ---------- C: Control room ----------
+  const PILL = { ok: "in", warn: "warn", out: "out", neu: "neu" };
+  const pill = (t, w) => `<span class="pill ${PILL[t]}">${w}</span>`;
+  const ctrlSup = () => `<main>
+    <div class="top"><div><h1>Suppliers</h1><p class="desc">The supplier websites this app checks for stock.</p></div><div class="hacts"><span class="live"><i></i>CHECKS ON</span><button class="btn">+ Add supplier</button></div></div>
+    <div class="kpis"><div class="kpi on"><label>All</label><b>6</b></div><div class="kpi"><label>Connected</label><b class="gt">3</b></div><div class="kpi"><label>Needs reconnecting</label><b class="warn">1</b></div><div class="kpi"><label>Paused</label><b>1</b></div></div>
+    <div class="box" style="margin-top:16px"><div class="tools"><span class="fld grow">Search by name or website</span><span class="fld">All statuses ▾</span></div>
+      <table class="tbl"><tr><th>Supplier</th><th>Status</th><th>Recent checks</th><th>Last checked</th><th>Automatic checks</th><th></th></tr>
+      ${SUP.map((s) => `<tr><td><b>${s.n}</b><span class="sub">${s.w}</span></td><td>${pill(s.t, s.st)}</td><td>${recent(s)}</td><td class="mono">${s.last}</td><td>${s.sch}<span class="sub">${s.run}</span></td><td class="acts">${s.act ? `<button class="btn ${s.primary ? "" : "dim"}">${s.act}</button>` : ""}<button class="btn dim more">⋯</button></td></tr>`).join("")}
+      </table></div>
+  </main>`;
+  const ctrlLinks = () => `<main>
+    <div class="top"><div><h1>Links</h1><p class="desc">Which supplier page each of your Shopify variants matches.</p></div><div class="hacts"><button class="btn dim">Import from Shopify export</button><button class="btn">+ Add link</button></div></div>
+    <div class="kpis"><div class="kpi"><label>Variants</label><b>2,481</b></div><div class="kpi on"><label>Linked</label><b>2,169</b></div><div class="kpi"><label>Not linked</label><b>312</b></div><div class="kpi"><label>Need a look</label><b class="warn">7</b></div></div>
+    <div class="box" style="margin-top:16px"><div class="tools"><span class="fld grow">Search by product, variant or SKU</span><span class="fld">All suppliers ▾</span><span class="fld">Any status ▾</span><span class="fld">Any stock ▾</span><button class="btn dim">Check all links</button></div>
+      <table class="tbl"><tr><th>Product</th><th>Supplier</th><th>Status</th><th>Stock</th><th>Last checked</th><th></th></tr>
+      ${LNK.map((l) => `<tr><td><b>${l.p}</b><span class="sub">${l.v}</span></td><td>${l.s}<span class="sub url">${l.u}</span></td><td>${pill(l.t, l.st)}${l.hint ? `<span class="sub">${l.hint}</span>` : ""}</td><td>${l.sk === "none" ? `<span class="sub">${l.stock}</span>` : pill(l.sk, l.stock)}${seenLine(l, "sub")}</td><td class="mono">${l.last}${l.stale ? `<span class="sub warn">Not checked recently</span>` : ""}</td><td class="acts"><button class="btn dim">Check now</button><button class="btn dim more">⋯</button></td></tr>`).join("")}
+      </table></div>
+  </main>`;
+
+  // ---------- assemble ----------
+  const KIND = { ledger: "a", "ledger-strips": "d", workshop: "b", control: "c" };
+  const CLS = { a: "screen a", d: "screen a d", b: "screen b", c: "screen c" };
+  const RENDER = {
+    a: { sup: () => ledgerSup(false), links: () => ledgerLinks(false) },
+    d: { sup: () => ledgerSup(true), links: () => ledgerLinks(true) },
+    b: { sup: workSup, links: workLinks },
+    c: { sup: ctrlSup, links: ctrlLinks },
+  };
+  const PAGE_NAME = { dash: "Dashboard", sup: "Suppliers", links: "Links" };
+  const modeBlock = (mode, frame, page) => {
+    const mb = document.createElement("div");
+    mb.className = "mb";
+    mb.dataset.mode = mode;
+    const p = document.createElement("p");
+    p.className = "mode";
+    p.textContent = `${PAGE_NAME[page]} · ${mode === "light" ? "Light" : "Dark"}`;
+    mb.append(p, frame);
+    return mb;
+  };
+  document.querySelectorAll("section.dir").forEach((sec) => {
+    const k = KIND[sec.dataset.choice];
+    // Wrap the existing Dashboard screens.
+    const dash = document.createElement("div");
+    dash.className = "pg";
+    dash.dataset.page = "dash";
+    [...sec.querySelectorAll(":scope > p.mode")].forEach((p) => {
+      const frame = p.nextElementSibling;
+      const mode = p.textContent.trim().toLowerCase();
+      p.remove();
+      dash.append(modeBlock(mode, frame, "dash"));
+    });
+    sec.append(dash);
+    // Add Suppliers and Links.
+    ["sup", "links"].forEach((page) => {
+      const pg = document.createElement("div");
+      pg.className = "pg";
+      pg.dataset.page = page;
+      const light = document.createElement("div");
+      light.className = CLS[k];
+      light.innerHTML = side(k, page === "sup" ? "Suppliers" : "Links") + RENDER[k][page]();
+      const dark = light.cloneNode(true);
+      dark.classList.add("dk");
+      const f1 = document.createElement("div"); f1.className = "frame"; f1.append(light);
+      const f2 = document.createElement("div"); f2.className = "frame"; f2.append(dark);
+      pg.append(modeBlock("light", f1, page), modeBlock("dark", f2, page));
+      sec.append(pg);
+    });
+  });
+
+  // ---------- switches ----------
+  const state = { dir: "ledger-strips", page: "sup", mode: "both" };
+  const apply = () => {
+    document.querySelectorAll("section.dir").forEach((s) => (s.hidden = state.dir !== "all" && s.dataset.choice !== state.dir));
+    document.querySelectorAll(".pg").forEach((p) => (p.hidden = state.page !== "all" && p.dataset.page !== state.page));
+    document.querySelectorAll(".mb").forEach((m) => (m.hidden = state.mode !== "both" && m.dataset.mode !== state.mode));
+  };
+  document.querySelectorAll(".grp").forEach((grp) => {
+    grp.addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      grp.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+      state[grp.dataset.k] = b.dataset.v;
+      apply();
+    });
+  });
+  apply();
+})();
+</script>
+</body>
+</html>

@@ -16,6 +16,12 @@ const items = [
 ];
 const globex = aSupplier({ id: "22222222-2222-4222-8222-222222222222", name: "Globex" });
 
+/** The Variant and Supplier fields are dropdowns with search: open one and pick by name. */
+const choose = async (user: ReturnType<typeof userEvent.setup>, field: "Variant" | "Supplier", name: RegExp) => {
+  await user.click(await screen.findByRole("button", { name: field }));
+  await user.click(await screen.findByRole("option", { name }));
+};
+
 const setup = (over: Parameters<typeof fakeApi>[0] = {}, props: { id?: string } = {}) => {
   const api = fakeApi({
     ...over,
@@ -30,9 +36,9 @@ describe("saving", () => {
   it("shows a spinner on the button while the link is being saved, and cannot be sent twice", async () => {
     const create = vi.fn(() => new Promise<never>(() => {}));
     const { user } = setup({ mappings: { create } });
-    await screen.findByRole("option", { name: /Blue Tee/ });
-    await user.selectOptions(screen.getByLabelText("Variant"), "v1");
-    await user.selectOptions(screen.getByLabelText("Supplier"), aSupplier().id);
+    await screen.findByRole("button", { name: "Variant" });
+    await choose(user, "Variant", /Blue Tee/);
+    await choose(user, "Supplier", /Acme Supply/);
     await user.type(screen.getByLabelText("Supplier page address"), "https://shop.acme.example/p/blue");
     const save = screen.getByRole("button", { name: "Add link" });
     await user.click(save);
@@ -51,9 +57,9 @@ describe("saving", () => {
 describe("adding a link", () => {
   it("saves the chosen variant, supplier, page address and note, then goes back to the list", async () => {
     const { api, user } = setup();
-    await screen.findByRole("option", { name: /Blue Tee/ });
-    await user.selectOptions(screen.getByLabelText("Variant"), "v1");
-    await user.selectOptions(screen.getByLabelText("Supplier"), aSupplier().id);
+    await screen.findByRole("button", { name: "Variant" });
+    await choose(user, "Variant", /Blue Tee/);
+    await choose(user, "Supplier", /Acme Supply/);
     await user.type(screen.getByLabelText("Supplier page address"), "https://shop.acme.example/p/blue");
     await user.type(screen.getByLabelText("Note (optional)"), "main page");
     await user.click(screen.getByRole("button", { name: "Add link" }));
@@ -63,7 +69,7 @@ describe("adding a link", () => {
 
   it("puts a plain message beside each empty field, and saves nothing", async () => {
     const { api, user } = setup();
-    await screen.findByRole("option", { name: /Blue Tee/ });
+    await screen.findByRole("button", { name: "Variant" });
     await user.click(screen.getByRole("button", { name: "Add link" }));
     expect(screen.getByText("Choose the variant this link is for.")).toBeInTheDocument();
     expect(screen.getByText("Choose the supplier.")).toBeInTheDocument();
@@ -74,15 +80,14 @@ describe("adding a link", () => {
   it("preselects the variant from the Map button", async () => {
     window.history.replaceState(null, "", "/mappings/new?variant=v2");
     setup();
-    await screen.findByRole("option", { name: /Red Tee/ });
-    expect(screen.getByLabelText("Variant")).toHaveValue("v2");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Variant" })).toHaveTextContent("Red Tee · Small"));
   });
 
   it("searches the variants that have no link", async () => {
     const unmapped = vi.fn().mockResolvedValue({ total: 2, unmapped: 2, items });
     const { user } = setup({ mappings: { unmapped } });
-    await screen.findByRole("option", { name: /Blue Tee/ });
-    await user.type(screen.getByLabelText("Find a variant"), "red");
+    await user.click(await screen.findByRole("button", { name: "Variant" }));
+    await user.type(screen.getByRole("combobox", { name: "Search variants" }), "red");
     await waitFor(() => expect(unmapped).toHaveBeenLastCalledWith("red"));
   });
 
@@ -93,9 +98,9 @@ describe("adding a link", () => {
   ])("shows the server's %s message beside the right field", async (code, text, field) => {
     const create = vi.fn().mockRejectedValue(new ApiError(text, 400, code));
     const { user } = setup({ mappings: { create } });
-    await screen.findByRole("option", { name: /Blue Tee/ });
-    await user.selectOptions(screen.getByLabelText("Variant"), "v1");
-    await user.selectOptions(screen.getByLabelText("Supplier"), aSupplier().id);
+    await screen.findByRole("button", { name: "Variant" });
+    await choose(user, "Variant", /Blue Tee/);
+    await choose(user, "Supplier", /Acme Supply/);
     await user.type(screen.getByLabelText("Supplier page address"), "https://shop.acme.example/p");
     await user.click(screen.getByRole("button", { name: "Add link" }));
     expect(await screen.findByText(text)).toBeInTheDocument();
@@ -129,9 +134,9 @@ describe("editing a link", () => {
 describe("region", () => {
   it("adds an optional region to a new link", async () => {
     const { api, user } = setup();
-    await screen.findByRole("option", { name: /Blue Tee/ });
-    await user.selectOptions(screen.getByLabelText("Variant", { exact: true }), "v1");
-    await user.selectOptions(screen.getByLabelText("Supplier", { exact: true }), aSupplier().id);
+    await screen.findByRole("button", { name: "Variant" });
+    await choose(user, "Variant", /Blue Tee/);
+    await choose(user, "Supplier", /Acme Supply/);
     await user.type(screen.getByLabelText("Supplier page address"), "https://shop.acme.example/p/blue");
     await user.type(screen.getByLabelText("Region (optional)"), "Hull");
     await user.click(screen.getByRole("button", { name: "Add link" }));
@@ -140,9 +145,9 @@ describe("region", () => {
 
   it("leaves the region out when it is empty, so the supplier's default is used", async () => {
     const { api, user } = setup();
-    await screen.findByRole("option", { name: /Blue Tee/ });
-    await user.selectOptions(screen.getByLabelText("Variant", { exact: true }), "v1");
-    await user.selectOptions(screen.getByLabelText("Supplier", { exact: true }), aSupplier().id);
+    await screen.findByRole("button", { name: "Variant" });
+    await choose(user, "Variant", /Blue Tee/);
+    await choose(user, "Supplier", /Acme Supply/);
     await user.type(screen.getByLabelText("Supplier page address"), "https://shop.acme.example/p/blue");
     await user.click(screen.getByRole("button", { name: "Add link" }));
     await waitFor(() => expect(api.mappings.create).toHaveBeenCalledWith({ variantId: "v1", supplierId: aSupplier().id, url: "https://shop.acme.example/p/blue", note: null }));
@@ -177,9 +182,9 @@ describe("a link set from Shopify", () => {
 describe("supplier option", () => {
   it("adds an optional supplier option to a new link, with its hint", async () => {
     const { api, user } = setup();
-    await screen.findByRole("option", { name: /Blue Tee/ });
-    await user.selectOptions(screen.getByLabelText("Variant", { exact: true }), "v1");
-    await user.selectOptions(screen.getByLabelText("Supplier", { exact: true }), aSupplier().id);
+    await screen.findByRole("button", { name: "Variant" });
+    await choose(user, "Variant", /Blue Tee/);
+    await choose(user, "Supplier", /Acme Supply/);
     await user.type(screen.getByLabelText("Supplier page address"), "https://shop.acme.example/p/blue");
     const option = screen.getByLabelText("Option on the supplier's page (optional)");
     expect(screen.getByText("Only needed when the supplier's page lists several sizes or colours with different stock. Copy the option name or the supplier's SKU from the saved page.")).toBeInTheDocument();
@@ -200,9 +205,9 @@ describe("supplier option", () => {
   it("puts the server's complaint under the option field and focuses it", async () => {
     const create = vi.fn().mockRejectedValue(new ApiError("A supplier option can be up to 200 characters of text, or empty to clear it.", 400, "invalid_supplier_option"));
     const { user } = setup({ mappings: { create } });
-    await screen.findByRole("option", { name: /Blue Tee/ });
-    await user.selectOptions(screen.getByLabelText("Variant", { exact: true }), "v1");
-    await user.selectOptions(screen.getByLabelText("Supplier", { exact: true }), aSupplier().id);
+    await screen.findByRole("button", { name: "Variant" });
+    await choose(user, "Variant", /Blue Tee/);
+    await choose(user, "Supplier", /Acme Supply/);
     await user.type(screen.getByLabelText("Supplier page address"), "https://shop.acme.example/p/blue");
     await user.type(screen.getByLabelText("Option on the supplier's page (optional)"), "x");
     await user.click(screen.getByRole("button", { name: "Add link" }));

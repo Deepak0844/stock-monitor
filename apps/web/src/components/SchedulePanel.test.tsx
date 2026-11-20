@@ -8,9 +8,26 @@ import { aRun, aSupplier, fakeApi } from "../test/fake-api.js";
 import { SchedulePanel } from "./SchedulePanel.js";
 
 afterEach(cleanup);
-const row = (over: Partial<ScheduleRow> = {}): ScheduleRow => ({ supplierId: aSupplier().id, status: { state: "off" }, intervalMinutes: null, window: null, nextCheckAt: null, run: null, lastRun: null, ...over });
-const setup = (supplier = aSupplier(), over: Parameters<typeof fakeApi>[0] = {}, rows: ScheduleRow[] = [row()]) => {
-  const api = fakeApi({ ...over, schedule: { overview: vi.fn().mockResolvedValue(rows), ...over.schedule } });
+const row = (over: Partial<ScheduleRow> = {}): ScheduleRow => ({
+  supplierId: aSupplier().id,
+  status: { state: "off" },
+  intervalMinutes: null,
+  window: null,
+  nextCheckAt: null,
+  run: null,
+  lastRun: null,
+  recent: { total: 0, finished: 0, failed: 0, stopped: 0, streak: null },
+  ...over,
+});
+const setup = (
+  supplier = aSupplier(),
+  over: Parameters<typeof fakeApi>[0] = {},
+  rows: ScheduleRow[] = [row()],
+) => {
+  const api = fakeApi({
+    ...over,
+    schedule: { overview: vi.fn().mockResolvedValue(rows), ...over.schedule },
+  });
   render(<SchedulePanel api={api} supplier={supplier} />);
   return { api, user: userEvent.setup() };
 };
@@ -20,11 +37,24 @@ describe("Automatic checks panel", () => {
     const { api, user } = setup();
     const keep = await screen.findByLabelText("Keep login alive");
     expect(keep).toHaveValue("off");
-    expect([...(keep as HTMLSelectElement).options].map((o) => o.value)).toEqual(["off", "15", "30", "45", "60", "120"]);
-    expect(screen.getByText(/so it does not log you out\. Only inside the hours above\./)).toBeInTheDocument();
+    expect([...(keep as HTMLSelectElement).options].map((o) => o.value)).toEqual([
+      "off",
+      "15",
+      "30",
+      "45",
+      "60",
+      "120",
+    ]);
+    expect(
+      screen.getByText(/so it does not log you out\. Only inside the hours above\./),
+    ).toBeInTheDocument();
     await user.selectOptions(keep, "30");
     await user.click(screen.getByRole("button", { name: "Save automatic checks" }));
-    expect(api.schedule.set).toHaveBeenCalledWith(aSupplier().id, { intervalMinutes: null, window: { start: "07:00", end: "22:00" }, keepAliveMinutes: 30 });
+    expect(api.schedule.set).toHaveBeenCalledWith(aSupplier().id, {
+      intervalMinutes: null,
+      window: { start: "07:00", end: "22:00" },
+      keepAliveMinutes: 30,
+    });
   });
 
   it("shows the saved keep-alive", async () => {
@@ -44,7 +74,11 @@ describe("Automatic checks panel", () => {
     const { api, user } = setup();
     await user.selectOptions(await screen.findByLabelText("How often"), "1440");
     await user.click(screen.getByRole("button", { name: "Save automatic checks" }));
-    expect(api.schedule.set).toHaveBeenCalledWith(aSupplier().id, { intervalMinutes: 1440, window: { start: "07:00", end: "22:00" }, keepAliveMinutes: null });
+    expect(api.schedule.set).toHaveBeenCalledWith(aSupplier().id, {
+      intervalMinutes: 1440,
+      window: { start: "07:00", end: "22:00" },
+      keepAliveMinutes: null,
+    });
     expect(await screen.findByText("Automatic checks saved.")).toBeInTheDocument();
   });
 
@@ -54,28 +88,59 @@ describe("Automatic checks panel", () => {
     await user.click(screen.getByLabelText("Any time of day"));
     expect(screen.getByLabelText("From")).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "Save automatic checks" }));
-    expect(api.schedule.set).toHaveBeenCalledWith(aSupplier().id, { intervalMinutes: 360, window: null, keepAliveMinutes: null });
+    expect(api.schedule.set).toHaveBeenCalledWith(aSupplier().id, {
+      intervalMinutes: 360,
+      window: null,
+      keepAliveMinutes: null,
+    });
   });
 
   it("shows the saved settings of a supplier that is on, and sends off as null", async () => {
-    const supplier = aSupplier({ scheduleIntervalMinutes: 720, scheduleWindowStart: "08:00", scheduleWindowEnd: "20:00" });
-    const { api, user } = setup(supplier, {}, [row({ intervalMinutes: 720, window: { start: "08:00", end: "20:00" }, status: { state: "waiting" }, nextCheckAt: "2026-11-11T03:30:00.000Z" })]);
+    const supplier = aSupplier({
+      scheduleIntervalMinutes: 720,
+      scheduleWindowStart: "08:00",
+      scheduleWindowEnd: "20:00",
+    });
+    const { api, user } = setup(supplier, {}, [
+      row({
+        intervalMinutes: 720,
+        window: { start: "08:00", end: "20:00" },
+        status: { state: "waiting" },
+        nextCheckAt: "2026-11-11T03:30:00.000Z",
+      }),
+    ]);
     expect(await screen.findByLabelText("How often")).toHaveValue("720");
     expect(screen.getByLabelText("From")).toHaveValue("08:00");
     // The schedule row loads after the supplier, so wait for it.
     expect(await screen.findByText(/Next check:/)).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("How often"), "off");
     await user.click(screen.getByRole("button", { name: "Save automatic checks" }));
-    expect(api.schedule.set).toHaveBeenCalledWith(supplier.id, { intervalMinutes: null, window: { start: "08:00", end: "20:00" }, keepAliveMinutes: null });
+    expect(api.schedule.set).toHaveBeenCalledWith(supplier.id, {
+      intervalMinutes: null,
+      window: { start: "08:00", end: "20:00" },
+      keepAliveMinutes: null,
+    });
   });
 
   it("shows any time of day ticked for a supplier that is on with no window", async () => {
-    setup(aSupplier({ scheduleIntervalMinutes: 60 }), {}, [row({ intervalMinutes: 60, status: { state: "waiting" } })]);
+    setup(aSupplier({ scheduleIntervalMinutes: 60 }), {}, [
+      row({ intervalMinutes: 60, status: { state: "waiting" } }),
+    ]);
     expect(await screen.findByLabelText("Any time of day")).toBeChecked();
   });
 
   it("says why checks are not running when the supplier is not ready", async () => {
-    setup(aSupplier({ scheduleIntervalMinutes: 1440 }), {}, [row({ intervalMinutes: 1440, status: { state: "not_checked", reason: "no_permission", message: "You have not recorded permission to check this supplier automatically. Open the supplier to record it." } })]);
+    setup(aSupplier({ scheduleIntervalMinutes: 1440 }), {}, [
+      row({
+        intervalMinutes: 1440,
+        status: {
+          state: "not_checked",
+          reason: "no_permission",
+          message:
+            "You have not recorded permission to check this supplier automatically. Open the supplier to record it.",
+        },
+      }),
+    ]);
     expect(await screen.findByText(/not being checked/i)).toBeInTheDocument();
     expect(screen.getByText(/recorded permission/)).toBeInTheDocument();
   });
@@ -91,7 +156,9 @@ describe("Automatic checks panel", () => {
   });
 
   it("shows the server's plain message when saving fails", async () => {
-    const set = vi.fn().mockRejectedValue(new ApiError("Choose how often to check.", 400, "invalid_schedule"));
+    const set = vi
+      .fn()
+      .mockRejectedValue(new ApiError("Choose how often to check.", 400, "invalid_schedule"));
     const { user } = setup(aSupplier(), { schedule: { set } });
     await user.selectOptions(await screen.findByLabelText("How often"), "60");
     await user.click(screen.getByRole("button", { name: "Save automatic checks" }));
@@ -99,13 +166,38 @@ describe("Automatic checks panel", () => {
   });
 
   it("lists the recent runs with plain summaries", async () => {
-    const runs = vi.fn().mockResolvedValue([aRun(), aRun({ id: "x", trigger: "manual", outcome: "stopped", stopReason: "captcha", linksDone: 2, cannotTell: 0, startedAt: "2026-11-09T08:00:00.000Z" })]);
+    const runs = vi
+      .fn()
+      .mockResolvedValue([
+        aRun(),
+        aRun({
+          id: "x",
+          trigger: "manual",
+          outcome: "stopped",
+          stopReason: "captcha",
+          linksDone: 2,
+          cannotTell: 0,
+          startedAt: "2026-11-09T08:00:00.000Z",
+        }),
+      ]);
     setup(aSupplier(), { schedule: { runs } });
     expect(await screen.findByText("Checked 40 links, 3 cannot tell")).toBeInTheDocument();
-    expect(screen.getByText(/Stopped after 2 of 40 links. The supplier showed a puzzle/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Stopped after 2 of 40 links. The supplier showed a puzzle/),
+    ).toBeInTheDocument();
     expect(screen.getByText("By you")).toBeInTheDocument();
     expect(screen.getByText("Scheduled")).toBeInTheDocument();
     await waitFor(() => expect(runs).toHaveBeenCalledWith(aSupplier().id));
+  });
+
+  it("folds the recent checks away, closed, with how many there are", async () => {
+    const runs = vi.fn().mockResolvedValue([aRun(), aRun({ id: "x" })]);
+    const { user } = setup(aSupplier(), { schedule: { runs } });
+    const toggle = await screen.findByText("Recent checks · 2");
+    const box = toggle.closest("details")!;
+    expect(box).not.toHaveAttribute("open");
+    await user.click(toggle);
+    expect(box).toHaveAttribute("open");
   });
 
   it("says plainly when there are no runs yet", async () => {
@@ -119,10 +211,15 @@ describe("checks every 15 or 30 minutes", () => {
     const api = fakeApi();
     render(<SchedulePanel api={api} supplier={aSupplier()} />);
     const often = await screen.findByLabelText("How often");
-    expect([...(often as HTMLSelectElement).options].map((o) => o.text)).toEqual(expect.arrayContaining(["Every 15 minutes", "Every 30 minutes"]));
+    expect([...(often as HTMLSelectElement).options].map((o) => o.text)).toEqual(
+      expect.arrayContaining(["Every 15 minutes", "Every 30 minutes"]),
+    );
     const user = userEvent.setup();
     await user.selectOptions(often, "15");
     await user.click(screen.getByRole("button", { name: "Save automatic checks" }));
-    expect(api.schedule.set).toHaveBeenCalledWith(aSupplier().id, expect.objectContaining({ intervalMinutes: 15 }));
+    expect(api.schedule.set).toHaveBeenCalledWith(
+      aSupplier().id,
+      expect.objectContaining({ intervalMinutes: 15 }),
+    );
   });
 });

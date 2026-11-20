@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Direction D components</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #e6e6e2; color: #1a1a1a; font: 15px/1.5 system-ui, sans-serif; padding: 32px 24px 80px; }
+  .page { max-width: 1240px; margin: 0 auto; }
+  .intro h1 { font-size: 22px; font-weight: 650; }
+  .intro p { color: #555; margin-top: 4px; max-width: 820px; }
+  .vbar { position: sticky; top: 0; z-index: 20; background: rgba(230,230,226,.94); backdrop-filter: blur(6px); display: flex; gap: 28px; flex-wrap: wrap; padding: 12px 0; margin: 18px 0 8px; border-bottom: 1px solid #c9c9c4; }
+  .grp { display: flex; gap: 4px; align-items: center; }
+  .grp > span { font: 600 12px system-ui; text-transform: uppercase; letter-spacing: .06em; color: #555; margin-right: 6px; }
+  .grp button, .grp a { font: 600 13px system-ui; padding: 6px 12px; border-radius: 6px; border: 1px solid #b9b9b3; background: #fff; cursor: pointer; color: #1a1a1a; text-decoration: none; }
+  .grp button[aria-pressed="true"] { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+  .mode { font: 600 12px system-ui; text-transform: uppercase; letter-spacing: .08em; color: #555; margin: 22px 0 8px; }
+  [hidden] { display: none !important; }
+
+  /* ================= D tokens ================= */
+  .k { --bg:#fbfbf8; --side:#f4f3ee; --ink:#16181d; --ink2:#3c3f46; --muted:#6b6e76; --faint:#9a9ca2; --rule:#e2e1da; --rule2:#ebeae4; --strong:#16181d;
+       --good:#15803d; --bad:#c2410c; --neutral:#b9b8b0; --btn:#16181d; --btn-fg:#fff; --danger-fg:#fff; --inb:#8f9097; --hover:#f0efe9; --sel:#fdf1e7;
+       --shim1:#ecebe5; --shim2:#f7f6f2; --tip:#16181d; --tip-fg:#fbfbf8; --focus:#1d4ed8; --shadow:0 10px 30px -10px rgba(22,24,29,.28); }
+  .k.dk { --bg:#121311; --side:#0c0d0b; --ink:#ecebe4; --ink2:#c4c3bc; --muted:#9c9d97; --faint:#6c6d68; --rule:#2a2b27; --rule2:#1e1f1c; --strong:#ecebe4;
+       --good:#4ade80; --bad:#fb923c; --neutral:#4a4b46; --btn:#ecebe4; --btn-fg:#121311; --danger-fg:#1a0d05; --inb:#64655f; --hover:#1c1d1a; --sel:#2a1d12;
+       --shim1:#1c1d1a; --shim2:#272824; --tip:#ecebe4; --tip-fg:#121311; --focus:#93c5fd; --shadow:0 10px 30px -10px rgba(0,0,0,.7); }
+  .k { background: var(--bg); color: var(--ink); font-family: "IBM Plex Sans", sans-serif; font-size: 13px; padding: 8px 32px 32px; border-radius: 6px; box-shadow: 0 12px 40px -12px rgba(0,0,0,.3);
+       display: grid; grid-template-columns: 1fr 1fr; column-gap: 48px; }
+  .k .mono { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; }
+  .k .muted { color: var(--muted); }
+  .blk { padding: 24px 0 26px; border-top: 1px solid var(--rule); min-width: 0; }
+  .blk.w { grid-column: 1 / -1; }
+  .blk:nth-child(-n+2) { border-top: 0; }
+  .blk > h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 600; margin-bottom: 4px; display: flex; gap: 8px; align-items: baseline; }
+  .blk > h3 em { font-style: normal; font-family: "IBM Plex Mono", monospace; color: var(--bad); }
+  .blk > .lead { color: var(--ink2); font-size: 12.5px; margin-bottom: 14px; max-width: 560px; }
+  .note { color: var(--muted); font-size: 12px; margin-top: 10px; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .lbl { display: block; font-size: 11px; color: var(--muted); margin-top: 6px; text-align: center; }
+
+  /* buttons */
+  .btn { font: 600 12px "IBM Plex Sans", sans-serif; height: 30px; padding: 0 12px; border: 1px solid var(--btn); background: var(--btn); color: var(--btn-fg); border-radius: 3px; cursor: pointer;
+         display: inline-flex; align-items: center; gap: 6px; transition: transform .08s ease, box-shadow .12s ease, background .12s ease; white-space: nowrap; }
+  .btn:hover, .btn.is-hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 14%, transparent); }
+  .btn:active, .btn.is-press { transform: translateY(1px); box-shadow: none; }
+  .btn:focus-visible, .btn.is-focus { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .btn.ghost { background: transparent; color: var(--ink); border-color: var(--inb); }
+  .btn.ghost:hover, .btn.ghost.is-hover { background: var(--hover); box-shadow: none; border-color: var(--ink); }
+  .btn.danger { background: var(--bad); border-color: var(--bad); color: var(--danger-fg); }
+  .btn.quiet { background: transparent; border-color: transparent; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; padding: 0 4px; }
+  .btn[disabled] { opacity: .45; cursor: not-allowed; box-shadow: none; transform: none; }
+  .btn.icon { width: 30px; padding: 0; justify-content: center; }
+  .btn.sm { height: 26px; padding: 0 9px; }
+  .btn.lg { height: 44px; padding: 0 16px; font-size: 14px; }
+  .btn.full { width: 100%; justify-content: center; }
+  .spin { width: 12px; height: 12px; border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; flex: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* fields */
+  .fld { height: 30px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid var(--inb); border-radius: 3px; color: var(--muted); font-size: 12px; background: var(--bg); white-space: nowrap; }
+  .fld.on { border-color: var(--strong); color: var(--ink); box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 22%, transparent); }
+  .fld .v { color: var(--ink); }
+  .fld.sm { height: 26px; padding: 0 8px; }
+  .caret { display: inline-block; width: 1px; height: 14px; background: var(--ink); animation: blink 1s steps(1) infinite; vertical-align: -2px; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* tables */
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-weight: 500; color: var(--muted); font-size: 12px; padding: 7px 10px 6px 0; border-bottom: 1px solid var(--strong); white-space: nowrap; }
+  td { padding: 9px 10px 9px 0; border-bottom: 1px solid var(--rule2); vertical-align: middle; }
+  td.r, th.r { text-align: right; }
+  .sub { display: block; color: var(--muted); font-size: 12px; margin-top: 1px; }
+  .st { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .st::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--neutral); flex: none; }
+  .st.ok::before { background: var(--good); } .st.bad::before { background: var(--bad); }
+  .st.bad { color: var(--bad); font-weight: 600; }
+  .st.live::before { background: var(--good); animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .25; } }
+  tr.selrow td { background: var(--sel); }
+  tr:hover td { background: var(--hover); }
+  tr.selrow:hover td { background: var(--sel); }
+
+  /* skeleton */
+  .sk { display: block; height: 10px; border-radius: 2px; background: linear-gradient(90deg, var(--shim1) 25%, var(--shim2) 50%, var(--shim1) 75%); background-size: 200% 100%; animation: shim 1.4s linear infinite; }
+  .sk.num { height: 22px; width: 64px; margin-top: 6px; }
+  .sk.btnsk { height: 26px; width: 110px; border-radius: 3px; margin-left: auto; }
+  @keyframes shim { to { background-position: -200% 0; } }
+  .statsk { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); margin-bottom: 12px; }
+  .statsk > div { padding: 10px 14px; border-right: 1px solid var(--rule); }
+  .statsk > div:last-child { border-right: 0; }
+  .statsk label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 500; }
+
+  /* pager */
+  .pager { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; border-top: 1px solid var(--strong); padding-top: 10px; }
+  .pg { display: flex; align-items: center; gap: 2px; }
+  .pbtn { font: 500 12px "IBM Plex Mono", monospace; min-width: 30px; height: 30px; padding: 0 6px; border: 1px solid transparent; background: none; color: var(--ink); border-radius: 3px; cursor: pointer; }
+  .pbtn:hover { background: var(--hover); }
+  .pbtn.on { border-color: var(--strong); font-weight: 600; cursor: default; }
+  .pbtn[disabled] { color: var(--faint); cursor: not-allowed; background: none; }
+  .gap { color: var(--faint); padding: 0 4px; font-family: "IBM Plex Mono", monospace; }
+  .pager label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; margin-left: 12px; }
+
+  /* combobox */
+  .combo { position: relative; display: inline-block; }
+  .pop { margin-top: 4px; width: 320px; border: 1px solid var(--strong); background: var(--bg); box-shadow: var(--shadow); border-radius: 3px; overflow: hidden; }
+  .pop .q { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-bottom: 1px solid var(--rule); font-size: 13px; }
+  .pop .q svg { flex: none; color: var(--muted); }
+  .pop ul { list-style: none; padding: 4px 0; max-height: 230px; }
+  .pop li { display: flex; justify-content: space-between; gap: 10px; padding: 7px 10px; cursor: pointer; }
+  .pop li:hover, .pop li.act { background: var(--hover); }
+  .pop li.act { box-shadow: inset 2px 0 0 var(--ink); }
+  .pop li[aria-disabled] { color: var(--faint); cursor: not-allowed; }
+  .pop li .c { font-family: "IBM Plex Mono", monospace; color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .pop mark { background: color-mix(in srgb, var(--bad) 22%, transparent); color: inherit; border-radius: 1px; }
+  .pop .ft { border-top: 1px solid var(--rule); padding: 7px 10px; font-size: 11px; color: var(--muted); display: flex; gap: 12px; }
+  kbd { font: 500 10.5px "IBM Plex Mono", monospace; border: 1px solid var(--inb); border-bottom-width: 2px; border-radius: 3px; padding: 0 4px; color: var(--ink2); }
+
+  /* states */
+  .states { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; border-top: 1px solid var(--strong); }
+  .state { padding: 22px 18px 24px; border-right: 1px solid var(--rule); display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+  .state:last-child { border-right: 0; }
+  .state .gl { width: 28px; height: 28px; color: var(--ink2); }
+  .state b { font-size: 14px; }
+  .state p { color: var(--muted); font-size: 12.5px; }
+  .state .row { margin-top: 6px; }
+  .state code { font: 11px "IBM Plex Mono", monospace; color: var(--muted); background: var(--hover); padding: 2px 6px; border-radius: 2px; }
+  .offline { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border: 1px solid var(--strong); border-radius: 3px; margin-bottom: 14px; font-size: 12.5px; }
+  .offline .st::before { background: var(--bad); }
+
+  /* tooltip */
+  .tipw { position: relative; display: inline-flex; }
+  .tip { position: absolute; bottom: calc(100% + 8px); left: 0; background: var(--tip); color: var(--tip-fg); font: 500 12px "IBM Plex Sans"; padding: 5px 8px; border-radius: 3px; white-space: nowrap; pointer-events: none; z-index: 2; }
+  .tip::after { content: ""; position: absolute; top: 100%; left: 12px; border: 4px solid transparent; border-top-color: var(--tip); }
+  .tips { display: grid; grid-template-columns: 1fr 1fr; row-gap: 52px; column-gap: 24px; padding-top: 40px; justify-items: start; }
+  .url { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--muted); max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; }
+
+  /* chips */
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px 0 9px; border: 1px solid var(--inb); border-radius: 3px; font-size: 12px; }
+  .chip b { font-weight: 600; }
+  .chip button { width: 18px; height: 18px; border: 0; background: none; color: var(--muted); cursor: pointer; border-radius: 2px; font-size: 13px; line-height: 1; }
+  .chip button:hover { background: var(--hover); color: var(--ink); }
+
+  /* toasts */
+  .toasts { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+  .toast { width: 400px; max-width: 100%; background: var(--tip); color: var(--tip-fg); border-radius: 3px; overflow: hidden; box-shadow: var(--shadow); }
+  .toast .in { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 12px; font-size: 13px; }
+  .toast .in span { min-width: 0; }
+  .toast button { font: 600 12px "IBM Plex Sans"; background: none; border: 1px solid color-mix(in srgb, var(--tip-fg) 45%, transparent); color: var(--tip-fg); border-radius: 3px; height: 26px; padding: 0 10px; cursor: pointer; }
+  .toast .x { border: 0; padding: 0 6px; opacity: .7; }
+  .toast .timer { height: 2px; background: color-mix(in srgb, var(--tip-fg) 55%, transparent); animation: drain 5s linear infinite; transform-origin: left; }
+  @keyframes drain { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+  .toast.err { box-shadow: var(--shadow), inset 3px 0 0 var(--bad); }
+
+  /* copy */
+  .copy { display: inline-flex; align-items: center; gap: 6px; }
+  .cbtn { width: 22px; height: 22px; display: inline-grid; place-items: center; border: 1px solid transparent; background: none; color: var(--muted); border-radius: 3px; cursor: pointer; }
+  .cbtn:hover { border-color: var(--inb); color: var(--ink); }
+  .copied { font-size: 11px; color: var(--good); font-weight: 600; }
+
+  /* bulk + sort */
+  .selbar { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--ink); color: var(--bg); border-radius: 3px; margin-bottom: 6px; font-size: 12.5px; }
+  .selbar .btn { background: var(--bg); color: var(--ink); border-color: var(--bg); }
+  .selbar .btn.ghost { background: transparent; color: var(--bg); border-color: color-mix(in srgb, var(--bg) 50%, transparent); }
+  .selbar .quiet2 { margin-left: auto; color: var(--bg); text-decoration: underline; text-underline-offset: 3px; background: none; border: 0; font: inherit; cursor: pointer; opacity: .85; }
+  .cb { width: 16px; height: 16px; border: 1.5px solid var(--inb); border-radius: 2px; display: inline-grid; place-items: center; vertical-align: middle; cursor: pointer; }
+  .cb.on { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+  .cb.on::after { content: ""; width: 8px; height: 4px; border-left: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg) translate(1px, -1px); }
+  .cb.mixed { background: var(--ink); border-color: var(--ink); }
+  .cb.mixed::after { content: ""; width: 8px; height: 2px; background: var(--bg); }
+  th.sort { cursor: pointer; }
+  th.sort:hover { color: var(--ink); }
+  th .ar { font-family: "IBM Plex Mono"; margin-left: 4px; color: var(--faint); }
+  th.sorted { color: var(--ink); font-weight: 600; }
+  th.sorted .ar { color: var(--ink); }
+  .chg s { color: var(--faint); } .chg { font-family: "IBM Plex Mono", monospace; font-size: 12px; white-space: nowrap; }
+
+  /* browser tab */
+  .tabbar { display: flex; align-items: flex-end; gap: 2px; background: color-mix(in srgb, var(--ink) 8%, var(--bg)); padding: 8px 10px 0; border-radius: 6px 6px 0 0; border: 1px solid var(--rule); border-bottom: 0; }
+  .btab { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 6px 6px 0 0; font: 12px system-ui; color: var(--muted); max-width: 230px; white-space: nowrap; overflow: hidden; }
+  .btab.on { background: var(--bg); color: var(--ink); }
+  .fav { position: relative; width: 14px; height: 14px; background: var(--ink); clip-path: polygon(0 100%, 0 40%, 33% 40%, 33% 0, 66% 0, 66% 60%, 100% 60%, 100% 100%); flex: none; }
+  .favw { position: relative; display: inline-flex; }
+  .favw i { position: absolute; top: -3px; right: -4px; width: 7px; height: 7px; border-radius: 50%; background: var(--bad); box-shadow: 0 0 0 1.5px var(--bg); }
+  .tabbody { border: 1px solid var(--rule); border-top: 0; height: 20px; border-radius: 0 0 6px 6px; }
+
+  /* live progress */
+  .prog { height: 2px; background: var(--rule); margin-top: 6px; width: 220px; position: relative; overflow: hidden; }
+  .prog i { position: absolute; inset: 0 auto 0 0; width: 38%; background: var(--good); }
+  tr.flash td { animation: flash 2.4s ease-out infinite; }
+  @keyframes flash { 0%, 15% { background: color-mix(in srgb, var(--good) 16%, var(--bg)); } 100% { background: transparent; } }
+
+  /* phones */
+  .phones { display: flex; gap: 28px; flex-wrap: wrap; }
+  .phone { width: 360px; height: 740px; border: 1px solid var(--strong); border-radius: 26px; overflow: hidden; display: flex; flex-direction: column; position: relative; background: var(--bg); }
+  .p-top { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px 12px; border-bottom: 1px solid var(--rule); }
+  .p-top b { font-size: 15px; display: flex; gap: 8px; align-items: center; }
+  .p-top .fav { width: 13px; height: 13px; }
+  .p-body { flex: 1; overflow: hidden; }
+  .p-h { padding: 14px 16px 4px; }
+  .p-h h4 { font-size: 20px; font-weight: 600; letter-spacing: -.01em; }
+  .p-h p { color: var(--muted); font-size: 12.5px; }
+  .p-sec { padding: 10px 16px; }
+  .p-sec > h5 { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 600; margin: 6px 0 4px; }
+  .p-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--rule2); min-height: 56px; }
+  .p-row .m { min-width: 0; }
+  .p-row .m b { display: block; font-size: 14px; }
+  .p-row .chev { color: var(--faint); font-size: 18px; }
+  .p-stats { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+  .p-stats > div { padding: 12px 16px; border-bottom: 1px solid var(--rule); }
+  .p-stats > div:nth-child(odd) { border-right: 1px solid var(--rule); }
+  .p-stats > div:nth-last-child(-n+2) { border-bottom: 0; }
+  .p-stats label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 500; }
+  .p-stats b { display: block; font: 500 22px/1.2 "IBM Plex Mono", monospace; }
+  .good { color: var(--good); } .bad { color: var(--bad); }
+  .p-chips { display: flex; gap: 6px; overflow: hidden; padding: 0 16px 10px; }
+  .p-chips span { flex: none; height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 1px solid var(--inb); border-radius: 3px; font-size: 12.5px; }
+  .p-chips span.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .p-chips span i { font-style: normal; font-family: "IBM Plex Mono"; }
+  .p-search { margin: 4px 16px 10px; height: 40px; border: 1px solid var(--inb); border-radius: 3px; display: flex; align-items: center; padding: 0 12px; color: var(--muted); font-size: 14px; gap: 8px; }
+  .p-nav { display: grid; grid-template-columns: repeat(5, 1fr); border-top: 1px solid var(--strong); background: var(--side); padding-bottom: 14px; }
+  .p-nav a { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 0 4px; font-size: 10.5px; color: var(--muted); text-decoration: none; position: relative; min-height: 48px; justify-content: center; }
+  .p-nav a.on { color: var(--ink); font-weight: 600; box-shadow: inset 0 2px 0 var(--ink); }
+  .p-nav svg { width: 20px; height: 20px; }
+  .p-nav .n { position: absolute; top: 4px; left: 50%; margin-left: 6px; font: 600 10px "IBM Plex Mono"; background: var(--bad); color: var(--danger-fg); border-radius: 8px; padding: 0 5px; line-height: 15px; }
+  .p-act { border-top: 1px solid var(--strong); padding: 10px 16px; display: flex; gap: 8px; align-items: center; background: var(--bg); }
+  .p-act .t { font-size: 13px; font-weight: 600; margin-right: auto; }
+  .p-pager { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; }
+  .p-pager .btn { height: 40px; }
+  .p-need { padding: 12px 16px; border-bottom: 1px solid var(--rule2); }
+  .p-need .t { display: flex; gap: 8px; align-items: center; font-weight: 600; font-size: 14px; margin-bottom: 8px; }
+  .p-need .t::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--bad); }
+  .p-cap { font-size: 12px; color: #555; margin-top: 8px; text-align: center; width: 360px; }
+
+  /* more ideas (selectable) */
+  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; border-top: 1px solid var(--strong); }
+  .card { padding: 16px 16px 18px; border-right: 1px solid var(--rule); border-bottom: 1px solid var(--rule); cursor: pointer; position: relative; }
+  .card:nth-child(4n) { border-right: 0; }
+  .card:hover { background: var(--hover); }
+  .card.selected { background: var(--sel); box-shadow: inset 0 0 0 2px var(--ink); }
+  .card .no { font: 600 11px "IBM Plex Mono"; color: var(--muted); }
+  .card b { display: block; font-size: 13.5px; margin: 4px 0 4px; }
+  .card p { color: var(--muted); font-size: 12px; }
+  .card .mini { margin-top: 10px; font-size: 11.5px; border: 1px solid var(--rule); border-radius: 3px; padding: 8px; background: var(--bg); color: var(--ink2); }
+  .card .tick { position: absolute; top: 12px; right: 12px; }
+
+  @media (prefers-reduced-motion: reduce) { .spin, .sk, .caret, .st.live::before, .toast .timer, tr.flash td { animation: none; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="intro">
+    <h1>Direction D: components, states and phone</h1>
+    <p>Your six items, the extras you picked and the phone layout, all in D's paper-and-ink style. At the bottom are 12 more ideas: click the ones you want (they turn orange-tinted) and tell me in the terminal. Everything is shown in light and dark. Hover the buttons, page numbers, dropdown rows and copy icons; they react like they would in the app.</p>
+  </div>
+  <div class="vbar">
+    <div class="grp" data-k="mode"><span>Mode</span><button data-v="both" aria-pressed="true">Both</button><button data-v="light">Light</button><button data-v="dark">Dark</button></div>
+    <div class="grp"><span>Jump to</span><a href="#j-states">States</a><a href="#j-bulk">Bulk + sort</a><a href="#j-phone">Phone</a><a href="#j-ideas">More ideas</a></div>
+  </div>
+
+  <div class="mb" data-mode="light">
+  <p class="mode">Light</p>
+  <div class="k" id="board">
+
+    <!-- 5. Buttons -->
+    <section class="blk">
+      <h3><em>05</em> Buttons, loader, pointer</h3>
+      <p class="lead">One solid style for the main action, one outlined style for the rest. Every clickable thing shows the hand pointer. While working, the button keeps its size, shows a spinner and says what it's doing.</p>
+      <div class="row" style="align-items:flex-start">
+        <div><button class="btn">Approve</button><span class="lbl">Default</span></div>
+        <div><button class="btn is-hover">Approve</button><span class="lbl">Hover</span></div>
+        <div><button class="btn is-press">Approve</button><span class="lbl">Pressed</span></div>
+        <div><button class="btn is-focus">Approve</button><span class="lbl">Keyboard focus</span></div>
+        <div><button class="btn" disabled style="opacity:1"><span class="spin"></span>Approving…</button><span class="lbl">Loading</span></div>
+        <div><button class="btn" disabled>Approve</button><span class="lbl">Disabled</span></div>
+      </div>
+      <div class="row" style="margin-top:14px;align-items:flex-start">
+        <div><button class="btn ghost">Check now</button><span class="lbl">Secondary</span></div>
+        <div><button class="btn ghost" disabled style="opacity:1"><span class="spin"></span>Checking…</button><span class="lbl">Loading</span></div>
+        <div><button class="btn danger">Delete supplier</button><span class="lbl">Danger</span></div>
+        <div><button class="btn quiet">Clear all</button><span class="lbl">Text</span></div>
+        <div><button class="btn ghost icon" aria-label="More actions">⋯</button><span class="lbl">Icon</span></div>
+      </div>
+    </section>
+
+    <!-- 6. Tooltip -->
+    <section class="blk">
+      <h3><em>06</em> Tooltips</h3>
+      <p class="lead">Shown after a short pause on hover or keyboard focus, and on long-press on a phone. They only add detail; anything you must know is already on the page.</p>
+      <div class="tips">
+        <span class="tipw"><button class="btn ghost icon" aria-label="More actions">⋯</button><span class="tip">More actions</span></span>
+        <span class="tipw"><span class="mono" style="border-bottom:1px dotted var(--faint)">09:14</span><span class="tip">Thursday 19 Nov, 09:14:22</span></span>
+        <span class="tipw"><span class="url">northline-trade.example/oak-board-large</span><span class="tip">northline-trade.example/oak-board-large</span></span>
+        <span class="tipw"><span class="st bad">Looks different</span><span class="tip">The page changed. Check it is still the same product.</span></span>
+      </div>
+    </section>
+
+    <!-- 1. Skeleton -->
+    <section class="blk">
+      <h3><em>01</em> Loading shimmer</h3>
+      <p class="lead">Headings and labels stay real; only the values shimmer. Placeholder rows are the same height as real rows, so nothing jumps when the data arrives.</p>
+      <div class="statsk">
+        <div><label>All suppliers</label><span class="sk num"></span></div>
+        <div><label>Connected</label><span class="sk num"></span></div>
+        <div><label>Needs reconnecting</label><span class="sk num"></span></div>
+        <div><label>Paused</label><span class="sk num"></span></div>
+      </div>
+      <table>
+        <tr><th>Supplier</th><th>Status</th><th>Recent checks</th><th></th></tr>
+        <tr><td><span class="sk" style="width:130px"></span><span class="sk" style="width:90px;height:8px;margin-top:6px"></span></td><td><span class="sk" style="width:80px"></span></td><td><span class="sk" style="width:120px"></span></td><td><span class="sk btnsk"></span></td></tr>
+        <tr><td><span class="sk" style="width:110px"></span><span class="sk" style="width:76px;height:8px;margin-top:6px"></span></td><td><span class="sk" style="width:72px"></span></td><td><span class="sk" style="width:140px"></span></td><td><span class="sk btnsk"></span></td></tr>
+        <tr><td><span class="sk" style="width:122px"></span><span class="sk" style="width:96px;height:8px;margin-top:6px"></span></td><td><span class="sk" style="width:84px"></span></td><td><span class="sk" style="width:110px"></span></td><td><span class="sk btnsk"></span></td></tr>
+      </table>
+    </section>
+
+    <!-- 2. Pagination -->
+    <section class="blk">
+      <h3><em>02</em> Pagination</h3>
+      <p class="lead">Where you are, in lined-up numbers. Page numbers near the current page, the first and the last; a box to jump straight to a page; rows per page on the same line.</p>
+      <div style="height:22px"></div>
+      <div class="pager">
+        <span class="mono muted" style="font-size:12px">Showing 26–50 of 2,169</span>
+        <div class="pg">
+          <button class="pbtn">‹ Prev</button><button class="pbtn">1</button><button class="pbtn on" aria-current="page">2</button><button class="pbtn">3</button><span class="gap">…</span><button class="pbtn">87</button><button class="pbtn">Next ›</button>
+        </div>
+      </div>
+      <div class="row" style="justify-content:flex-end;margin-top:8px">
+        <span style="font-size:12px;color:var(--muted)">Rows</span><span class="fld sm"><span class="v mono">25</span> ▾</span>
+        <span style="font-size:12px;color:var(--muted);margin-left:10px">Go to page</span><span class="fld sm" style="width:52px"><span class="v mono">40</span></span><button class="btn ghost sm">Go</button>
+      </div>
+      <div class="pager" style="margin-top:22px">
+        <span class="mono muted" style="font-size:12px">Showing 1–6 of 6</span>
+        <div class="pg"><button class="pbtn" disabled>‹ Prev</button><button class="pbtn on">1</button><button class="pbtn" disabled>Next ›</button></div>
+      </div>
+      <p class="note">On one page only, the arrows are greyed out and the hand pointer is turned off.</p>
+    </section>
+
+    <!-- 3. Searchable dropdowns -->
+    <section class="blk w">
+      <h3><em>03</em> Dropdown with search: suppliers and variants only</h3>
+      <p class="lead">Type to narrow the list. Search matches the name and the website or SKU, and the matching letters are marked. You can use the arrow keys, Enter and Esc. Short lists such as Status and Stock stay plain dropdowns.</p>
+      <div class="row" style="align-items:flex-start;gap:56px">
+        <div class="combo">
+          <span class="fld on" style="width:320px;justify-content:space-between"><span>Supplier: <span class="v">All suppliers</span></span>▴</span>
+          <div class="pop">
+            <div class="q"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>tr<span class="caret"></span></span></div>
+            <ul>
+              <li><span>All suppliers</span><span class="c">2,169</span></li>
+              <li class="act"><span>Brightwell <mark>Tr</mark>ade</span><span class="c">655</span></li>
+              <li><span>Northline Wholesale<span class="sub">northline-<mark>tr</mark>ade.example</span></span><span class="c">812</span></li>
+            </ul>
+            <div class="ft"><span><kbd>↑</kbd> <kbd>↓</kbd> move</span><span><kbd>Enter</kbd> pick</span><span><kbd>Esc</kbd> close</span></div>
+          </div>
+        </div>
+        <div class="combo">
+          <span class="fld on" style="width:320px;justify-content:space-between"><span>Variant: <span class="muted">Choose a Shopify variant</span></span>▴</span>
+          <div class="pop">
+            <div class="q"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>oak<span class="caret"></span></span></div>
+            <ul>
+              <li class="act"><span><mark>Oak</mark> serving board<span class="sub">Large · OSB-L</span></span><span class="c">no link</span></li>
+              <li aria-disabled="true"><span><mark>Oak</mark> serving board<span class="sub">Small · OSB-S</span></span><span class="c">linked</span></li>
+              <li><span><mark>Oak</mark> coasters, set of 4<span class="sub">Natural · CO-4</span></span><span class="c">no link</span></li>
+            </ul>
+            <div class="ft"><span>3 of 2,481 variants</span><span style="margin-left:auto">Already linked ones can't be picked</span></div>
+          </div>
+        </div>
+        <div style="max-width:260px;padding-top:4px">
+          <p class="note" style="margin-top:0">With nothing typed, the list shows the most-used suppliers first. If nothing matches:</p>
+          <div class="pop" style="width:260px"><div class="q"><span>zzz<span class="caret"></span></span></div><div style="padding:14px 10px;color:var(--muted);font-size:12.5px">No supplier matches "zzz".</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. Empty / error -->
+    <section class="blk w" id="j-states">
+      <h3><em>04</em> Empty, no-match, error, not found, offline</h3>
+      <p class="lead">Each says what happened in plain words and offers the next step. No cartoon drawings: one thin icon and the page's own buttons.</p>
+      <div class="offline"><span class="st">You're offline. Pages show what was last loaded; changes wait until you're back.</span><button class="btn ghost sm">Try again</button></div>
+      <div class="states">
+        <div class="state">
+          <svg class="gl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>
+          <b>No links yet</b>
+          <p>A link says which supplier page a Shopify variant matches, so its stock can be checked.</p>
+          <div class="row"><button class="btn">Import from Shopify export</button><button class="btn ghost">Add link</button></div>
+        </div>
+        <div class="state">
+          <svg class="gl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/><path d="M8.5 11h5"/></svg>
+          <b>No links match these filters</b>
+          <p>Nothing at Northline is marked "Looks different".</p>
+          <div class="chips"><span class="chip">Supplier: <b>Northline</b><button aria-label="Remove">✕</button></span><span class="chip">Status: <b>Looks different</b><button aria-label="Remove">✕</button></span></div>
+          <div class="row"><button class="btn ghost">Clear filters</button></div>
+        </div>
+        <div class="state">
+          <svg class="gl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 3 2.5 20h19z"/><path d="M12 10v4"/><circle cx="12" cy="17" r=".6" fill="currentColor"/></svg>
+          <b>Couldn't load suppliers</b>
+          <p>The server didn't answer in time. Nothing was changed.</p>
+          <code>timeout after 30 s · 09:14</code>
+          <div class="row"><button class="btn">Try again</button></div>
+        </div>
+        <div class="state">
+          <svg class="gl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4h10l6 6v10H4z"/><path d="M14 4v6h6"/><path d="m9.5 13.5 5 5m0-5-5 5"/></svg>
+          <b>Page not found</b>
+          <p>This page may have moved, or the supplier was deleted.</p>
+          <div class="row"><button class="btn">Go to Dashboard</button><button class="btn ghost">Back</button></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- chips + copy -->
+    <section class="blk">
+      <h3><em>+</em> Active filter chips</h3>
+      <p class="lead">Every filter you've set shows above the table. ✕ removes one; "Clear all" removes them all. The search box text shows too.</p>
+      <div class="chips">
+        <span class="chip">Search: <b>"oak"</b><button aria-label="Remove">✕</button></span>
+        <span class="chip">Supplier: <b>Northline</b><button aria-label="Remove">✕</button></span>
+        <span class="chip">Stock: <b>Out of stock</b><button aria-label="Remove">✕</button></span>
+        <button class="btn quiet">Clear all</button>
+      </div>
+      <p class="note mono">2 of 2,169 links</p>
+    </section>
+
+    <section class="blk">
+      <h3><em>+</em> Copy buttons</h3>
+      <p class="lead">A small copy icon next to SKUs, supplier links and product names. After a click it says "Copied" for two seconds.</p>
+      <div class="row" style="gap:28px">
+        <span class="copy"><span class="mono">OSB-L</span><span class="tipw"><button class="cbtn" aria-label="Copy SKU"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="1"/><path d="M5 15V5a1 1 0 0 1 1-1h9"/></svg></button></span></span>
+        <span class="copy"><span class="url">northline-trade.example/oak-board-large</span><button class="cbtn" aria-label="Copy link"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="1"/><path d="M5 15V5a1 1 0 0 1 1-1h9"/></svg></button></span>
+        <span class="copy"><span class="mono">LA-SG</span><span class="copied">✓ Copied</span></span>
+      </div>
+    </section>
+
+    <!-- toasts + tab count -->
+    <section class="blk">
+      <h3><em>+</em> Messages with Undo</h3>
+      <p class="lead">Messages appear bottom-right (at the bottom on a phone). Reject and Delete wait 5 seconds before they happen, so Undo really undoes. Errors stay until you close them.</p>
+      <div class="toasts">
+        <div class="toast"><div class="in"><span>3 proposals rejected.</span><span class="row" style="gap:4px"><button>Undo</button><button class="x" aria-label="Close">✕</button></span></div><div class="timer"></div></div>
+        <div class="toast"><div class="in"><span>Approved. Shopify now shows <b>Oak serving board</b> as out of stock.</span><button class="x" aria-label="Close">✕</button></div></div>
+        <div class="toast err"><div class="in"><span>Couldn't reach Shopify. Nothing was changed.</span><span class="row" style="gap:4px"><button>Try again</button><button class="x" aria-label="Close">✕</button></span></div></div>
+      </div>
+    </section>
+
+    <section class="blk">
+      <h3><em>+</em> Count in the browser tab</h3>
+      <p class="lead">The tab title shows how many proposals are waiting, and the little icon gets an orange dot when something needs you, so you notice from another tab.</p>
+      <div class="tabbar">
+        <div class="btab">Shopify admin</div>
+        <div class="btab on"><span class="favw"><span class="fav"></span><i></i></span>(12) Proposals · Stock Monitor</div>
+        <div class="btab">Northline Wholesale</div>
+      </div>
+      <div class="tabbody"></div>
+      <p class="note">When nothing is waiting, it's just "Proposals · Stock Monitor" with no dot.</p>
+    </section>
+
+    <!-- bulk + sort -->
+    <section class="blk w" id="j-bulk">
+      <h3><em>+</em> Bulk approve and sortable columns</h3>
+      <p class="lead">Tick rows, or the header box for the whole page, and a bar appears with Approve and Reject for all of them. Click a column heading to sort (▲ ▼ shows which way); headings stay on screen while you scroll.</p>
+      <div class="selbar"><span class="cb mixed" style="border-color:var(--bg)"></span><b>3 selected</b><button class="btn sm">Approve 3</button><button class="btn ghost sm">Reject 3</button><button class="quiet2">Clear selection</button></div>
+      <table>
+        <tr><th style="width:28px"><span class="cb mixed"></span></th><th class="sort sorted">Product<span class="ar">▲</span></th><th class="sort">Supplier<span class="ar">↕</span></th><th>Change</th><th class="sort">Seen<span class="ar">↕</span></th><th class="r"></th></tr>
+        <tr class="selrow"><td><span class="cb on"></span></td><td><b>Beeswax wraps</b><span class="sub">Set of 3 · BW-3</span></td><td>Harbour</td><td class="chg"><s>In stock</s> → Out</td><td class="mono">07:48</td><td class="r"><button class="btn sm">Approve</button></td></tr>
+        <tr class="selrow"><td><span class="cb on"></span></td><td><b>Enamel mug</b><span class="sub">350 ml · EM-350</span></td><td>Kestrel</td><td class="chg"><s>In stock</s> → Out</td><td class="mono">09:05</td><td class="r"><button class="btn sm">Approve</button></td></tr>
+        <tr><td><span class="cb"></span></td><td><b>Linen apron</b><span class="sub">Sage · LA-SG</span></td><td>Brightwell</td><td class="chg"><s>Out</s> → In stock</td><td class="mono">09:12</td><td class="r"><button class="btn sm">Approve</button></td></tr>
+        <tr class="selrow"><td><span class="cb on"></span></td><td><b>Oak serving board</b><span class="sub">Large · OSB-L</span></td><td>Northline</td><td class="chg"><s>In stock</s> → Out</td><td class="mono">09:14</td><td class="r"><button class="btn sm">Approve</button></td></tr>
+      </table>
+    </section>
+
+    <!-- live progress -->
+    <section class="blk w">
+      <h3><em>+</em> Live check progress</h3>
+      <p class="lead">While a supplier is being checked, its row shows how far along it is and updates on its own. When it finishes, the row flashes softly once and goes back to its usual sentence.</p>
+      <table>
+        <tr><th>Supplier</th><th>Status</th><th>Recent checks</th><th>Automatic checks</th><th class="r"></th></tr>
+        <tr><td><b>Northline Wholesale</b><span class="sub">northline-trade.example</span></td><td><span class="st live">Checking now</span><span class="sub mono">started 09:14</span></td><td><span class="mono">312 of 812 links</span> · 14 out so far<div class="prog"><i></i></div></td><td>Every 30 min<span class="sub">This run started by the schedule</span></td><td class="r"><button class="btn ghost sm">Stop</button></td></tr>
+        <tr class="flash"><td><b>Brightwell Trade</b><span class="sub">brightwell.example</span></td><td><span class="st ok">Connected</span><span class="sub mono">Checked just now</span></td><td>Finished: 655 links, 28 out of stock</td><td>Every hour, next 10:12</td><td class="r"><button class="btn ghost sm">Check connection</button></td></tr>
+      </table>
+    </section>
+
+    <!-- phone -->
+    <section class="blk w" id="j-phone">
+      <h3><em>+</em> Phone layout</h3>
+      <p class="lead">Five tabs at the bottom (Products and Settings sit under More). Tables become rows you can tap; every button is at least 44 points tall; the main action sits in a bar at the bottom, where your thumb is.</p>
+      <div class="phones">
+        <div>
+          <div class="phone">
+            <div class="p-top"><b><span class="fav"></span>Dashboard</b><span class="muted mono" style="font-size:11px">next check 09:28</span></div>
+            <div class="p-body">
+              <div class="p-sec"><h5>Needs you</h5></div>
+              <div class="p-need"><div class="t">Harbour Goods logged out</div><p class="muted" style="font-size:12.5px;margin-bottom:10px">3 failed from 07:48, then checks stopped</p><button class="btn lg full">Reconnect supplier</button></div>
+              <div class="p-need"><div class="t">12 stock changes to approve</div><button class="btn ghost lg full">Review proposals</button></div>
+              <div class="p-sec"><h5>Today</h5></div>
+              <div class="p-stats">
+                <div><label>In stock</label><b class="good">2,104</b></div>
+                <div><label>Out of stock</label><b class="bad">179</b></div>
+                <div><label>Suppliers</label><b>3/4</b></div>
+                <div><label>Not linked</label><b>312</b></div>
+              </div>
+            </div>
+            <div class="p-nav">
+              <a class="on" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>Dashboard</a>
+              <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>Links</a>
+              <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m5 12 4 4 10-10"/></svg>Proposals<span class="n">12</span></a>
+              <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9 5 4h14l2 5"/><path d="M4 9v11h16V9"/><path d="M9 20v-6h6v6"/></svg>Suppliers</a>
+              <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg>More</a>
+            </div>
+          </div>
+          <p class="p-cap">Dashboard: what needs you first, big buttons</p>
+        </div>
+        <div>
+          <div class="phone">
+            <div class="p-top"><b><span class="fav"></span>Suppliers</b><button class="btn sm">+ Add</button></div>
+            <div class="p-body">
+              <div class="p-search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Search by name or website</div>
+              <div class="p-chips"><span class="on">All <i>6</i></span><span>Connected <i>3</i></span><span>Needs reconnecting <i>1</i></span></div>
+              <div class="p-row"><div class="m"><b>Harbour Goods</b><span class="st bad">Needs reconnecting</span><span class="sub">3 failed from 07:48, then checks stopped</span></div><span class="chev">›</span></div>
+              <div style="padding:0 16px 12px;border-bottom:1px solid var(--rule2)"><button class="btn lg full">Reconnect supplier</button></div>
+              <div class="p-row"><div class="m"><b>Northline Wholesale</b><span class="st ok">Connected</span><span class="sub">Last 24 checks fine · next 09:44</span></div><span class="chev">›</span></div>
+              <div class="p-row"><div class="m"><b>Brightwell Trade</b><span class="st ok">Connected</span><span class="sub">23 fine, 1 couldn't tell · next 10:12</span></div><span class="chev">›</span></div>
+              <div class="p-row"><div class="m"><b>Kestrel Supply</b><span class="st ok">Connected</span><span class="sub">Last 24 checks fine · next 11:05</span></div><span class="chev">›</span></div>
+              <div class="p-row"><div class="m"><b>Fenwick &amp; Co</b><span class="st">Paused</span><span class="sub">No checks since Monday</span></div><span class="chev">›</span></div>
+            </div>
+            <div class="p-nav">
+              <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>Dashboard</a>
+              <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>Links</a>
+              <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m5 12 4 4 10-10"/></svg>Proposals<span class="n">12</span></a>
+              <a class="on" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9 5 4h14l2 5"/><path d="M4 9v11h16V9"/><path d="M9 20v-6h6v6"/></svg>Suppliers</a>
+              <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg>More</a>
+            </div>
+          </div>
+          <p class="p-cap">Suppliers: trouble first, tap a row for details</p>
+        </div>
+        <div>
+          <div class="phone">
+            <div class="p-top"><b><span class="fav"></span>Proposals</b><span class="muted mono" style="font-size:12px">12 waiting</span></div>
+            <div class="p-body">
+              <div class="p-chips" style="padding-top:12px"><span>Supplier: All ▾</span><span class="on">Waiting <i>12</i></span><span>Done</span></div>
+              <div class="p-row" style="background:var(--sel)"><span class="cb on"></span><div class="m" style="flex:1"><b>Oak serving board</b><span class="chg"><s>In stock</s> → Out</span><span class="sub">Northline · Large · OSB-L</span></div></div>
+              <div class="p-row" style="background:var(--sel)"><span class="cb on"></span><div class="m" style="flex:1"><b>Enamel mug</b><span class="chg"><s>In stock</s> → Out</span><span class="sub">Kestrel · 350 ml · EM-350</span></div></div>
+              <div class="p-row"><span class="cb"></span><div class="m" style="flex:1"><b>Linen apron</b><span class="chg"><s>Out</s> → In stock</span><span class="sub">Brightwell · Sage · LA-SG</span></div></div>
+              <div class="p-row" style="background:var(--sel)"><span class="cb on"></span><div class="m" style="flex:1"><b>Beeswax wraps</b><span class="chg"><s>In stock</s> → Out</span><span class="sub">Harbour · Set of 3 · BW-3</span></div></div>
+              <div class="p-pager"><button class="btn ghost" disabled>‹</button><span class="mono" style="font-size:13px">Page 1 of 3</span><button class="btn ghost">›</button></div>
+            </div>
+            <div class="p-act"><span class="t">3 selected</span><button class="btn ghost lg">Reject</button><button class="btn lg">Approve 3</button></div>
+            <div class="p-nav">
+              <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>Dashboard</a>
+              <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>Links</a>
+              <a class="on" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m5 12 4 4 10-10"/></svg>Proposals<span class="n">12</span></a>
+              <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9 5 4h14l2 5"/><path d="M4 9v11h16V9"/><path d="M9 20v-6h6v6"/></svg>Suppliers</a>
+              <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg>More</a>
+            </div>
+          </div>
+          <p class="p-cap">Proposals: tick rows, approve from the bottom bar</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- more ideas -->
+    <section class="blk w" id="j-ideas">
+      <h3><em>?</em> More ideas: click the ones you want</h3>
+      <p class="lead">Each is small on its own. Click a card to select it (click again to unselect), then tell me in the terminal.</p>
+      <div class="cards" data-multiselect>
+        <div class="card" data-choice="side-panel" onclick="toggleSelect(this)"><span class="no">01</span><b>Details panel instead of a new page</b><p>Click a link or supplier row and its details slide in on the right: history, last answer, actions. The list stays where you were.</p><div class="mini">List │ <b>Oak serving board</b> · Works · Seen 09:14 · [Check now]</div></div>
+        <div class="card" data-choice="since-last-visit" onclick="toggleSelect(this)"><span class="no">02</span><b>"Since your last visit"</b><p>One line at the top of the Dashboard: what changed since you were last here.</p><div class="mini">Since yesterday 18:40: 9 went out of stock, 4 came back, Harbour logged out.</div></div>
+        <div class="card" data-choice="saved-views" onclick="toggleSelect(this)"><span class="no">03</span><b>Saved filters</b><p>Save a filter set you use often and get it back in one click.</p><div class="mini">★ Out of stock at Northline · ★ Links that need a look</div></div>
+        <div class="card" data-choice="supplier-icons" onclick="toggleSelect(this)"><span class="no">04</span><b>Supplier website icons</b><p>Each supplier's own small website icon beside its name, so you spot it faster in long lists.</p><div class="mini">[N] Northline Wholesale · [B] Brightwell Trade</div></div>
+        <div class="card" data-choice="exact-change" onclick="toggleSelect(this)"><span class="no">05</span><b>Before and after on proposals</b><p>Each proposal shows exactly what Shopify has now and what it will have, side by side, with the supplier's own words as proof.</p><div class="mini">Shopify: In stock (14) → <b>Out of stock</b> · supplier page said "Sold out"</div></div>
+        <div class="card" data-choice="density" onclick="toggleSelect(this)"><span class="no">06</span><b>Compact or comfortable rows</b><p>A switch for tighter rows (more on screen) or roomier rows (easier to read).</p><div class="mini">Rows: [Compact] Comfortable</div></div>
+        <div class="card" data-choice="keyboard" onclick="toggleSelect(this)"><span class="no">07</span><b>Keyboard for proposals</b><p>J and K move between proposals, A approves, R rejects. Fast when there are dozens.</p><div class="mini"><kbd>J</kbd> next · <kbd>K</kbd> back · <kbd>A</kbd> approve · <kbd>R</kbd> reject</div></div>
+        <div class="card" data-choice="sidebar-status" onclick="toggleSelect(this)"><span class="no">08</span><b>Check status in the sidebar</b><p>The bottom of the sidebar always shows whether checks are running and when the next one is.</p><div class="mini">● Checks on · next 09:28 · 1 supplier stopped</div></div>
+        <div class="card" data-choice="settings-nav" onclick="toggleSelect(this)"><span class="no">09</span><b>Settings with a side menu</b><p>Settings split into Shopify, Email alerts, Account and Appearance, with a small menu on the left.</p><div class="mini">Shopify │ Email alerts │ Account │ Appearance</div></div>
+        <div class="card" data-choice="notifications-panel" onclick="toggleSelect(this)"><span class="no">10</span><b>Redesigned notifications</b><p>The bell opens a tidy list grouped by today and earlier, with "Mark all read" and a link straight to the problem.</p><div class="mini">Today · Harbour logged out 07:48 → Reconnect</div></div>
+        <div class="card" data-choice="export" onclick="toggleSelect(this)"><span class="no">11</span><b>Download what you see</b><p>A "Download CSV" button on Links, Products and Proposals that exports the current filtered list.</p><div class="mini">2 of 2,169 links · [Download CSV]</div></div>
+        <div class="card" data-choice="first-run" onclick="toggleSelect(this)"><span class="no">12</span><b>Getting-started checklist</b><p>For a fresh setup: connect Shopify, add a supplier, link products, turn on checks. It ticks itself off and hides when done.</p><div class="mini">✓ Shopify · ✓ Supplier · ◻ Link products · ◻ Turn on checks</div></div>
+      </div>
+    </section>
+
+  </div>
+  </div>
+
+  <div class="mb" data-mode="dark">
+    <p class="mode">Dark</p>
+    <div id="darkslot"></div>
+  </div>
+</div>
+<script>
+  // Copy the light board into a dark one. The ideas cards stay clickable only in the light board, to keep one set of choices.
+  const dark = document.getElementById("board").cloneNode(true);
+  dark.id = "";
+  dark.classList.add("dk");
+  dark.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"));
+  dark.querySelectorAll("[data-choice]").forEach((el) => { el.removeAttribute("data-choice"); el.removeAttribute("onclick"); el.style.cursor = "default"; });
+  document.getElementById("darkslot").appendChild(dark);
+  document.querySelectorAll(".grp[data-k]").forEach((grp) => grp.addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    grp.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    const v = b.dataset.v;
+    document.querySelectorAll(".mb").forEach((m) => (m.hidden = v !== "both" && m.dataset.mode !== v));
+  }));
+</script>
+</body>
+</html>

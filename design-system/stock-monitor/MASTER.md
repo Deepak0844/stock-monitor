@@ -1,12 +1,18 @@
 ## Owner decisions (override anything below)
 
-- This is an internal tool for one non-technical operator, not a marketing site. Ignore the generated "Feature-Rich Showcase" landing pattern. Screens are forms, tables and an approval inbox.
-- Action colour is `#047857` with white text (5.5:1). The suggested `#059669` is only 3.8:1 with white. Dark theme uses `#34D399` with `#022C22` text.
-- Input borders are `#64748B` (at least 3:1 against the background). Error text is `#B91C1C`, never colour alone: every error has words next to its field.
-- Inter is self-hosted (`@fontsource-variable/inter`). No requests to outside servers, so the Content-Security-Policy stays `default-src 'self'` and styles must live in stylesheets, never `style=` attributes.
-- Controls are at least 44px tall, base text is 16px, motion respects `prefers-reduced-motion`.
+Direction D, "Ledger", chosen by the owner on 2026-11-19. Full design: `docs/superpowers/specs/2026-11-19-ui-redesign-design.md`.
+
+- This is an internal tool for one non-technical operator, not a marketing site. Screens are forms, tables and an approval inbox.
+- **Look:** paper and ink. Thin rules separate things instead of boxes. No drop shadows, except on things that float (menus, dropdowns, messages, dialogs). 3px corners. No gradients, no violet, no illustrations.
+- **Colours:** green means fine, orange-red means needs you, grey means neutral; there is no other accent. Light: ground `#fbfbf8`, ink `#16181d`, good `#15803d`, needs you `#c2410c`. Dark: ground `#121311`, ink `#ecebe4`, good `#4ade80`, needs you `#fb923c`. Faint (`#9a9ca2` / `#6c6d68`) is decoration only, never for text that carries meaning.
+- **Contrast:** text is at least 4.5:1 and control borders at least 3:1, in both themes. `apps/web/src/theme.test.ts` checks it.
+- **Fonts:** IBM Plex Sans for the interface, IBM Plex Mono for numbers, times, SKUs and links, self-hosted from npm (`@fontsource/ibm-plex-sans`, `@fontsource/ibm-plex-mono`). No requests to outside servers, so the Content-Security-Policy stays `default-src 'self'`. Styles live in stylesheets and classes, not `style=` attributes.
+- **Sizes:** on desktop (1024px and up), body text is 14px and controls are 32px tall. On a phone, body text is 16px and controls are 44px tall; the bottom tabs are 48px. Every target is at least 24px, and nothing that carries meaning is below 12px.
+- **Status:** a coloured dot always has its words beside it; colour never carries meaning alone.
+- **Check history** is shown in words ("Last 24 checks fine", "3 failed from 07:48, then checks stopped"), never as strips or charts.
+- Motion is 80 to 150 ms, and rests under `prefers-reduced-motion`.
 - Plain-English messages only. Say "Reconnect supplier", never an exception name.
-- Live tokens are in `apps/web/src/styles.css`.
+- The live colours and fonts are set in `apps/web/src/theme.css`. Everything below this block is the original generated file, kept for reference; where it disagrees, this block wins.
 
 # Design System Master File
 

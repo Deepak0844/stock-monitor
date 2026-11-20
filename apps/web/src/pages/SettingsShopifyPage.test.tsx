@@ -53,10 +53,10 @@ const connected = (over: Parameters<typeof aConnection>[0] = {}, extra: Partial<
 });
 
 describe("loading", () => {
-  it("says it is loading, then shows the page heading", async () => {
+  it("says it is loading, then shows its first section (the Settings heading is the frame's)", async () => {
     setup();
     expect(screen.getByRole("status")).toHaveTextContent("Loading…");
-    expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 2, name: "Connect your Shopify store" })).toBeInTheDocument();
   });
 
   it("explains a failure plainly and offers to try again", async () => {

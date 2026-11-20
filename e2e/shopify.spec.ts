@@ -22,11 +22,15 @@ async function signIn(page: Page) {
   await expectSignedIn(page);
 }
 
-/** On a phone the navigation sits behind the Menu button. */
+/** On a phone, Products and Settings sit under More in the tabs at the bottom. */
 async function goTo(page: Page, link: "Products" | "Settings") {
-  const menu = page.getByRole("button", { name: "Menu" });
-  if (await menu.isVisible()) await menu.click();
-  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: link }).click();
+  const more = page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "More" });
+  if (await more.isVisible()) {
+    await more.click();
+    await page.getByRole("dialog", { name: "More" }).getByRole("link", { name: link }).click();
+  } else {
+    await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: link }).click();
+  }
 }
 
 async function fillConnectForm(page: Page, secret = CLIENT_SECRET, shop = SHOP) {

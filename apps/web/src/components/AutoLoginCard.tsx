@@ -156,7 +156,7 @@ export function AutoLoginCard({ api, supplier, onChange }: { api: Api; supplier:
     <section aria-labelledby="auto-login-title" className="flex max-w-xl flex-col gap-4">
       <div className="flex items-start justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <h2 id="auto-login-title" className="text-lg font-semibold">
+          <h2 id="auto-login-title" className="text-base font-semibold lg:text-[0.9375rem]">
             Automatic login
           </h2>
           <p id="auto-login-hint" className="text-sm text-muted-foreground">

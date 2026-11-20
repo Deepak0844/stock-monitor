@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { Logger } from "pino";
 import type { createAuditWriter } from "@stock-monitor/audit";
 import type { createCheckRunRepository, createImportPreviewRepository, createMappingRepository, createObservationRepository, createProposalRepository, ObservationRecord, createSupplierRepository, createSupplierSessionRepository, MappingRow } from "@stock-monitor/db";
-import { isCheckable } from "@stock-monitor/db";
+import { isCheckable, MAPPING_SORTS } from "@stock-monitor/db";
 import type { Queue } from "@stock-monitor/queue";
 import { runExpirySeconds } from "@stock-monitor/scheduling";
 import { isUnavailableCandidate, sameSite, toCsv, whyNotChecked } from "@stock-monitor/mapping";
@@ -94,6 +94,8 @@ export function registerMappingRoutes(app: App, deps: MappingRoutesDeps, audit: 
   const pageQuery = z.object({
     page: z.coerce.number().int().min(1),
     pageSize: z.coerce.number().int().min(1).max(100).default(10),
+    sort: z.enum(MAPPING_SORTS).optional(),
+    dir: z.enum(["asc", "desc"]).optional(),
   });
 
   const filterQuery = z.object({

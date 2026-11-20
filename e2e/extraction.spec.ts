@@ -5,7 +5,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { OWNER_EMAIL, OWNER_PASSWORD } from "./constants.js";
 import { control } from "./control.js";
-import { expectSignedIn, rowMenu, settle } from "./ui.js";
+import { expectSignedIn, rowMenu, settle, pickLinksSupplier } from "./ui.js";
 
 test.describe.configure({ mode: "serial" });
 
@@ -203,7 +203,7 @@ test("when many pages change at once there is one dashboard notification, and a 
   await control.browser({ description: changed });
   await signIn(page);
   await page.goto("/mappings");
-  await page.getByLabel("Supplier", { exact: true }).selectOption({ label: "Acme Supply" });
+  await pickLinksSupplier(page, /Acme Supply/);
   await page.getByRole("button", { name: "Check all stock for Acme Supply" }).click();
   await expect(page.getByText(/Checking stock for 6 links/)).toBeVisible();
 
@@ -217,7 +217,7 @@ test("when many pages change at once there is one dashboard notification, and a 
 
   await control.browser({ description: inStock });
   await page.goto("/mappings");
-  await page.getByLabel("Supplier", { exact: true }).selectOption({ label: "Acme Supply" });
+  await pickLinksSupplier(page, /Acme Supply/);
   await page.getByRole("button", { name: "Check all stock for Acme Supply" }).click();
   await expect(async () => {
     await page.goto("/");

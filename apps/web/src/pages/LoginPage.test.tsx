@@ -27,6 +27,12 @@ describe("LoginPage", () => {
     expect(screen.getByText(/nothing reaches shopify without your ok/i)).toBeInTheDocument();
   });
 
+  it("says what the app does in three steps, Check, Propose and Approve, with no store numbers before sign-in", () => {
+    setup();
+    for (const step of ["Check", "Propose", "Approve"]) expect(screen.getByRole("heading", { level: 2, name: step })).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/\d/);
+  });
+
   it("names the app so the owner knows where they are", () => {
     setup();
     expect(screen.getAllByText("Stock Monitor").length).toBeGreaterThan(0);

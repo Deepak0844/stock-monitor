@@ -1,12 +1,12 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button.js";
-import { Card } from "@/components/ui/card.js";
-import { Input, Select } from "@/components/ui/input.js";
+import { Input } from "@/components/ui/input.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
 import { ApiError, type Api, type Mapping, type Supplier, type UnmappedVariant } from "../api.js";
 import { Field, ReadOnlyField } from "../components/Field.js";
 import { Notice } from "../components/Notice.js";
 import { PageHeader } from "../components/PageHeader.js";
+import { SearchSelect } from "../components/SearchSelect.js";
 import { Link, navigate } from "../router.js";
 import { useTitle } from "../useTitle.js";
 
@@ -43,18 +43,19 @@ export function MappingFormPage({ api, id }: { api: Api; id?: string }) {
   return (
     <>
       <PageHeader
+        back={{ to: "/mappings", label: "Back to links" }}
         title={editing ? "Edit link" : "Add link"}
         description={editing ? "Change the supplier page this variant is linked to." : "Link a Shopify variant to the same item on a supplier's website."}
       />
       {load.kind === "loading" && (
-        <Card className="flex max-w-2xl flex-col gap-4 p-6">
+        <section className="flex max-w-2xl flex-col gap-4 border-t border-border py-6 first:border-t-0 first:pt-2 max-w-3xl">
           <p role="status" className="sr-only">
             Loading…
           </p>
           <Skeleton className="h-10 w-full" />
           <Skeleton className="h-10 w-full" />
           <Skeleton className="h-10 w-2/3" />
-        </Card>
+        </section>
       )}
       {load.kind === "error" && (
         <div className="flex max-w-2xl flex-col items-start gap-3">
@@ -67,18 +68,26 @@ export function MappingFormPage({ api, id }: { api: Api; id?: string }) {
         </div>
       )}
       {load.kind === "ready" && (
-        <Card className="flex max-w-2xl flex-col gap-4 p-6">
+        <section className="flex max-w-2xl flex-col gap-4 border-t border-border py-6 first:border-t-0 first:pt-2 max-w-3xl">
           {load.mapping?.shopifyManaged && (
             <Notice kind="warning">
               This link is set from Shopify, from the supplier name and page address on the product. If you change it here, the next Sync puts Shopify's supplier and page address back. Change them in Shopify instead.
             </Notice>
           )}
           <MappingForm api={api} mapping={load.mapping} />
-        </Card>
+        </section>
       )}
     </>
   );
 }
+
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+};
 
 function MappingForm({ api, mapping }: { api: Api; mapping: Mapping | null }) {
   const preselected = new URLSearchParams(window.location.search).get("variant") ?? "";
@@ -88,15 +97,16 @@ function MappingForm({ api, mapping }: { api: Api; mapping: Mapping | null }) {
   const [note, setNote] = useState(mapping?.note ?? "");
   const [region, setRegion] = useState(mapping?.region ?? "");
   const [supplierOption, setSupplierOption] = useState(mapping?.supplierOption ?? "");
-  const [find, setFind] = useState("");
   const [variants, setVariants] = useState<UnmappedVariant[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [errors, setErrors] = useState<Errors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const refs: Record<Field, React.RefObject<HTMLInputElement | HTMLSelectElement | null>> = {
-    variant: useRef<HTMLSelectElement>(null),
-    supplier: useRef<HTMLSelectElement>(null),
+  // The two pickers are dropdowns with search; they are found by their field id to be focused on an error.
+  const byId = (id: string) => ({ get current() { return document.getElementById(id); } });
+  const refs: Record<Field, { current: HTMLElement | null }> = {
+    variant: byId("variant"),
+    supplier: byId("supplier"),
     url: useRef<HTMLInputElement>(null),
     note: useRef<HTMLInputElement>(null),
     region: useRef<HTMLInputElement>(null),
@@ -106,13 +116,24 @@ function MappingForm({ api, mapping }: { api: Api; mapping: Mapping | null }) {
   useEffect(() => {
     api.suppliers.list().then(setSuppliers).catch((e: unknown) => setFormError(message(e)));
   }, [api]);
+  // The first variants with no link, so a variant chosen from the Map button shows by name.
   useEffect(() => {
     if (mapping) return;
-    const timer = setTimeout(() => {
-      api.mappings.unmapped(find || undefined).then((r) => setVariants(r.items)).catch((e: unknown) => setFormError(message(e)));
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [api, find, mapping]);
+    api.mappings
+      .unmapped()
+      .then((r) => setVariants(r.items))
+      .catch((e: unknown) => setFormError(message(e)));
+  }, [api, mapping]);
+  const variantOption = (v: UnmappedVariant) => ({ id: v.variantId, label: `${v.productTitle} · ${v.variantTitle}`, detail: v.sku ?? undefined });
+  const searchVariants = useCallback(
+    (q: string) =>
+      api.mappings.unmapped(q || undefined).then((r) => {
+        setVariants((known) => [...known, ...r.items.filter((v) => !known.some((k) => k.variantId === v.variantId))]);
+        return r.items.map(variantOption);
+      }),
+    [api],
+  );
+  const chosenVariant = variants.find((v) => v.variantId === variantId);
 
   const showErrors = (next: Errors) => {
     setErrors(next);
@@ -165,30 +186,37 @@ function MappingForm({ api, mapping }: { api: Api; mapping: Mapping | null }) {
         </>
       ) : (
         <>
-          <Field id="find" label="Find a variant" hint="Search by product, variant or SKU. Only variants with no link are listed.">
-            <Input id="find" type="search" autoComplete="off" value={find} onChange={(e) => setFind(e.target.value)} />
-          </Field>
-          <Field id="variant" label="Variant" error={errors.variant}>
-            <Select id="variant" className="w-full" ref={refs.variant as React.RefObject<HTMLSelectElement>} value={variantId} onChange={(e) => setVariantId(e.target.value)} {...described("variant")}>
-              <option value="">Choose a variant</option>
-              {variantId && !variants.some((v) => v.variantId === variantId) && <option value={variantId}>Selected variant</option>}
-              {variants.map((v) => (
-                <option key={v.variantId} value={v.variantId}>
-                  {v.productTitle} · {v.variantTitle}
-                  {v.sku ? ` · ${v.sku}` : ""}
-                </option>
-              ))}
-            </Select>
+          <Field id="variant" label="Variant" hint="Search by product, variant or SKU. Only variants with no link are listed." error={errors.variant}>
+            <SearchSelect
+              id="variant"
+              label="Variant"
+              hideLabel
+              value={variantId || null}
+              valueLabel={chosenVariant ? `${chosenVariant.productTitle} · ${chosenVariant.variantTitle}` : variantId ? "Selected variant" : "Choose a variant"}
+              search={searchVariants}
+              placeholder="Search variants"
+              noMatch={(text) => (text ? `No variant with no link matches "${text}".` : "Every variant has a link.")}
+              onChange={(id) => setVariantId(id ?? "")}
+              invalid={Boolean(errors.variant)}
+              describedBy={errors.variant ? "variant-error" : undefined}
+              className="w-full"
+            />
           </Field>
           <Field id="supplier" label="Supplier" error={errors.supplier}>
-            <Select id="supplier" className="w-full" ref={refs.supplier as React.RefObject<HTMLSelectElement>} value={supplierId} onChange={(e) => setSupplierId(e.target.value)} {...described("supplier")}>
-              <option value="">Choose a supplier</option>
-              {suppliers.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </Select>
+            <SearchSelect
+              id="supplier"
+              label="Supplier"
+              hideLabel
+              value={supplierId || null}
+              valueLabel={suppliers.find((x) => x.id === supplierId)?.name ?? "Choose a supplier"}
+              options={suppliers.map((x) => ({ id: x.id, label: x.name, detail: hostOf(x.websiteUrl) }))}
+              placeholder="Search suppliers"
+              noMatch={(text) => `No supplier matches "${text}".`}
+              onChange={(id) => setSupplierId(id ?? "")}
+              invalid={Boolean(errors.supplier)}
+              describedBy={errors.supplier ? "supplier-error" : undefined}
+              className="w-full"
+            />
           </Field>
         </>
       )}
