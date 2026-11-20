@@ -29,6 +29,7 @@
   --sidebar: #e6e5df;
   --sidebar-foreground: #3c3f46;
   --sidebar-active: #efeee9;
+  --brand-ink: #511400;
   --success: #137538;
   --success-soft: #f1f7f2;
   --warning: #b33c0b;
@@ -71,6 +72,7 @@
     --sidebar: #161715;
     --sidebar-foreground: #c4c3bc;
     --sidebar-active: #1b1c1a;
+    --brand-ink: #f0e2d8;
     --success: #4ade80;
     --success-soft: #12271a;
     --warning: #fb923c;
@@ -112,6 +114,7 @@
   --sidebar: #161715;
   --sidebar-foreground: #c4c3bc;
   --sidebar-active: #1b1c1a;
+  --brand-ink: #f0e2d8;
   --success: #4ade80;
   --success-soft: #12271a;
   --warning: #fb923c;
@@ -152,6 +155,7 @@
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-active: var(--sidebar-active);
+  --color-brand-ink: var(--brand-ink);
   --color-success: var(--success);
   --color-success-soft: var(--success-soft);
   --color-warning: var(--warning);
