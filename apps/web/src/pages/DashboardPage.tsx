@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
-import type { Api, AppNotification, Proposal, ScheduleRow, Supplier } from "../api.js";
+import type { AppNotification, Proposal, ScheduleRow, Supplier } from "../api.js";
 import { recentChecksSentence } from "../components/recentChecks.js";
 import { toast } from "../lib/toast.js";
 import { PageHeader } from "../components/PageHeader.js";
@@ -12,6 +12,7 @@ import { useTitle } from "../useTitle.js";
 import { useApproveProposalMutation, useGetProposalCountQuery, useGetProposalOpenListQuery } from "../store/api/proposals/proposalApi.js";
 import { useGetSupplierListQuery } from "../store/api/suppliers/supplierApi.js";
 import { useGetNotificationListQuery } from "../store/api/notifications/notificationApi.js";
+import { useGetMappingListQuery, useGetUnmappedQuery } from "../store/api/mappings/mappingApi.js";
 import { useGetScheduleOverviewQuery } from "../store/api/schedule/scheduleApi.js";
 
 /** One number and what it means, with the link to the list behind it. A shimmer while loading, a retry if it failed. */
@@ -112,7 +113,7 @@ const clock = (iso: string) =>
 const messageOf = (e: unknown) =>
   e instanceof Error ? e.message : "Something went wrong. Please try again.";
 
-export function DashboardPage({ api }: { api: Api }) {
+export function DashboardPage() {
   useTitle("Dashboard");
   const notesQuery = useGetNotificationListQuery();
   const notes: AppNotification[] | null = notesQuery.data ?? null;
@@ -123,26 +124,16 @@ export function DashboardPage({ api }: { api: Api }) {
     supplierList.data ?? (supplierList.isError && !supplierList.isFetching ? "error" : null);
   const loadSuppliers = () => void supplierList.refetch();
   const waiting = useGetProposalCountQuery().data ?? 0;
-  const [links, setLinks] = useState<
-    | {
-        unmapped: number;
-        total: number;
-        attention: number;
-        answers: { in: number; out: number; unsure: number };
-      }
+  const unmappedQuery = useGetUnmappedQuery();
+  const allLinks = useGetMappingListQuery();
+  const u = unmappedQuery.data;
+  const all = allLinks.data;
+  const links:
+    | { unmapped: number; total: number; attention: number; answers: { in: number; out: number; unsure: number } }
     | "error"
-    | null
-  >(null);
-  const scheduleQuery = useGetScheduleOverviewQuery();
-  const schedule: ScheduleRow[] | "error" | null =
-    scheduleQuery.data ?? (scheduleQuery.isError && !scheduleQuery.isFetching ? "error" : null);
-  const loadSchedule = () => void scheduleQuery.refetch();
-
-  const loadLinks = useCallback(() => {
-    setLinks(null);
-    Promise.all([api.mappings.unmapped(), api.mappings.list({})])
-      .then(([u, all]) =>
-        setLinks({
+    | null =
+    u && all
+      ? {
           unmapped: u.unmapped,
           total: u.total,
           attention: all.filter((m) => NEEDS_ATTENTION.has(m.linkStatus)).length,
@@ -151,11 +142,19 @@ export function DashboardPage({ api }: { api: Api }) {
             out: all.filter((m) => m.latestStock?.answer === "out_of_stock").length,
             unsure: all.filter((m) => m.latestStock?.answer === "cannot_tell").length,
           },
-        }),
-      )
-      .catch(() => setLinks("error"));
-  }, [api]);
-  useEffect(loadLinks, [loadLinks]);
+        }
+      : (unmappedQuery.isError && !unmappedQuery.isFetching && !u) || (allLinks.isError && !allLinks.isFetching && !all)
+        ? "error"
+        : null;
+  const loadLinks = () => {
+    void unmappedQuery.refetch();
+    void allLinks.refetch();
+  };
+  const scheduleQuery = useGetScheduleOverviewQuery();
+  const schedule: ScheduleRow[] | "error" | null =
+    scheduleQuery.data ?? (scheduleQuery.isError && !scheduleQuery.isFetching ? "error" : null);
+  const loadSchedule = () => void scheduleQuery.refetch();
+
   // The newest suggestions, so the owner can approve from here.
   // No re-read while one waits for Shopify here: approved ones simply leave this short list.
   const newestList = useGetProposalOpenListQuery({ page: 1, pageSize: 5 }, { poll: false });

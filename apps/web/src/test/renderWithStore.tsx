@@ -16,8 +16,13 @@ function apiOf(ui: ReactElement): Api {
 }
 
 // Renders with a new, empty cache each time, so no test sees another test's data. No retries: a failure shows at once.
-export function renderWithStore(ui: ReactElement, { api = apiOf(ui) }: { api?: Api } = {}): RenderResult & { client: QueryClient } {
+export function renderWithStore(
+  ui: ReactElement,
+  { api = apiOf(ui), seed }: { api?: Api; seed?: (client: QueryClient) => void } = {},
+): RenderResult & { client: QueryClient } {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  // Data already in the cache before the page opens, as after visiting another page.
+  seed?.(client);
   const result = render(
     <StoreProvider api={api} client={client}>
       {ui}
