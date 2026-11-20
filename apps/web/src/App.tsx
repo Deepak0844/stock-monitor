@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
-import { api as realApi, type Api, type ScheduleRow } from "./api.js";
+import { api as realApi, type Api } from "./api.js";
 import { DashboardPage } from "./pages/DashboardPage.js";
 import { NotFoundPage } from "./pages/NotFoundPage.js";
 import { ProposalsPage } from "./pages/ProposalsPage.js";
@@ -24,6 +24,7 @@ import { TooltipProvider } from "@/components/ui/tooltip.js";
 import { useQueryClient } from "@tanstack/react-query";
 import { createQueryClient } from "./store/api/api.js";
 import { proposalKeys, useGetProposalCountQuery } from "./store/api/proposals/proposalApi.js";
+import { useGetScheduleOverviewQuery } from "./store/api/schedule/scheduleApi.js";
 import { StoreProvider } from "./store/StoreProvider.js";
 import { setWaiting } from "./tabTitle.js";
 import { useNotifications } from "./shell/useNotifications.js";
@@ -80,19 +81,8 @@ function AppRoutes({ api }: { api: Api }) {
     [signedIn, proposalCount, attention],
   );
 
-  // The schedule, for the check status in the sidebar. Read when signed in and every minute after.
-  const [schedule, setSchedule] = useState<ScheduleRow[] | null>(null);
-  useEffect(() => {
-    if (!signedIn) return;
-    const load = () =>
-      void api.schedule
-        .overview()
-        .then(setSchedule)
-        .catch(() => {});
-    load();
-    const timer = window.setInterval(() => !document.hidden && load(), SCHEDULE_POLL_MS);
-    return () => window.clearInterval(timer);
-  }, [api, signedIn]);
+  // The schedule, for the check status in the sidebar. Read when signed in and every minute after, while the tab is shown.
+  const schedule = useGetScheduleOverviewQuery({ enabled: signedIn, refetchEvery: SCHEDULE_POLL_MS }).data ?? null;
 
   const checkSession = useCallback(() => {
     setState({ kind: "loading" });

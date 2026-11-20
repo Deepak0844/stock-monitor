@@ -421,7 +421,7 @@ describe("automatic checks", () => {
   });
 
   it("shows progress while a run is going, reads it again every few seconds, then shows the summary", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"], shouldAdvanceTime: true });
     try {
       const running = scheduleRow({ status: { state: "running" }, intervalMinutes: 1440, run: aRun({ outcome: "running", endedAt: null, linksDone: 12, linksTotal: 40 }) });
       const done = scheduleRow({ status: { state: "waiting" }, intervalMinutes: 1440, nextCheckAt: "2026-11-11T03:30:00.000Z", lastRun: aRun() });

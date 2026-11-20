@@ -1,10 +1,11 @@
 import { ChevronRight } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { DEFAULT_WINDOW } from "@stock-monitor/scheduling";
 import { Button } from "@/components/ui/button.js";
 import { Input, Select } from "@/components/ui/input.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
-import type { Api, CheckRun, ScheduleRow, Supplier } from "../api.js";
+import type { Supplier } from "../api.js";
+import { useGetScheduleOverviewQuery, useGetScheduleRunsQuery, useSetScheduleMutation } from "../store/api/schedule/scheduleApi.js";
 import { Field } from "./Field.js";
 import { Notice } from "./Notice.js";
 import { INTERVAL_CHOICES, KEEP_ALIVE_WORDS, runSummary, whenWords } from "./scheduleWords.js";
@@ -17,7 +18,7 @@ const message = (e: unknown) =>
  * Automatic checks for one supplier: how often, and the hours of the day they may start. Off until the owner turns it on. The
  * run history sits beneath it. The checks themselves still follow the supplier's permission, pause and stock rules.
  */
-export function SchedulePanel({ api, supplier }: { api: Api; supplier: Supplier }) {
+export function SchedulePanel({ supplier }: { supplier: Supplier }) {
   const on = supplier.scheduleIntervalMinutes !== null;
   const [interval, setInterval] = useState<string>(
     on ? String(supplier.scheduleIntervalMinutes) : "off",
@@ -28,22 +29,13 @@ export function SchedulePanel({ api, supplier }: { api: Api; supplier: Supplier 
   const [keepAlive, setKeepAlive] = useState<string>(
     supplier.keepAliveMinutes === null ? "off" : String(supplier.keepAliveMinutes),
   );
-  const [row, setRow] = useState<ScheduleRow | null>(null);
-  const [runs, setRuns] = useState<CheckRun[] | null>(null);
+  const row = useGetScheduleOverviewQuery().data?.find((r) => r.supplierId === supplier.id) ?? null;
+  const runsQuery = useGetScheduleRunsQuery(supplier.id);
+  // Runs that cannot be read show as none, so the form still works.
+  const runs = runsQuery.data ?? (runsQuery.isError ? [] : null);
+  const saveSchedule = useSetScheduleMutation();
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-
-  const load = () => {
-    api.schedule
-      .overview()
-      .then((rows) => setRow(rows.find((r) => r.supplierId === supplier.id) ?? null))
-      .catch(() => {});
-    api.schedule
-      .runs(supplier.id)
-      .then(setRuns)
-      .catch(() => setRuns([]));
-  };
-  useEffect(load, [api, supplier.id]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -52,13 +44,15 @@ export function SchedulePanel({ api, supplier }: { api: Api; supplier: Supplier 
       return setError("Choose a start and an end time that are different.");
     setSaving(true);
     try {
-      await api.schedule.set(supplier.id, {
-        intervalMinutes: interval === "off" ? null : Number(interval),
-        window: anyTime ? null : { start: from, end: until },
-        keepAliveMinutes: keepAlive === "off" ? null : Number(keepAlive),
+      await saveSchedule.mutateAsync({
+        supplierId: supplier.id,
+        input: {
+          intervalMinutes: interval === "off" ? null : Number(interval),
+          window: anyTime ? null : { start: from, end: until },
+          keepAliveMinutes: keepAlive === "off" ? null : Number(keepAlive),
+        },
       });
       toast("Automatic checks saved.");
-      load();
     } catch (e) {
       setError(message(e));
     } finally {

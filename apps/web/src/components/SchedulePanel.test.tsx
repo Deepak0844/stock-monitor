@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { ApiError, type ScheduleRow } from "../api.js";
 import { aRun, aSupplier, fakeApi } from "../test/fake-api.js";
+import { renderWithStore } from "../test/renderWithStore.js";
 import { SchedulePanel } from "./SchedulePanel.js";
 
 afterEach(cleanup);
@@ -28,7 +29,7 @@ const setup = (
     ...over,
     schedule: { overview: vi.fn().mockResolvedValue(rows), ...over.schedule },
   });
-  render(<SchedulePanel api={api} supplier={supplier} />);
+  renderWithStore(<SchedulePanel supplier={supplier} />, { api });
   return { api, user: userEvent.setup() };
 };
 
@@ -209,7 +210,7 @@ describe("Automatic checks panel", () => {
 describe("checks every 15 or 30 minutes", () => {
   it("offers both, and saves 15 minutes", async () => {
     const api = fakeApi();
-    render(<SchedulePanel api={api} supplier={aSupplier()} />);
+    renderWithStore(<SchedulePanel supplier={aSupplier()} />, { api });
     const often = await screen.findByLabelText("How often");
     expect([...(often as HTMLSelectElement).options].map((o) => o.text)).toEqual(
       expect.arrayContaining(["Every 15 minutes", "Every 30 minutes"]),

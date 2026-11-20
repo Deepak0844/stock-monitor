@@ -11,6 +11,7 @@ import { Link } from "../router.js";
 import { useTitle } from "../useTitle.js";
 import { useApproveProposalMutation, useGetProposalCountQuery, useGetProposalOpenListQuery } from "../store/api/proposals/proposalApi.js";
 import { useGetSupplierListQuery } from "../store/api/suppliers/supplierApi.js";
+import { useGetScheduleOverviewQuery } from "../store/api/schedule/scheduleApi.js";
 
 /** One number and what it means, with the link to the list behind it. A shimmer while loading, a retry if it failed. */
 function SummaryCard(props: {
@@ -129,7 +130,10 @@ export function DashboardPage({ api }: { api: Api }) {
     | "error"
     | null
   >(null);
-  const [schedule, setSchedule] = useState<ScheduleRow[] | "error" | null>(null);
+  const scheduleQuery = useGetScheduleOverviewQuery();
+  const schedule: ScheduleRow[] | "error" | null =
+    scheduleQuery.data ?? (scheduleQuery.isError && !scheduleQuery.isFetching ? "error" : null);
+  const loadSchedule = () => void scheduleQuery.refetch();
 
   const loadNotes = useCallback(() => {
     setNotesError(null);
@@ -137,13 +141,6 @@ export function DashboardPage({ api }: { api: Api }) {
       .list()
       .then(setNotes)
       .catch((e: unknown) => setNotesError(messageOf(e)));
-  }, [api]);
-  const loadSchedule = useCallback(() => {
-    setSchedule(null);
-    api.schedule
-      .overview()
-      .then(setSchedule)
-      .catch(() => setSchedule("error"));
   }, [api]);
   const loadLinks = useCallback(() => {
     setLinks(null);
@@ -163,7 +160,6 @@ export function DashboardPage({ api }: { api: Api }) {
       .catch(() => setLinks("error"));
   }, [api]);
   useEffect(loadNotes, [loadNotes]);
-  useEffect(loadSchedule, [loadSchedule]);
   useEffect(loadLinks, [loadLinks]);
   // The newest suggestions, so the owner can approve from here.
   // No re-read while one waits for Shopify here: approved ones simply leave this short list.
