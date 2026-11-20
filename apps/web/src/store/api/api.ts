@@ -3,7 +3,6 @@ import { ApiError } from "../../api.js";
 import { handleQueryError } from "./queryErrorHandler.js";
 
 // The cache's shared rules, in one place. Resources add their own endpoints in store/api/<resource>/<resource>Api.ts.
-// RTK Query: api/api.js (createApi with empty endpoints) plus the app's store.js (configureStore + middleware).
 
 const MAX_RETRIES = 2;
 
@@ -16,7 +15,7 @@ export function shouldRetry(failureCount: number, error: unknown): boolean {
 
 export function createQueryClient(): QueryClient {
   return new QueryClient({
-    // Every failure passes through one handler, like a middleware. RTK Query: .concat(ApiMiddleware, rtkQueryErrorMiddleware).
+    // Every failure passes through one handler.
     queryCache: new QueryCache({ onError: (error, query) => handleQueryError(error, query.meta) }),
     mutationCache: new MutationCache({ onError: (error, _variables, _result, mutation) => handleQueryError(error, mutation.meta) }),
     defaultOptions: {

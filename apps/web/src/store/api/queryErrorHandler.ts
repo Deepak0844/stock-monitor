@@ -1,8 +1,7 @@
 import { toast } from "../../lib/toast.js";
 
 // What happens to every failed read or save, in one place.
-// RTK Query: rtkQueryErrorMiddleware, which catches rejected actions and reads the endpoint's onError flags.
-// Here the flags travel as the query's or mutation's `meta`.
+// Each call's flags travel as its query's or mutation's `meta`.
 
 export type ErrorMeta = {
   /** Show the error as a toast as well. Off by default: pages show their own errors next to what failed. */

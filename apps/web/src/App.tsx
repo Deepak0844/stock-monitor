@@ -41,7 +41,7 @@ const messageOf = (e: unknown) =>
 
 export function App({ api = realApi }: { api?: Api }) {
   const [state, setState] = useState<State>({ kind: "loading" });
-  // One cache for the life of the page. RTK Query: the store made once with configureStore.
+  // One cache for the life of the page.
   const [queryClient] = useState(createQueryClient);
   const path = usePath();
   const editId = /^\/suppliers\/([^/]+)\/edit$/.exec(path)?.[1];
