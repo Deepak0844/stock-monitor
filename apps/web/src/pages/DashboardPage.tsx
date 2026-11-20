@@ -9,6 +9,7 @@ import { PageHeader } from "../components/PageHeader.js";
 import { Notice } from "../components/Notice.js";
 import { Link } from "../router.js";
 import { useTitle } from "../useTitle.js";
+import { useApproveProposalMutation, useGetProposalCountQuery, useGetProposalOpenListQuery } from "../store/api/proposals/proposalApi.js";
 
 /** One number and what it means, with the link to the list behind it. A shimmer while loading, a retry if it failed. */
 function SummaryCard(props: {
@@ -113,7 +114,7 @@ export function DashboardPage({ api }: { api: Api }) {
   const [notes, setNotes] = useState<AppNotification[] | null>(null);
   const [notesError, setNotesError] = useState<string | null>(null);
   const [suppliers, setSuppliers] = useState<Supplier[] | "error" | null>(null);
-  const [waiting, setWaiting] = useState(0);
+  const waiting = useGetProposalCountQuery().data ?? 0;
   const [links, setLinks] = useState<
     | {
         unmapped: number;
@@ -169,27 +170,16 @@ export function DashboardPage({ api }: { api: Api }) {
   useEffect(loadSchedule, [loadSchedule]);
   useEffect(loadLinks, [loadLinks]);
   // The newest suggestions, so the owner can approve from here.
-  const [newest, setNewest] = useState<Proposal[] | null>(null);
-  const loadWaiting = useCallback(() => {
-    api.proposals
-      .count()
-      .then(setWaiting)
-      .catch(() => {});
-    api.proposals
-      .openPage({ page: 1, pageSize: 5 })
-      .then((p) => setNewest(p.items.filter((x) => x.state === "open")))
-      .catch(() => setNewest([]));
-  }, [api]);
-  useEffect(loadWaiting, [loadWaiting]);
+  // No re-read while one waits for Shopify here: approved ones simply leave this short list.
+  const newestList = useGetProposalOpenListQuery({ page: 1, pageSize: 5 }, { poll: false });
+  const newest = newestList.data ? newestList.data.items.filter((x) => x.state === "open") : newestList.isError ? [] : null;
+  const approveProposal = useApproveProposalMutation();
   const [approving, setApproving] = useState<string | null>(null);
   const approve = (p: Proposal) => {
     setApproving(p.id);
-    api.proposals
-      .approve(p.id)
-      .then(() => {
-        toast(`Approved. ${p.productTitle} will be updated in Shopify.`);
-        loadWaiting();
-      })
+    approveProposal
+      .mutateAsync({ id: p.id })
+      .then(() => toast(`Approved. ${p.productTitle} will be updated in Shopify.`))
       .catch((e: unknown) => toast(messageOf(e), { kind: "error" }))
       .finally(() => setApproving(null));
   };

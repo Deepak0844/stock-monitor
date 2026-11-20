@@ -81,7 +81,7 @@ const getProposalOpenListQuery = (api: Api, client: QueryClient, query: OpenQuer
 const getProposalHistoryQuery = (api: Api, query: HistoryQuery) =>
   queryOptions({
     queryKey: proposalKeys.history(query),
-    queryFn: () => api.proposals.history(query.page, query.pageSize, query.supplierId),
+    queryFn: () => (query.supplierId ? api.proposals.history(query.page, query.pageSize, query.supplierId) : api.proposals.history(query.page, query.pageSize)),
     // The page shown stays while the next one loads.
     placeholderData: keepPreviousData,
   });
@@ -129,8 +129,8 @@ export function useSaveProposalSettingsMutation() {
 }
 
 /** One page of suggestions waiting for the owner or for Shopify. `poll: false` turns off the re-read while one waits for Shopify. */
-export function useGetProposalOpenListQuery(query: OpenQuery, { poll = true }: { poll?: boolean } = {}) {
-  return useQuery(getProposalOpenListQuery(useApi(), useQueryClient(), query, poll));
+export function useGetProposalOpenListQuery(query: OpenQuery, { poll = true, enabled = true }: { poll?: boolean; enabled?: boolean } = {}) {
+  return useQuery({ ...getProposalOpenListQuery(useApi(), useQueryClient(), query, poll), enabled });
 }
 
 export function useGetProposalHistoryQuery(query: HistoryQuery, { enabled = true }: { enabled?: boolean } = {}) {
@@ -151,6 +151,12 @@ export function useApproveProposalMutation() {
 
 export function useRejectProposalMutation() {
   return useMutation(rejectProposalMutation(useApi(), useQueryClient()));
+}
+
+/** Shows in the cache a decision sent straight to the server, such as a reject sent while the page closes. */
+export function useProposalDecided() {
+  const client = useQueryClient();
+  return (next: Proposal) => decided(client, next);
 }
 
 export function useRefreshProposalMutation() {
