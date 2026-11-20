@@ -9,7 +9,7 @@
   "dependencies": {
     "@stock-monitor/supplier-session": "*",
     "patchright": "1.64.3",
-    "playwright": "1.65.0",
+    "playwright": "1.65.1",
     "tsx": "^4.23.15"
   }
 }
