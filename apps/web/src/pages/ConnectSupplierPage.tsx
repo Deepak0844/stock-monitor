@@ -13,6 +13,8 @@ import { Notice } from "../components/Notice.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { Link, navigate } from "../router.js";
 import { useTitle } from "../useTitle.js";
+import { useFetchSupplier } from "../store/api/suppliers/supplierApi.js";
+import { useCancelLoginMutation, useFinishLoginMutation, useStartLoginMutation } from "../store/api/loginSessions/loginSessionApi.js";
 
 type WindowProps = {
   loginSessionId: string;
@@ -77,6 +79,11 @@ export function ConnectSupplierPage({
 }) {
   useTitle("Connect supplier");
   const [supplier, setSupplier] = useState<Supplier | null>(null);
+  const fetchSupplier = useFetchSupplier();
+  // The same functions on every render, so the first render's effect may keep using them.
+  const { mutateAsync: startLogin } = useStartLoginMutation();
+  const { mutateAsync: finishLogin } = useFinishLoginMutation();
+  const { mutateAsync: cancelLogin } = useCancelLoginMutation();
   const [state, setState] = useState<State>({ kind: "starting" });
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -96,14 +103,14 @@ export function ConnectSupplierPage({
   const begin = useCallback(async () => {
     setState({ kind: "starting" });
     try {
-      const { loginSession, token } = await api.loginSessions.start(supplierId);
+      const { loginSession, token } = await startLogin(supplierId);
       if (!mounted.current) return api.loginSessions.cancelOnLeave(loginSession.id); // the page was left while it opened
       open.current = loginSession;
       setState({ kind: "window", loginSession, token, connected: false, saving: false });
     } catch (error) {
       if (mounted.current) setState({ kind: "error", message: messageOf(error), canRetry: true });
     }
-  }, [api, supplierId]);
+  }, [api, supplierId, startLogin]);
 
   useEffect(() => {
     mounted.current = true;
@@ -112,7 +119,7 @@ export function ConnectSupplierPage({
       started.current = true;
       void (async () => {
         try {
-          setSupplier(await api.suppliers.get(supplierId));
+          setSupplier(await fetchSupplier(supplierId));
         } catch (error) {
           setState({ kind: "error", message: messageOf(error), canRetry: false });
           return;
@@ -133,7 +140,8 @@ export function ConnectSupplierPage({
     if (s.kind !== "window" || !s.connected || s.saving) return;
     setState({ ...s, saving: true });
     try {
-      await api.loginSessions.finish(s.loginSession.id);
+      // The supplier is connected now: the hook has every page showing it read it again.
+      await finishLogin({ supplierId, id: s.loginSession.id });
       open.current = null;
       setState({ kind: "done" });
     } catch (error) {
@@ -147,7 +155,7 @@ export function ConnectSupplierPage({
     if (s.kind !== "window" || s.saving) return;
     const login = open.current;
     open.current = null;
-    if (login) await api.loginSessions.cancel(login.id).catch(() => {});
+    if (login) await cancelLogin(login.id).catch(() => {});
     navigate("/suppliers");
   }
 
@@ -155,7 +163,7 @@ export function ConnectSupplierPage({
     // A second login cannot start while one is open, so close the old one first.
     const login = open.current;
     open.current = null;
-    if (login) await api.loginSessions.cancel(login.id).catch(() => {});
+    if (login) await cancelLogin(login.id).catch(() => {});
     await begin();
   }
 

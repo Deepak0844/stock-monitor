@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { ApiError, type Capture } from "../api.js";
 import { aCapture, aMapping, aRecipeVersion, aSupplier, fakeApi } from "../test/fake-api.js";
+import { renderWithStore } from "../test/renderWithStore.js";
+import { supplierKeys } from "../store/api/suppliers/supplierApi.js";
 import { StockRulesPage } from "./StockRulesPage.js";
 
 beforeEach(() =>
@@ -34,8 +36,8 @@ const setup = (over: Parameters<typeof fakeApi>[0] = {}) => {
     suppliers: { get: vi.fn().mockResolvedValue(acme), ...over.suppliers },
     mappings: { list: vi.fn().mockResolvedValue([aMapping()]), ...over.mappings },
   });
-  render(<StockRulesPage api={api} supplierId={acme.id} />);
-  return { api, user: userEvent.setup() };
+  const { client } = renderWithStore(<StockRulesPage api={api} supplierId={acme.id} />);
+  return { api, client, user: userEvent.setup() };
 };
 
 describe("saved pages", () => {
@@ -839,5 +841,60 @@ describe("the steps across the top", () => {
     expect(items[1]).toHaveAttribute("data-state", "done");
     expect(items[2]).toHaveAttribute("data-state", "now");
     expect(items[2]).toHaveTextContent("No version is on yet");
+  });
+});
+
+describe("a failed read in the background", () => {
+  it("keeps the page when reading the supplier again fails", async () => {
+    const get = vi.fn().mockResolvedValueOnce(acme).mockRejectedValue(new ApiError("Can't reach the server.", 0));
+    const { client } = setup({ suppliers: { get } });
+    expect(await screen.findByText(/says plainly there are none yet|Stock rules/i, { selector: "h1" })).toBeInTheDocument();
+    await act(() => client.invalidateQueries({ queryKey: supplierKeys.detail(acme.id) }));
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText("Can't reach the server.")).toBeNull();
+    expect(screen.getByText(/Stock rules/i, { selector: "h1" })).toBeInTheDocument();
+  });
+});
+
+describe("a capture that takes a while", () => {
+  it("keeps reading the list while the capture is pending, even when nothing has changed yet", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    try {
+      const pending = aCapture({ id: "a", name: "Pending one", status: "pending", hasPicture: false });
+      const list = vi.fn().mockResolvedValue([pending]);
+      setup({ captures: { list } });
+      await screen.findAllByText("Capturing…");
+      for (let i = 0; i < 3; i++) await act(async () => void (await vi.advanceTimersByTimeAsync(3_100)));
+      expect(list.mock.calls.length).toBeGreaterThanOrEqual(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says so when reading the list again fails", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    try {
+      const pending = aCapture({ id: "a", name: "Pending one", status: "pending", hasPicture: false });
+      const list = vi.fn().mockResolvedValueOnce([pending]).mockRejectedValue(new ApiError("Can't reach the server.", 0));
+      setup({ captures: { list } });
+      await screen.findAllByText("Capturing…");
+      await act(async () => void (await vi.advanceTimersByTimeAsync(3_100)));
+      expect(await screen.findByText("Can't reach the server.")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reads the list once after asking for a capture", async () => {
+    const list = vi.fn().mockResolvedValue([]);
+    const { api, user } = setup({ captures: { list } });
+    await screen.findByRole("option", { name: /Blue Tee/ });
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+    await user.selectOptions(screen.getByLabelText("Link to capture"), aMapping().id);
+    await user.click(screen.getByRole("button", { name: "Capture" }));
+    expect(await screen.findByText(/Capturing the page/)).toBeInTheDocument();
+    expect(api.captures.request).toHaveBeenCalled();
+    await act(async () => void (await new Promise((r) => setTimeout(r, 50))));
+    expect(list).toHaveBeenCalledTimes(2);
   });
 });

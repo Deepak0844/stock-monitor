@@ -21,6 +21,12 @@ import { Field } from "./Field.js";
 import { Notice } from "./Notice.js";
 import { ANSWER_WORDS, builtInWords, captureFailureWords, offerLine } from "./stockWords.js";
 import { formatWhen } from "../format.js";
+import {
+  useFetchCapture,
+  useLabelCaptureMutation,
+  useRemoveCaptureMutation,
+  useRequestCaptureMutation,
+} from "../store/api/captures/captureApi.js";
 
 const message = (e: unknown) =>
   e instanceof Error ? e.message : "Something went wrong. Please try again.";
@@ -33,7 +39,6 @@ type Props = {
   /** Results of the last "Test all examples", by saved page. */
   results: ExampleResult[];
   /** Reads the list of saved pages again. */
-  reload: () => Promise<unknown>;
   /** Called when a label changes or a page goes, so an old test result is not trusted. */
   onChanged: () => void;
   /** Called when a capture was asked for, so the list is followed until it is ready. */
@@ -63,11 +68,14 @@ export function SavedPages({
   links,
   captures,
   results,
-  reload,
   onChanged,
   onCaptureRequested,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const fetchCapture = useFetchCapture();
+  const requestCapture = useRequestCaptureMutation();
+  const labelCapture = useLabelCaptureMutation();
+  const removeCapture = useRemoveCaptureMutation();
   const [phoneView, setPhoneView] = useState<"list" | "page">("list");
   const [mappingId, setMappingId] = useState("");
   const [capturing, setCapturing] = useState(false);
@@ -100,8 +108,7 @@ export function SavedPages({
     setSearch("");
     if (!selected || selected.status !== "ready") return;
     let current = true;
-    api.captures
-      .get(selected.id)
+    fetchCapture(selected.id)
       .then((d) => {
         if (!current) return;
         setLoaded(d);
@@ -113,17 +120,16 @@ export function SavedPages({
       current = false;
     };
     // Read again when the page becomes ready or its label is saved, not on every poll of the list.
-  }, [api, selected?.id, selected?.status]);
+  }, [fetchCapture, selected?.id, selected?.status]);
 
   async function capture() {
     setCaptureError(null);
     if (!mappingId) return setCaptureError("Choose the link whose page you want to capture.");
     setCapturing(true);
     try {
-      await api.captures.request(supplierId, { mappingId });
+      await requestCapture.mutateAsync({ supplierId, mappingId });
       onCaptureRequested();
       toast("Capturing the page. It will appear in the list in a moment.");
-      await reload();
     } catch (e) {
       setCaptureError(message(e));
     } finally {
@@ -136,9 +142,10 @@ export function SavedPages({
     setSaving(true);
     setLabelError(null);
     try {
-      await api.captures.label(detail.id, {
-        name: name.trim(),
-        expected: expected === "" ? null : expected,
+      await labelCapture.mutateAsync({
+        supplierId,
+        id: detail.id,
+        patch: { name: name.trim(), expected: expected === "" ? null : expected },
       });
       toast("Label saved.");
       setLoaded({
@@ -147,7 +154,6 @@ export function SavedPages({
         expectedAnswer: expected === "" ? null : expected,
       });
       onChanged();
-      await reload();
     } catch (e) {
       setLabelError(message(e));
     } finally {
@@ -157,11 +163,10 @@ export function SavedPages({
 
   async function remove() {
     if (!selected) return;
-    await api.captures.remove(selected.id);
+    await removeCapture.mutateAsync({ supplierId, id: selected.id });
     toast("Deleted the saved page.");
     onChanged();
     setPhoneView("list");
-    await reload();
   }
 
   const lines = useMemo(() => {

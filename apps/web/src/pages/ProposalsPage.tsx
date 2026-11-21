@@ -1,10 +1,20 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MAX_QUANTITY } from "@stock-monitor/proposals";
 import { Badge } from "@/components/ui/badge.js";
 import { Button } from "@/components/ui/button.js";
 import { Input, Select } from "@/components/ui/input.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
 import type { Api, Proposal, Supplier, WritePermission } from "../api.js";
+import {
+  useApproveProposalMutation,
+  useGetProposalHistoryQuery,
+  useGetProposalOpenListQuery,
+  useGetProposalWaitingBySupplierQuery,
+  useProposalDecided,
+  useRefreshProposalMutation,
+  useRejectProposalMutation,
+} from "../store/api/proposals/proposalApi.js";
+import { useGetSupplierListQuery } from "../store/api/suppliers/supplierApi.js";
 import { DataTable, type Column } from "../components/DataTable.js";
 import { ConfirmDialog } from "../components/ConfirmDialog.js";
 import { SearchSelect } from "../components/SearchSelect.js";
@@ -29,10 +39,10 @@ import { useListParams, type ListParams } from "../lib/useListParams.js";
 import { useTitle } from "../useTitle.js";
 import { toast } from "../lib/toast.js";
 
-const POLL_MS = 5000;
 const message = (e: unknown) =>
   e instanceof Error ? e.message : "Something went wrong. Please try again.";
 const NOT_A_NUMBER = "Enter a whole number from 0 up.";
+const NO_SUPPLIERS: Supplier[] = [];
 const name = (p: Proposal) => `${p.productTitle}, ${p.variantTitle}`;
 
 type Open =
@@ -42,10 +52,8 @@ type Open =
 
 /** One suggestion waiting for the owner. Approve is one press on this one suggestion. */
 type ItemProps = {
-  api: Api;
   proposal: Proposal;
   permission: WritePermission;
-  onChanged: (p: Proposal) => void;
   /** Reject goes through the page, which hides the row and offers Undo. */
   onReject: (p: Proposal) => void;
   selected: boolean;
@@ -55,10 +63,8 @@ type ItemProps = {
 };
 
 function OpenItem({
-  api,
   proposal,
   permission,
-  onChanged,
   onReject,
   selected,
   onSelect,
@@ -68,6 +74,7 @@ function OpenItem({
   const [text, setText] = useState(String(proposal.proposedQuantity));
   const [error, setError] = useState<string | null>(null);
   const [acting, setActing] = useState<"approve" | "reject" | null>(null);
+  const approveProposal = useApproveProposalMutation();
   const busy = acting !== null;
   const waiting = proposal.state === "approved";
   const refusal = permission.state !== "ready" || proposal.blockedReason;
@@ -83,7 +90,7 @@ function OpenItem({
     }
     setActing("approve");
     try {
-      onChanged(await api.proposals.approve(proposal.id, quantity));
+      await approveProposal.mutateAsync({ id: proposal.id, quantity });
     } catch (e) {
       setError(message(e));
       setActing(null);
@@ -214,45 +221,23 @@ function OpenItem({
 const REFRESHABLE = new Set(["conflict", "failed", "expired"]);
 
 function History({
-  api,
   params,
   supplierId,
   supplierName,
 }: {
-  api: Api;
   params: ListParams;
   supplierId: string;
   supplierName: string | undefined;
 }) {
   const { page, pageSize, set } = params;
-  const [data, setData] = useState<{ items: Proposal[]; total: number } | null>(null);
-  const [loading, setLoading] = useState(true);
+  const history = useGetProposalHistoryQuery(supplierId ? { page, pageSize, supplierId } : { page, pageSize });
+  const data = history.data ? { items: history.data.proposals, total: history.data.total } : null;
+  // Loading while the first read or a new page is on its way; the page shown stays until the next one arrives.
+  const loading = history.isPlaceholderData || (history.isFetching && !history.data);
+  const error = history.isError && !history.isFetching && !history.data ? message(history.error) : null;
+  const refreshProposal = useRefreshProposalMutation();
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState<ReadonlySet<string>>(new Set());
-  const [error, setError] = useState<string | null>(null);
-
-  const latest = useRef(0);
-
-  const load = useCallback(() => {
-    const mine = ++latest.current;
-    setLoading(true);
-    setError(null);
-    (supplierId
-      ? api.proposals.history(page, pageSize, supplierId)
-      : api.proposals.history(page, pageSize)
-    )
-      .then((r) => {
-        if (mine !== latest.current) return; // a newer page was asked for since
-        setData({ items: r.proposals, total: r.total });
-        setLoading(false);
-      })
-      .catch((e: unknown) => {
-        if (mine !== latest.current) return;
-        setError(message(e));
-        setLoading(false);
-      });
-  }, [api, page, pageSize, supplierId]);
-  useEffect(load, [load]);
 
   const busy = useRef<Set<string>>(new Set());
   async function refresh(p: Proposal) {
@@ -261,7 +246,7 @@ function History({
     setRefreshing(new Set(busy.current));
     setRefreshError(null);
     try {
-      await api.proposals.refresh(p.id);
+      await refreshProposal.mutateAsync({ id: p.id });
       toast(
         "Reading Shopify again. If a suggestion still applies, it will appear under Waiting in a moment.",
       );
@@ -337,7 +322,7 @@ function History({
           rowKey={(p) => p.id}
           loading={loading}
           error={error}
-          onRetry={load}
+          onRetry={() => void history.refetch()}
           pageSize={pageSize}
           empty={
             <EmptyState
@@ -364,36 +349,31 @@ function History({
 }
 
 /** Suggested changes to Shopify stock, one at a time, and what became of the past ones. */
-export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => void }) {
+export function ProposalsPage({ api }: { api: Api }) {
   useTitle("Proposals");
   const params = useListParams({ pageSize: 10 });
   const { page, pageSize, sort, dir, set } = params;
   const tab = params.filters.tab === "history" ? "history" : "open";
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [suppliersRead, setSuppliersRead] = useState(false);
-  const [waitingCounts, setWaitingCounts] = useState<Record<string, number>>({});
-  useEffect(() => {
-    api.suppliers
-      .list()
-      .then((list) => {
-        setSuppliers(list);
-        setSuppliersRead(true);
-      })
-      .catch(() => {});
-  }, [api]);
+  const supplierList = useGetSupplierListQuery();
+  const suppliers = supplierList.data ?? NO_SUPPLIERS;
+  const suppliersRead = supplierList.isSuccess;
   // A supplier in the address that is not in the list (deleted, or mistyped) shows everything.
   const wanted = params.filters.supplier ?? "";
   const supplierId = suppliersRead && !suppliers.some((s) => s.id === wanted) ? "" : wanted;
-  const readCounts = useCallback(
-    () =>
-      void api.proposals
-        .waitingBySupplier()
-        .then(setWaitingCounts)
-        .catch(() => {}),
-    [api],
-  );
+  const waitingCounts = useGetProposalWaitingBySupplierQuery().data ?? {};
   const supplierName = suppliers.find((s) => s.id === supplierId)?.name;
-  const [open, setOpen] = useState<Open>({ kind: "loading" });
+  const openList = useGetProposalOpenListQuery(
+    { page, pageSize, ...(supplierId ? { supplierId } : {}), ...(sort ? { sort, dir } : {}) },
+    { enabled: tab === "open" },
+  );
+  const open: Open = openList.data
+    ? { kind: "ready", proposals: openList.data.items, total: openList.data.total, permission: openList.data.writePermission }
+    : openList.isError && !openList.isFetching
+      ? { kind: "error", message: message(openList.error) }
+      : { kind: "loading" };
+  const approveProposal = useApproveProposalMutation();
+  const rejectProposal = useRejectProposalMutation();
+  const proposalDecided = useProposalDecided();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // Rejected with Undo still waiting: hidden at once, back on Undo or if the reject fails.
   const [hidden, setHidden] = useState<Set<string>>(new Set());
@@ -401,74 +381,17 @@ export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => vo
   const [bulk, setBulk] = useState<{ done: number; total: number } | null>(null);
   const [confirmApprove, setConfirmApprove] = useState(false);
   const [finished, setFinished] = useState(false);
+  // The list is read again by itself while something waits for Shopify, and kept up to date by approve and reject.
+  const read = () => void openList.refetch();
+
+  // One that was waiting for Shopify and has gone has finished: its result is in History.
   const waitingIds = useRef<Set<string>>(new Set());
-  const latest = useRef(0);
-
-  const read = useCallback(
-    (quiet = false) => {
-      const mine = ++latest.current;
-      if (!quiet) setOpen({ kind: "loading" });
-      api.proposals
-        .openPage({
-          page,
-          pageSize,
-          ...(supplierId ? { supplierId } : {}),
-          ...(sort ? { sort, dir } : {}),
-        })
-        .then((r) => {
-          if (mine !== latest.current) return; // a newer read was asked for since
-          // One that was waiting for Shopify and has gone has finished: its result is in History.
-          if ([...waitingIds.current].some((id) => !r.items.some((p) => p.id === id)))
-            setFinished(true);
-          waitingIds.current = new Set(
-            r.items.filter((p) => p.state === "approved").map((p) => p.id),
-          );
-          setOpen({
-            kind: "ready",
-            proposals: r.items,
-            total: r.total,
-            permission: r.writePermission,
-          });
-          onChange?.();
-        })
-        .catch((e: unknown) => {
-          if (mine === latest.current && !quiet) setOpen({ kind: "error", message: message(e) });
-        });
-      readCounts();
-    },
-    [api, onChange, page, pageSize, supplierId, sort, dir, readCounts],
-  );
+  const openData = openList.data;
   useEffect(() => {
-    if (tab === "open") read();
-  }, [read, tab]);
-
-  // While something waits for Shopify, look again every few seconds.
-  const waiting =
-    tab === "open" && open.kind === "ready" && open.proposals.some((p) => p.state === "approved");
-  useEffect(() => {
-    if (!waiting) return;
-    const timer = setTimeout(() => read(true), POLL_MS);
-    return () => clearTimeout(timer);
-  }, [waiting, open, read]);
-
-  function changed(next: Proposal) {
-    let reload = false;
-    setOpen((current) => {
-      if (current.kind !== "ready") return current;
-      if (next.state === "approved") waitingIds.current.add(next.id);
-      const stays = next.state === "open" || next.state === "approved";
-      const proposals = stays
-        ? current.proposals.map((p) => (p.id === next.id ? next : p))
-        : current.proposals.filter((p) => p.id !== next.id);
-      const total = stays ? current.total : current.total - 1;
-      // The last one on this page was decided: read the page again, in case more are waiting on the next.
-      reload = !stays && proposals.length === 0 && total > 0;
-      return { ...current, proposals, total };
-    });
-    onChange?.();
-    readCounts();
-    if (reload) queueMicrotask(() => read(true));
-  }
+    if (!openData) return;
+    if ([...waitingIds.current].some((id) => !openData.items.some((p) => p.id === id))) setFinished(true);
+    waitingIds.current = new Set(openData.items.filter((p) => p.state === "approved").map((p) => p.id));
+  }, [openData]);
 
   const items = open.kind === "ready" ? open.proposals.filter((p) => !hidden.has(p.id)) : [];
   const selectable = items.filter((p) => p.state === "open");
@@ -493,7 +416,7 @@ export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => vo
     const list = ticked;
     const failed = await inTurn(
       list,
-      async (p) => changed(await api.proposals.approve(p.id, quantityOf(p))),
+      async (p) => void (await approveProposal.mutateAsync({ id: p.id, quantity: quantityOf(p) })),
       (done, total) => setBulk({ done, total }),
     );
     setBulk(null);
@@ -510,7 +433,11 @@ export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => vo
       text:
         list.length === 1 ? `Rejected ${name(list[0]!)}.` : `${list.length} proposals rejected.`,
       commit: async (keepalive) => {
-        const one = async (p: Proposal) => changed(await api.proposals.reject(p.id, { keepalive }));
+        const one = async (p: Proposal) => {
+          if (!keepalive) return void (await rejectProposal.mutateAsync({ id: p.id, keepalive }));
+          // While the page closes the request must leave at once, so it goes straight to the server.
+          proposalDecided(await api.proposals.reject(p.id, { keepalive }));
+        };
         // While the page closes there is no time to wait for each answer: send them all at once, each kept alive by the browser.
         const failed = keepalive
           ? (await Promise.allSettled(list.map(one))).flatMap((r, i) =>
@@ -525,7 +452,7 @@ export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => vo
             )
           : await inTurn(list, one, () => {});
         show(ids);
-        read(true); // what is left on this page, or the next page's suggestions when this one is now empty
+        read(); // what is left on this page, or the next page's suggestions when this one is now empty
         if (failed.length)
           throw new Error(failed.map((f) => `${f.item.productTitle}: ${f.message}`).join(" "));
       },
@@ -583,7 +510,7 @@ export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => vo
       </div>
 
       {tab === "history" && (
-        <History api={api} params={params} supplierId={supplierId} supplierName={supplierName} />
+        <History params={params} supplierId={supplierId} supplierName={supplierName} />
       )}
 
       {tab === "open" && (
@@ -695,10 +622,8 @@ export function ProposalsPage({ api, onChange }: { api: Api; onChange?: () => vo
                 {items.map((p) => (
                   <OpenItem
                     key={p.id}
-                    api={api}
                     proposal={p}
                     permission={open.permission}
-                    onChanged={changed}
                     onReject={(x) => rejectMany([x])}
                     selected={selected.has(p.id)}
                     onSelect={(on) => select(p.id, on)}

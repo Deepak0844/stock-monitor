@@ -2,13 +2,21 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { Button } from "@/components/ui/button.js";
 import { Input } from "@/components/ui/input.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
-import { ApiError, type Api, type Mapping, type Supplier, type UnmappedVariant } from "../api.js";
+import { ApiError, type Mapping, type Supplier, type UnmappedVariant } from "../api.js";
 import { Field, ReadOnlyField } from "../components/Field.js";
 import { Notice } from "../components/Notice.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { SearchSelect } from "../components/SearchSelect.js";
 import { Link, navigate } from "../router.js";
 import { useTitle } from "../useTitle.js";
+import { useGetSupplierListQuery } from "../store/api/suppliers/supplierApi.js";
+import {
+  useCreateMappingMutation,
+  useFetchUnmapped,
+  useGetMappingQuery,
+  useGetUnmappedQuery,
+  useUpdateMappingMutation,
+} from "../store/api/mappings/mappingApi.js";
 
 type Field = "variant" | "supplier" | "url" | "note" | "region" | "supplierOption";
 type Errors = Partial<Record<Field, string>>;
@@ -25,20 +33,22 @@ const FIELD_OF_CODE: Record<string, Field> = {
   invalid_region: "region",
   invalid_supplier_option: "supplierOption",
 };
+const NO_SUPPLIERS: Supplier[] = [];
 const message = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong. Please try again.");
 
-export function MappingFormPage({ api, id }: { api: Api; id?: string }) {
+export function MappingFormPage({ id }: { id?: string }) {
   const editing = id !== undefined;
   useTitle(editing ? "Edit link" : "Add link");
-  const [load, setLoad] = useState<Load>(editing ? { kind: "loading" } : { kind: "ready", mapping: null });
-
-  useEffect(() => {
-    if (id === undefined) return;
-    api.mappings
-      .get(id)
-      .then((mapping) => setLoad({ kind: "ready", mapping }))
-      .catch((e: unknown) => setLoad({ kind: "error", message: message(e) }));
-  }, [api, id]);
+  // The form starts from a fresh read, never from an older copy in the cache; if that read fails, the copy is used.
+  const mappingQuery = useGetMappingQuery(id ?? "", { enabled: editing, fresh: true });
+  const settled = mappingQuery.isFetchedAfterMount || (mappingQuery.isError && !mappingQuery.isFetching);
+  const load: Load = !editing
+    ? { kind: "ready", mapping: null }
+    : mappingQuery.data && settled
+      ? { kind: "ready", mapping: mappingQuery.data }
+      : mappingQuery.isError
+        ? { kind: "error", message: message(mappingQuery.error) }
+        : { kind: "loading" };
 
   return (
     <>
@@ -74,7 +84,7 @@ export function MappingFormPage({ api, id }: { api: Api; id?: string }) {
               This link is set from Shopify, from the supplier name and page address on the product. If you change it here, the next Sync puts Shopify's supplier and page address back. Change them in Shopify instead.
             </Notice>
           )}
-          <MappingForm api={api} mapping={load.mapping} />
+          <MappingForm mapping={load.mapping} />
         </section>
       )}
     </>
@@ -89,7 +99,7 @@ const hostOf = (url: string) => {
   }
 };
 
-function MappingForm({ api, mapping }: { api: Api; mapping: Mapping | null }) {
+function MappingForm({ mapping }: { mapping: Mapping | null }) {
   const preselected = new URLSearchParams(window.location.search).get("variant") ?? "";
   const [variantId, setVariantId] = useState(preselected);
   const [supplierId, setSupplierId] = useState("");
@@ -98,10 +108,13 @@ function MappingForm({ api, mapping }: { api: Api; mapping: Mapping | null }) {
   const [region, setRegion] = useState(mapping?.region ?? "");
   const [supplierOption, setSupplierOption] = useState(mapping?.supplierOption ?? "");
   const [variants, setVariants] = useState<UnmappedVariant[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const supplierList = useGetSupplierListQuery();
+  const suppliers = supplierList.data ?? NO_SUPPLIERS;
   const [errors, setErrors] = useState<Errors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const createMapping = useCreateMappingMutation();
+  const updateMapping = useUpdateMappingMutation();
   // The two pickers are dropdowns with search; they are found by their field id to be focused on an error.
   const byId = (id: string) => ({ get current() { return document.getElementById(id); } });
   const refs: Record<Field, { current: HTMLElement | null }> = {
@@ -114,24 +127,25 @@ function MappingForm({ api, mapping }: { api: Api; mapping: Mapping | null }) {
   };
 
   useEffect(() => {
-    api.suppliers.list().then(setSuppliers).catch((e: unknown) => setFormError(message(e)));
-  }, [api]);
+    if (supplierList.error && !supplierList.data) setFormError(message(supplierList.error));
+  }, [supplierList.error, supplierList.data]);
   // The first variants with no link, so a variant chosen from the Map button shows by name.
+  const firstUnmapped = useGetUnmappedQuery(undefined, { enabled: !mapping });
   useEffect(() => {
-    if (mapping) return;
-    api.mappings
-      .unmapped()
-      .then((r) => setVariants(r.items))
-      .catch((e: unknown) => setFormError(message(e)));
-  }, [api, mapping]);
+    if (firstUnmapped.data) setVariants((known) => [...firstUnmapped.data.items, ...known.filter((k) => !firstUnmapped.data.items.some((v) => v.variantId === k.variantId))]);
+  }, [firstUnmapped.data]);
+  useEffect(() => {
+    if (firstUnmapped.error && !firstUnmapped.data) setFormError(message(firstUnmapped.error));
+  }, [firstUnmapped.error, firstUnmapped.data]);
+  const fetchUnmapped = useFetchUnmapped();
   const variantOption = (v: UnmappedVariant) => ({ id: v.variantId, label: `${v.productTitle} · ${v.variantTitle}`, detail: v.sku ?? undefined });
   const searchVariants = useCallback(
     (q: string) =>
-      api.mappings.unmapped(q || undefined).then((r) => {
+      fetchUnmapped(q || undefined).then((r) => {
         setVariants((known) => [...known, ...r.items.filter((v) => !known.some((k) => k.variantId === v.variantId))]);
         return r.items.map(variantOption);
       }),
-    [api],
+    [fetchUnmapped],
   );
   const chosenVariant = variants.find((v) => v.variantId === variantId);
 
@@ -160,9 +174,9 @@ function MappingForm({ api, mapping }: { api: Api; mapping: Mapping | null }) {
         if ((note.trim() || null) !== mapping.note) patch.note = note.trim() || null;
         if ((region.trim() || null) !== mapping.region) patch.region = region.trim() || null;
         if ((supplierOption.trim() || null) !== mapping.supplierOption) patch.supplierOption = supplierOption.trim() || null;
-        if (Object.keys(patch).length > 0) await api.mappings.update(mapping.id, patch);
+        if (Object.keys(patch).length > 0) await updateMapping.mutateAsync({ id: mapping.id, patch });
       } else {
-        await api.mappings.create({ variantId, supplierId, url: trimmed, note: note.trim() || null, ...(region.trim() ? { region: region.trim() } : {}), ...(supplierOption.trim() ? { supplierOption: supplierOption.trim() } : {}) });
+        await createMapping.mutateAsync({ variantId, supplierId, url: trimmed, note: note.trim() || null, ...(region.trim() ? { region: region.trim() } : {}), ...(supplierOption.trim() ? { supplierOption: supplierOption.trim() } : {}) });
       }
       navigate("/mappings");
     } catch (error) {

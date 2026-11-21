@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
-import { api as realApi, type Api, type ScheduleRow } from "./api.js";
+import { api as realApi, type Api } from "./api.js";
 import { DashboardPage } from "./pages/DashboardPage.js";
 import { NotFoundPage } from "./pages/NotFoundPage.js";
 import { ProposalsPage } from "./pages/ProposalsPage.js";
@@ -21,6 +21,13 @@ import { SuggestionsPage } from "./pages/settings/SuggestionsPage.js";
 import { LoginPage } from "./pages/LoginPage.js";
 import { AppShell } from "./shell/AppShell.js";
 import { TooltipProvider } from "@/components/ui/tooltip.js";
+import { useQueryClient } from "@tanstack/react-query";
+import { createQueryClient } from "./store/api/api.js";
+import { proposalKeys, useGetProposalCountQuery } from "./store/api/proposals/proposalApi.js";
+import { notificationKeys } from "./store/api/notifications/notificationApi.js";
+import { useGetScheduleOverviewQuery } from "./store/api/schedule/scheduleApi.js";
+import { useCheckSessionAgain, useGetMeQuery, useLoginMutation, useLogoutMutation } from "./store/api/auth/authApi.js";
+import { StoreProvider } from "./store/StoreProvider.js";
 import { setWaiting } from "./tabTitle.js";
 import { useNotifications } from "./shell/useNotifications.js";
 import { redirect, usePath } from "./router.js";
@@ -38,25 +45,47 @@ const messageOf = (e: unknown) =>
   e instanceof Error ? e.message : "Something went wrong. Please try again.";
 
 export function App({ api = realApi }: { api?: Api }) {
-  const [state, setState] = useState<State>({ kind: "loading" });
+  // One cache for the life of the page.
+  const [queryClient] = useState(createQueryClient);
+  return (
+    <StoreProvider api={api} client={queryClient}>
+      <AppRoutes api={api} />
+    </StoreProvider>
+  );
+}
+
+function AppRoutes({ api }: { api: Api }) {
+  // Who is signed in, from the cache. A sign-out that failed shows its own error until Try again.
+  const me = useGetMeQuery();
+  const [failure, setFailure] = useState<string | null>(null);
+  const state: State = failure
+    ? { kind: "error", message: failure }
+    : me.data
+      ? { kind: "signedIn", email: me.data.email }
+      : me.data === null
+        ? { kind: "signedOut" }
+        : me.isError && !me.isFetching
+          ? { kind: "error", message: messageOf(me.error) }
+          : { kind: "loading" };
+  const login = useLoginMutation();
+  const logout = useLogoutMutation({ onSignedOut: () => redirect("/login") });
+  const checkSessionAgain = useCheckSessionAgain();
+  const queryClient = useQueryClient();
   const path = usePath();
   const editId = /^\/suppliers\/([^/]+)\/edit$/.exec(path)?.[1];
   const mappingEditId = /^\/mappings\/([^/]+)\/edit$/.exec(path)?.[1];
   const rulesId = /^\/suppliers\/([^/]+)\/rules$/.exec(path)?.[1];
   const connectId = /^\/suppliers\/([^/]+)\/connect$/.exec(path)?.[1];
 
-  const [proposalCount, setProposalCount] = useState(0);
   const signedIn = state.kind === "signedIn";
-  const notifications = useNotifications(api, signedIn);
-  const reloadNotifications = notifications.reload;
-  // How many suggestions are waiting, for the menu. Read again whenever the owner moves to another page.
+  const proposalCount = useGetProposalCountQuery({ enabled: signedIn }).data ?? 0;
+  const notifications = useNotifications(signedIn);
+  // The waiting count for the menu and the notifications for the bell: read again when the owner moves to another page, but
+  // only if the last read is over 30 s old. A read the new page has already started is joined, not started again.
   const refreshCount = useCallback(() => {
-    api.proposals
-      .count()
-      .then(setProposalCount)
-      .catch(() => {});
-    reloadNotifications();
-  }, [api, reloadNotifications]);
+    void queryClient.refetchQueries({ queryKey: proposalKeys.counts(), stale: true }, { cancelRefetch: false });
+    void queryClient.refetchQueries({ queryKey: notificationKeys.list(), stale: true }, { cancelRefetch: false });
+  }, [queryClient]);
   useEffect(() => {
     if (signedIn) refreshCount();
   }, [signedIn, path, refreshCount]);
@@ -68,31 +97,13 @@ export function App({ api = realApi }: { api?: Api }) {
     [signedIn, proposalCount, attention],
   );
 
-  // The schedule, for the check status in the sidebar. Read when signed in and every minute after.
-  const [schedule, setSchedule] = useState<ScheduleRow[] | null>(null);
-  useEffect(() => {
-    if (!signedIn) return;
-    const load = () =>
-      void api.schedule
-        .overview()
-        .then(setSchedule)
-        .catch(() => {});
-    load();
-    const timer = window.setInterval(() => !document.hidden && load(), SCHEDULE_POLL_MS);
-    return () => window.clearInterval(timer);
-  }, [api, signedIn]);
+  // The schedule, for the check status in the sidebar. Read when signed in and every minute after, while the tab is shown.
+  const schedule = useGetScheduleOverviewQuery({ enabled: signedIn, refetchEvery: SCHEDULE_POLL_MS }).data ?? null;
 
-  const checkSession = useCallback(() => {
-    setState({ kind: "loading" });
-    api
-      .getMe()
-      .then((owner) =>
-        setState(owner ? { kind: "signedIn", email: owner.email } : { kind: "signedOut" }),
-      )
-      .catch((e: unknown) => setState({ kind: "error", message: messageOf(e) }));
-  }, [api]);
-
-  useEffect(checkSession, [checkSession]);
+  const checkSession = () => {
+    setFailure(null);
+    void checkSessionAgain();
+  };
 
   // Signed out, every address shows the sign-in page at /login, remembering where the owner was going. Signed in, /login moves
   // on to that page, or to the Dashboard.
@@ -136,21 +147,15 @@ export function App({ api = realApi }: { api?: Api }) {
     return (
       <LoginPage
         onLogin={async (email, password) => {
-          const owner = await api.login(email, password);
-          setState({ kind: "signedIn", email: owner.email });
+          await login.mutateAsync({ email, password });
         }}
       />
     );
   }
 
+  // Signing out empties the cache, so nothing from this session is shown afterwards.
   const signOut = () =>
-    api
-      .logout()
-      .then(() => {
-        redirect("/login");
-        setState({ kind: "signedOut" });
-      })
-      .catch((e: unknown) => setState({ kind: "error", message: messageOf(e) }));
+    logout.mutateAsync().catch((e: unknown) => setFailure(messageOf(e)));
 
   return (
     <TooltipProvider delayDuration={400}>
@@ -163,11 +168,11 @@ export function App({ api = realApi }: { api?: Api }) {
         onSignOut={signOut}
       >
         {path === "/" ? (
-          <DashboardPage api={api} />
+          <DashboardPage />
         ) : path === "/products" ? (
-          <ProductsPage api={api} />
+          <ProductsPage />
         ) : path === "/proposals" ? (
-          <ProposalsPage api={api} onChange={refreshCount} />
+          <ProposalsPage api={api} />
         ) : path === "/suppliers" ? (
           <SuppliersPage api={api} />
         ) : path === "/suppliers/new" ? (
@@ -175,11 +180,11 @@ export function App({ api = realApi }: { api?: Api }) {
         ) : path === "/mappings" ? (
           <MappingsPage api={api} />
         ) : path === "/mappings/new" ? (
-          <MappingFormPage api={api} />
+          <MappingFormPage />
         ) : path === "/mappings/import" ? (
           <ImportMappingsPage api={api} />
         ) : mappingEditId ? (
-          <MappingFormPage key={mappingEditId} api={api} id={mappingEditId} />
+          <MappingFormPage key={mappingEditId} id={mappingEditId} />
         ) : rulesId ? (
           <StockRulesPage key={rulesId} api={api} supplierId={rulesId} />
         ) : connectId ? (
@@ -192,7 +197,7 @@ export function App({ api = realApi }: { api?: Api }) {
           </SettingsLayout>
         ) : path === "/settings/suggestions" ? (
           <SettingsLayout current="suggestions">
-            <SuggestionsPage api={api} />
+            <SuggestionsPage />
           </SettingsLayout>
         ) : path === "/settings/appearance" ? (
           <SettingsLayout current="appearance">

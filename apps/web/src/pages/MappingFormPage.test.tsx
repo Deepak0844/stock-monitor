@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { ApiError } from "../api.js";
 import { aMapping, aSupplier, fakeApi } from "../test/fake-api.js";
+import { renderWithStore } from "../test/renderWithStore.js";
+import { mappingKeys } from "../store/api/mappings/mappingApi.js";
 import { MappingFormPage } from "./MappingFormPage.js";
 
 beforeEach(() => window.history.replaceState(null, "", "/mappings/new"));
@@ -28,7 +30,7 @@ const setup = (over: Parameters<typeof fakeApi>[0] = {}, props: { id?: string } 
     suppliers: { list: vi.fn().mockResolvedValue([aSupplier(), globex]), ...over.suppliers },
     mappings: { unmapped: vi.fn().mockResolvedValue({ total: 2, unmapped: 2, items }), ...over.mappings },
   });
-  render(<MappingFormPage api={api} {...props} />);
+  renderWithStore(<MappingFormPage {...props} />, { api });
   return { api, user: userEvent.setup() };
 };
 
@@ -49,7 +51,7 @@ describe("saving", () => {
 
   it("shows a shimmer while a link to edit is loading", () => {
     const api = fakeApi({ mappings: { get: vi.fn().mockReturnValue(new Promise(() => {})) } });
-    render(<MappingFormPage api={api} id="abc" />);
+    renderWithStore(<MappingFormPage id="abc" />, { api });
     expect(screen.getByRole("status")).toHaveTextContent("Loading…");
   });
 });
@@ -213,5 +215,18 @@ describe("supplier option", () => {
     await user.click(screen.getByRole("button", { name: "Add link" }));
     await waitFor(() => expect(screen.getByLabelText("Option on the supplier's page (optional)")).toHaveFocus());
     expect(screen.getByLabelText("Option on the supplier's page (optional)")).toHaveAccessibleDescription(/up to 200 characters/);
+  });
+});
+
+describe("editing a link already in the cache", () => {
+  it("waits for a fresh read before filling the form, so it never starts from an old copy", async () => {
+    const api = fakeApi({
+      suppliers: { list: vi.fn().mockResolvedValue([aSupplier()]) },
+      mappings: { get: vi.fn().mockResolvedValue(aMapping({ id: "abc", url: "https://shop.example/new" })) },
+    });
+    const { client } = renderWithStore(<MappingFormPage id="abc" />, { api, seed: (c) => c.setQueryData(mappingKeys.detail("abc"), aMapping({ id: "abc", url: "https://shop.example/old" })) });
+    expect(await screen.findByDisplayValue("https://shop.example/new")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("https://shop.example/old")).toBeNull();
+    expect(client).toBeDefined();
   });
 });

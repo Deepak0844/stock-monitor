@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { StrictMode } from "react";
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api.js";
 import { aLoginSession, aSupplier, fakeApi } from "../test/fake-api.js";
+import { renderWithStore } from "../test/renderWithStore.js";
+import { supplierKeys } from "../store/api/suppliers/supplierApi.js";
 import { ConnectSupplierPage } from "./ConnectSupplierPage.js";
 
 const TOKEN = "e".repeat(64);
@@ -45,7 +47,7 @@ function setup(over: Parameters<typeof fakeApi>[0] = {}, opts: { strict?: boolea
     },
   });
   const ui = <ConnectSupplierPage api={api} supplierId={supplier.id} liveWindow={StubWindow} />;
-  const view = render(opts.strict ? <StrictMode>{ui}</StrictMode> : ui);
+  const view = renderWithStore(opts.strict ? <StrictMode>{ui}</StrictMode> : ui);
   return { api, user: userEvent.setup(), ...view };
 }
 const connect = async () => {
@@ -153,11 +155,14 @@ describe("finishing", () => {
   });
 
   it("saves the login, then says the supplier is connected, with a way back", async () => {
-    const { api, user } = setup();
+    const { api, user, client } = setup();
+    client.setQueryData(supplierKeys.list(), [aSupplier()]);
     await connect();
     await user.click(screen.getByRole("button", { name: "I'm logged in" }));
     expect(api.loginSessions.finish).toHaveBeenCalledWith(login.id);
     expect(await screen.findByText("Acme Supply is connected.")).toBeInTheDocument();
+    // Supplier lists cached elsewhere show it connected next time.
+    expect(client.getQueryState(supplierKeys.list())?.isInvalidated).toBe(true);
     expect(screen.getByRole("link", { name: "Back to suppliers" })).toHaveAttribute(
       "href",
       "/suppliers",

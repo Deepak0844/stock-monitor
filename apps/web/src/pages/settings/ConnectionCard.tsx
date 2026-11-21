@@ -7,6 +7,7 @@ import { Notice } from "../../components/Notice.js";
 import { Facts, Panel, SubPanel } from "../../components/Panel.js";
 import { formatWhen } from "../../format.js";
 import { ShopifyConnectForm } from "./ShopifyConnectForm.js";
+import { useDisconnectShopifyMutation } from "../../store/api/shopify/shopifyApi.js";
 
 type Props = {
   api: Api;
@@ -26,6 +27,7 @@ export function ConnectionCard({ api, connection, welcome, onConnected, onDiscon
   const [busy, setBusy] = useState<"test" | null>(null);
   const [check, setCheck] = useState<ConnectionCheck | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const disconnectShopify = useDisconnectShopifyMutation();
 
   async function test() {
     setBusy("test");
@@ -41,7 +43,7 @@ export function ConnectionCard({ api, connection, welcome, onConnected, onDiscon
   }
 
   async function disconnect() {
-    await api.shopify.disconnect();
+    await disconnectShopify.mutateAsync();
     onDisconnected();
   }
 

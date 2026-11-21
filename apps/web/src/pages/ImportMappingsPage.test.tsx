@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { ApiError, type ImportColumns, type ImportPreview, type MappingsApi } from "../api.js";
 import { fakeApi } from "../test/fake-api.js";
+import { renderWithStore } from "../test/renderWithStore.js";
 import { ImportMappingsPage } from "./ImportMappingsPage.js";
 
 beforeEach(() => window.history.replaceState(null, "", "/mappings/import"));
@@ -30,7 +31,7 @@ const file = (text = "Handle,Title\n") => new File([text], "products_export.csv"
 
 const setup = (over: Partial<MappingsApi> = {}) => {
   const api = fakeApi({ mappings: { importColumns: vi.fn().mockResolvedValue(columns), importPreview: vi.fn().mockResolvedValue(preview), importConfirm: vi.fn().mockResolvedValue({ created: 1, updated: 1, unchanged: 0, skipped: 0 }), ...over } });
-  render(<ImportMappingsPage api={api} />);
+  renderWithStore(<ImportMappingsPage api={api} />);
   return { api, user: userEvent.setup() };
 };
 const choose = async (user: ReturnType<typeof userEvent.setup>, f = file()) => {

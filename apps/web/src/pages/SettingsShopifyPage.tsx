@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button.js";
 import { Skeleton } from "@/components/ui/skeleton.js";
 import type { Api, ConnectionCheck, ShopifyConnection, ShopifyDetails } from "../api.js";
 import { Notice } from "../components/Notice.js";
 import { Panel } from "../components/Panel.js";
 import { useTitle } from "../useTitle.js";
+import { useConnectShopifyMutation, useGetShopifyConnectionQuery, useShopifyRefresh } from "../store/api/shopify/shopifyApi.js";
 import { ConnectionCard } from "./settings/ConnectionCard.js";
 import { LocationCard } from "./settings/LocationCard.js";
 import { ShopifyConnectForm } from "./settings/ShopifyConnectForm.js";
@@ -17,33 +18,22 @@ type Load =
 
 export function SettingsShopifyPage({ api }: { api: Api }) {
   useTitle("Settings");
-  const [load, setLoad] = useState<Load>({ kind: "loading" });
+  const connection = useGetShopifyConnectionQuery();
+  const load: Load =
+    connection.data !== undefined
+      ? { kind: "ready", connection: connection.data }
+      : connection.isError && !connection.isFetching
+        ? { kind: "error", message: connection.error instanceof Error ? connection.error.message : "Something went wrong. Please try again." }
+        : { kind: "loading" };
+  const read = () => void connection.refetch();
   const [welcome, setWelcome] = useState<ConnectionCheck | null>(null);
 
-  const read = useCallback(() => {
-    setLoad({ kind: "loading" });
-    api.shopify
-      .getConnection()
-      .then((connection) => setLoad({ kind: "ready", connection }))
-      .catch((e: unknown) =>
-        setLoad({ kind: "error", message: e instanceof Error ? e.message : "Something went wrong. Please try again." }),
-      );
-  }, [api]);
-
-  useEffect(read, [read]);
-
-  /** Reads the connection again without showing "Loading…", for example after a sync. */
-  const refresh = useCallback(() => {
-    api.shopify
-      .getConnection()
-      .then((connection) => setLoad({ kind: "ready", connection }))
-      .catch(() => {});
-  }, [api]);
+  /** Reads the connection and the products again without showing "Loading…", for example after a sync. */
+  const refresh = useShopifyRefresh();
+  const connectShopify = useConnectShopifyMutation();
 
   async function connect(details: ShopifyDetails) {
-    const result = await api.shopify.connect(details);
-    setWelcome(result);
-    setLoad({ kind: "ready", connection: result.connection });
+    setWelcome(await connectShopify.mutateAsync(details));
   }
 
   return (
@@ -85,23 +75,10 @@ export function SettingsShopifyPage({ api }: { api: Api }) {
               connection={load.connection}
               welcome={welcome}
               onConnected={connect}
-              onDisconnected={() => {
-                setWelcome(null);
-                setLoad({ kind: "ready", connection: null });
-              }}
+              onDisconnected={() => setWelcome(null)}
             />
             {load.connection.status === "connected" && (
-              <LocationCard
-                api={api}
-                connection={load.connection}
-                onChosen={(location) =>
-                  setLoad((current) =>
-                    current.kind === "ready" && current.connection
-                      ? { kind: "ready", connection: { ...current.connection, locationId: location.id, locationName: location.name } }
-                      : current,
-                  )
-                }
-              />
+              <LocationCard connection={load.connection} />
             )}
             <SyncCard api={api} connection={load.connection} onFinished={refresh} />
           </>

@@ -1,17 +1,18 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, screen, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { ApiError } from "../api.js";
 import { aMapping, aNotification, aProposal, aSupplier, fakeApi } from "../test/fake-api.js";
+import { renderWithStore } from "../test/renderWithStore.js";
 import { DashboardPage } from "./DashboardPage.js";
 
 afterEach(cleanup);
 
 const setup = (over: Parameters<typeof fakeApi>[0] = {}) => {
   const api = fakeApi(over);
-  render(<DashboardPage api={api} />);
+  renderWithStore(<DashboardPage />, { api });
   return { api, user: userEvent.setup() };
 };
 const card = (name: string) => screen.getByRole("heading", { level: 2, name }).closest("section")!;
@@ -487,7 +488,7 @@ describe("direction D dashboard", () => {
     );
     expect(api.proposals.openPage).toHaveBeenCalledWith({ page: 1, pageSize: 5 });
     await user.click(within(waiting).getByRole("button", { name: "Approve Product 0" }));
-    expect(api.proposals.approve).toHaveBeenCalledWith("p0");
+    expect(api.proposals.approve).toHaveBeenCalledWith("p0", undefined);
   });
 
   it("shows How it works only while no supplier has been added", async () => {

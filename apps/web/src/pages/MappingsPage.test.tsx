@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
-import { ApiError, type Mapping } from "../api.js";
+import { ApiError, type CheckRun, type Mapping, type ScheduleRow } from "../api.js";
 import { aMapping, aRun, aSupplier, fakeApi } from "../test/fake-api.js";
+import { renderWithStore } from "../test/renderWithStore.js";
 import { MappingsPage } from "./MappingsPage.js";
 
 beforeEach(() => window.history.replaceState(null, "", "/mappings"));
@@ -69,9 +70,21 @@ const setup = (mappings: Mapping[], over: Parameters<typeof fakeApi>[0] = {}) =>
       ...over.mappings,
     },
   });
-  render(<MappingsPage api={api} />);
+  renderWithStore(<MappingsPage api={api} />);
   return { api, user: userEvent.setup() };
 };
+
+/** A schedule row for a supplier whose whole run is going now. */
+const runningRow = (run: CheckRun): ScheduleRow => ({
+  supplierId: run.supplierId,
+  status: { state: "running" },
+  intervalMinutes: null,
+  window: null,
+  nextCheckAt: null,
+  run,
+  lastRun: null,
+  recent: { total: 0, finished: 0, failed: 0, stopped: 0, streak: null },
+} as ScheduleRow);
 
 /** The supplier filter is a dropdown with search: open it and pick the supplier by name. */
 const pickSupplier = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
@@ -87,7 +100,7 @@ const openMenu = async (user: ReturnType<typeof userEvent.setup>, label: string)
 describe("empty and loading", () => {
   it("shows a loading message first", () => {
     const api = fakeApi({ mappings: { page: vi.fn().mockReturnValue(new Promise(() => {})) } });
-    render(<MappingsPage api={api} />);
+    renderWithStore(<MappingsPage api={api} />);
     expect(screen.getByRole("status")).toHaveTextContent("Loading links…");
     expect(screen.getByRole("table", { name: "Links" })).toHaveAttribute("aria-busy", "true");
   });
@@ -360,15 +373,16 @@ describe("checking links", () => {
     expect(await screen.findByText("Checking…")).toBeInTheDocument();
   });
 
-  it("saves a row's check once, even when Check now is clicked twice", async () => {
-    const { user } = setup([blue]);
+  it("saves a row's check once: Check now cannot be clicked again while it runs", async () => {
+    const { api, user } = setup([blue]);
     const button = await screen.findByRole("button", { name: /^Check now Blue Tee/ });
-    await user.click(button);
-    await waitFor(() => expect(button).toBeEnabled());
     await user.click(button);
     await waitFor(() =>
       expect(JSON.parse(sessionStorage.getItem("pending-row-checks") ?? "[]")).toHaveLength(1),
     );
+    expect(button).toBeDisabled();
+    await user.click(button);
+    expect(api.mappings.checkLink).toHaveBeenCalledTimes(1);
   });
 
   it("drops a saved row check that already finished, without a spinner", async () => {
@@ -397,9 +411,10 @@ describe("checking links", () => {
       outOfStock: 0,
       cannotTell: 0,
     });
-    const currentRun = vi.fn().mockResolvedValue(going);
-    setup([blue], { schedule: { currentRun } });
+    const { api } = setup([blue], { schedule: { overview: vi.fn().mockResolvedValue([runningRow(going)]) } });
     expect(await screen.findByText("Checking 1 of 4 links")).toBeInTheDocument();
+    // Read from the schedule already loaded, not asked of each supplier.
+    expect(api.schedule.currentRun).not.toHaveBeenCalled();
     expect(
       screen.getByRole("progressbar", { name: "Stock check for Acme Supply" }),
     ).toBeInTheDocument();
@@ -420,16 +435,14 @@ describe("checking links", () => {
         outOfStock: 0,
         cannotTell: 0,
       });
-      const currentRun = vi.fn().mockResolvedValue(going);
       const runById = vi
         .fn()
         .mockResolvedValueOnce({ ...going, linksDone: 3 })
         .mockResolvedValue({ ...going, linksDone: 4, outcome: "finished" });
-      const { user, api } = setup([blue], { schedule: { currentRun, run: runById } });
+      const { user, api } = setup([blue], { schedule: { overview: vi.fn().mockResolvedValue([runningRow(going)]), run: runById } });
       await screen.findByText("Blue Tee");
       await pickSupplier(user, acme.name);
       expect(await screen.findByText("Checking 1 of 4 links")).toBeInTheDocument();
-      expect(currentRun).toHaveBeenCalledWith(acme.id);
       const listReads = vi.mocked(api.mappings.page).mock.calls.length;
       await act(async () => void vi.advanceTimersByTime(3_100));
       expect(await screen.findByText("Checking 3 of 4 links")).toBeInTheDocument();
@@ -502,6 +515,44 @@ describe("progress in the row", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("turns off a row's Check now and Check stock while either check runs, and leaves other rows alone", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    try {
+      const red = aMapping({ id: "77777777-7777-4777-8777-777777777777", productTitle: "Red Tee", variantTitle: "Small" });
+      const answered = { ...blue, linkStatus: "works" as const, lastLinkCheckAt: "2026-11-11T08:00:00Z" };
+      const status = vi
+        .fn()
+        .mockResolvedValueOnce({ linkCheckedAt: null, stockCheckedAt: null })
+        .mockResolvedValue({ linkCheckedAt: "2026-11-11T08:00:00Z", stockCheckedAt: null });
+      const { user } = setup([blue, red], { mappings: { status, get: vi.fn().mockResolvedValue(answered) } });
+      const row = within(await screen.findByRole("row", { name: /Blue Tee/ }));
+      const other = within(screen.getByRole("row", { name: /Red Tee/ }));
+      await user.click(row.getByRole("button", { name: "Check now Blue Tee Large" }));
+      await waitFor(() => expect(row.getByRole("button", { name: "Check now Blue Tee Large" })).toBeDisabled());
+      expect(row.getByRole("button", { name: "Check stock Blue Tee Large" })).toBeDisabled();
+      expect(other.getByRole("button", { name: "Check now Red Tee Small" })).toBeEnabled();
+      expect(other.getByRole("button", { name: "Check stock Red Tee Small" })).toBeEnabled();
+      await act(async () => void vi.advanceTimersByTime(3_100));
+      expect(row.getByRole("button", { name: "Check stock Blue Tee Large" })).toBeDisabled(); // still checking
+      await act(async () => void vi.advanceTimersByTime(3_100));
+      expect(await row.findByText("Works")).toBeInTheDocument();
+      expect(row.getByRole("button", { name: "Check now Blue Tee Large" })).toBeEnabled();
+      expect(row.getByRole("button", { name: "Check stock Blue Tee Large" })).toBeEnabled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("turns a row's buttons on again when a stock check cannot start", async () => {
+    const checkLink = vi.fn().mockRejectedValue(new ApiError("No permission.", 409));
+    const { user } = setup([blue], { stock: { checkLink } });
+    const row = within(await screen.findByRole("row", { name: /Blue Tee/ }));
+    await user.click(row.getByRole("button", { name: "Check stock Blue Tee Large" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("No permission.");
+    expect(row.getByRole("button", { name: "Check now Blue Tee Large" })).toBeEnabled();
+    expect(row.getByRole("button", { name: "Check stock Blue Tee Large" })).toBeEnabled();
   });
 
   it("follows checks of two links at once without one cancelling the other", async () => {
@@ -905,5 +956,19 @@ describe("answers that are out of date", () => {
     run(daily, null);
     await screen.findByText("Blue Tee");
     expect(screen.queryByText("Not checked recently")).toBeNull();
+  });
+});
+
+describe("the variants panel while a search is on its way", () => {
+  it("keeps the search box, and what it showed, until the answer arrives", async () => {
+    const unmapped = vi
+      .fn()
+      .mockResolvedValueOnce({ total: 340, unmapped: 212, items: [] })
+      .mockReturnValue(new Promise(() => {}));
+    const { user } = setup([blue], { mappings: { unmapped } });
+    const box = await screen.findByLabelText("Search variants with no link");
+    await user.type(box, "green");
+    await waitFor(() => expect(unmapped).toHaveBeenLastCalledWith("green"));
+    expect(screen.getByLabelText("Search variants with no link")).toHaveValue("green");
   });
 });

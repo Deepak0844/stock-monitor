@@ -8,6 +8,7 @@ import { Notice } from "../components/Notice.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { Link } from "../router.js";
 import { useTitle } from "../useTitle.js";
+import { useImportMappingsMutation } from "../store/api/mappings/mappingApi.js";
 
 type Step =
   | { kind: "choose" }
@@ -30,6 +31,7 @@ export function ImportMappingsPage({ api }: { api: Api }) {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const importMappings = useImportMappingsMutation();
 
   async function run(work: () => Promise<void>) {
     setBusy(true);
@@ -57,7 +59,7 @@ export function ImportMappingsPage({ api }: { api: Api }) {
 
   const showPreview = (columns: ImportColumns, choice: ImportColumnChoice) =>
     run(async () => setStep({ kind: "preview", columns, choice, preview: await api.mappings.importPreview(text, choice) }));
-  const confirm = (previewId: string) => run(async () => setStep({ kind: "done", result: await api.mappings.importConfirm(previewId) }));
+  const confirm = (previewId: string) => run(async () => setStep({ kind: "done", result: await importMappings.mutateAsync(previewId) }));
 
   const heading = "mb-3 text-base font-semibold";
   const list = "flex flex-col gap-1 text-sm";

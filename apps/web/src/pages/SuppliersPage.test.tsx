@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { ApiError, type ScheduleRow, type Supplier } from "../api.js";
 import { aRun, aSupplier, fakeApi } from "../test/fake-api.js";
+import { renderWithStore } from "../test/renderWithStore.js";
 import { SuppliersPage } from "./SuppliersPage.js";
 
 beforeEach(() => window.history.replaceState(null, "", "/suppliers"));
@@ -27,7 +28,7 @@ const setup = (suppliers: Supplier[], over: Parameters<typeof fakeApi>[0] = {}) 
     ...over,
     suppliers: { list: vi.fn().mockImplementation(async () => current), page: serve(() => current), remove: vi.fn().mockImplementation(async (id: string) => void (current = current.filter((s) => s.id !== id))), ...over.suppliers },
   });
-  const view = render(<SuppliersPage api={api} />);
+  const view = renderWithStore(<SuppliersPage api={api} />);
   return { api, user: userEvent.setup(), unmount: view.unmount };
 };
 
@@ -41,7 +42,7 @@ const openMenu = async (user: ReturnType<typeof userEvent.setup>, name: string) 
 describe("empty and loading", () => {
   it("shows shimmering rows and tells a screen reader it is loading", () => {
     const api = fakeApi({ suppliers: { page: vi.fn().mockReturnValue(new Promise(() => {})) } });
-    render(<SuppliersPage api={api} />);
+    renderWithStore(<SuppliersPage api={api} />);
     expect(screen.getByRole("status")).toHaveTextContent("Loading suppliers…");
     expect(screen.getByRole("table", { name: "Suppliers" })).toHaveAttribute("aria-busy", "true");
   });
@@ -362,6 +363,24 @@ describe("checking a connection", () => {
     }
   });
 
+  it("keeps Check connection turned off until the check's answer arrives", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    try {
+      const status = vi.fn().mockResolvedValueOnce({ checkedAt: connected.lastSessionCheckAt }).mockResolvedValue({ checkedAt: "2026-11-11T09:00:00.000Z" });
+      const get = vi.fn().mockResolvedValue(aSupplier({ sessionStatus: "connected", lastSessionCheckAt: "2026-11-11T09:00:00.000Z" }));
+      const { user } = setup([connected], { suppliers: { status, get } });
+      const row = within(await screen.findByRole("row", { name: /Acme Supply/ }));
+      await user.click(row.getByRole("button", { name: "Check connection Acme Supply" }));
+      await waitFor(() => expect(row.getByRole("button", { name: "Check connection Acme Supply" })).toBeDisabled());
+      await act(async () => void vi.advanceTimersByTime(3_100));
+      expect(row.getByRole("button", { name: "Check connection Acme Supply" })).toBeDisabled(); // still checking
+      await act(async () => void vi.advanceTimersByTime(3_100));
+      await waitFor(() => expect(row.getByRole("button", { name: "Check connection Acme Supply" })).toBeEnabled());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("takes the Checking… badge away when the check cannot be started", async () => {
     const checkSession = vi.fn().mockRejectedValue(new ApiError("No.", 503));
     const { user } = setup([connected], { suppliers: { checkSession } });
@@ -420,7 +439,7 @@ describe("automatic checks", () => {
   });
 
   it("shows progress while a run is going, reads it again every few seconds, then shows the summary", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"], shouldAdvanceTime: true });
     try {
       const running = scheduleRow({ status: { state: "running" }, intervalMinutes: 1440, run: aRun({ outcome: "running", endedAt: null, linksDone: 12, linksTotal: 40 }) });
       const done = scheduleRow({ status: { state: "waiting" }, intervalMinutes: 1440, nextCheckAt: "2026-11-11T03:30:00.000Z", lastRun: aRun() });

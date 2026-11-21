@@ -7,11 +7,11 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --background: #efeee9;
+  --background: #ffffff;
   --foreground: #16181d;
-  --card: #f8f7f3;
+  --card: #ffffff;
   --card-foreground: #16181d;
-  --popover: #f8f7f3;
+  --popover: #ffffff;
   --popover-foreground: #16181d;
   --primary: #16181d;
   --primary-foreground: #ffffff;
@@ -28,7 +28,7 @@
   --ring: #1d4ed8;
   --sidebar: #e6e5df;
   --sidebar-foreground: #3c3f46;
-  --sidebar-active: #efeee9;
+  --sidebar-active: #ffffff;
   --success: #137538;
   --success-soft: #f1f7f2;
   --warning: #b33c0b;

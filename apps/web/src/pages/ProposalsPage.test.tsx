@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { ApiError } from "../api.js";
 import { aProposal, aSupplier, fakeApi } from "../test/fake-api.js";
+import { renderWithStore } from "../test/renderWithStore.js";
 import { ProposalsPage } from "./ProposalsPage.js";
 
 beforeEach(() => window.history.replaceState(null, "", "/proposals"));
@@ -16,7 +17,7 @@ afterEach(() => {
 const ready = { state: "ready" as const, message: "Shopify allows this app to change stock." };
 const setup = async (open = [aProposal()], over: { writePermission?: typeof ready | { state: "missing" | "not_connected"; message: string }; proposals?: NonNullable<Parameters<typeof fakeApi>[0]>["proposals"] } = {}) => {
   const api = fakeApi({ proposals: { openPage: vi.fn().mockResolvedValue({ items: open, total: open.length, page: 1, pageSize: 10, writePermission: over.writePermission ?? ready }), ...over.proposals } });
-  render(<ProposalsPage api={api} />);
+  renderWithStore(<ProposalsPage api={api} />, { api });
   // Wait for the list (or the empty message) so tests start from a loaded page.
   await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
   return { api, user: userEvent.setup() };
@@ -31,7 +32,7 @@ const pickSupplier = async (user: ReturnType<typeof userEvent.setup>, name: stri
 describe("loading, empty and errors", () => {
   it("says it is loading, then says plainly there is nothing waiting", async () => {
     const api = fakeApi({ proposals: { openPage: vi.fn().mockReturnValue(new Promise(() => {})) } });
-    render(<ProposalsPage api={api} />);
+    renderWithStore(<ProposalsPage api={api} />, { api });
     expect(screen.getByRole("status")).toHaveTextContent("Loading…");
     cleanup();
     await setup([]);
@@ -382,7 +383,7 @@ describe("by supplier", () => {
 
   it("filters waiting suggestions by the chosen supplier, with counts", async () => {
     const api = withSuppliers();
-    render(<ProposalsPage api={api} />);
+    renderWithStore(<ProposalsPage api={api} />, { api });
     await waitFor(async () => expect(await options()).toEqual(["All suppliers", "Acme (2)", "Bolt (0)"]));
     await pickSupplier(userEvent.setup(), "Bolt");
     await waitFor(() => expect(api.proposals.openPage).toHaveBeenLastCalledWith({ page: 1, pageSize: 10, supplierId: "s2" }));
@@ -392,7 +393,7 @@ describe("by supplier", () => {
   it("goes back to page 1 when the supplier changes", async () => {
     window.history.replaceState(null, "", "/proposals?page=3");
     const api = withSuppliers();
-    render(<ProposalsPage api={api} />);
+    renderWithStore(<ProposalsPage api={api} />, { api });
     await waitFor(async () => expect(await options()).toHaveLength(3));
     expect(api.proposals.openPage).toHaveBeenCalledWith({ page: 3, pageSize: 10 });
     await pickSupplier(userEvent.setup(), "Acme");
@@ -401,7 +402,7 @@ describe("by supplier", () => {
 
   it("keeps the supplier when switching to History, with names only", async () => {
     const api = withSuppliers();
-    render(<ProposalsPage api={api} />);
+    renderWithStore(<ProposalsPage api={api} />, { api });
     const user = userEvent.setup();
     await waitFor(async () => expect(await options()).toHaveLength(3));
     await pickSupplier(user, "Acme");
@@ -414,7 +415,7 @@ describe("by supplier", () => {
   it("shows everything when the address names a supplier that is not in the list", async () => {
     window.history.replaceState(null, "", "/proposals?supplier=99999999-9999-4999-8999-999999999999");
     const api = withSuppliers();
-    render(<ProposalsPage api={api} />);
+    renderWithStore(<ProposalsPage api={api} />, { api });
     await waitFor(async () => expect(await options()).toHaveLength(3));
     await waitFor(() => expect(api.proposals.openPage).toHaveBeenLastCalledWith({ page: 1, pageSize: 10 }));
     expect(screen.getByRole("button", { name: /^Supplier:/ })).toHaveTextContent("All suppliers");
@@ -426,7 +427,7 @@ describe("by supplier", () => {
       supplierId ? new Promise((resolve) => (replies[supplierId] = resolve)) : Promise.resolve({ items: [], total: 0, page: 1, pageSize: 10, writePermission: ready }),
     );
     const api = withSuppliers({ proposals: { openPage } });
-    render(<ProposalsPage api={api} />);
+    renderWithStore(<ProposalsPage api={api} />, { api });
     const user = userEvent.setup();
     await waitFor(async () => expect(await options()).toHaveLength(3));
     await pickSupplier(user, "Acme");
@@ -440,7 +441,7 @@ describe("by supplier", () => {
   it("reads the counts again after a suggestion is decided", async () => {
     const waitingBySupplier = vi.fn().mockResolvedValueOnce({ s1: 2 }).mockResolvedValue({ s1: 1 });
     const api = withSuppliers({ proposals: { waitingBySupplier, openPage: vi.fn().mockResolvedValue({ items: [aProposal()], total: 1, page: 1, pageSize: 10, writePermission: ready }) } });
-    render(<ProposalsPage api={api} />);
+    renderWithStore(<ProposalsPage api={api} />, { api });
     const user = userEvent.setup();
     await waitFor(async () => expect(await options()).toContain("Acme (2)"));
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -451,7 +452,7 @@ describe("by supplier", () => {
 
   it("still lists everything when suppliers cannot be read", async () => {
     const api = withSuppliers({ suppliers: { list: vi.fn().mockRejectedValue(new Error("down")) }, proposals: { openPage: vi.fn().mockResolvedValue({ items: [aProposal()], total: 1, page: 1, pageSize: 10, writePermission: ready }) } });
-    render(<ProposalsPage api={api} />);
+    renderWithStore(<ProposalsPage api={api} />, { api });
     expect(await screen.findByText("Blue Tee")).toBeInTheDocument();
     expect(await options()).toEqual(["All suppliers"]);
   });
@@ -541,5 +542,12 @@ describe("bulk approve and reject", () => {
     const bar = screen.getByRole("region", { name: "Selected proposals" });
     expect(within(bar).getByRole("checkbox", { name: "Select all on this page" })).toBeInTheDocument();
     expect(screen.getAllByRole("checkbox", { name: "Select all on this page" })).toHaveLength(1);
+  });
+});
+
+describe("the waiting counts", () => {
+  it("are read once when the page opens, for the menu and the supplier filter together", async () => {
+    const { api } = await setup();
+    await waitFor(() => expect(api.proposals.counts).toHaveBeenCalledTimes(1));
   });
 });
