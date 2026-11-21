@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { BOOKER_IN_STOCK, BOOKER_OUT_OF_STOCK } from "./booker-fixtures.js";
 import { offersFrom } from "./offers.js";
 
 const PAGE = "https://supplier.example/products/widget";
@@ -48,4 +49,18 @@ describe("offersFrom", () => {
     const offers = read({ "@type": "Product", secretKey: "s3cret", offers: { availability: "InStock", seller: { name: "Someone" }, token: "t0ken" } });
     expect(JSON.stringify(offers)).not.toMatch(/s3cret|t0ken|Someone/);
   });
+});
+
+describe("offersFrom: Booker's product script", () => {
+  it("reads an in stock product, its SKU from sucode", () => expect(read(BOOKER_IN_STOCK)).toEqual([{ availability: "inStock", url: null, sku: "303983", name: null }]));
+  it("reads an out of stock product", () => expect(read(BOOKER_OUT_OF_STOCK)).toEqual([{ availability: "outOfStock", url: null, sku: "302148", name: null }]));
+  it("keeps an unknown status, for the checker to call unclear", () => expect(read(BOOKER_IN_STOCK.replace('"status":"inStock"', '"status":"lowStock"'))).toMatchObject([{ availability: "lowStock" }]));
+  it("ignores a script with a stock status that does not draw the product", () =>
+    expect(read(BOOKER_IN_STOCK.replaceAll("ProductDetailHero", "RelatedProducts"))).toEqual([]));
+  it("finds nothing in the product script without a stock status", () => expect(read(BOOKER_IN_STOCK.replace('"availability":{"status"', '"availability":{"state"'))).toEqual([]));
+  it("keeps both the product script and JSON-LD offers", () =>
+    expect(read(BOOKER_OUT_OF_STOCK, { "@type": "Product", offers: { availability: "InStock" } })).toEqual([
+      { availability: "outOfStock", url: null, sku: "302148", name: null },
+      { availability: "InStock", url: null, sku: null, name: null },
+    ]));
 });

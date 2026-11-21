@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Browser, BrowserContextOptions } from "playwright";
 import { explainPage, looksLikeNotFound, type SessionState } from "@stock-monitor/supplier-session";
 import { hideConsentBanners } from "./consent.js";
-import { offersFrom, type PageOffer } from "./offers.js";
+import { offersFrom, PRODUCT_SCRIPT, type PageOffer } from "./offers.js";
 import { NAME_SHIM } from "./page-shim.js";
 import type { GuardProxy } from "./proxy.js";
 import { waitUntilShown } from "./settle.js";
@@ -38,8 +38,8 @@ const withoutQuery = (address: string): string | null => {
  * the text is read, so nothing typed can appear.
  * Everything is capped, so a huge or hostile page cannot make the answer huge.
  */
-const describePage = (arg: { limits: typeof LIMITS; challenge: string }) => {
-  const { limits, challenge } = arg;
+const describePage = (arg: { limits: typeof LIMITS; challenge: string; productScript: string }) => {
+  const { limits, challenge, productScript } = arg;
   const shown = (el: Element) => (typeof (el as HTMLElement).checkVisibility === "function" ? (el as HTMLElement).checkVisibility() : el.getClientRects().length > 0);
   const oneLine = (s: string) => s.replace(/\s+/g, " ").trim();
 
@@ -80,8 +80,9 @@ const describePage = (arg: { limits: typeof LIMITS; challenge: string }) => {
   // a quick read reads them. Bounded: a script over maxScript characters is left out, and no more than maxScripts in all.
   const ldScripts: string[] = [];
   let scriptChars = 0;
-  for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
+  for (const script of document.querySelectorAll("script:not([src])")) {
     const text = script.textContent ?? "";
+    if (script.getAttribute("type") !== "application/ld+json" && !text.includes(productScript)) continue;
     if (text.length > limits.maxScript || scriptChars + text.length > limits.maxScripts) continue;
     ldScripts.push(text);
     scriptChars += text.length;
@@ -132,7 +133,7 @@ const describePage = (arg: { limits: typeof LIMITS; challenge: string }) => {
 /** Reads what the page is showing. Exported so a test can run it under tsx, the way the container does. */
 export async function readPage(page: import("playwright").Page) {
   await page.evaluate(NAME_SHIM);
-  return page.evaluate(describePage, { limits: LIMITS, challenge: CHALLENGE_WIDGET });
+  return page.evaluate(describePage, { limits: LIMITS, challenge: CHALLENGE_WIDGET, productScript: PRODUCT_SCRIPT });
 }
 
 // Whole page sharp, then whole page as a JPEG (long photo-heavy pages are far smaller that way), then only the visible part.

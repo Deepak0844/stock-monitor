@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net";
 import { brotliCompressSync, gzipSync } from "node:zlib";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { BOOKER_IN_STOCK } from "./booker-fixtures.js";
 import { createGuard } from "./guard.js";
 import { quickRead } from "./quick-read.js";
 
@@ -50,6 +51,11 @@ describe("quickRead", () => {
   it("reads the built-in offers of a page, and gives its address without the query", async () => {
     handler = page(html(product("InStock")));
     expect(await read()).toMatchObject({ result: "ok", status: 200, finalUrl: `${base}/p/tee`, softNotFound: false, blocked: false, offers: [{ availability: "InStock", url: null, sku: null, name: null }] });
+  });
+
+  it("reads Booker's stock from the script that draws the product", async () => {
+    handler = page(html(`<script type="module">${BOOKER_IN_STOCK}</script>`));
+    expect((await read()).offers).toEqual([{ availability: "inStock", url: null, sku: "303983", name: null }]);
   });
 
   it("sends an honest user agent, the language when given, and no cookie", async () => {

@@ -2,6 +2,7 @@
 import { chromium, type Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readPage } from "../src/capture.js";
+import { BOOKER_OUT_OF_STOCK } from "../src/booker-fixtures.js";
 import { offersFrom } from "../src/offers.js";
 
 const ADDRESS = "https://supplier.example/products/widget";
@@ -28,6 +29,9 @@ async function offersOf(body: string) {
 
 // The full set of reading cases is in src/offers.test.ts. These two prove the page hands the raw data over intact.
 describe("readPage: built-in offers through a real page", () => {
+  it("reads Booker's stock from the script that draws the product", async () => {
+    expect(await offersOf(`<script type="module">${BOOKER_OUT_OF_STOCK}</script>`)).toEqual([{ availability: "outOfStock", url: null, sku: "302148", name: null }]);
+  });
   it("reads a Product's offers and resolves a relative address against the page", async () => {
     const offers = await offersOf(ld({ "@type": "Product", offers: [{ availability: "https://schema.org/InStock", url: "/products/widget?variant=1", sku: "A-1", name: "500 ml" }] }));
     expect(offers).toEqual([{ availability: "InStock", url: "https://supplier.example/products/widget?variant=1", sku: "A-1", name: "500 ml" }]);
