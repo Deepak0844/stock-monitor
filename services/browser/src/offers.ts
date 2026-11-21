@@ -2,10 +2,12 @@
 export type PageOffer = { availability: string; url: string | null; sku: string | null; name: string | null };
 
 const LIMITS = { maxOffers: 100, maxField: 200, maxNodes: 2000, maxScript: 1_000_000 };
+/** An inline script holding this word draws a Booker product page; the page readers pass it on with the JSON-LD scripts. */
+export const PRODUCT_SCRIPT = "ProductDetailHero";
 
 /**
  * The offers in a page's built-in product data: the text of each `application/ld+json` script and each microdata
- * `availability` value. Only availability, address, SKU and name are kept. Bounded: at most 2000 values looked at per script,
+ * `availability` value, plus Booker's product script (see `PRODUCT_SCRIPT`). Only availability, address, SKU and name are kept. Bounded: at most 2000 values looked at per script,
  * 100 offers kept, each field cut to 200 characters, and a script over a million characters is never parsed. Broken JSON is
  * no data. Relative addresses resolve against `pageUrl`, the page's address after any redirects. Used by captures (on what
  * the browser saw) and by quick reads (on the downloaded HTML), so both read the same.
@@ -58,6 +60,12 @@ export function offersFrom(jsonTexts: string[], microdata: string[], pageUrl: st
   for (const text of jsonTexts) {
     nodes = 0; // each script gets its own budget, so a huge one cannot starve the product's own
     if (text.length > LIMITS.maxScript) continue; // never parse a giant blob
+    if (text.includes(PRODUCT_SCRIPT)) {
+      // Booker: stock lives in the script that draws the product, not in schema.org data. Only that script, never related products'.
+      const status = /"availability"\s*:\s*\{\s*"status"\s*:\s*"([A-Za-z]{1,40})"/.exec(text)?.[1];
+      if (status && offers.length < LIMITS.maxOffers) offers.push({ availability: status, url: null, sku: /"sucode"\s*:\s*(\d{1,20})/.exec(text)?.[1] ?? null, name: null });
+      continue;
+    }
     try {
       walk(JSON.parse(text), none);
     } catch {
