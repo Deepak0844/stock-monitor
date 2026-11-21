@@ -125,3 +125,24 @@ describe("logging", () => {
     expect(logLines.join("")).not.toContain(secret);
   });
 });
+
+describe("clients on the browser service's network", () => {
+  // The real address, never X-Forwarded-For: a Chromium a supplier page took over could write that header itself.
+  const gated = () =>
+    buildApp({ db: t.appDb, logger: createLogger({ level: "silent", stream: logStream }), trustProxy: true, refuseClient: async (address) => address === "172.21.0.2" });
+
+  it("are refused everything, the sign-in included", async () => {
+    const res = await gated().inject({ method: "POST", url: "/api/login", remoteAddress: "172.21.0.2", payload: { email: "a@b.co", password: "x" } });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe("forbidden");
+  });
+
+  it("cannot get in by claiming another address", async () => {
+    const res = await gated().inject({ method: "GET", url: "/health", remoteAddress: "172.21.0.2", headers: { "x-forwarded-for": "203.0.113.7" } });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("leave every other client alone", async () => {
+    expect((await gated().inject({ method: "GET", url: "/health", remoteAddress: "172.20.0.1" })).statusCode).toBe(200);
+  });
+});

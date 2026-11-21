@@ -23,6 +23,7 @@ import { registerMappingRoutes, type MappingRoutesDeps } from "./routes/mappings
 import { registerSupplierRoutes, type SupplierRoutesDeps } from "./routes/suppliers.js";
 import { AppError, unauthenticated } from "./errors.js";
 import { createLoginLimiter } from "./rate-limit.js";
+import type { ClientGate } from "./browser-network.js";
 import {
   SESSION_COOKIE,
   SESSION_TTL_MS,
@@ -51,6 +52,8 @@ export type AppDeps = {
   webRoot?: string;
   /** Believe X-Forwarded-For for the client address. Off unless a trusted proxy sits in front. */
   trustProxy?: boolean;
+  /** Refuses clients by their real address, before anything else. Set to keep the browser service's network out. */
+  refuseClient?: ClientGate;
   /** Shopify routes. Left out, the API has no /api/shopify routes. */
   shopify?: ShopifyRoutesDeps;
   /** Supplier routes. Left out, the API has no /api/suppliers routes. */
@@ -109,7 +112,7 @@ const isCrossSiteWrite = (method: string, headers: Record<string, string | strin
 
 const loginBody = z.object({ email: z.string().min(1), password: z.string().min(1) });
 
-export function buildApp({ db, logger, secureCookies = false, webRoot, trustProxy = false, shopify, suppliers, loginSessions, loginScreen, notifications, mappings, captures, recipes, stockChecks, schedule, proposals }: AppDeps) {
+export function buildApp({ db, logger, secureCookies = false, webRoot, trustProxy = false, refuseClient, shopify, suppliers, loginSessions, loginScreen, notifications, mappings, captures, recipes, stockChecks, schedule, proposals }: AppDeps) {
   const app = Fastify({
     loggerInstance: logger,
     genReqId: () => randomUUID(),
@@ -128,6 +131,10 @@ export function buildApp({ db, logger, secureCookies = false, webRoot, trustProx
   app.addHook("onRequest", async (request, reply) => {
     reply.header("x-request-id", request.id);
     reply.headers(SECURITY_HEADERS);
+    // The socket's address, not request.ip: X-Forwarded-For is written by the client.
+    if (refuseClient && (await refuseClient(request.socket.remoteAddress))) {
+      throw new AppError(403, "forbidden", "This address may not use the app.");
+    }
     // HTTPS deployments only (the same switch as the secure cookie): on plain-http localhost it would do harm.
     if (secureCookies) reply.header("strict-transport-security", "max-age=31536000");
     if (!trustProxy && !warnedProxy && request.headers["x-forwarded-for"]) {

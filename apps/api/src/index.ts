@@ -14,6 +14,7 @@ import {
 import { createQueue } from "@stock-monitor/queue";
 import { createLogger, loadConfig } from "@stock-monitor/shared";
 import { buildApp } from "./app.js";
+import { createBrowserNetworkGate } from "./browser-network.js";
 import { createBrowserClient } from "@stock-monitor/browser-client";
 
 const config = loadConfig(process.env);
@@ -36,6 +37,8 @@ const app = buildApp({
   logger,
   secureCookies: config.cookieSecure,
   trustProxy: config.trustProxy,
+  // Nothing on the browser service's network may call the API: only a taken-over Chromium would.
+  refuseClient: config.browserServiceUrl ? createBrowserNetworkGate({ host: new URL(config.browserServiceUrl).hostname }) : undefined,
   webRoot,
   suppliers: { repo: createSupplierRepository(db), credentials: createSupplierCredentialsRepository(db), key: { key: config.encryptionKey, keyId: KEY_ID }, queue, ...(browser ? { browser } : {}) },
   notifications: { repo: createNotificationRepository(db) },

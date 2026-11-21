@@ -51,7 +51,7 @@ Server-level steps that are not in Compose:
 
 - **Block the browser container from your own network.** On a server, add firewall rules so containers cannot reach private ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) or the cloud metadata address 169.254.169.254, except Docker's own networks. The proxy already refuses them, and this is the second wall behind it.
 - On a Mac used for the pilot, the supplier sees your home internet address. On a server it sees the datacentre's, which some suppliers distrust.
-- A compromised Chromium could reach the API's port over `control` (it would still need a signed-in session). If that worries you, the next step is a firewall rule on the control network.
+- A compromised Chromium could reach the API's port over `control`. The API refuses every request from that network (it finds the network by looking up the browser service's address), so it gets a 403 before any sign-in or session check.
 
 ### Quick reads in the logs
 
