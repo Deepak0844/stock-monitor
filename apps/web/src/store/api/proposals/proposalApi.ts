@@ -25,6 +25,8 @@ export const proposalKeys = {
 
 /** While a suggestion waits for Shopify, its list is read again this often. */
 export const POLL_MS = 5000;
+/** Counts read this recently are not read again along with a list. */
+const COUNTS_FRESH_MS = 5000;
 
 const isTab = (tab: "open" | "history") => (query: Query) => (query.queryKey[2] as { tab?: string } | undefined)?.tab === tab;
 const openLists = { queryKey: proposalKeys.lists(), predicate: isTab("open") };
@@ -85,9 +87,14 @@ const getProposalOpenListQuery = (api: Api, client: QueryClient, query: OpenQuer
   queryOptions({
     queryKey: proposalKeys.open(query),
     queryFn: async () => {
+      const reRead = client.getQueryData(proposalKeys.open(query)) !== undefined;
       const page = await api.proposals.openPage(query);
-      // A new read can show new suggestions, so the counts in the menu and filter are read again with it.
-      void client.invalidateQueries({ queryKey: proposalKeys.counts() });
+      // A re-read of a list already shown (such as the one while something waits for Shopify) can show new suggestions, so
+      // the counts in the menu and the filter are read again with it, unless they were read in the last 5 s or are on their
+      // way. A list's first read leaves them alone: the page that opens it reads them itself.
+      const counts = client.getQueryState(proposalKeys.counts());
+      const countsRecent = counts !== undefined && (counts.fetchStatus === "fetching" || Date.now() - counts.dataUpdatedAt < COUNTS_FRESH_MS);
+      if (reRead && !countsRecent) void client.invalidateQueries({ queryKey: proposalKeys.counts() });
       return page;
     },
     refetchInterval: (q) => (poll && q.state.data?.items.some((p) => p.state === "approved") ? POLL_MS : false),

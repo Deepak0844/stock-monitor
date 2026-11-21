@@ -211,4 +211,21 @@ describe("reading only what is needed", () => {
     await act(async () => void (await new Promise((r) => setTimeout(r, 100))));
     expect(api.notifications.list).toHaveBeenCalledTimes(1);
   });
+
+  it("opening the Dashboard after 30 s reads the count once, not once for the page and again for the menu", async () => {
+    window.history.replaceState(null, "", "/products");
+    const api = fakeApi(owner);
+    render(<App api={api} />);
+    await screen.findByRole("heading", { name: "Products" });
+    await waitFor(() => expect(api.proposals.counts).toHaveBeenCalledTimes(1));
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 31_000 });
+    try {
+      await act(async () => navigate("/"));
+      await screen.findByRole("heading", { name: "Dashboard" });
+      await act(async () => void (await new Promise((r) => setTimeout(r, 100))));
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(api.proposals.counts).toHaveBeenCalledTimes(2);
+  });
 });

@@ -81,10 +81,10 @@ function AppRoutes({ api }: { api: Api }) {
   const proposalCount = useGetProposalCountQuery({ enabled: signedIn }).data ?? 0;
   const notifications = useNotifications(signedIn);
   // The waiting count for the menu and the notifications for the bell: read again when the owner moves to another page, but
-  // only if the last read is over 30 s old.
+  // only if the last read is over 30 s old. A read the new page has already started is joined, not started again.
   const refreshCount = useCallback(() => {
-    void queryClient.refetchQueries({ queryKey: proposalKeys.counts(), stale: true });
-    void queryClient.refetchQueries({ queryKey: notificationKeys.list(), stale: true });
+    void queryClient.refetchQueries({ queryKey: proposalKeys.counts(), stale: true }, { cancelRefetch: false });
+    void queryClient.refetchQueries({ queryKey: notificationKeys.list(), stale: true }, { cancelRefetch: false });
   }, [queryClient]);
   useEffect(() => {
     if (signedIn) refreshCount();
