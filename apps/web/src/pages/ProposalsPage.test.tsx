@@ -544,3 +544,10 @@ describe("bulk approve and reject", () => {
     expect(screen.getAllByRole("checkbox", { name: "Select all on this page" })).toHaveLength(1);
   });
 });
+
+describe("the waiting counts", () => {
+  it("are read once when the page opens, for the menu and the supplier filter together", async () => {
+    const { api } = await setup();
+    await waitFor(() => expect(api.proposals.counts).toHaveBeenCalledTimes(1));
+  });
+});

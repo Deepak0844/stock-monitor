@@ -108,7 +108,7 @@ describe("proposal lists in the cache", () => {
     expect(openPage).toHaveBeenCalledTimes(1);
   });
 
-  it("refreshes the waiting count after each list read and after a decision", async () => {
+  it("reads the counts once with a list's first read, again after a later re-read, and after a decision", async () => {
     const count = vi.fn().mockResolvedValueOnce(2).mockResolvedValueOnce(2).mockResolvedValue(1);
     const { client } = renderWithStore(
       <>
@@ -116,14 +116,22 @@ describe("proposal lists in the cache", () => {
         <Count />
         <Actions />
       </>,
-      { api: fakeApi({ proposals: { count, openPage: vi.fn().mockResolvedValue(pageOf([aProposal()])), approve: vi.fn().mockResolvedValue(aProposal({ state: "approved" })) } }) },
+      // The list answers after the counts, as in a browser on a fresh load.
+      { api: fakeApi({ proposals: { count, openPage: vi.fn().mockImplementation(() => new Promise((r) => setTimeout(() => r(pageOf([aProposal()])), 20))), approve: vi.fn().mockResolvedValue(aProposal({ state: "approved" })) } }) },
     );
     await screen.findByText("a: p1=open of 1");
     await screen.findByText("count: 2");
-    const before = count.mock.calls.length;
-    // A later read of the list, like the re-read while something waits for Shopify.
-    await act(() => client.refetchQueries({ queryKey: proposalKeys.lists() }));
-    await waitFor(() => expect(count).toHaveBeenCalledTimes(before + 1));
+    await act(async () => void (await new Promise((r) => setTimeout(r, 50))));
+    // Its first read did not ask for the counts a second time.
+    expect(count).toHaveBeenCalledTimes(1);
+    // A later read of the list, like the re-read while something waits for Shopify, once the counts are over 5 s old.
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 6_000 });
+    try {
+      await act(() => client.refetchQueries({ queryKey: proposalKeys.lists() }));
+    } finally {
+      vi.useRealTimers();
+    }
+    await waitFor(() => expect(count).toHaveBeenCalledTimes(2));
     await act(() => approve!.mutateAsync({ id: "p1" }));
     expect(await screen.findByText("count: 1")).toBeInTheDocument();
   });
@@ -167,5 +175,20 @@ describe("proposal lists in the cache", () => {
     client.setQueryData(key, { proposals: [], hasMore: false, total: 0, page: 1, pageSize: 10 });
     await act(() => approve!.mutateAsync({ id: "p1" }));
     expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+  });
+
+  it("does not ask for the counts again when a re-read comes within 5 seconds of them", async () => {
+    const count = vi.fn().mockResolvedValue(2);
+    const { client } = renderWithStore(
+      <>
+        <OpenList name="a" />
+        <Count />
+      </>,
+      { api: fakeApi({ proposals: { count, openPage: vi.fn().mockResolvedValue(pageOf([aProposal()])) } }) },
+    );
+    await screen.findByText("count: 2");
+    await act(() => client.refetchQueries({ queryKey: proposalKeys.lists() }));
+    await act(async () => void (await new Promise((r) => setTimeout(r, 50))));
+    expect(count).toHaveBeenCalledTimes(1);
   });
 });

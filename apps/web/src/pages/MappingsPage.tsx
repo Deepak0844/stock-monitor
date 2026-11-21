@@ -45,6 +45,7 @@ import { Link } from "../router.js";
 import { useTitle } from "../useTitle.js";
 import { toast } from "../lib/toast.js";
 import { useGetSupplierListQuery } from "../store/api/suppliers/supplierApi.js";
+import { useGetScheduleOverviewQuery } from "../store/api/schedule/scheduleApi.js";
 import {
   useCheckMappingLinkMutation,
   useCheckMappingStockMutation,
@@ -258,17 +259,13 @@ export function MappingsPage({ api }: { api: Api }) {
   const [wholeRun, setWholeRun] = useState<CheckRun | null>(null);
   const running = wholeRun?.outcome === "running";
   useEffect(() => setWholeRun(null), [supplierId]);
+  // The schedule already holds each supplier's run going now, so no supplier is asked separately. No supplier chosen: look at
+  // every supplier, so a run started earlier still shows after coming back.
+  const scheduleRows = useGetScheduleOverviewQuery().data;
   useEffect(() => {
-    // No supplier chosen: look at every supplier, so a run started earlier still shows after coming back.
-    const ids = supplierId ? [supplierId] : suppliers.map((s) => s.id);
-    if (ids.length === 0) return;
-    let live = true;
-    Promise.all(ids.map((id) => api.schedule.currentRun(id).catch(() => null))).then((runs) => {
-      const found = runs.find(Boolean) ?? null; // the server only answers with runs still going
-      if (live && found) setWholeRun((cur) => cur ?? found);
-    });
-    return () => void (live = false);
-  }, [api, supplierId, suppliers]);
+    const found = scheduleRows?.find((r) => r.run?.outcome === "running" && (!supplierId || r.supplierId === supplierId))?.run;
+    if (found) setWholeRun((cur) => cur ?? found);
+  }, [scheduleRows, supplierId]);
   // While it runs, its status is asked for every few seconds. When it ends the list is read once, for the new answers.
   useEffect(() => {
     if (!wholeRun || wholeRun.outcome !== "running") return;

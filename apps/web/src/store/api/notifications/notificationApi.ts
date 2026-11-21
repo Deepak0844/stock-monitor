@@ -44,8 +44,9 @@ const getNotificationListQuery = (api: Api) =>
   queryOptions({
     queryKey: notificationKeys.list(),
     queryFn: () => api.notifications.list(),
-    // New ones arrive from the server by themselves, so a page that opens reads them again; the cached copy shows meanwhile.
-    staleTime: 0,
+    // New ones arrive by themselves and are read every 30 s while the tab is shown, so a read within the last 30 s is used as
+    // it is, by the bell and the Dashboard alike.
+    staleTime: NOTIFICATION_POLL_MS,
   });
 
 const markNotificationReadMutation = (api: Api, client: QueryClient) =>

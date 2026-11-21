@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { App } from "./App.js";
+import { navigate } from "./router.js";
 import type { Owner } from "./api.js";
 import { fakeApi } from "./test/fake-api.js";
 
@@ -182,5 +183,49 @@ describe("App", () => {
       expect(await screen.findByRole("heading", { level: 1, name: "Dashboard" })).toBeInTheDocument();
       expect(window.location.pathname).toBe("/");
     });
+  });
+});
+
+describe("reading only what is needed", () => {
+  const owner = { getMe: vi.fn().mockResolvedValue({ email: "owner@example.com" }) };
+
+  it("reads the schedule once for the sidebar and the supplier's schedule panel together", async () => {
+    window.history.replaceState(null, "", "/suppliers/11111111-1111-4111-8111-111111111111/edit");
+    const api = fakeApi(owner);
+    render(<App api={api} />);
+    await screen.findByRole("group", { name: "Automatic checks" });
+    await act(async () => void (await new Promise((r) => setTimeout(r, 200))));
+    expect(api.schedule.overview).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not read notifications again on every page change", async () => {
+    window.history.replaceState(null, "", "/");
+    const api = fakeApi(owner);
+    render(<App api={api} />);
+    await screen.findByRole("heading", { name: "Dashboard" });
+    await waitFor(() => expect(api.notifications.list).toHaveBeenCalledTimes(1));
+    await act(async () => navigate("/products"));
+    await screen.findByRole("heading", { name: "Products" });
+    await act(async () => navigate("/suppliers"));
+    await screen.findByRole("heading", { name: "Suppliers" });
+    await act(async () => void (await new Promise((r) => setTimeout(r, 100))));
+    expect(api.notifications.list).toHaveBeenCalledTimes(1);
+  });
+
+  it("opening the Dashboard after 30 s reads the count once, not once for the page and again for the menu", async () => {
+    window.history.replaceState(null, "", "/products");
+    const api = fakeApi(owner);
+    render(<App api={api} />);
+    await screen.findByRole("heading", { name: "Products" });
+    await waitFor(() => expect(api.proposals.counts).toHaveBeenCalledTimes(1));
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 31_000 });
+    try {
+      await act(async () => navigate("/"));
+      await screen.findByRole("heading", { name: "Dashboard" });
+      await act(async () => void (await new Promise((r) => setTimeout(r, 100))));
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(api.proposals.counts).toHaveBeenCalledTimes(2);
   });
 });

@@ -24,6 +24,7 @@ import { TooltipProvider } from "@/components/ui/tooltip.js";
 import { useQueryClient } from "@tanstack/react-query";
 import { createQueryClient } from "./store/api/api.js";
 import { proposalKeys, useGetProposalCountQuery } from "./store/api/proposals/proposalApi.js";
+import { notificationKeys } from "./store/api/notifications/notificationApi.js";
 import { useGetScheduleOverviewQuery } from "./store/api/schedule/scheduleApi.js";
 import { useCheckSessionAgain, useGetMeQuery, useLoginMutation, useLogoutMutation } from "./store/api/auth/authApi.js";
 import { StoreProvider } from "./store/StoreProvider.js";
@@ -79,12 +80,12 @@ function AppRoutes({ api }: { api: Api }) {
   const signedIn = state.kind === "signedIn";
   const proposalCount = useGetProposalCountQuery({ enabled: signedIn }).data ?? 0;
   const notifications = useNotifications(signedIn);
-  const reloadNotifications = notifications.reload;
-  // How many suggestions are waiting, for the menu. Read again when the owner moves to another page and the count is over 30 s old.
+  // The waiting count for the menu and the notifications for the bell: read again when the owner moves to another page, but
+  // only if the last read is over 30 s old. A read the new page has already started is joined, not started again.
   const refreshCount = useCallback(() => {
-    void queryClient.refetchQueries({ queryKey: proposalKeys.count(), stale: true });
-    reloadNotifications();
-  }, [queryClient, reloadNotifications]);
+    void queryClient.refetchQueries({ queryKey: proposalKeys.counts(), stale: true }, { cancelRefetch: false });
+    void queryClient.refetchQueries({ queryKey: notificationKeys.list(), stale: true }, { cancelRefetch: false });
+  }, [queryClient]);
   useEffect(() => {
     if (signedIn) refreshCount();
   }, [signedIn, path, refreshCount]);

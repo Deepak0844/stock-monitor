@@ -18,9 +18,9 @@ export const scheduleKeys = {
   runs: (supplierId: string) => [...entityKey(SCHEDULE, supplierId), "runs"] as const,
 };
 
-// Runs start and end on the server by themselves, so every page that opens reads the schedule again; the cached copy shows
-// meanwhile.
-const LIVE = { staleTime: 0 } as const;
+// Runs start and end on the server by themselves, so a page that opens reads the schedule again, showing the cached copy
+// meanwhile. Within 5 s of the last read it is used as it is, so the sidebar and a page opening together read it once.
+const LIVE = { staleTime: 5_000 } as const;
 
 /** How often to read the schedule again: a fixed time, or worked out from what was last read. */
 type RefetchEvery = number | false | ((rows: ScheduleRow[] | undefined) => number | false);
