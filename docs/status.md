@@ -1,6 +1,6 @@
 # Project status
 
-Last updated 2026-11-20.
+Last updated 2026-11-21.
 
 ## Where the app stands
 
@@ -15,12 +15,18 @@ Every module is built, merged to `develop` and tried by the owner on their own s
 | extraction       | Captures a supplier page, stock rules per supplier, stock checks and observations                                 | Done. Tested on the pilot supplier                |
 | scheduling       | Daily automatic checks, quiet hours, two suppliers at once, retries, run history                                  | Done                                              |
 | proposals        | Stock suggestions, approve one by one, safe write to Shopify                                                      | Done                                              |
-| ui-shell         | Tailwind redesign, paging, notifications                                                                          | Done                                              |
+| ui-shell         | Direction D redesign, paging, notifications, light and dark, phone layout                                         | Done                                              |
 
-What is left for the MVP:
+Releases: `master` was last released on 2026-11-21 (PR #217), with the redesign, TanStack Query, the logo, white light mode,
+fewer API calls and check buttons that stay off while a check runs. Nothing after that is released. None of the 2026-11
+releases is deployed to the server yet.
 
-- Release: merge `develop` into `master` (PR #122).
-- README (PR #124), open for review.
+Merged to `develop`, not released:
+
+- Security hardening (PR #218): the API refuses writes a browser sends from another website (`Sec-Fetch-Site`, then
+  `Origin` against `Host`), refuses every request from the browser service's network, a CSV cell starting with a minus is
+  quoted, and CI actions are pinned to commit SHAs. Still open from the same audit: a longer minimum owner password, and
+  cookie tossing (needs the app's own domain and a `__Host-` cookie).
 
 Rule suggestions (branch `feature/rule-suggestions`, 2026-11-19): a "Suggest rules" button on the Stock rules page proposes
 page checks, in-stock and out-of-stock rules from the labelled saved pages, with the evidence for each.
@@ -33,7 +39,8 @@ what a login would use, with a dropdown per part for the owner to correct. Next:
 UI redesign, direction D "Ledger" (2026-11-19 to 2026-11-20): the whole web app restyled to paper and ink, thin rules instead of
 boxed cards, IBM Plex fonts, light and dark, and a designed phone layout. Spec: `docs/superpowers/specs/2026-11-19-ui-redesign-design.md`
 (with HTML mockups). Plan: `docs/superpowers/plans/2026-11-19-ui-redesign.md`. Nine stacked pull requests: #190 (spec and plan),
-#191 to #197 (phases 1 to 7), then phases 8 and 9. Merge them in order; none is merged yet.
+#191 to #197 (phases 1 to 7), then phases 8 and 9. All of it, with two rounds of owner corrections, was merged as PR #199 and
+released in PR #200 (2026-11-20). Light mode later moved to a white page with a grey sidebar (PR #210).
 
 - Phase 1, foundations: D colours (contrast checked by `apps/web/src/theme.test.ts`), IBM Plex, buttons, fields, badges, ruled
   sections and number tiles.
@@ -51,6 +58,15 @@ boxed cards, IBM Plex fonts, light and dark, and a designed phone layout. Spec: 
 
 Two changes made while building, against the spec: the mixed recent-checks sentence says "didn't finish" (runs have no "couldn't
 tell" outcome), and Links has no Recent checks column (no per-link history).
+
+TanStack Query (2026-11-20, PRs #201 to #214): all server data in `apps/web` is read and written through
+`apps/web/src/store/api/<resource>/<resource>Api.ts`, with one shared client in `apps/web/src/store/api/api.ts` (data fresh for
+30 seconds, network and 5xx errors retried twice). A few direct API calls stay on purpose: run polling, rule tests and
+suggestions, page-closing sends and the supplier form cards.
+
+Other work merged since the MVP, each with a design in `docs/superpowers/specs/`: automatic login and stealth, keep-alive,
+email alerts, emailed login codes, built-in stock data, quick reads, rule suggestions, login guessing and Check login page,
+active-only products with automatic Shopify sync, and Proposals by supplier.
 
 Decided against (do not bring them up again unless something changes):
 

@@ -2,7 +2,7 @@
 
 Stock Monitor checks your suppliers' websites for stock and suggests stock changes for your Shopify store. **Nothing changes in Shopify until you approve that one change.**
 
-It is built for one store owner who runs it alone. Everything is set up in the app's screens. You log in to each supplier yourself, in a live browser window inside the app. The app never asks for or stores a supplier password.
+It is built for one store owner who runs it alone. Everything is set up in the app's screens. You log in to each supplier yourself, in a live browser window inside the app. The app stores a supplier's username and password only if you switch on **Automatic login** for that supplier, and then only encrypted.
 
 - [About the app](#about-the-app)
 - [How it works](#how-it-works)
@@ -25,6 +25,14 @@ Today, supplier stock is checked by hand, and an item that is out of stock at th
 3. **Stock rules.** You teach the app how one supplier's page shows stock, using saved copies of real pages. Example: "out of stock when the page says Sold out".
 4. **Checks.** The app visits each link, on a schedule or when you press **Check now**, and records what it saw: in stock (with a quantity when shown), out of stock, page missing, or **Cannot tell**.
 5. **Suggestions.** When the supplier's answer and Shopify's number disagree, a suggestion appears on **Proposals**. You approve, edit or reject each one. Only an approved suggestion is written to Shopify.
+
+Helpers you can switch on (details in [docs/deployment.md](docs/deployment.md)):
+
+- **Keep-alive.** After each check the app saves the supplier's fresh cookies, and it checks the login two hours before each scheduled run, so you can reconnect in time.
+- **Automatic login.** Per supplier. The app logs in with a saved username and password when the saved login has ended. It stops and asks you at a puzzle or a text-message code. It can read a code the supplier emails, from a Gmail you set up for suppliers.
+- **Email alerts.** An email when a supplier needs you to log in, with a link to that supplier in the app.
+- **Automatic Shopify sync.** On a server with an `https://` address, Shopify tells the app when a product or a stock level changes, and the app syncs by itself. Only **active** products are read.
+- **Suggested stock rules.** **Suggest rules** on **Stock rules** proposes rules from the pages you labelled, with the evidence for each.
 
 Rules the app always keeps:
 
@@ -75,11 +83,11 @@ flowchart TD
 ```
 
 1. **Permission.** Read the supplier's terms. If they forbid automated access, ask the supplier first. This decision is yours, not the app's.
-2. **Shopify.** In **Settings**, connect your store, pick the inventory location and press **Sync**. **Products** then lists your variants and SKUs.
+2. **Shopify.** In **Settings**, connect your store, pick the inventory location and press **Sync**. **Products** then lists your active variants and SKUs. On a server with an `https://` address and a client ID and secret, later changes in Shopify sync by themselves.
 3. **Supplier.** On **Suppliers**, add the supplier and press **Connect**. Log in as you normally would, then press **I'm logged in**. You have 15 minutes. The supplier then shows **Connected**. A supplier whose product pages show stock without a login needs none: turn **Needs a login** off on its **Edit** page instead.
-4. **Permission and pause.** On the supplier's **Edit** page, set permission to **Allowed** and set the pause between pages (at least the crawl-delay in the supplier's `robots.txt`).
+4. **Permission and pause.** On the supplier's **Edit** page, set permission to **Allowed** and set the pause between pages (at least the crawl-delay in the supplier's `robots.txt`). Switch on **Automatic login** here too if you want it.
 5. **Links.** Add links on **Links**. Check them once with **Check all links**.
-6. **Stock rules.** On **Stock rules**, capture at least one in-stock page and one out-of-stock page, label them, write the rules, and turn the rules on when every example passes. Most suppliers publish stock in data built into their pages: with **Use the stock data built into the supplier's pages** on (the default), no words need typing.
+6. **Stock rules.** On **Stock rules**, capture at least one in-stock page and one out-of-stock page, label them, write the rules (or press **Suggest rules**), and turn the rules on when every example passes. Most suppliers publish stock in data built into their pages: with **Use the stock data built into the supplier's pages** on (the default), no words need typing.
 7. **Automatic checks.** On the supplier's **Edit** page, turn on automatic checks (every 15 minutes up to daily; 07:00 to 22:00 by default). A supplier that needs no login is read from its page's HTML without the browser whenever that gives a clear answer, so frequent checks stay light on the server.
 
 The full walk-through, with worked examples of stock rules, is in [docs/pilot-flow.md](docs/pilot-flow.md).
@@ -110,12 +118,12 @@ flowchart TD
 | In stock                                 | 0             | Set to the back-in-stock quantity (5 by default, editable) |
 | Cannot tell                              | anything      | Nothing, ever                                              |
 
-Suggestions stay open for 24 hours by default (set in **Settings**). They are approved one at a time. There is no approve-all.
+Suggestions stay open for 24 hours by default (set in **Settings**). Approve one, or tick several and press **Approve**: you confirm once, then each is approved in turn, with the same Shopify check for each. Rejecting offers **Undo** for a few seconds.
 
 ### Day to day
 
-1. **Dashboard:** read **Needs attention**. It shows a supplier to reconnect, stock rules to review after a page changed, or a suggestion that needs a look.
-2. **Proposals:** approve or reject suggestions.
+1. **Dashboard:** read **Needs attention**. It shows a supplier to reconnect, stock rules to review after a page changed, or a suggestion that needs a look. With email alerts on, a login problem also reaches your inbox.
+2. **Proposals:** approve or reject suggestions. Pick a supplier at the top to see only its suggestions.
 3. **Suppliers:** check that each status is **Connected** and the last run looks normal.
 
 ## Run the app
@@ -192,6 +200,9 @@ Running on a server instead of your own computer needs HTTPS and some server har
 | `LOGIN_WINDOW_MODE`               | no       | `controlled` (default) or `plain`. Try `plain` if a supplier's puzzle rejects a login you solved correctly.                                                                                    |
 | `VERIFY_MODE`                     | no       | `headless` (default) or `profile`. `profile` runs checks from a persistent, ordinary-looking Chromium.                                                                                         |
 | `LOGIN_PROFILE`                   | no       | `fresh` (default) or `persistent`. `persistent` keeps one login-window profile per supplier site while the container runs. Needs `LOGIN_WINDOW_MODE=plain`.                                    |
+| `ALERT_EMAIL_FROM`                | no       | The Gmail you use only for suppliers. Alerts are sent from it, and emailed login codes are read from it. Leave the three `ALERT_EMAIL_*` blank to keep alerts off.                             |
+| `ALERT_EMAIL_APP_PASSWORD`        | no       | A Gmail app password for `ALERT_EMAIL_FROM` (Google Account > Security > App passwords).                                                                                                       |
+| `ALERT_EMAIL_TO`                  | no       | Where alerts go, for example your usual email. Set `APP_ORIGIN` too, or the link in the email points at `localhost`.                                                                           |
 | `SHOPIFY_SUPPLIER_NAME_METAFIELD` | no       | The Shopify product field with the supplier's name. Default `custom.supplier_name`.                                                                                                            |
 | `SHOPIFY_SPU_METAFIELD`           | no       | The Shopify product field with the supplier's page address. Default `custom.spu`.                                                                                                              |
 
@@ -311,7 +322,7 @@ Git: `master` holds releases, and `develop` is where work comes together. Work o
 | Folder                                        | What is in it                                                                                      |
 | --------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | `apps/api`                                    | Fastify API. It also serves the built web app.                                                     |
-| `apps/web`                                    | React web app (Vite, Tailwind).                                                                    |
+| `apps/web`                                    | React web app (Vite, Tailwind). Server data goes through TanStack Query, in `src/store/api`.       |
 | `apps/worker`                                 | pg-boss job worker: checks, schedules, Shopify sync and writes.                                    |
 | `services/browser`                            | The isolated browser service: Chromium, the live login window, page capture and the address guard. |
 | `packages/db`                                 | Database schema, migrations (Drizzle) and data access.                                             |
@@ -330,8 +341,9 @@ Git: `master` holds releases, and `develop` is where work comes together. Work o
 
 - **Supplier sites are opened only in the `browser` container.** It is on its own networks, with no database access, no encryption key and no published port. Every capability is dropped except the one Chromium's sandbox needs, the filesystem is read-only, and it has memory, CPU and process limits.
 - **No private addresses.** A proxy inside the browser container refuses private, loopback and cloud-metadata addresses, and checks every redirect.
-- **Supplier passwords are never stored.** You log in by hand. The saved login is encrypted with AES-256-GCM using `APP_ENCRYPTION_KEY`, which is kept outside the database. Saved logins never appear in logs or in the web app.
+- **Supplier passwords are stored only for Automatic login.** Otherwise you log in by hand and only the login session is saved. Saved sessions and saved passwords are encrypted with AES-256-GCM using `APP_ENCRYPTION_KEY`, which is kept outside the database. They never appear in logs or in the web app. They are decrypted in memory while a check runs, so encryption protects the database and backups, not a taken-over server.
 - **The live login window has several locks.** You must be signed in to the app and on an allowed address, and each window needs a one-time token. The window's VNC screen has its own random password.
+- **The API refuses requests from other websites.** A write sent by a browser from another site gets a 403, checked with `Sec-Fetch-Site` and `Origin`. The API also refuses every request from the browser container's network, so a taken-over Chromium cannot reach it.
 - **The audit log cannot be edited.** The API and worker use a database role that can add audit events but cannot change or delete them.
 - **The repository is public.** Never commit `.env`, database dumps, supplier names, supplier addresses or screenshots of supplier pages.
 - Before running on a server, follow "Server hardening" in [docs/deployment.md](docs/deployment.md): HTTPS, firewall, SSH keys only and automatic updates.
