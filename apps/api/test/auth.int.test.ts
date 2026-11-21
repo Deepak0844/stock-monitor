@@ -190,3 +190,41 @@ describe("client address behind a proxy", () => {
     expect((await tryLogin(a, "10.0.0.2")).statusCode).toBe(401);
   });
 });
+
+// The app lives at a shared address (x.sslip.io) where any other x.sslip.io site counts as the same site, so the
+// cookie's SameSite=Lax does not stop that site posting with the owner's cookie. The browser's own headers do.
+describe("writes sent from another website", () => {
+  const signIn = (a: ReturnType<typeof app>, headers: Record<string, string>) =>
+    a.inject({ method: "POST", url: "/api/login", headers: { host: "stock.example.com", ...headers }, payload: { email: EMAIL, password: PASSWORD } });
+
+  it("refuses a sign-in a browser marks as sent from a sibling site", async () => {
+    const res = await signIn(app(), { "sec-fetch-site": "same-site", origin: "https://evil.example.com" });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe("cross_site");
+    expect(cookieOf(res)).toBeUndefined();
+  });
+
+  it("refuses a write a browser marks as cross-site, before the session is even looked at", async () => {
+    const res = await app().inject({ method: "POST", url: "/api/logout", headers: { "sec-fetch-site": "cross-site" } });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("refuses an older browser's write whose Origin is not this host", async () => {
+    const res = await signIn(app(), { origin: "https://evil.example.com" });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("allows the app's own pages, by Sec-Fetch-Site or by an Origin matching the host", async () => {
+    expect((await signIn(app(), { "sec-fetch-site": "same-origin", origin: "https://stock.example.com" })).statusCode).toBe(200);
+    expect((await signIn(app(), { origin: "https://stock.example.com" })).statusCode).toBe(200);
+  });
+
+  it("allows callers that are not browsers, which send neither header", async () => {
+    expect((await signIn(app(), {})).statusCode).toBe(200);
+  });
+
+  it("leaves reads alone", async () => {
+    const res = await app().inject({ method: "GET", url: "/health", headers: { "sec-fetch-site": "cross-site" } });
+    expect(res.statusCode).toBe(200);
+  });
+});

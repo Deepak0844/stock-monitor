@@ -58,4 +58,8 @@ describe("toCsv", () => {
   it("stops a spreadsheet reading a cell as a formula", () => {
     expect(parse(toCsv([["a"], ["=HYPERLINK(1)"], ["+1"], ["@x"], ["-5"]])).rows).toEqual([["'=HYPERLINK(1)"], ["'+1"], ["'@x"], ["-5"]]);
   });
+
+  it("stops a formula that starts with a minus, but leaves a plain negative number alone", () => {
+    expect(parse(toCsv([["a"], ["-2+3+cmd|' /C calc'!A0"], ["-1.5"], ["-"]])).rows).toEqual([["'-2+3+cmd|' /C calc'!A0"], ["-1.5"], ["'-"]]);
+  });
 });
