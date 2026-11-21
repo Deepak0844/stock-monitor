@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
-import { ApiError, type Mapping } from "../api.js";
+import { ApiError, type CheckRun, type Mapping, type ScheduleRow } from "../api.js";
 import { aMapping, aRun, aSupplier, fakeApi } from "../test/fake-api.js";
 import { renderWithStore } from "../test/renderWithStore.js";
 import { MappingsPage } from "./MappingsPage.js";
@@ -73,6 +73,18 @@ const setup = (mappings: Mapping[], over: Parameters<typeof fakeApi>[0] = {}) =>
   renderWithStore(<MappingsPage api={api} />);
   return { api, user: userEvent.setup() };
 };
+
+/** A schedule row for a supplier whose whole run is going now. */
+const runningRow = (run: CheckRun): ScheduleRow => ({
+  supplierId: run.supplierId,
+  status: { state: "running" },
+  intervalMinutes: null,
+  window: null,
+  nextCheckAt: null,
+  run,
+  lastRun: null,
+  recent: { total: 0, finished: 0, failed: 0, stopped: 0, streak: null },
+} as ScheduleRow);
 
 /** The supplier filter is a dropdown with search: open it and pick the supplier by name. */
 const pickSupplier = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
@@ -398,9 +410,10 @@ describe("checking links", () => {
       outOfStock: 0,
       cannotTell: 0,
     });
-    const currentRun = vi.fn().mockResolvedValue(going);
-    setup([blue], { schedule: { currentRun } });
+    const { api } = setup([blue], { schedule: { overview: vi.fn().mockResolvedValue([runningRow(going)]) } });
     expect(await screen.findByText("Checking 1 of 4 links")).toBeInTheDocument();
+    // Read from the schedule already loaded, not asked of each supplier.
+    expect(api.schedule.currentRun).not.toHaveBeenCalled();
     expect(
       screen.getByRole("progressbar", { name: "Stock check for Acme Supply" }),
     ).toBeInTheDocument();
@@ -421,16 +434,14 @@ describe("checking links", () => {
         outOfStock: 0,
         cannotTell: 0,
       });
-      const currentRun = vi.fn().mockResolvedValue(going);
       const runById = vi
         .fn()
         .mockResolvedValueOnce({ ...going, linksDone: 3 })
         .mockResolvedValue({ ...going, linksDone: 4, outcome: "finished" });
-      const { user, api } = setup([blue], { schedule: { currentRun, run: runById } });
+      const { user, api } = setup([blue], { schedule: { overview: vi.fn().mockResolvedValue([runningRow(going)]), run: runById } });
       await screen.findByText("Blue Tee");
       await pickSupplier(user, acme.name);
       expect(await screen.findByText("Checking 1 of 4 links")).toBeInTheDocument();
-      expect(currentRun).toHaveBeenCalledWith(acme.id);
       const listReads = vi.mocked(api.mappings.page).mock.calls.length;
       await act(async () => void vi.advanceTimersByTime(3_100));
       expect(await screen.findByText("Checking 3 of 4 links")).toBeInTheDocument();

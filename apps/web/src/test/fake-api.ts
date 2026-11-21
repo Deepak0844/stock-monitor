@@ -201,6 +201,12 @@ export const aNotification = (over: Partial<AppNotification> = {}): AppNotificat
 });
 
 /** A fake API for screen tests. Every method is a spy with a sensible default. */
+/** Both counts in one call, answered from the fake's own count and waitingBySupplier, so a test can set either. */
+const withCounts = (p: Omit<ProposalsApi, "counts"> & Partial<Pick<ProposalsApi, "counts">>): ProposalsApi => ({
+  counts: vi.fn().mockImplementation(async () => ({ open: await p.count(), bySupplier: await p.waitingBySupplier() })),
+  ...p,
+});
+
 export function fakeApi(
   over: Partial<Omit<Api, "shopify" | "suppliers" | "schedule" | "loginSessions" | "mappings" | "captures" | "recipes" | "stock" | "proposals" | "notifications">> & {
     shopify?: Partial<ShopifyApi>;
@@ -222,7 +228,7 @@ export function fakeApi(
     logout: vi.fn().mockResolvedValue(undefined),
     ...rest,
     notifications: { list: vi.fn().mockResolvedValue([]), markRead: vi.fn().mockResolvedValue(undefined), markAllRead: vi.fn().mockResolvedValue(undefined), ...notifications },
-    proposals: {
+    proposals: withCounts({
       open: vi.fn().mockResolvedValue({ proposals: [], writePermission: { state: "ready", message: "Shopify allows this app to change stock." } }),
       openPage: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 10, writePermission: { state: "ready", message: "Shopify allows this app to change stock." } }),
       history: vi.fn().mockResolvedValue({ proposals: [], hasMore: false, total: 0, page: 1, pageSize: 25 }),
@@ -234,7 +240,7 @@ export function fakeApi(
       settings: vi.fn().mockResolvedValue({ settings: { defaultQuantity: 5, expiryHours: 24 }, writePermission: { state: "ready", message: "Shopify allows this app to change stock." } }),
       saveSettings: vi.fn().mockImplementation(async (settings) => ({ settings, writePermission: { state: "ready", message: "Shopify allows this app to change stock." } })),
       ...proposals,
-    },
+    }),
     loginSessions: {
       start: vi.fn().mockResolvedValue({ loginSession: aLoginSession(), token: "t".repeat(64) }),
       finish: vi.fn().mockResolvedValue({ loginSession: aLoginSession({ status: "finished" }), session: null }),

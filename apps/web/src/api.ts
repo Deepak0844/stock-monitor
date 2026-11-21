@@ -482,6 +482,8 @@ export type ProposalsApi = {
   count(): Promise<number>;
   /** How many suggestions wait for the owner, per supplier id. Suppliers with none are left out. */
   waitingBySupplier(): Promise<Record<string, number>>;
+  /** Both counts from one request: what waits in all, and per supplier id. */
+  counts(): Promise<{ open: number; bySupplier: Record<string, number> }>;
   /** Approves one suggestion. Pass a number to change it first. */
   approve(id: string, quantity?: number): Promise<Proposal>;
   /** `keepalive` sends it even while the page is closing (a delayed reject with Undo). */
@@ -784,6 +786,10 @@ const proposals: ProposalsApi = {
   },
   async count() {
     return (await request<{ open: number }>("/api/proposals/count", { method: "GET" })).open;
+  },
+  async counts() {
+    const body = await request<{ open: number; bySupplier: Record<string, number> }>("/api/proposals/count", { method: "GET" });
+    return { open: body.open, bySupplier: body.bySupplier };
   },
   async waitingBySupplier() {
     return (await request<{ bySupplier: Record<string, number> }>("/api/proposals/count", { method: "GET" })).bySupplier;

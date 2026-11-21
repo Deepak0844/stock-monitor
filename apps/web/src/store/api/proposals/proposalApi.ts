@@ -21,8 +21,6 @@ export const proposalKeys = {
   history: (query: HistoryQuery) => pageKey(PROPOSAL, { tab: "history", ...query }),
   // Both counts come from one address, so they share a prefix and refresh together.
   counts: () => [...allKey(PROPOSAL), "count"] as const,
-  count: () => [...proposalKeys.counts(), "open"] as const,
-  waitingBySupplier: () => [...proposalKeys.counts(), "bySupplier"] as const,
 };
 
 /** While a suggestion waits for Shopify, its list is read again this often. */
@@ -103,16 +101,11 @@ const getProposalHistoryQuery = (api: Api, query: HistoryQuery) =>
     placeholderData: keepPreviousData,
   });
 
-const getProposalCountQuery = (api: Api) =>
+// The menu badge and the supplier filter read the same answer, so it is asked for once and each picks its part.
+const getProposalCountsQuery = (api: Api) =>
   queryOptions({
-    queryKey: proposalKeys.count(),
-    queryFn: () => api.proposals.count(),
-  });
-
-const getProposalWaitingBySupplierQuery = (api: Api) =>
-  queryOptions({
-    queryKey: proposalKeys.waitingBySupplier(),
-    queryFn: () => api.proposals.waitingBySupplier(),
+    queryKey: proposalKeys.counts(),
+    queryFn: () => api.proposals.counts(),
   });
 
 const approveProposalMutation = (api: Api, client: QueryClient) =>
@@ -155,11 +148,11 @@ export function useGetProposalHistoryQuery(query: HistoryQuery, { enabled = true
 }
 
 export function useGetProposalCountQuery({ enabled = true }: { enabled?: boolean } = {}) {
-  return useQuery({ ...getProposalCountQuery(useApi()), enabled });
+  return useQuery({ ...getProposalCountsQuery(useApi()), enabled, select: (c) => c.open });
 }
 
 export function useGetProposalWaitingBySupplierQuery() {
-  return useQuery(getProposalWaitingBySupplierQuery(useApi()));
+  return useQuery({ ...getProposalCountsQuery(useApi()), select: (c) => c.bySupplier });
 }
 
 export function useApproveProposalMutation() {
