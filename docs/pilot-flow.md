@@ -164,8 +164,8 @@ After each stock check the app compares the supplier's answer with Shopify's ava
 | In stock and Shopify above 0, or both out of stock | | Nothing |
 | Cannot tell | | Nothing, ever |
 
-1. Open **Proposals**. Each suggestion shows the product, what the supplier said and when, what Shopify shows, and the suggested number.
-2. **Approve** one suggestion at a time (there is no approve-all), **Edit number** first if you want, or **Reject**. Nothing changes in Shopify until you approve.
+1. Open **Proposals**. Each suggestion shows the product, what the supplier said and when, what Shopify shows, and the suggested number. Pick a supplier at the top to see only its suggestions.
+2. **Approve** a suggestion, **Edit number** first if you want, or **Reject** it (Undo shows for a few seconds). To approve several, tick them and press **Approve**: you confirm once, then each is approved in turn. Nothing changes in Shopify until you approve.
 3. Approve is disabled, with the reason, when Shopify is not tracking the item or the app has no permission to change stock.
 4. Settings holds the back-in-stock quantity and how long a suggestion stays open (24 hours).
 5. If Shopify's number changed after the suggestion was made, nothing is written and the suggestion says "Not applied: Shopify changed".

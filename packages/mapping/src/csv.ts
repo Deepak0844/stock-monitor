@@ -74,7 +74,9 @@ export function parseCsv(input: string, limits: CsvLimits = DEFAULT_LIMITS): Csv
  */
 export function toCsv(rows: string[][]): string {
   const cell = (value: string) => {
-    const safe = /^[=+@\t\r]/.test(value) ? `'${value}` : value;
+    // A leading minus starts a formula too (-2+3+cmd|...), but a plain negative number is only a number.
+    const formula = /^[=+@\t\r]/.test(value) || (value.startsWith("-") && !/^-\d+(\.\d+)?$/.test(value));
+    const safe = formula ? `'${value}` : value;
     return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
   };
   return "﻿" + rows.map((row) => row.map(cell).join(",")).join("\r\n") + "\r\n";

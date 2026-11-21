@@ -23,6 +23,7 @@ import { registerMappingRoutes, type MappingRoutesDeps } from "./routes/mappings
 import { registerSupplierRoutes, type SupplierRoutesDeps } from "./routes/suppliers.js";
 import { AppError, unauthenticated } from "./errors.js";
 import { createLoginLimiter } from "./rate-limit.js";
+import type { ClientGate } from "./browser-network.js";
 import {
   SESSION_COOKIE,
   SESSION_TTL_MS,
@@ -51,6 +52,8 @@ export type AppDeps = {
   webRoot?: string;
   /** Believe X-Forwarded-For for the client address. Off unless a trusted proxy sits in front. */
   trustProxy?: boolean;
+  /** Refuses clients by their real address, before anything else. Set to keep the browser service's network out. */
+  refuseClient?: ClientGate;
   /** Shopify routes. Left out, the API has no /api/shopify routes. */
   shopify?: ShopifyRoutesDeps;
   /** Supplier routes. Left out, the API has no /api/suppliers routes. */
@@ -88,9 +91,28 @@ const isScreenPath = (path: string) => /^\/api\/login-sessions\/[^/]+\/screen$/.
 
 const isApiPath = (path: string) => path === "/api" || path.startsWith("/api/");
 
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+// A write a browser sent from another website. SameSite=Lax is not enough on a shared address such as x.sslip.io, where
+// every other x.sslip.io site is the "same site". Sec-Fetch-Site names the true origin; browsers too old to send it
+// still send Origin on a write, checked against the Host. A caller with neither header is not a browser, so it carries
+// no visitor's cookie.
+const isCrossSiteWrite = (method: string, headers: Record<string, string | string[] | undefined>) => {
+  if (SAFE_METHODS.has(method)) return false;
+  const site = headers["sec-fetch-site"];
+  if (site !== undefined) return site !== "same-origin" && site !== "none";
+  const origin = headers.origin;
+  if (typeof origin !== "string") return false;
+  try {
+    return new URL(origin).host !== headers.host;
+  } catch {
+    return true; // "null" and anything else that is not an address
+  }
+};
+
 const loginBody = z.object({ email: z.string().min(1), password: z.string().min(1) });
 
-export function buildApp({ db, logger, secureCookies = false, webRoot, trustProxy = false, shopify, suppliers, loginSessions, loginScreen, notifications, mappings, captures, recipes, stockChecks, schedule, proposals }: AppDeps) {
+export function buildApp({ db, logger, secureCookies = false, webRoot, trustProxy = false, refuseClient, shopify, suppliers, loginSessions, loginScreen, notifications, mappings, captures, recipes, stockChecks, schedule, proposals }: AppDeps) {
   const app = Fastify({
     loggerInstance: logger,
     genReqId: () => randomUUID(),
@@ -109,11 +131,18 @@ export function buildApp({ db, logger, secureCookies = false, webRoot, trustProx
   app.addHook("onRequest", async (request, reply) => {
     reply.header("x-request-id", request.id);
     reply.headers(SECURITY_HEADERS);
+    // The socket's address, not request.ip: X-Forwarded-For is written by the client.
+    if (refuseClient && (await refuseClient(request.socket.remoteAddress))) {
+      throw new AppError(403, "forbidden", "This address may not use the app.");
+    }
     // HTTPS deployments only (the same switch as the secure cookie): on plain-http localhost it would do harm.
     if (secureCookies) reply.header("strict-transport-security", "max-age=31536000");
     if (!trustProxy && !warnedProxy && request.headers["x-forwarded-for"]) {
       warnedProxy = true;
       request.log.warn("A proxy forwarded this request but TRUST_PROXY is false: sign-in limits treat every visitor as the proxy. Set TRUST_PROXY=true if the proxy overwrites X-Forwarded-For.");
+    }
+    if (isCrossSiteWrite(request.method, request.headers)) {
+      throw new AppError(403, "cross_site", "This request came from another website, so it was refused.");
     }
     // Judge the route the router matched, not the raw address: the router decodes %61 to "a", so /%61pi/me runs /api/me.
     // With no match there is no handler to protect, and the raw path decides only between a 404 and the web app.

@@ -51,7 +51,7 @@ Server-level steps that are not in Compose:
 
 - **Block the browser container from your own network.** On a server, add firewall rules so containers cannot reach private ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) or the cloud metadata address 169.254.169.254, except Docker's own networks. The proxy already refuses them, and this is the second wall behind it.
 - On a Mac used for the pilot, the supplier sees your home internet address. On a server it sees the datacentre's, which some suppliers distrust.
-- A compromised Chromium could reach the API's port over `control` (it would still need a signed-in session). If that worries you, the next step is a firewall rule on the control network.
+- A compromised Chromium could reach the API's port over `control`. The API refuses every request from that network (it finds the network by looking up the browser service's address), so it gets a 403 before any sign-in or session check.
 
 ### Quick reads in the logs
 
@@ -273,6 +273,10 @@ Pick text you can see near the top of every page without opening a menu, like a 
 - **Your details are stored by the app.** Keep the server safe (see "Server hardening").
 - **A failed login never counts as "out of stock".**
 
+## Automatic Shopify sync
+
+The app reads only **active** Shopify products. It can also sync by itself whenever a product or a stock level changes in Shopify. That needs `APP_ORIGIN` set to a public `https://` address and Shopify connected with a **client ID and client secret** (a pasted access token keeps manual Sync only). After deploying, press **Sync** once: that sync signs the app up for Shopify's change messages. From then on changes arrive by themselves, grouped into at most one sync a minute. On a local run at `http://127.0.0.1:3000`, Shopify cannot reach the app, so press **Sync** by hand.
+
 ## Links from Shopify
 
 A Shopify sync can also set each variant's link, from two **product metafields**: the supplier's name and the supplier's page address (the SPU). **Shopify is the one source** for every variant whose product has both.
@@ -438,7 +442,8 @@ The app only ever suggests changing the **available** number at the location you
 ### Using Proposals
 
 - Each suggestion shows the product, what the supplier said and when, what Shopify shows, and the suggested number.
-- **Approve** is one press on one suggestion. There is no "approve all". It then says **Waiting for Shopify** until the result arrives, and the result appears under **History**.
+- **Approve** is one press on one suggestion. It then says **Waiting for Shopify** until the result arrives, and the result appears under **History**. To approve several, tick them and press **Approve**: you confirm once, then each is approved in turn, with the same Shopify check for each.
+- Pick a supplier at the top of **Proposals** to see only its suggestions.
 - **Edit number** lets you type a different whole number first. An edited suggestion is marked in History.
 - **Reject** needs no reason. The same supplier answer will not bring the suggestion back; only a newer check can.
 - A suggestion nobody decides expires (24 hours to start with) and can no longer be approved. The next check makes a new one if it still applies.
