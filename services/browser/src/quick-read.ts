@@ -5,7 +5,7 @@ import { pipeline } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import { explainPage, looksLikeNotFound, type PageClass } from "@stock-monitor/supplier-session";
 import type { Guard } from "./guard.js";
-import { offersFrom, type PageOffer } from "./offers.js";
+import { offersFrom, PRODUCT_SCRIPT, type PageOffer } from "./offers.js";
 import { MAX_TEXT } from "./verify.js";
 
 export type QuickReadOutcome = { result: PageClass; status: number | null; finalUrl: string | null; softNotFound: boolean; offers: PageOffer[]; signal: string; blocked: boolean };
@@ -86,7 +86,7 @@ function factsOf(htmlText: string) {
     if (end === -1) break;
     const body = htmlText.slice(pos, end);
     if (name === "title" && !title) title = body.slice(0, 2000);
-    if (name === "script" && /\btype\s*=\s*["']?application\/ld\+json/i.test(tag) && body.length <= MAX_SCRIPT && scriptChars + body.length <= MAX_SCRIPTS) {
+    if (name === "script" && (/\btype\s*=\s*["']?application\/ld\+json/i.test(tag) || body.includes(PRODUCT_SCRIPT)) && body.length <= MAX_SCRIPT && scriptChars + body.length <= MAX_SCRIPTS) {
       ldScripts.push(body);
       scriptChars += body.length;
     }
