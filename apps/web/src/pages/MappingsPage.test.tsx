@@ -361,15 +361,16 @@ describe("checking links", () => {
     expect(await screen.findByText("Checking…")).toBeInTheDocument();
   });
 
-  it("saves a row's check once, even when Check now is clicked twice", async () => {
-    const { user } = setup([blue]);
+  it("saves a row's check once: Check now cannot be clicked again while it runs", async () => {
+    const { api, user } = setup([blue]);
     const button = await screen.findByRole("button", { name: /^Check now Blue Tee/ });
-    await user.click(button);
-    await waitFor(() => expect(button).toBeEnabled());
     await user.click(button);
     await waitFor(() =>
       expect(JSON.parse(sessionStorage.getItem("pending-row-checks") ?? "[]")).toHaveLength(1),
     );
+    expect(button).toBeDisabled();
+    await user.click(button);
+    expect(api.mappings.checkLink).toHaveBeenCalledTimes(1);
   });
 
   it("drops a saved row check that already finished, without a spinner", async () => {
@@ -503,6 +504,44 @@ describe("progress in the row", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("turns off a row's Check now and Check stock while either check runs, and leaves other rows alone", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    try {
+      const red = aMapping({ id: "77777777-7777-4777-8777-777777777777", productTitle: "Red Tee", variantTitle: "Small" });
+      const answered = { ...blue, linkStatus: "works" as const, lastLinkCheckAt: "2026-11-11T08:00:00Z" };
+      const status = vi
+        .fn()
+        .mockResolvedValueOnce({ linkCheckedAt: null, stockCheckedAt: null })
+        .mockResolvedValue({ linkCheckedAt: "2026-11-11T08:00:00Z", stockCheckedAt: null });
+      const { user } = setup([blue, red], { mappings: { status, get: vi.fn().mockResolvedValue(answered) } });
+      const row = within(await screen.findByRole("row", { name: /Blue Tee/ }));
+      const other = within(screen.getByRole("row", { name: /Red Tee/ }));
+      await user.click(row.getByRole("button", { name: "Check now Blue Tee Large" }));
+      await waitFor(() => expect(row.getByRole("button", { name: "Check now Blue Tee Large" })).toBeDisabled());
+      expect(row.getByRole("button", { name: "Check stock Blue Tee Large" })).toBeDisabled();
+      expect(other.getByRole("button", { name: "Check now Red Tee Small" })).toBeEnabled();
+      expect(other.getByRole("button", { name: "Check stock Red Tee Small" })).toBeEnabled();
+      await act(async () => void vi.advanceTimersByTime(3_100));
+      expect(row.getByRole("button", { name: "Check stock Blue Tee Large" })).toBeDisabled(); // still checking
+      await act(async () => void vi.advanceTimersByTime(3_100));
+      expect(await row.findByText("Works")).toBeInTheDocument();
+      expect(row.getByRole("button", { name: "Check now Blue Tee Large" })).toBeEnabled();
+      expect(row.getByRole("button", { name: "Check stock Blue Tee Large" })).toBeEnabled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("turns a row's buttons on again when a stock check cannot start", async () => {
+    const checkLink = vi.fn().mockRejectedValue(new ApiError("No permission.", 409));
+    const { user } = setup([blue], { stock: { checkLink } });
+    const row = within(await screen.findByRole("row", { name: /Blue Tee/ }));
+    await user.click(row.getByRole("button", { name: "Check stock Blue Tee Large" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("No permission.");
+    expect(row.getByRole("button", { name: "Check now Blue Tee Large" })).toBeEnabled();
+    expect(row.getByRole("button", { name: "Check stock Blue Tee Large" })).toBeEnabled();
   });
 
   it("follows checks of two links at once without one cancelling the other", async () => {

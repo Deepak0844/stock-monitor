@@ -297,6 +297,8 @@ export function MappingsPage({ api }: { api: Api }) {
     }
   }
   const busy = busyKey !== null;
+  // A row's checks wait for its answer before another can be asked for.
+  const checking = (m: Mapping) => waiting.has(`link:${m.id}`) || waiting.has(`stock:${m.id}`);
 
   const label = (m: Mapping) => `${m.productTitle} ${m.variantTitle}`;
   const checkOne = (m: Mapping) =>
@@ -553,7 +555,7 @@ export function MappingsPage({ api }: { api: Api }) {
           <Button
             variant="outline"
             size="sm"
-            disabled={busy || !m.enabled}
+            disabled={busy || !m.enabled || checking(m)}
             loading={busyKey === `link:${m.id}`}
             aria-label={`Check now ${label(m)}`}
             onClick={() => void checkOne(m)}
@@ -563,7 +565,7 @@ export function MappingsPage({ api }: { api: Api }) {
           <Button
             variant="outline"
             size="sm"
-            disabled={busy || !m.enabled}
+            disabled={busy || !m.enabled || checking(m)}
             loading={busyKey === `stock:${m.id}`}
             aria-label={`Check stock ${label(m)}`}
             onClick={() => void checkStock(m)}
