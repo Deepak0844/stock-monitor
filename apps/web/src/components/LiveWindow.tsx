@@ -160,7 +160,11 @@ export function LiveWindow({
           setPhase("live");
           callbacks.current.onConnected();
         });
-        rfb.addEventListener("disconnect", () => fail(connected ? "lost" : "refused"));
+        rfb.addEventListener("disconnect", () => {
+          // Already disconnected: calling disconnect() again on unmount makes noVNC log an error.
+          if (rfbRef.current === rfb) rfbRef.current = null;
+          fail(connected ? "lost" : "refused");
+        });
         rfb.addEventListener("credentialsrequired", () => fail("refused"));
         rfb.addEventListener("securityfailure", () => fail("refused"));
         // Something was copied in the window: put it on this computer's clipboard too, but only right after the owner

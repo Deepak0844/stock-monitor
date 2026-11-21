@@ -205,6 +205,15 @@ describe("after the window was working", () => {
     expect(h.onFailed).toHaveBeenCalledWith("lost");
   });
 
+  it("does not disconnect again a viewer that already disconnected by itself (noVNC logs an error)", async () => {
+    setup();
+    await connectToReady();
+    act(() => FakeRfb.all[0]!.fire("connect"));
+    act(() => FakeRfb.all[0]!.fire("disconnect", { clean: true }));
+    cleanup();
+    expect(FakeRfb.all[0]!.disconnected).toBe(false);
+  });
+
   it("does not report a disconnect the page asked for itself", async () => {
     const h = setup();
     await connectToReady();
