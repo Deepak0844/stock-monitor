@@ -287,6 +287,7 @@ export function SuppliersPage({ api }: { api: Api }) {
               variant="outline"
               size="sm"
               loading={checkingId === s.id}
+              disabled={waiting.has(s.id)} // until the check's answer shows, so it is not asked for twice
               aria-label={`Check connection ${s.name}`}
               onClick={() => void check(s)}
             >

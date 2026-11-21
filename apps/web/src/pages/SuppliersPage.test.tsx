@@ -363,6 +363,24 @@ describe("checking a connection", () => {
     }
   });
 
+  it("keeps Check connection turned off until the check's answer arrives", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    try {
+      const status = vi.fn().mockResolvedValueOnce({ checkedAt: connected.lastSessionCheckAt }).mockResolvedValue({ checkedAt: "2026-11-11T09:00:00.000Z" });
+      const get = vi.fn().mockResolvedValue(aSupplier({ sessionStatus: "connected", lastSessionCheckAt: "2026-11-11T09:00:00.000Z" }));
+      const { user } = setup([connected], { suppliers: { status, get } });
+      const row = within(await screen.findByRole("row", { name: /Acme Supply/ }));
+      await user.click(row.getByRole("button", { name: "Check connection Acme Supply" }));
+      await waitFor(() => expect(row.getByRole("button", { name: "Check connection Acme Supply" })).toBeDisabled());
+      await act(async () => void vi.advanceTimersByTime(3_100));
+      expect(row.getByRole("button", { name: "Check connection Acme Supply" })).toBeDisabled(); // still checking
+      await act(async () => void vi.advanceTimersByTime(3_100));
+      await waitFor(() => expect(row.getByRole("button", { name: "Check connection Acme Supply" })).toBeEnabled());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("takes the Checking… badge away when the check cannot be started", async () => {
     const checkSession = vi.fn().mockRejectedValue(new ApiError("No.", 503));
     const { user } = setup([connected], { suppliers: { checkSession } });
