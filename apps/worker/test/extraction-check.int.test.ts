@@ -747,7 +747,7 @@ describe("a supplier that needs no login", () => {
     await runAll();
     const [note] = await notes().listOpen();
     expect(note?.message).toBe(
-      "Acme's website protection refused the automatic check. It needs no login, so this is not a login problem. It stays paused. Turn on Hide automation on its page, then press Try again on Suppliers, or ask the supplier for a price list or feed.",
+      "Acme's website refused checks from the server. It needs no login, so this is not a login problem: it may be refusing the server's address. It stays paused. Press Try again on Suppliers, or ask the supplier for a price list or feed.",
     );
   });
 });
