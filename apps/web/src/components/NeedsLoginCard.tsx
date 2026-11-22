@@ -12,11 +12,11 @@ export function NeedsLoginCard({ api, supplier, onChange }: { api: Api; supplier
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function toggle(needsLogin: boolean) {
+  async function save(work: () => Promise<unknown>) {
     setBusy(true);
     setError(null);
     try {
-      await api.suppliers.setNeedsLogin(supplier.id, needsLogin);
+      await work();
       onChange();
     } catch (e) {
       setError(message(e));
@@ -24,6 +24,9 @@ export function NeedsLoginCard({ api, supplier, onChange }: { api: Api; supplier
       setBusy(false);
     }
   }
+  const toggle = (needsLogin: boolean) => save(() => api.suppliers.setNeedsLogin(supplier.id, needsLogin));
+  const hideAutomation = (stealth: boolean) => save(() => api.suppliers.setAutoLogin(supplier.id, { stealth }));
+  const granted = supplier.automationPermission === "granted";
 
   return (
     <section aria-labelledby="needs-login-title" className="flex max-w-xl flex-col gap-4">
@@ -51,6 +54,31 @@ export function NeedsLoginCard({ api, supplier, onChange }: { api: Api; supplier
           {supplier.needsLogin ? "Needed" : "Not needed"}
         </label>
       </div>
+      {/* With a login, this switch sits with the automatic login. Without one, a website that refuses checks still needs it. */}
+      {!supplier.needsLogin && (
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-1">
+            <h3 className="text-sm font-semibold">Hide automation (stealth)</h3>
+            <p id="stealth-hint-no-login" className="text-sm text-muted-foreground">
+              Only for suppliers whose website refuses automatic checks. The browser hides the signs that a program is driving it on every visit to this supplier. Some suppliers’ terms forbid automated access, so using this is your call.
+            </p>
+            {!granted && <p className="text-sm font-medium">Needs “Allows automatic checks” to be Yes.</p>}
+          </div>
+          <label className="flex min-h-11 shrink-0 items-center gap-2 text-sm font-semibold">
+            <input
+              type="checkbox"
+              role="switch"
+              aria-label="Hide automation (stealth)"
+              aria-describedby="stealth-hint-no-login"
+              className="size-5 accent-primary disabled:opacity-60"
+              checked={supplier.stealth}
+              disabled={!granted || busy}
+              onChange={(e) => void hideAutomation(e.target.checked)}
+            />
+            {supplier.stealth ? "On" : "Off"}
+          </label>
+        </div>
+      )}
       {error && (
         <Notice kind="error" role="alert">
           {error}
