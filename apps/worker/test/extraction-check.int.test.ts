@@ -692,6 +692,34 @@ describe("a supplier that needs no login", () => {
     expect(await createSupplierSessionRepository(t.appDb).getSealed(acme)).toBeNull();
   });
 
+  it("starts each run of a fresh-browser supplier with a fresh profile on the first page only, and never reads quickly", async () => {
+    await link("v1");
+    await link("v2");
+    await turnOn(builtIn);
+    await noLogin();
+    await suppliers().setAutoLogin(acme, { freshProfile: true });
+    expect(await runAll()).toMatchObject({ kind: "done", checked: 2 });
+    expect(requests("/capture").map((r) => (r.body as { freshProfile?: boolean }).freshProfile)).toEqual([true, undefined]);
+    expect(requests("/quick-read")).toHaveLength(0);
+  });
+
+  it("asks for a fresh profile on a single check of a fresh-browser supplier", async () => {
+    const id = await link("v1");
+    await turnOn();
+    await noLogin();
+    await suppliers().setAutoLogin(acme, { freshProfile: true });
+    await checkStock(deps(), id);
+    expect((requests("/capture")[0]?.body as { freshProfile?: boolean }).freshProfile).toBe(true);
+  });
+
+  it("never asks for a fresh profile once the supplier needs a login again", async () => {
+    const id = await link("v1");
+    await turnOn();
+    await suppliers().setAutoLogin(acme, { freshProfile: true });
+    await checkStock(deps(), id);
+    expect((requests("/capture")[0]?.body as { freshProfile?: boolean }).freshProfile).toBeUndefined();
+  });
+
   it("never keeps a session the browser sent back", async () => {
     const id = await link("v1");
     await turnOn();
