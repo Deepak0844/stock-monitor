@@ -119,6 +119,18 @@ describe("POST /api/suppliers", () => {
     expect(event).toMatchObject({ actor_user_id: userId, entity_type: "supplier", entity_id: res.body.supplier.id, details: { name: "Acme Supply" } });
   });
 
+  it("adds a supplier that needs no login when asked, with the shorter pause between pages", async () => {
+    const res = await call("POST", "/api/suppliers", { ...acme, needsLogin: false });
+    expect(res.status).toBe(201);
+    expect(res.body.supplier).toMatchObject({ needsLogin: false, checkPauseSeconds: 3 });
+    expect((await call("POST", "/api/suppliers", { ...acme, name: "Globex", needsLogin: true })).body.supplier).toMatchObject({ needsLogin: true });
+  });
+
+  it("refuses a needsLogin that is not a yes or no, and adds nothing", async () => {
+    expect((await call("POST", "/api/suppliers", { ...acme, needsLogin: "no" })).status).toBe(400);
+    expect(await count()).toBe(0);
+  });
+
   it("cleans the address it saves", async () => {
     const res = await call("POST", "/api/suppliers", { name: "Acme", websiteUrl: "  https://ACME.example#top " });
     expect(res.body.supplier.websiteUrl).toBe("https://acme.example/");

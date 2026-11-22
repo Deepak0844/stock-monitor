@@ -137,11 +137,22 @@ export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit
   });
 
   app.post("/api/suppliers", async (request, reply) => {
-    const values = (await checked(request.body, false)) as SupplierInput;
+    // Whether its pages need a login can be chosen when adding. It is applied after the create, by the same rule as a later change.
+    const body = request.body;
+    let needsLogin: boolean | undefined;
+    let rest: unknown = body;
+    if (typeof body === "object" && body !== null && !Array.isArray(body) && "needsLogin" in body) {
+      const { needsLogin: given, ...others } = body as Record<string, unknown>;
+      if (typeof given !== "boolean") throw new AppError(400, "invalid_input", "Check the supplier details and try again.");
+      needsLogin = given;
+      rest = others;
+    }
+    const values = (await checked(rest, false)) as SupplierInput;
     const result = await repo.create(values);
     if (!result.ok) throw taken(result.reason);
-    await record(request, "supplier.created", result.supplier.id, { name: result.supplier.name });
-    return reply.status(201).send({ supplier: await decorate(result.supplier) });
+    const supplier = needsLogin === false ? ((await repo.setNeedsLogin(result.supplier.id, false)) ?? result.supplier) : result.supplier;
+    await record(request, "supplier.created", supplier.id, { name: supplier.name, ...(needsLogin === false ? { needsLogin: false } : {}) });
+    return reply.status(201).send({ supplier: await decorate(supplier) });
   });
 
   // Only when the last connection check finished. The page asks this while a check goes, then reads the supplier once.
