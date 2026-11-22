@@ -67,13 +67,15 @@ describe.skipIf(!linux)("link and stock checks run in the profile browser", () =
     }
   });
   it("keeps the profile for a plain capture, and starts from an empty one when a fresh profile is asked for", async () => {
-    const state = await login();
-    await post("/capture", "/account", state);
+    // As the worker does: each check sends the session the last one returned, so a plain check keeps the profile.
+    type Answer = { result: string; state?: unknown };
+    const first = (await post("/capture", "/account", await login())) as Answer;
     const planted = join(profileDirFor(dir, `${site.url}/account`), "planted");
     writeFileSync(planted, "x");
-    expect((await post("/capture", "/account", state)).result).toBe("ok");
+    const second = (await post("/capture", "/account", first.state)) as Answer;
+    expect(second.result).toBe("ok");
     expect(existsSync(planted)).toBe(true);
-    expect((await post("/capture", "/account", state, { freshProfile: true })).result).toBe("ok");
+    expect((await post("/capture", "/account", second.state, { freshProfile: true })).result).toBe("ok");
     expect(existsSync(planted)).toBe(false);
   });
   it("capture describes the page", async () => {
