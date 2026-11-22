@@ -14,7 +14,8 @@ afterEach(cleanup);
 const acme = aSupplier();
 const globex = aSupplier({ id: "22222222-2222-4222-8222-222222222222", name: "Globex", websiteUrl: "https://globex.example/login" });
 
-const statusOfRow = (s: Supplier) => (!s.enabled && s.pausedReason !== "session" ? "paused" : !s.needsLogin ? "no_login" : s.sessionStatus);
+const refusedNoLogin = (s: Supplier) => !s.needsLogin && s.pausedReason === "session" && s.sessionStatus === "blocked";
+const statusOfRow = (s: Supplier) => (!s.enabled && s.pausedReason !== "session" ? "paused" : !s.needsLogin && !refusedNoLogin(s) ? "no_login" : s.sessionStatus);
 /** A tiny fake server: filters, then slices, like the real one. */
 const serve = (getAll: () => Supplier[]) =>
   vi.fn().mockImplementation(async (q: { page: number; pageSize: number; search?: string; status?: string }) => {
@@ -484,6 +485,28 @@ describe("a supplier that needs no login", () => {
     expect(within(rowOf("Acme Supply")).getByText("No login needed")).toBeInTheDocument();
     expect(within(rowOf("Acme Supply")).queryByRole("link", { name: "Connect Acme Supply" })).toBeNull();
     expect(within(rowOf("Acme Supply")).queryByRole("button", { name: "Check connection Acme Supply" })).toBeNull();
+    expect(within(rowOf("Acme Supply")).queryByRole("button", { name: "Try again Acme Supply" })).toBeNull();
+  });
+
+  it("says Blocked when its website refused the check, and offers Try again", async () => {
+    const refused = aSupplier({ needsLogin: false, enabled: false, pausedReason: "session", sessionStatus: "blocked" });
+    const { api, user } = setup([refused], { suppliers: { setNeedsLogin: vi.fn().mockImplementation(async () => aSupplier({ needsLogin: false })) } });
+    await screen.findByRole("row", { name: /Acme Supply/ });
+    expect(within(rowOf("Acme Supply")).getByText("Blocked")).toBeInTheDocument();
+    expect(within(rowOf("Acme Supply")).queryByRole("link", { name: "Reconnect supplier Acme Supply" })).toBeNull();
+    await user.click(within(rowOf("Acme Supply")).getByRole("button", { name: "Try again Acme Supply" }));
+    // Turning the login off again is what lifts the app's pause and clears the notice.
+    expect(api.suppliers.setNeedsLogin).toHaveBeenCalledWith(refused.id, false);
+    expect(await within(rowOf("Acme Supply")).findByText("No login needed")).toBeInTheDocument();
+  });
+
+  it("files a refused one under the Blocked filter", async () => {
+    const refused = aSupplier({ id: "6", name: "Evans", needsLogin: false, enabled: false, pausedReason: "session", sessionStatus: "blocked" });
+    const { user } = setup([acme, refused]);
+    await screen.findByRole("row", { name: /Evans/ });
+    await user.selectOptions(screen.getByRole("combobox", { name: "Filter by status" }), "blocked");
+    await waitFor(() => expect(screen.queryByRole("row", { name: /Acme Supply/ })).toBeNull());
+    expect(screen.getByRole("row", { name: /Evans/ })).toBeInTheDocument();
   });
 });
 

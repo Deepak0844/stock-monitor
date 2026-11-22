@@ -366,6 +366,18 @@ describe("supplier repository: turning the login off", () => {
     expect((await repo().page({ page: 1, pageSize: 10, status: "no_login" })).items).toEqual([]);
     expect((await repo().page({ page: 1, pageSize: 10, status: "paused" })).items.map((s) => s.id)).toEqual([g.id]);
   });
+
+  it("files a supplier that needs no login under Blocked once its website refused a check", async () => {
+    const g = await made(globex);
+    await repo().setNeedsLogin(g.id, false);
+    await repo().markNeedsAttention(g.id, "blocked");
+    expect((await repo().page({ page: 1, pageSize: 10, status: "blocked" })).items.map((s) => s.id)).toEqual([g.id]);
+    expect((await repo().page({ page: 1, pageSize: 10, status: "no_login" })).items).toEqual([]);
+    // Try again lifts the pause: it is a supplier that needs no login again.
+    await repo().setNeedsLogin(g.id, false);
+    expect((await repo().page({ page: 1, pageSize: 10, status: "no_login" })).items.map((s) => s.id)).toEqual([g.id]);
+    expect((await repo().page({ page: 1, pageSize: 10, status: "blocked" })).items).toEqual([]);
+  });
 });
 
 describe("supplier repository: quick checks", () => {

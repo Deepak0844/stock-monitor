@@ -738,6 +738,18 @@ describe("a supplier that needs no login", () => {
     const [note] = await notes().listOpen();
     expect(note?.message).toBe("Acme showed a login page, but it is set to need no login. Open one of its links to see why, or turn Needs a login back on.");
   });
+
+  it("says a block on a supplier set to need no login is not a login problem", async () => {
+    await link("v1");
+    await turnOn();
+    await noLogin();
+    fake.behaviour.page = { ...normal, result: "blocked" };
+    await runAll();
+    const [note] = await notes().listOpen();
+    expect(note?.message).toBe(
+      "Acme's website refused checks from the server. It needs no login, so this is not a login problem: it may be refusing the server's address. It stays paused. Press Try again on Suppliers, or ask the supplier for a price list or feed.",
+    );
+  });
 });
 
 describe("a supplier that needs no login and has no rules turned on", () => {
