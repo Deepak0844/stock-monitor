@@ -405,6 +405,13 @@ describe("supplier repository: quick checks", () => {
     await t.pool.query("update suppliers set check_pause_seconds = 7 where id = $1", [g.id]);
     expect((await repo().setNeedsLogin(g.id, false))?.checkPauseSeconds).toBe(7);
   });
+
+  it("keeps a 10 second pause the owner set on a supplier that already needs no login (Try again)", async () => {
+    const s = await made();
+    await repo().setNeedsLogin(s.id, false);
+    await t.pool.query("update suppliers set check_pause_seconds = 10 where id = $1", [s.id]);
+    expect((await repo().setNeedsLogin(s.id, false))?.checkPauseSeconds).toBe(10);
+  });
 });
 
 describe("supplier repository: name in Shopify", () => {
