@@ -296,8 +296,9 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
         needsLogin,
         enabled: sql`case when ${suppliers.pausedReason} = 'session' then true else ${suppliers.enabled} end`,
         pausedReason: sql`case when ${suppliers.pausedReason} = 'session' then null else ${suppliers.pausedReason} end`,
-        // A public page can be read gently but sooner: the app's default pause of 10 s becomes 3 s. A pause the owner set stays.
-        checkPauseSeconds: sql`case when ${suppliers.checkPauseSeconds} = 10 then 3 else ${suppliers.checkPauseSeconds} end`,
+        // A public page can be read gently but sooner: the app's default pause of 10 s becomes 3 s, only when the login is
+        // turned off now. A supplier that already needs no login (Try again) keeps its pause, so a 10 the owner set stays.
+        checkPauseSeconds: sql`case when ${suppliers.needsLogin} and ${suppliers.checkPauseSeconds} = 10 then 3 else ${suppliers.checkPauseSeconds} end`,
       });
       if (row) {
         await db
