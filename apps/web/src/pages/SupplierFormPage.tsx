@@ -248,6 +248,8 @@ function SupplierForm({ supplier }: { supplier: Supplier | null }) {
   const [shopifyName, setShopifyName] = useState(supplier?.shopifyName ?? "");
   const [websiteUrl, setWebsiteUrl] = useState(supplier?.websiteUrl ?? "");
   const [loginUrl, setLoginUrl] = useState(supplier?.loginUrl ?? "");
+  // Only asked when adding: a saved supplier changes it on its Login card.
+  const [needsLogin, setNeedsLogin] = useState(true);
   const [errors, setErrors] = useState<Errors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -305,7 +307,9 @@ function SupplierForm({ supplier }: { supplier: Supplier | null }) {
 
     setSaving(true);
     try {
-      await (supplier ? updateSupplier.mutateAsync({ id: supplier.id, patch }) : createSupplier.mutateAsync(values));
+      // With no login, the login address stays on screen (disabled) but is not saved.
+      const created = needsLogin ? values : { ...values, loginUrl: null, needsLogin: false };
+      await (supplier ? updateSupplier.mutateAsync({ id: supplier.id, patch }) : createSupplier.mutateAsync(created));
       navigate("/suppliers");
     } catch (error) {
       const field = error instanceof ApiError && error.code ? FIELD_OF_CODE[error.code] : undefined;
@@ -320,7 +324,7 @@ function SupplierForm({ supplier }: { supplier: Supplier | null }) {
     label: string,
     value: string,
     set: (v: string) => void,
-    opts: { hint: string; type?: string; inputMode?: "numeric" | "url" },
+    opts: { hint: string; type?: string; inputMode?: "numeric" | "url"; disabled?: boolean },
   ) => {
     const error = errors[key];
     return (
@@ -339,6 +343,7 @@ function SupplierForm({ supplier }: { supplier: Supplier | null }) {
           autoCapitalize="none"
           spellCheck={false}
           value={value}
+          disabled={opts.disabled}
           onChange={(e) => set(e.target.value)}
           aria-invalid={error ? "true" : undefined}
           aria-describedby={`${key}-hint${error ? ` ${key}-error` : ""}`}
@@ -359,9 +364,32 @@ function SupplierForm({ supplier }: { supplier: Supplier | null }) {
         hint: "Starting with https://, like https://shop.example.com.",
         inputMode: "url",
       })}
+      {!supplier && (
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-1">
+            <span className="text-sm font-medium">Needs a login</span>
+            <p id="new-needs-login-hint" className="text-sm text-muted-foreground">
+              Off when the supplier's product pages show stock without logging in. You can change it later on the supplier's page.
+            </p>
+          </div>
+          <label className="flex min-h-11 shrink-0 items-center gap-2 text-sm font-semibold">
+            <input
+              type="checkbox"
+              role="switch"
+              aria-label="Needs a login"
+              aria-describedby="new-needs-login-hint"
+              className="size-5 accent-primary"
+              checked={needsLogin}
+              onChange={(e) => setNeedsLogin(e.target.checked)}
+            />
+            {needsLogin ? "Needed" : "Not needed"}
+          </label>
+        </div>
+      )}
       {field("loginUrl", "Login address (optional)", loginUrl, setLoginUrl, {
         hint: "Where the supplier's login page is, if it is not the website above. You log in yourself: this app never asks for or stores a supplier password.",
         inputMode: "url",
+        disabled: !supplier && !needsLogin,
       })}
 
       {formError && (

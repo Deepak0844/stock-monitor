@@ -84,12 +84,13 @@ function parse(raw: string): (VerifyRequest & { picture?: boolean; stealth?: boo
     return null;
   }
   if (typeof body !== "object" || body === null || Array.isArray(body)) return null;
-  const { url, loginUrl, state, picture, loggedInMarker, stealth, publicPage } = body as Record<string, unknown>;
+  const { url, loginUrl, state, picture, loggedInMarker, stealth, publicPage, freshProfile } = body as Record<string, unknown>;
   if (!isWebUrl(url) || !isSessionState(state)) return null;
   if (loginUrl !== undefined && (typeof loginUrl !== "string" || loginUrl.length > MAX_URL)) return null;
   if (picture !== undefined && typeof picture !== "boolean") return null;
   if (stealth !== undefined && typeof stealth !== "boolean") return null;
   if (publicPage !== undefined && typeof publicPage !== "boolean") return null;
+  if (freshProfile !== undefined && typeof freshProfile !== "boolean") return null;
   if (loggedInMarker !== undefined && !isText(loggedInMarker)) return null;
   return {
     url,
@@ -99,6 +100,7 @@ function parse(raw: string): (VerifyRequest & { picture?: boolean; stealth?: boo
     ...(stealth === undefined ? {} : { stealth }),
     ...(loggedInMarker === undefined ? {} : { loggedInMarker }),
     ...(publicPage === undefined ? {} : { publicPage }),
+    ...(freshProfile === undefined ? {} : { freshProfile }),
   };
 }
 

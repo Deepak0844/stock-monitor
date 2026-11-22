@@ -293,6 +293,15 @@ describe("supplier repository: automatic login", () => {
     await repo().setPermission(s.id, { status: "not_granted", note: null });
     expect(await repo().get(s.id)).toMatchObject({ autoLogin: false, stealth: false });
   });
+
+  it("turns fresh browser on only with permission, and off when permission goes", async () => {
+    const s = await made();
+    expect(await repo().setAutoLogin(s.id, { freshProfile: true })).toEqual({ ok: false, reason: "not_granted" });
+    await grant(s.id);
+    expect(await repo().setAutoLogin(s.id, { freshProfile: true })).toMatchObject({ ok: true, supplier: { freshProfile: true } });
+    await repo().setPermission(s.id, { status: "unknown", note: null });
+    expect(await repo().get(s.id)).toMatchObject({ freshProfile: false });
+  });
 });
 
 describe("supplier repository: keep login alive", () => {
@@ -365,6 +374,18 @@ describe("supplier repository: turning the login off", () => {
     await repo().pause(g.id);
     expect((await repo().page({ page: 1, pageSize: 10, status: "no_login" })).items).toEqual([]);
     expect((await repo().page({ page: 1, pageSize: 10, status: "paused" })).items.map((s) => s.id)).toEqual([g.id]);
+  });
+
+  it("files a supplier that needs no login under Blocked once its website refused a check", async () => {
+    const g = await made(globex);
+    await repo().setNeedsLogin(g.id, false);
+    await repo().markNeedsAttention(g.id, "blocked");
+    expect((await repo().page({ page: 1, pageSize: 10, status: "blocked" })).items.map((s) => s.id)).toEqual([g.id]);
+    expect((await repo().page({ page: 1, pageSize: 10, status: "no_login" })).items).toEqual([]);
+    // Try again lifts the pause: it is a supplier that needs no login again.
+    await repo().setNeedsLogin(g.id, false);
+    expect((await repo().page({ page: 1, pageSize: 10, status: "no_login" })).items.map((s) => s.id)).toEqual([g.id]);
+    expect((await repo().page({ page: 1, pageSize: 10, status: "blocked" })).items).toEqual([]);
   });
 });
 

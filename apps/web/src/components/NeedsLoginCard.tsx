@@ -12,11 +12,11 @@ export function NeedsLoginCard({ api, supplier, onChange }: { api: Api; supplier
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function toggle(needsLogin: boolean) {
+  async function save(work: () => Promise<unknown>) {
     setBusy(true);
     setError(null);
     try {
-      await api.suppliers.setNeedsLogin(supplier.id, needsLogin);
+      await work();
       onChange();
     } catch (e) {
       setError(message(e));
@@ -24,6 +24,9 @@ export function NeedsLoginCard({ api, supplier, onChange }: { api: Api; supplier
       setBusy(false);
     }
   }
+  const toggle = (needsLogin: boolean) => save(() => api.suppliers.setNeedsLogin(supplier.id, needsLogin));
+  const setFresh = (freshProfile: boolean) => save(() => api.suppliers.setAutoLogin(supplier.id, { freshProfile }));
+  const granted = supplier.automationPermission === "granted";
 
   return (
     <section aria-labelledby="needs-login-title" className="flex max-w-xl flex-col gap-4">
@@ -51,6 +54,30 @@ export function NeedsLoginCard({ api, supplier, onChange }: { api: Api; supplier
           {supplier.needsLogin ? "Needed" : "Not needed"}
         </label>
       </div>
+      {!supplier.needsLogin && (
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-1">
+            <h3 className="text-sm font-semibold">Fresh browser for each run</h3>
+            <p id="fresh-profile-hint" className="text-sm text-muted-foreground">
+              Starts every check of this supplier with a browser that keeps nothing from earlier visits. For a website that works on the first check and refuses the next ones. The supplier’s terms may not allow automated checks, so using this is your call.
+            </p>
+            {!granted && <p className="text-sm font-medium">Needs “Allows automatic checks” to be Yes.</p>}
+          </div>
+          <label className="flex min-h-11 shrink-0 items-center gap-2 text-sm font-semibold">
+            <input
+              type="checkbox"
+              role="switch"
+              aria-label="Fresh browser for each run"
+              aria-describedby="fresh-profile-hint"
+              className="size-5 accent-primary disabled:opacity-60"
+              checked={supplier.freshProfile}
+              disabled={!granted || busy}
+              onChange={(e) => void setFresh(e.target.checked)}
+            />
+            {supplier.freshProfile ? "On" : "Off"}
+          </label>
+        </div>
+      )}
       {error && (
         <Notice kind="error" role="alert">
           {error}

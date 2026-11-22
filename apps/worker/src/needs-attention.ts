@@ -38,9 +38,12 @@ export async function raiseNeedsAttention(
 ): Promise<void> {
   await deps.suppliers.markNeedsAttention(supplier.id, STATUS[result]);
   // "Log in again" makes no sense for a supplier set to need no login: the setting may be wrong, so say that.
+  // A refusal on such a supplier is never a login, so "reconnect" is no help: often the site refuses the server's address.
   const message =
     supplier.needsLogin === false && result === "login_required"
       ? `${supplier.name} showed a login page, but it is set to need no login. Open one of its links to see why, or turn Needs a login back on.`
-      : MESSAGES[result](supplier.name);
+      : supplier.needsLogin === false && (result === "blocked" || result === "captcha")
+        ? `${supplier.name}'s website refused checks from the server. It needs no login, so this is not a login problem: it may be refusing the server's address. It stays paused. Press Try again on Suppliers, or ask the supplier for a price list or feed.`
+        : MESSAGES[result](supplier.name);
   await deps.notifications.raise({ kind: "supplier_needs_reconnect", supplierId: supplier.id, message, reason: result });
 }

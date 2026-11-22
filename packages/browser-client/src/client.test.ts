@@ -160,6 +160,14 @@ describe("verify", () => {
     expect(fake.requests.map((r) => (r.body as Record<string, unknown>).publicPage)).toEqual([true, true, undefined]);
   });
 
+  it("asks for a fresh profile on check-page and capture only when asked", async () => {
+    const url = "https://a.example/";
+    await client().checkPage({ url, state, freshProfile: true });
+    await client().capture({ url, state, freshProfile: true });
+    await client().capture({ url, state, freshProfile: false });
+    expect(fake.requests.map((r) => (r.body as Record<string, unknown>).freshProfile)).toEqual([true, true, undefined]);
+  });
+
   it("sends the logged-in marker on verify, check-page and capture when there is one, and leaves it out when there is not", async () => {
     const url = "https://a.example/";
     await client().verify({ url, state, loggedInMarker: "Log out" });

@@ -97,6 +97,7 @@ export const aSupplier = (over: Partial<Supplier> = {}): Supplier => ({
   shopifyName: null,
   autoLogin: false,
   stealth: false,
+  freshProfile: false,
   loginSelectors: null,
   loggedInMarker: null,
   codeEmailFrom: null,

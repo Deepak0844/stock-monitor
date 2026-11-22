@@ -33,6 +33,8 @@ export type SupplierRecord = {
   failureCount: number;
   autoLogin: boolean;
   stealth: boolean;
+  /** Every run and one-page visit starts from an empty browser profile (only used when no login is needed). */
+  freshProfile: boolean;
   /** False: the product pages show stock without a login, so checks use no session, login or keep-alive. */
   needsLogin: boolean;
   loginSelectors: LoginSelectors | null;
@@ -65,6 +67,8 @@ export type SupplierPageQuery = { page: number; pageSize: number; search?: strin
 const escapeLike = (text: string) => text.replace(/[\\%_]/g, (c) => `\\${c}`);
 
 const showsAsPaused = sql`(not ${suppliers.enabled} and ${suppliers.pausedReason} is distinct from 'session')`;
+// A supplier that needs no login, paused by the app because its website refused a check: filed under Blocked, not No login.
+const refusedNoLogin = sql`(not ${suppliers.needsLogin} and ${suppliers.pausedReason} is not distinct from 'session' and ${suppliers.sessionStatus} = 'blocked')`;
 
 // drizzle wraps the driver error, so the PostgreSQL code is on the error or on its cause.
 const isNameTaken = (error: unknown) => {
@@ -115,8 +119,8 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
       const where = and(
         like ? or(ilike(suppliers.name, like), ilike(suppliers.websiteUrl, like)) : undefined,
         query.status === "paused" ? showsAsPaused : undefined,
-        query.status === "no_login" ? and(sql`not ${showsAsPaused}`, sql`not ${suppliers.needsLogin}`) : undefined,
-        query.status && query.status !== "paused" && query.status !== "no_login" ? and(sql`not ${showsAsPaused}`, suppliers.needsLogin, eq(suppliers.sessionStatus, query.status)) : undefined,
+        query.status === "no_login" ? and(sql`not ${showsAsPaused}`, sql`not ${suppliers.needsLogin}`, sql`not ${refusedNoLogin}`) : undefined,
+        query.status && query.status !== "paused" && query.status !== "no_login" ? and(sql`not ${showsAsPaused}`, or(suppliers.needsLogin, refusedNoLogin), eq(suppliers.sessionStatus, query.status)) : undefined,
       );
       const items = (await db
         .select()
@@ -196,19 +200,19 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
         automationPermission: input.status,
         permissionNote: input.note,
         permissionSetAt: sql`now()`,
-        // Both need permission, so losing it turns them off in the same statement.
-        ...(input.status !== "granted" ? { autoLogin: false, stealth: false } : {}),
+        // All three need permission, so losing it turns them off in the same statement.
+        ...(input.status !== "granted" ? { autoLogin: false, stealth: false, freshProfile: false } : {}),
         ...(input.pauseSeconds !== undefined ? { checkPauseSeconds: input.pauseSeconds } : {}),
       }),
 
     /** Changes the automatic login settings. Turning it on needs `granted` permission and saved credentials. */
     async setAutoLogin(
       id: string,
-      patch: { autoLogin?: boolean; stealth?: boolean; loginSelectors?: LoginSelectors | null; loggedInMarker?: string | null; codeEmailFrom?: string | null },
+      patch: { autoLogin?: boolean; stealth?: boolean; freshProfile?: boolean; loginSelectors?: LoginSelectors | null; loggedInMarker?: string | null; codeEmailFrom?: string | null },
     ): Promise<SupplierWrite | { ok: false; reason: "not_granted" | "no_credentials" }> {
       const current = await one(id);
       if (!current) return { ok: false, reason: "not_found" };
-      if (patch.autoLogin || patch.stealth) {
+      if (patch.autoLogin || patch.stealth || patch.freshProfile) {
         if (current.automationPermission !== "granted") return { ok: false, reason: "not_granted" };
       }
       if (patch.autoLogin) {
@@ -218,6 +222,7 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
       const row = await set(id, {
         ...(patch.autoLogin !== undefined ? { autoLogin: patch.autoLogin } : {}),
         ...(patch.stealth !== undefined ? { stealth: patch.stealth } : {}),
+        ...(patch.freshProfile !== undefined ? { freshProfile: patch.freshProfile } : {}),
         ...(patch.loginSelectors !== undefined ? { loginSelectors: patch.loginSelectors } : {}),
         ...(patch.loggedInMarker !== undefined ? { loggedInMarker: patch.loggedInMarker } : {}),
         ...(patch.codeEmailFrom !== undefined ? { codeEmailFrom: patch.codeEmailFrom } : {}),

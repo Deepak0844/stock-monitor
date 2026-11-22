@@ -70,7 +70,7 @@ const message = (e: unknown) =>
  */
 export function statusOf(s: Supplier): { words: string; tone: "success" | "warning" | "neutral" } {
   if (!s.enabled && s.pausedReason !== "session") return { words: "Paused", tone: "neutral" };
-  if (!s.needsLogin) return { words: "No login needed", tone: "success" };
+  if (!s.needsLogin && !refusedNoLogin(s)) return { words: "No login needed", tone: "success" };
   switch (s.sessionStatus) {
     case "connected":
       return { words: "Connected", tone: "success" };
@@ -83,11 +83,14 @@ export function statusOf(s: Supplier): { words: string; tone: "success" | "warni
   }
 }
 
+/** A supplier that needs no login, paused by the app because its website refused a check. Shown and filed as Blocked. */
+const refusedNoLogin = (s: Supplier) => !s.needsLogin && s.pausedReason === "session" && s.sessionStatus === "blocked";
+
 /** The one status key the filter and the tiles use: paused wins, as `statusOf` does. */
 const keyOf = (s: Supplier): SupplierStatusFilter =>
   !s.enabled && s.pausedReason !== "session"
     ? "paused"
-    : !s.needsLogin
+    : !s.needsLogin && !refusedNoLogin(s)
       ? "no_login"
       : s.sessionStatus;
 
@@ -180,6 +183,12 @@ export function SuppliersPage({ api }: { api: Api }) {
     act(async () =>
       void (await setEnabled.mutateAsync({ supplier: s, enabled: !s.enabled })),
     );
+  // Setting "no login needed" again lifts the app's pause and clears its notice, so the next scheduled check runs.
+  const tryAgain = (s: Supplier) =>
+    act(async () => {
+      replace(await api.suppliers.setNeedsLogin(s.id, false));
+      toast(`${s.name} will be checked again.`);
+    });
   const check = (s: Supplier) =>
     act(async () => {
       setCheckingId(s.id);
@@ -282,7 +291,13 @@ export function SuppliersPage({ api }: { api: Api }) {
       className: "text-right",
       cell: (s) => (
         <div className="flex items-center justify-end gap-2">
-          {!s.needsLogin ? null : s.sessionStatus === "connected" ? (
+          {!s.needsLogin ? (
+            refusedNoLogin(s) && (
+              <Button variant="outline" size="sm" aria-label={`Try again ${s.name}`} onClick={() => void tryAgain(s)}>
+                Try again
+              </Button>
+            )
+          ) : s.sessionStatus === "connected" ? (
             <Button
               variant="outline"
               size="sm"
