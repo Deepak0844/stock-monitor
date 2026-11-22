@@ -328,10 +328,13 @@ describe("through the real queue", () => {
     await fresh();
     queue = createQueue({ connectionString: t.appUrl });
     await queue.start();
+    // Slots are whole minutes of the database clock: sends that straddle a minute rightly make three jobs, so start clear of one.
+    const { rows } = await t.pool.query("select (extract(epoch from now()) * 1000)::bigint % 60000 as ms");
+    if (Number(rows[0].ms) > 55_000) await new Promise((r) => setTimeout(r, 60_500 - Number(rows[0].ms)));
     for (let i = 0; i < 5; i++) await queue.enqueue("shopify.sync", {}, { groupSeconds: 60 });
     const waiting = await t.pool.query("select count(*)::int as n from pgboss.job where name = 'shopify.sync' and state = 'created'");
     expect(waiting.rows[0].n).toBe(2);
-  });
+  }, 15_000);
 
   it("refuses to queue a shopify.sync job that carries data", async () => {
     await fresh();
