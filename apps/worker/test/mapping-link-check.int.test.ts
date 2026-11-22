@@ -389,4 +389,18 @@ describe("a supplier that needs no login", () => {
     expect(body.loginUrl).toBeUndefined();
     expect(await createSupplierSessionRepository(t.appDb).getSealed(acme)).toBeNull();
   });
+
+  it("asks a fresh-browser supplier for a fresh profile on the first link of a run, and on a single link check", async () => {
+    await createSupplierSessionRepository(t.appDb).remove(acme);
+    await suppliers().markNotConnected(acme);
+    await suppliers().setNeedsLogin(acme, false);
+    await suppliers().setAutoLogin(acme, { freshProfile: true });
+    const id = await link("v1");
+    await link("v2");
+    expect(await checkSupplierLinks(deps(), acme)).toMatchObject({ kind: "done", checked: 2 });
+    expect(checks().map((r) => (r.body as { freshProfile?: boolean }).freshProfile)).toEqual([true, undefined]);
+    fake.requests.length = 0;
+    await checkLink(deps(), id);
+    expect((checks()[0]?.body as { freshProfile?: boolean }).freshProfile).toBe(true);
+  });
 });

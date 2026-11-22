@@ -4,7 +4,7 @@ import type { createCaptureRepository, createMappingRepository, createSupplierRe
 import type { PageDescription } from "@stock-monitor/extraction";
 import { whyNotChecked } from "@stock-monitor/mapping";
 import { unsealSessionState } from "@stock-monitor/supplier-session";
-import { EMPTY_STATE, loginFields } from "./supplier-visit.js";
+import { EMPTY_STATE, freshFor, loginFields } from "./supplier-visit.js";
 
 export type CaptureDeps = {
   captures: ReturnType<typeof createCaptureRepository>;
@@ -51,7 +51,7 @@ export async function handleCapture(deps: CaptureDeps, captureId: string): Promi
   } catch {
     return fail("session_unreadable");
   }
-  const outcome = await browser.capture({ url: mapping.url, ...loginFields(supplier), state, picture: true, ...(supplier.stealth ? { stealth: true } : {}) });
+  const outcome = await browser.capture({ url: mapping.url, ...loginFields(supplier), state, picture: true, ...(supplier.stealth ? { stealth: true } : {}), ...(freshFor(supplier) ? { freshProfile: true } : {}) });
   if (!outcome.ok) return fail("browser_unavailable");
   if (NOT_A_PAGE.has(outcome.result)) return fail(outcome.result);
 

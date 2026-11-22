@@ -46,10 +46,10 @@ const verify = async (path: string, state: unknown, loggedInMarker?: string) =>
     body: JSON.stringify({ url: `${site.url}${path}`, state, loggedInMarker }),
   })).json()) as { result: string; status: number | null };
 
-const post = async (route: string, path: string, state: unknown) =>
+const post = async (route: string, path: string, state: unknown, extra: Record<string, unknown> = {}) =>
   (await (await fetch(`${svc.url}${route}`, {
     method: "POST", headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
-    body: JSON.stringify({ url: `${site.url}${path}`, state }),
+    body: JSON.stringify({ url: `${site.url}${path}`, state, ...extra }),
   })).json()) as { result: string; status: number | null; finalUrl?: string; description: { sections: unknown[] } };
 
 describe.skipIf(!linux)("link and stock checks run in the profile browser", () => {
@@ -65,6 +65,18 @@ describe.skipIf(!linux)("link and stock checks run in the profile browser", () =
       expect(ok.state?.cookies.map((c) => c.name), route).toContain("last_visit");
       expect(await post(route, "/account", { cookies: [], origins: [] }), route).not.toHaveProperty("state");
     }
+  });
+  it("keeps the profile for a plain capture, and starts from an empty one when a fresh profile is asked for", async () => {
+    // As the worker does: each check sends the session the last one returned, so a plain check keeps the profile.
+    type Answer = { result: string; state?: unknown };
+    const first = (await post("/capture", "/account", await login())) as Answer;
+    const planted = join(profileDirFor(dir, `${site.url}/account`), "planted");
+    writeFileSync(planted, "x");
+    const second = (await post("/capture", "/account", first.state)) as Answer;
+    expect(second.result).toBe("ok");
+    expect(existsSync(planted)).toBe(true);
+    expect((await post("/capture", "/account", second.state, { freshProfile: true })).result).toBe("ok");
+    expect(existsSync(planted)).toBe(false);
   });
   it("capture describes the page", async () => {
     const r = await post("/capture", "/products/blue-widget", await login());

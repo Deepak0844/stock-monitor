@@ -346,7 +346,7 @@ describe("automatic login", () => {
   const SECRET = "hunter2-very-secret";
   const creds = { username: "buyer@acme.example", password: SECRET };
   const grant = (id: string) => createSupplierRepository(t.appDb).setPermission(id, { status: "granted", note: null });
-  type Full = Supplier & { autoLogin: boolean; stealth: boolean; credentialsSavedAt: string | null; autoLoginPausedReason: string | null; lastAutoLoginAt: string | null; lastAutoLoginResult: string | null; loggedInMarker: string | null; codeEmailFrom: string | null };
+  type Full = Supplier & { autoLogin: boolean; stealth: boolean; freshProfile: boolean; credentialsSavedAt: string | null; autoLoginPausedReason: string | null; lastAutoLoginAt: string | null; lastAutoLoginResult: string | null; loggedInMarker: string | null; codeEmailFrom: string | null };
   const get = async (id: string) => (await call("GET", `/api/suppliers/${id}`)).body.supplier as Full;
 
   it("saves credentials and never returns, stores in clear or audits the password", async () => {
@@ -406,6 +406,20 @@ describe("automatic login", () => {
     expect(allowed.status).toBe(200);
     expect(allowed.body.supplier).toMatchObject({ stealth: true, autoLogin: false });
     expect((await call("PATCH", `/api/suppliers/${s.id}`, { stealth: false })).body.supplier).toMatchObject({ stealth: false });
+  });
+
+  it("refuses the fresh browser switch without permission, allows it with permission, and refuses a value that is not a yes or no", async () => {
+    const s = await create();
+    const refused = await call("PATCH", `/api/suppliers/${s.id}`, { freshProfile: true });
+    expect(refused.status).toBe(409);
+    expect(refused.body.error).toMatchObject({ code: "not_granted" });
+    expect((await get(s.id)).freshProfile).toBe(false);
+    await grant(s.id);
+    expect((await call("PATCH", `/api/suppliers/${s.id}`, { freshProfile: "yes" })).status).toBe(400);
+    expect((await get(s.id)).freshProfile).toBe(false);
+    const allowed = await call("PATCH", `/api/suppliers/${s.id}`, { freshProfile: true });
+    expect(allowed.status).toBe(200);
+    expect(allowed.body.supplier).toMatchObject({ freshProfile: true });
   });
 
   it("refuses a stealth value that is not a yes or no", async () => {

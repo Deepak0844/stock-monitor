@@ -94,7 +94,7 @@ function readFields(body: unknown, partial: boolean): { values: SupplierPatch; h
   return { values, hosts };
 }
 
-const AUTO_LOGIN_BODY = ["autoLogin", "stealth", "loginSelectors", "loggedInMarker", "codeEmailFrom"];
+const AUTO_LOGIN_BODY = ["autoLogin", "stealth", "freshProfile", "loginSelectors", "loggedInMarker", "codeEmailFrom"];
 /** A code email sender: a domain (mail.example.com) or one address (codes@example.com). */
 const SENDER = /^(?:[^@\s]+@)?(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/;
 const NO_CREDENTIALS = () => new AppError(409, "no_credentials", "Save a username and password first.");
@@ -187,6 +187,10 @@ export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit
         if (typeof input.stealth !== "boolean") throw invalid();
         auto.stealth = input.stealth;
       }
+      if ("freshProfile" in input) {
+        if (typeof input.freshProfile !== "boolean") throw invalid();
+        auto.freshProfile = input.freshProfile;
+      }
       if ("loginSelectors" in input) {
         if (input.loginSelectors !== null && !isLoginSelectors(input.loginSelectors)) throw invalid();
         auto.loginSelectors = input.loginSelectors as typeof auto.loginSelectors;
@@ -211,7 +215,7 @@ export function registerSupplierRoutes(app: App, deps: SupplierRoutesDeps, audit
     const hasRest = !(typeof rest === "object" && rest !== null && Object.keys(rest).length === 0 && Object.keys(auto).length > 0);
     const values = hasRest ? await checked(rest, true) : {};
     // Refuse before anything is written, so a refused request changes nothing.
-    if (auto.autoLogin || auto.stealth) {
+    if (auto.autoLogin || auto.stealth || auto.freshProfile) {
       const current = await repo.get(request.params.id);
       if (!current) throw NOT_FOUND();
       if (auto.autoLogin && credentials && !(await credentials.savedAt(current.id))) throw NO_CREDENTIALS();

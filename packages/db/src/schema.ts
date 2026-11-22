@@ -171,6 +171,8 @@ export const suppliers = pgTable(
     autoLogin: boolean("auto_login").notNull().default(false),
     /** Use the stealth browser for automatic logins. Needs `granted` permission. */
     stealth: boolean("stealth").notNull().default(false),
+    /** Start every run, and every one-page visit, from an empty browser profile. Only for suppliers that need no login. Needs `granted` permission. */
+    freshProfile: boolean("fresh_profile").notNull().default(false),
     /** False when the supplier's product pages show stock without logging in: checks then run with no session at all. */
     needsLogin: boolean("needs_login").notNull().default(true),
     loginSelectors: jsonb("login_selectors").$type<LoginSelectors>(),
@@ -190,6 +192,7 @@ export const suppliers = pgTable(
     check("suppliers_code_email_from", sql`${t.codeEmailFrom} is null or char_length(${t.codeEmailFrom}) between 3 and 254`),
     check("suppliers_auto_login_permission", sql`not ${t.autoLogin} or ${t.automationPermission} = 'granted'`),
     check("suppliers_stealth_permission", sql`not ${t.stealth} or ${t.automationPermission} = 'granted'`),
+    check("suppliers_fresh_profile_permission", sql`not ${t.freshProfile} or ${t.automationPermission} = 'granted'`),
     check("suppliers_logged_in_marker", sql`${t.loggedInMarker} is null or char_length(${t.loggedInMarker}) between 1 and 200`),
     check(
       "suppliers_auto_login_paused_reason",

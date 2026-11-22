@@ -267,6 +267,12 @@ describe("POST /check-page", () => {
     expect((await call(TOKEN, { ...body, stealth: "yes" })).status).toBe(400);
   });
 
+  it("passes on a fresh profile when it is a yes or no, and refuses anything else", async () => {
+    expect((await call(TOKEN, { ...body, freshProfile: true })).status).toBe(200);
+    expect(checkPage).toHaveBeenCalledWith(expect.objectContaining({ url: body.url, freshProfile: true }));
+    expect((await call(TOKEN, { ...body, freshProfile: "yes" })).status).toBe(400);
+  });
+
   it("logs only the error name when the check fails, never the session", async () => {
     checkPage.mockRejectedValue(new Error(`boom ${MARKER}`));
     const res = await call();

@@ -4,7 +4,8 @@ import { explainPage, looksLikeNotFound, type PageClass, type SessionState } fro
 import type { GuardProxy } from "./proxy.js";
 
 /** `publicPage`: the supplier needs no login, so login wording on the page is not taken as a login wall. */
-export type VerifyRequest = { url: string; loginUrl?: string; loggedInMarker?: string; state: SessionState; stealth?: boolean; publicPage?: boolean };
+/** `freshProfile`: in profile mode, the site's kept profile is emptied (then seeded with `state`) before the visit. */
+export type VerifyRequest = { url: string; loginUrl?: string; loggedInMarker?: string; state: SessionState; stealth?: boolean; publicPage?: boolean; freshProfile?: boolean };
 /**
  * The answer. It says what the page was: never the address it ended on or its text. After an ok page only, `state` is the
  * session the browser ended with, so the worker can keep a session the supplier extended. It goes only to the worker.

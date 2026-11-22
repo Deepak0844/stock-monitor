@@ -9,7 +9,7 @@ import { isCheckable } from "@stock-monitor/db";
 import { BUILT_IN_DEFAULT, BUILT_IN_DEFAULT_VERSION, decide, isSupplierWideChange, validateRecipe, type Answer, type Decision, type PageDescription, type Reason, type Recipe } from "@stock-monitor/extraction";
 import { decideLinkStatus, isSupplierWide, whyNotChecked, type CheckGateReason, type LinkStatus, type Observation } from "@stock-monitor/mapping";
 import { unsealSessionState } from "@stock-monitor/supplier-session";
-import { EMPTY_STATE, loginFields, quickEligible } from "./supplier-visit.js";
+import { EMPTY_STATE, freshFor, loginFields, quickEligible } from "./supplier-visit.js";
 import { saveRefreshedSession } from "./session-refresh.js";
 import { backoffMs, nextCheckAt } from "@stock-monitor/scheduling";
 import { ensureLoggedIn, loginCheckUrl, type AutoLoginDeps } from "./auto-login.js";
@@ -99,13 +99,13 @@ export function createStockChecker(deps: StockCheckDeps) {
    * One page: a quick read first when the page can be answered without the browser, else (or when the quick read is not
    * clear) the browser, tried up to three times when it could not load the page at all.
    */
-  async function visit(supplier: SupplierRecord, mapping: MappingRow, recipe: Recipe): Promise<Visit> {
+  async function visit(supplier: SupplierRecord, mapping: MappingRow, recipe: Recipe, fresh = false): Promise<Visit> {
     if (quickEligible(supplier, recipe)) {
       const quick = await quickVisit(supplier, mapping, recipe);
       if (quick) return quick;
     }
     for (let attempt = 1; ; attempt++) {
-      const v = await browserVisit(supplier, mapping, recipe);
+      const v = await browserVisit(supplier, mapping, recipe, fresh);
       if (attempt > RETRY_WAITS_MS.length || !RETRY_RESULTS.has(v.checkResult)) return v;
       logger.info({ mappingId: mapping.id }, `stock check: retry ${attempt} (${v.checkResult})`);
       await sleep(RETRY_WAITS_MS[attempt - 1] as number);
@@ -134,7 +134,7 @@ export function createStockChecker(deps: StockCheckDeps) {
     return { mapping, obs, page, picture: null, checkResult: q.result, decision, linkTrial: trial, readBy: "quick" };
   }
 
-  async function browserVisit(supplier: SupplierRecord, mapping: MappingRow, recipe: Recipe): Promise<Visit> {
+  async function browserVisit(supplier: SupplierRecord, mapping: MappingRow, recipe: Recipe, fresh: boolean): Promise<Visit> {
     // A supplier that needs no login is visited with no session, no login address and no logged-in marker.
     const sealed = supplier.needsLogin ? await supplierSessions.getSealed(supplier.id) : null;
     let state;
@@ -143,7 +143,7 @@ export function createStockChecker(deps: StockCheckDeps) {
     } catch {
       state = null;
     }
-    const outcome = state ? await browser.capture({ url: mapping.url, ...loginFields(supplier), state, picture: true, ...(supplier.stealth ? { stealth: true } : {}) }) : null;
+    const outcome = state ? await browser.capture({ url: mapping.url, ...loginFields(supplier), state, picture: true, ...(supplier.stealth ? { stealth: true } : {}), ...(fresh && freshFor(supplier) ? { freshProfile: true } : {}) }) : null;
     if (!outcome || !outcome.ok) {
       if (outcome) logger.warn({ mappingId: mapping.id }, "stock check could not run: the browser service did not answer");
       const obs: Observation = { result: "service_unavailable", status: null, finalUrl: null, title: null, heading: null, softNotFound: false };
@@ -224,7 +224,7 @@ export function createStockChecker(deps: StockCheckDeps) {
         v = notVisited(gated.supplier, mapping, login);
         toldOwner = true;
       } else {
-        v = await visit(gated.supplier, mapping, gated.active.recipe);
+        v = await visit(gated.supplier, mapping, gated.active.recipe, true);
         if (v.checkResult === "login_required" && !loggedInNow) {
           const again = await ensureLoggedIn(deps, gated.supplier, { force: true, checkUrl: mapping.url });
           if (again === "ready") v = await visit(gated.supplier, mapping, gated.active.recipe);
@@ -310,7 +310,7 @@ export function createStockChecker(deps: StockCheckDeps) {
         stopped = "supplier_not_ready";
         break;
       }
-      let v = await visit(gated.supplier, mapping, first.active.recipe);
+      let v = await visit(gated.supplier, mapping, first.active.recipe, index === 0);
       let loginStop: StopReason | null = null;
       if (v.checkResult === "login_required" && !loggedInAgain && !loggedInAtStart) {
         loggedInAgain = true;

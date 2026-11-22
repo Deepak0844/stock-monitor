@@ -293,6 +293,15 @@ describe("supplier repository: automatic login", () => {
     await repo().setPermission(s.id, { status: "not_granted", note: null });
     expect(await repo().get(s.id)).toMatchObject({ autoLogin: false, stealth: false });
   });
+
+  it("turns fresh browser on only with permission, and off when permission goes", async () => {
+    const s = await made();
+    expect(await repo().setAutoLogin(s.id, { freshProfile: true })).toEqual({ ok: false, reason: "not_granted" });
+    await grant(s.id);
+    expect(await repo().setAutoLogin(s.id, { freshProfile: true })).toMatchObject({ ok: true, supplier: { freshProfile: true } });
+    await repo().setPermission(s.id, { status: "unknown", note: null });
+    expect(await repo().get(s.id)).toMatchObject({ freshProfile: false });
+  });
 });
 
 describe("supplier repository: keep login alive", () => {

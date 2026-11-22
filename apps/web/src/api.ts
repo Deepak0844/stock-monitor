@@ -114,6 +114,8 @@ export type Supplier = {
   /** Log in for the owner before each check, with the saved username and password. */
   autoLogin: boolean;
   stealth: boolean;
+  /** Every run, and every one-page visit, starts from an empty browser profile. Only used when no login is needed. */
+  freshProfile: boolean;
   /** The owner's own selectors for the login page. Only the keys that were set. */
   loginSelectors: LoginSelectors | null;
   /** Text that only shows when logged in. Set, a page without it counts as logged out. */
@@ -220,7 +222,7 @@ export type SuppliersApi = {
   saveCredentials(id: string, input: CredentialsInput): Promise<{ savedAt: string }>;
   removeCredentials(id: string): Promise<void>;
   /** Turns automatic login on or off, and/or sets the login page selectors (null clears them). */
-  setAutoLogin(id: string, patch: { autoLogin?: boolean; stealth?: boolean; loginSelectors?: LoginSelectors | null; loggedInMarker?: string | null; codeEmailFrom?: string | null }): Promise<Supplier>;
+  setAutoLogin(id: string, patch: { autoLogin?: boolean; stealth?: boolean; freshProfile?: boolean; loginSelectors?: LoginSelectors | null; loggedInMarker?: string | null; codeEmailFrom?: string | null }): Promise<Supplier>;
   /** Asks for one test login. The answer arrives later, as the last automatic login. */
   testAutoLogin(id: string): Promise<void>;
   /** Clears the pause after a failed automatic login. */

@@ -35,6 +35,21 @@ describe("Needs a login card", () => {
     expect(screen.getByText("Checked without logging in")).toBeInTheDocument();
   });
 
+  it("offers a fresh browser for each run only when no login is needed", async () => {
+    const { api, onChange, user } = setup({ needsLogin: false, automationPermission: "granted" });
+    await user.click(screen.getByRole("switch", { name: "Fresh browser for each run" }));
+    expect(api.suppliers.setAutoLogin).toHaveBeenCalledWith(aSupplier().id, { freshProfile: true });
+    expect(onChange).toHaveBeenCalled();
+    cleanup();
+    setup({ needsLogin: true, automationPermission: "granted" });
+    expect(screen.queryByRole("switch", { name: "Fresh browser for each run" })).toBeNull();
+  });
+
+  it("keeps the fresh browser switch off until automatic checks are allowed", () => {
+    setup({ needsLogin: false, automationPermission: "unknown" });
+    expect(screen.getByRole("switch", { name: "Fresh browser for each run" })).toBeDisabled();
+  });
+
   it("shows the error when saving fails", async () => {
     const { user } = setup({}, { suppliers: { setNeedsLogin: vi.fn().mockRejectedValue(new Error("The supplier was not found.")) } });
     await user.click(screen.getByRole("switch", { name: "Needs a login" }));

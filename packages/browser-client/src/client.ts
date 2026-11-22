@@ -69,9 +69,9 @@ export type BrowserClient = {
   cancelSession(id: string): Promise<CancelOutcome>;
   /** Loads one page with a saved session and says what happened to it: the status, where it ended, its title and heading. */
   /** `publicPage`: the supplier needs no login, so login wording on its page is not a login wall. */
-  checkPage(request: { url: string; loginUrl?: string; loggedInMarker?: string; state: SessionState; stealth?: boolean; publicPage?: boolean }): Promise<CheckPageOutcome>;
+  checkPage(request: { url: string; loginUrl?: string; loggedInMarker?: string; state: SessionState; stealth?: boolean; publicPage?: boolean; freshProfile?: boolean }): Promise<CheckPageOutcome>;
   /** Loads one page with a saved session and describes it, for stock rules. A picture is taken only when asked for. */
-  capture(request: { url: string; loginUrl?: string; loggedInMarker?: string; state: SessionState; picture?: boolean; stealth?: boolean; publicPage?: boolean }): Promise<CaptureOutcome>;
+  capture(request: { url: string; loginUrl?: string; loggedInMarker?: string; state: SessionState; picture?: boolean; stealth?: boolean; publicPage?: boolean; freshProfile?: boolean }): Promise<CaptureOutcome>;
   /** Downloads a public page without the browser and reads its offers. An older service without the route says failed. */
   quickRead(request: { url: string }): Promise<QuickReadOutcome>;
   /** Signs in with a username and password, once, in the supplier's profile. The password goes in the request only, never in an answer or an error. */
@@ -212,8 +212,8 @@ export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, pageTi
       await call("POST", `/login/${encodeURIComponent(holdId)}/cancel`).catch(() => null);
     },
 
-    async checkPage({ url, loginUrl, loggedInMarker, state, stealth, publicPage }) {
-      const r = await call("POST", "/check-page", { url, ...(loginUrl ? { loginUrl } : {}), ...(loggedInMarker ? { loggedInMarker } : {}), state, ...(stealth ? { stealth: true } : {}), ...(publicPage ? { publicPage: true } : {}) }, pageTimeoutMs);
+    async checkPage({ url, loginUrl, loggedInMarker, state, stealth, publicPage, freshProfile }) {
+      const r = await call("POST", "/check-page", { url, ...(loginUrl ? { loginUrl } : {}), ...(loggedInMarker ? { loggedInMarker } : {}), state, ...(stealth ? { stealth: true } : {}), ...(publicPage ? { publicPage: true } : {}), ...(freshProfile ? { freshProfile: true } : {}) }, pageTimeoutMs);
       if (!r) return { ok: false, reason: "unavailable" };
       const j = r.json;
       if (r.status !== 200 || !isObject(j) || typeof j.result !== "string" || !PAGE_CLASSES.includes(j.result)) return { ok: false, reason: "failed" };
@@ -248,8 +248,8 @@ export function createBrowserClient({ baseUrl, token, timeoutMs = 30_000, pageTi
       };
     },
 
-    async capture({ url, loginUrl, loggedInMarker, state, picture, stealth, publicPage }) {
-      const r = await call("POST", "/capture", { url, ...(loginUrl ? { loginUrl } : {}), ...(loggedInMarker ? { loggedInMarker } : {}), state, ...(picture ? { picture: true } : {}), ...(stealth ? { stealth: true } : {}), ...(publicPage ? { publicPage: true } : {}) }, pageTimeoutMs);
+    async capture({ url, loginUrl, loggedInMarker, state, picture, stealth, publicPage, freshProfile }) {
+      const r = await call("POST", "/capture", { url, ...(loginUrl ? { loginUrl } : {}), ...(loggedInMarker ? { loggedInMarker } : {}), state, ...(picture ? { picture: true } : {}), ...(stealth ? { stealth: true } : {}), ...(publicPage ? { publicPage: true } : {}), ...(freshProfile ? { freshProfile: true } : {}) }, pageTimeoutMs);
       if (!r) return { ok: false, reason: "unavailable" };
       const j = r.json;
       if (r.status !== 200 || !isObject(j) || typeof j.result !== "string" || !PAGE_CLASSES.includes(j.result) || !isObject(j.description)) return { ok: false, reason: "failed" };
