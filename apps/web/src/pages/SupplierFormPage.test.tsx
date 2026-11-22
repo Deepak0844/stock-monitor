@@ -50,6 +50,19 @@ describe("adding a supplier", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/suppliers"));
   });
 
+  it("adds a supplier that needs no login, keeping the login address on screen but disabled and not sent", async () => {
+    const { api, user } = setup();
+    await fillNew(user);
+    await user.type(screen.getByLabelText(/Login address/), "https://shop.acme.example/sign-in");
+    const toggle = screen.getByRole("switch", { name: "Needs a login" });
+    expect(toggle).toBeChecked();
+    await user.click(toggle);
+    expect(screen.getByLabelText(/Login address/)).toBeDisabled();
+    expect(screen.getByLabelText(/Login address/)).toHaveValue("https://shop.acme.example/sign-in");
+    await user.click(screen.getByRole("button", { name: "Add supplier" }));
+    expect(api.suppliers.create).toHaveBeenCalledWith({ name: "Acme Supply", websiteUrl: "https://shop.acme.example/", loginUrl: null, needsLogin: false });
+  });
+
   it("sends no login address when it is left blank, and trims the other fields", async () => {
     const { api, user } = setup();
     await fillNew(user, "  Acme  ", "  https://acme.example/ ");

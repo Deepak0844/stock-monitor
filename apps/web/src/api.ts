@@ -194,7 +194,8 @@ export type ScheduleApi = {
 export type PermissionInput = { status: Supplier["automationPermission"]; note: string | null; pauseSeconds?: number };
 
 /** `shopifyName`: the supplier name Shopify uses, when it differs from `name`. */
-export type SupplierInput = { name: string; websiteUrl: string; loginUrl: string | null; shopifyName?: string | null };
+/** `needsLogin` is only sent when adding a supplier that needs no login; later it changes through the Login card. */
+export type SupplierInput = { name: string; websiteUrl: string; loginUrl: string | null; shopifyName?: string | null; needsLogin?: boolean };
 
 export type SupplierStatusFilter = "connected" | "needs_reconnect" | "blocked" | "paused" | "not_connected" | "no_login";
 export type SuppliersApi = {
