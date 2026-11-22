@@ -65,6 +65,8 @@ export type SupplierPageQuery = { page: number; pageSize: number; search?: strin
 const escapeLike = (text: string) => text.replace(/[\\%_]/g, (c) => `\\${c}`);
 
 const showsAsPaused = sql`(not ${suppliers.enabled} and ${suppliers.pausedReason} is distinct from 'session')`;
+// A supplier that needs no login, paused by the app because its website refused a check: filed under Blocked, not No login.
+const refusedNoLogin = sql`(not ${suppliers.needsLogin} and ${suppliers.pausedReason} is not distinct from 'session' and ${suppliers.sessionStatus} = 'blocked')`;
 
 // drizzle wraps the driver error, so the PostgreSQL code is on the error or on its cause.
 const isNameTaken = (error: unknown) => {
@@ -115,8 +117,8 @@ export function createSupplierRepository<S extends Record<string, unknown>>(db: 
       const where = and(
         like ? or(ilike(suppliers.name, like), ilike(suppliers.websiteUrl, like)) : undefined,
         query.status === "paused" ? showsAsPaused : undefined,
-        query.status === "no_login" ? and(sql`not ${showsAsPaused}`, sql`not ${suppliers.needsLogin}`) : undefined,
-        query.status && query.status !== "paused" && query.status !== "no_login" ? and(sql`not ${showsAsPaused}`, suppliers.needsLogin, eq(suppliers.sessionStatus, query.status)) : undefined,
+        query.status === "no_login" ? and(sql`not ${showsAsPaused}`, sql`not ${suppliers.needsLogin}`, sql`not ${refusedNoLogin}`) : undefined,
+        query.status && query.status !== "paused" && query.status !== "no_login" ? and(sql`not ${showsAsPaused}`, or(suppliers.needsLogin, refusedNoLogin), eq(suppliers.sessionStatus, query.status)) : undefined,
       );
       const items = (await db
         .select()
