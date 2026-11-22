@@ -1,0 +1,2 @@
+ALTER TABLE "suppliers" ADD COLUMN "fresh_profile" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "suppliers" ADD CONSTRAINT "suppliers_fresh_profile_permission" CHECK (not "suppliers"."fresh_profile" or "suppliers"."automation_permission" = 'granted');
