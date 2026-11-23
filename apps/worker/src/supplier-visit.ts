@@ -21,6 +21,6 @@ export const quickEligible = (supplier: Pick<SupplierRecord, "needsLogin" | "ste
 
 /**
  * Whether a visit should start from an empty browser profile: the fresh browser switch is on and the supplier needs no login,
- * so there is no login to lose. Asked for on the first page of a run and on a one-page visit, never on later pages of a run.
+ * so there is no login to lose. Asked for on every page: a cookie the site flagged on one page never reaches the next.
  */
 export const freshFor = (supplier: Pick<SupplierRecord, "needsLogin" | "freshProfile">): boolean => !supplier.needsLogin && supplier.freshProfile;

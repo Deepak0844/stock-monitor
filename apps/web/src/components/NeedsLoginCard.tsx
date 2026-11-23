@@ -57,9 +57,9 @@ export function NeedsLoginCard({ api, supplier, onChange }: { api: Api; supplier
       {!supplier.needsLogin && (
         <div className="flex items-start justify-between gap-4">
           <div className="flex flex-col gap-1">
-            <h3 className="text-sm font-semibold">Fresh browser for each run</h3>
+            <h3 className="text-sm font-semibold">Fresh browser for each page</h3>
             <p id="fresh-profile-hint" className="text-sm text-muted-foreground">
-              Starts every check of this supplier with a browser that keeps nothing from earlier visits. For a website that works on the first check and refuses the next ones. The supplier’s terms may not allow automated checks, so using this is your call.
+              Opens every page of this supplier in a browser that keeps nothing from earlier pages. For a website that works on the first check and refuses the next ones. The supplier’s terms may not allow automated checks, so using this is your call.
             </p>
             {!granted && <p className="text-sm font-medium">Needs “Allows automatic checks” to be Yes.</p>}
           </div>
@@ -67,7 +67,7 @@ export function NeedsLoginCard({ api, supplier, onChange }: { api: Api; supplier
             <input
               type="checkbox"
               role="switch"
-              aria-label="Fresh browser for each run"
+              aria-label="Fresh browser for each page"
               aria-describedby="fresh-profile-hint"
               className="size-5 accent-primary disabled:opacity-60"
               checked={supplier.freshProfile}
