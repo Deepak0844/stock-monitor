@@ -175,6 +175,28 @@ describe("Needs attention", () => {
     ).toHaveAttribute("href", "/suppliers/22222222-2222-4222-8222-222222222222/connect");
   });
 
+  it("offers Try again, not Reconnect, for a supplier that needs no login", async () => {
+    const refused = aSupplier({ needsLogin: false, enabled: false, pausedReason: "session", sessionStatus: "blocked" });
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce([aNotification({ reason: "blocked", message: "Acme Supply's website refused checks from the server." })])
+      .mockResolvedValue([]);
+    const { api, user } = setup({
+      notifications: { list },
+      suppliers: {
+        list: vi.fn().mockResolvedValue([refused]),
+        setNeedsLogin: vi.fn().mockImplementation(async () => aSupplier({ needsLogin: false })),
+      },
+    });
+    const attention = card("Needs attention");
+    const button = await within(attention).findByRole("button", { name: "Try again Acme Supply" });
+    expect(within(attention).queryByRole("link", { name: /Reconnect supplier/ })).toBeNull();
+    await user.click(button);
+    // Turning the login off again is what lifts the app's pause and clears the notice.
+    expect(api.suppliers.setNeedsLogin).toHaveBeenCalledWith(refused.id, false);
+    expect(await within(attention).findByText("Nothing needs your attention.")).toBeInTheDocument();
+  });
+
   it("comes before the summary cards, because it is what the owner should act on", async () => {
     setup({ notifications: { list: vi.fn().mockResolvedValue([aNotification()]) } });
     await screen.findByText("Acme Supply needs you to log in again.");

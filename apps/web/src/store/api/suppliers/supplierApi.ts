@@ -86,6 +86,13 @@ const removeSupplierMutation = (api: Api, client: QueryClient) =>
     },
   });
 
+// Turning the login off again lifts the app's pause on a refused no-login supplier and clears its notice.
+const tryAgainSupplierMutation = (api: Api, client: QueryClient) =>
+  mutationOptions({
+    mutationFn: ({ id }: { id: string }) => api.suppliers.setNeedsLogin(id, false),
+    onSuccess: (next) => supplierChanged(client, next),
+  });
+
 // Starts a check; the supplier changes once it has finished, which the page watches for.
 const checkSupplierSessionMutation = (api: Api) =>
   mutationOptions({
@@ -129,6 +136,10 @@ export function useSetSupplierEnabledMutation() {
 
 export function useRemoveSupplierMutation() {
   return useMutation(removeSupplierMutation(useApi(), useQueryClient()));
+}
+
+export function useTryAgainSupplierMutation() {
+  return useMutation(tryAgainSupplierMutation(useApi(), useQueryClient()));
 }
 
 export function useCheckSupplierSessionMutation() {
