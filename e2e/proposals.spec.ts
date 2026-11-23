@@ -383,7 +383,8 @@ test("on a phone each link is a short card, and the page never scrolls sideways"
   await page.goto("/mappings");
   const row = page.getByRole("row", { name: /Blue Tee/ }).first();
   await expect(row).toBeVisible();
-  expect((await row.boundingBox())!.height).toBeLessThan(220);
+  // A suggestion line may or may not be there yet (a job after the check adds it): 260 fits the card either way.
+  expect((await row.boundingBox())!.height).toBeLessThan(260);
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
