@@ -692,14 +692,14 @@ describe("a supplier that needs no login", () => {
     expect(await createSupplierSessionRepository(t.appDb).getSealed(acme)).toBeNull();
   });
 
-  it("starts each run of a fresh-browser supplier with a fresh profile on the first page only, and never reads quickly", async () => {
+  it("asks for a fresh profile on every page of a fresh-browser supplier, and never reads quickly", async () => {
     await link("v1");
     await link("v2");
     await turnOn(builtIn);
     await noLogin();
     await suppliers().setAutoLogin(acme, { freshProfile: true });
     expect(await runAll()).toMatchObject({ kind: "done", checked: 2 });
-    expect(requests("/capture").map((r) => (r.body as { freshProfile?: boolean }).freshProfile)).toEqual([true, undefined]);
+    expect(requests("/capture").map((r) => (r.body as { freshProfile?: boolean }).freshProfile)).toEqual([true, true]);
     expect(requests("/quick-read")).toHaveLength(0);
   });
 

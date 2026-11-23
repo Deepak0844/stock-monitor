@@ -71,7 +71,7 @@ export function createLinkChecker(deps: LinkCheckDeps) {
   }
 
   /** Opens one page with the supplier's saved session and says what was seen. */
-  async function observe(supplier: SupplierRecord, mapping: MappingRow, fresh = false): Promise<Observation> {
+  async function observe(supplier: SupplierRecord, mapping: MappingRow): Promise<Observation> {
     // A supplier that needs no login is visited with no session at all.
     const sealed = supplier.needsLogin ? await supplierSessions.getSealed(supplier.id) : null;
     let state;
@@ -82,7 +82,7 @@ export function createLinkChecker(deps: LinkCheckDeps) {
     }
     // A session that cannot be opened cannot be used. That is the session check's business, so nothing is concluded here.
     if (!state) return { result: "service_unavailable", status: null, finalUrl: null, title: null, heading: null, softNotFound: false };
-    const outcome = await browser.checkPage({ url: mapping.url, ...loginFields(supplier), state, ...(supplier.stealth ? { stealth: true } : {}), ...(fresh && freshFor(supplier) ? { freshProfile: true } : {}) });
+    const outcome = await browser.checkPage({ url: mapping.url, ...loginFields(supplier), state, ...(supplier.stealth ? { stealth: true } : {}), ...(freshFor(supplier) ? { freshProfile: true } : {}) });
     if (!outcome.ok) {
       logger.warn({ mappingId: mapping.id }, "link check could not run: the browser service did not answer");
       return { result: "service_unavailable", status: null, finalUrl: null, title: null, heading: null, softNotFound: false };
@@ -120,7 +120,7 @@ export function createLinkChecker(deps: LinkCheckDeps) {
         observation = { result: login === "supplier_not_ready" ? "unreachable" : login, status: null, finalUrl: null, title: null, heading: null, softNotFound: false };
         toldOwner = true;
       } else {
-        observation = await observe(gated.supplier, mapping, true);
+        observation = await observe(gated.supplier, mapping);
         if (observation.result === "login_required" && !loggedInNow) {
           const again = await ensureLoggedIn(deps, gated.supplier, { force: true, checkUrl: mapping.url });
           if (again === "ready") observation = await observe(gated.supplier, mapping);
@@ -179,7 +179,7 @@ export function createLinkChecker(deps: LinkCheckDeps) {
         notReady = true;
         break;
       }
-      let observation = await observe(gated.supplier, mapping, index === 0);
+      let observation = await observe(gated.supplier, mapping);
       if (observation.result === "login_required" && !loggedInAgain && !loggedInAtStart) {
         loggedInAgain = true;
         const login = await ensureLoggedIn(deps, gated.supplier, { force: true, checkUrl });

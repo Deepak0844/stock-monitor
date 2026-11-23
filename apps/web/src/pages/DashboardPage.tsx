@@ -10,7 +10,7 @@ import { Notice } from "../components/Notice.js";
 import { Link } from "../router.js";
 import { useTitle } from "../useTitle.js";
 import { useApproveProposalMutation, useGetProposalCountQuery, useGetProposalOpenListQuery } from "../store/api/proposals/proposalApi.js";
-import { useGetSupplierListQuery } from "../store/api/suppliers/supplierApi.js";
+import { useGetSupplierListQuery, useTryAgainSupplierMutation } from "../store/api/suppliers/supplierApi.js";
 import { useGetNotificationListQuery } from "../store/api/notifications/notificationApi.js";
 import { useGetMappingListQuery, useGetUnmappedQuery } from "../store/api/mappings/mappingApi.js";
 import { useGetScheduleOverviewQuery } from "../store/api/schedule/scheduleApi.js";
@@ -123,6 +123,17 @@ export function DashboardPage() {
   const suppliers: Supplier[] | "error" | null =
     supplierList.data ?? (supplierList.isError && !supplierList.isFetching ? "error" : null);
   const loadSuppliers = () => void supplierList.refetch();
+  // A supplier that needs no login has nothing to reconnect: Try again lifts the app's pause instead.
+  const noLogin = new Set((supplierList.data ?? []).filter((s) => !s.needsLogin).map((s) => s.id));
+  const tryAgainSupplier = useTryAgainSupplierMutation();
+  const tryAgain = (n: AppNotification) =>
+    tryAgainSupplier
+      .mutateAsync({ id: n.supplierId })
+      .then(() => {
+        toast(`${n.supplierName} will be checked again.`);
+        loadNotes();
+      })
+      .catch((e: unknown) => toast(messageOf(e), { kind: "error" }));
   const waiting = useGetProposalCountQuery().data ?? 0;
   const unmappedQuery = useGetUnmappedQuery();
   const allLinks = useGetMappingListQuery();
@@ -302,6 +313,15 @@ export function DashboardPage() {
                     >
                       Review stock rules
                     </Link>
+                  </Button>
+                ) : noLogin.has(n.supplierId) ? (
+                  <Button
+                    size="sm"
+                    loading={tryAgainSupplier.isPending && tryAgainSupplier.variables?.id === n.supplierId}
+                    aria-label={`Try again ${n.supplierName}`}
+                    onClick={() => void tryAgain(n)}
+                  >
+                    Try again
                   </Button>
                 ) : (
                   <Button size="sm" asChild>

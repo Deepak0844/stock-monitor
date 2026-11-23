@@ -237,7 +237,7 @@ export function createProfileChecker({ proxy, sandbox, headless, baseDir = PROFI
     if (!holdProfile(profile)) return unavailable;
     try {
       const hash = cookieHash(request.state.cookies);
-      // A fresh profile is asked for at the start of a run of a supplier with the switch on: nothing kept from earlier visits.
+      // A fresh profile is asked for on every page of a supplier with the switch on: nothing kept from earlier visits.
       if (request.freshProfile || (await readFile(join(profile, "seeded"), "utf8").catch(() => "")) !== hash) {
         await seed(profile, request.state);
         await writeFile(join(profile, "seeded"), hash);
